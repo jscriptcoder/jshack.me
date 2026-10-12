@@ -777,12 +777,22 @@ agreed order:
    refuses to print it. A pidfile narrowed to `root` now reaches a visitor too, so `ps`
    lists that service (`scripts/testCrossPlayerRead.ts` 11/11,
    `scripts/testPidfileVisibility.ts` 4/4). Not played in the browser yet.
+   ✅ And at v0.372.0 `msfconsole --local` is answered by the server on every box that is
+   not the player's own. Probed on the live stack first, from a `guest` session on the
+   access point's gateway and on four kinds of generated machine: the server refused
+   every one (`host_unreachable`), so the gateway always answered `No route to host`, and
+   on a generated machine the browser ran the exploit alone. The shell it landed was never
+   a session row, neither trace was accepted, and a reset, a backdoor and a root-path
+   write were refused at the tier of the login underneath. The server now finds the box
+   from the network on the caller's own session row, as `su` does, and writes the traces
+   under the key that owns that box's logs. A shell with no terminal is handed a limited
+   one from a hole that grants a full one, on the server as in the browser
+   (`scripts/testCrossPlayerLocalExploit.ts` 13/13). Not played in the browser yet.
    **Pick up here (2026-10-12):** the served-boxes epic (`plans/served-boxes.md`), which
    closes the same leak on the machines a network generates. Its audit of every client
    reader and server response is done ([handbook 14](./handbook/14-tier-read-audit.md)): 85
-   client sites and 44 responses, seven defects, four of them fixed. Slice 6, a local
-   exploit answered by the server on every box that is not the player's, is next (it runs
-   before slice 5). After the epic, the items still open in
+   client sites and 44 responses, seven defects, five of them fixed. Slice 5, generated
+   machines served by the server, is next. After the epic, the items still open in
    `backlog.md`, all found by reading: a deep box's own address behind a switch that denies the web port, a data
    door over `localhost`, a field that spoofs the columns after it within its own line,
    a leaver's own sessions across the network, and a box joined to two networks at

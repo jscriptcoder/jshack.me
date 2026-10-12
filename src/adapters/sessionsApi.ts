@@ -485,11 +485,12 @@ export const runExploit = async (
   }
 };
 
-/** Fire a library CVE on ANOTHER player's box B already holds a session on — the
- *  passwordless cross-player `--local`. Sends the box, the command and the PATH B ran the
- *  tool from (never a version, CVE, effect or tier); the server resolves B's open session
- *  as the authorization from the verified key, re-checks the tool is really there, and
- *  answers with the same shape the network fire returns, so the two share one interpreter. */
+/** Fire a library CVE on a box the player holds a session on and does not own — the
+ *  passwordless `--local` the server answers. Sends the box, the command and the PATH the
+ *  tool was run from (never a version, CVE, effect or tier); the server resolves the open
+ *  session as the authorization from the verified key, re-checks the tool is really there,
+ *  and answers with the same shape the network fire returns, so the two share one
+ *  interpreter. */
 export const postExploitLocalElevate = async (
   deps: SessionsClientDeps,
   params: ExploitLocalElevateParams,

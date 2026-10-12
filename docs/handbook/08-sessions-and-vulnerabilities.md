@@ -43,7 +43,8 @@ leaves no log line at all.)
 | `sessions/redisConnect.ts`, `redisStatement.ts`                 | The key-value store door.                                                                                                         |
 | `sessions/snmpAgent.ts`, `snmpWalk.ts`, `snmpSet.ts`            | The SNMP door (chapter 7).                                                                                                        |
 | `sessions/exploitCreateSession.ts`                              | Remote exploit (`msfconsole <host> <port>`): the server decides what, if anything, opens.                                         |
-| `sessions/exploitLocalElevate.ts`                               | Local exploit (`msfconsole --local <command>`) on a box you already stand on.                                                     |
+| `sessions/exploitLocalElevate.ts`                               | Local exploit (`msfconsole --local <command>`) on a box you stand on and do not own.                                              |
+| `sessions/stoodOnBox.ts`                                        | Which machine a shell stands on, from the network on its session row. Shared by `su` and the local exploit.                       |
 | `mysql/`, `redis/`                                              | Datadir schemas (zod), statement parsers and executors, and a player's own freshly installed instance.                            |
 | `cve/worldClock.ts`                                             | `WORLD_EPOCH` and `gameDayAt(now)`: the one clock every vulnerability derives from.                                               |
 | `cve/packageTimeline.ts`, `liveCve.ts`                          | Package release timelines and "which vulnerability is live for this version on this day".                                         |

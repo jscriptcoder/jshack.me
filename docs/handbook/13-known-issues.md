@@ -31,7 +31,8 @@ past a session's tier, with a verdict on each. It found two more defects of the 
 local exploit on a generated machine runs in the browser above the session's tier, and `su` on
 another player's workstation checked the password the box was generated with instead of the one it
 holds now. The second is fixed (v0.370.0): `su` is answered by the server on every box that is not
-the player's own. The first has not been measured yet. A session holder is also served the
+the player's own. The first is fixed too (v0.372.0): `msfconsole --local` is answered by the
+server everywhere but the player's own workstation. A session holder is also served the
 externally-observable list now (v0.371.0), which the scans behind a switch need before switches can
 be served.
 

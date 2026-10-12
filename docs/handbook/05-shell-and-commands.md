@@ -18,27 +18,27 @@ box and `ls` is gone there.
 
 ## Key files
 
-| Path                                                                 | What it does                                                                                                       |
-| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `shell/tokenize.ts`                                                  | Line → tokens: words (with quoting), `\|`, `>`, `>>`.                                                              |
-| `shell/pipeline.ts`                                                  | Tokens → stages split on `\|`, plus an optional trailing redirect.                                                 |
-| `shell/bindFlags.ts`                                                 | A stage's args → positionals and flags, using the command's `FlagSpec`.                                            |
-| `shell/runLine.ts`                                                   | `runCommandLine`: the orchestrator (gates, validation, pipes, redirects). Also `hasTty`, `collectStageOutput`.     |
-| `shell/complete.ts`                                                  | Tab completion (commands, paths, flags, keyword arguments).                                                        |
-| `shell/prompt.ts`, `commandHistory.ts`                               | Prompt strings and ↑/↓ history recall.                                                                             |
-| `commands/types.ts`                                                  | **The contract**: `Command`, `CommandEnv`, `CommandResult`, `TerminalLine`, `ModeChange`, every sub-API interface. |
-| `commands/registry.ts`                                               | `commandRegistry` and `carriedCommandRegistry`, built from one `builtins` array.                                   |
-| `commands/availability.ts`                                           | The binary-presence gate; the list of always-available builtins and game commands.                                 |
-| `commands/libraryDeps.ts`                                            | The shared-library gate and the command → library link map.                                                        |
-| `commands/streaming.ts`                                              | `streamedResult`: turns an async generator into a streamed result that keeps its exit code.                        |
-| `commands/help.ts`, `man.ts`                                         | Read registry metadata to list commands and show manual pages.                                                     |
-| `commands/daemon.ts`                                                 | One factory behind every service daemon (`sshd`, `mysqld`, `redis-server`, `named`, `snmpd`, …).                   |
-| `commands/ftpShell.ts`, `mysqlShell.ts`, `redisShell.ts`             | Line interpreters for the `ftp>`, `mysql>` and `redis>` sub-shells (not registered commands).                      |
-| `commands/<name>.ts`                                                 | One file per command (the catalog below).                                                                          |
-| `scripting/`                                                         | The `node` sandbox: `runScript`, `buildCommandContext`, the script `console` and `fs`.                             |
-| `packages/aptPackages.ts`                                            | The `apt` catalog: what each package installs.                                                                     |
-| `packages/dpkgStatus.ts`, `packageManifest.ts`, `packageVersions.ts` | The `/var/lib/dpkg/status` manifest and version templates.                                                         |
-| `wordlist/defaultWordlist.ts`, `passwordSweep.ts`                    | The wordlist `hydra` ships, and the one rule that decides what a dictionary attack recovers.                       |
+| Path                                                                 | What it does                                                                                                                                                                         |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `shell/tokenize.ts`                                                  | Line → tokens: words (with quoting), `\|`, `>`, `>>`.                                                                                                                                |
+| `shell/pipeline.ts`                                                  | Tokens → stages split on `\|`, plus an optional trailing redirect.                                                                                                                   |
+| `shell/bindFlags.ts`                                                 | A stage's args → positionals and flags, using the command's `FlagSpec`.                                                                                                              |
+| `shell/runLine.ts`                                                   | `runCommandLine`: the orchestrator (gates, validation, pipes, redirects). Also `collectStageOutput`, and `hasTty`, which lives in `sessions/hasTty.ts` so the server can ask it too. |
+| `shell/complete.ts`                                                  | Tab completion (commands, paths, flags, keyword arguments).                                                                                                                          |
+| `shell/prompt.ts`, `commandHistory.ts`                               | Prompt strings and ↑/↓ history recall.                                                                                                                                               |
+| `commands/types.ts`                                                  | **The contract**: `Command`, `CommandEnv`, `CommandResult`, `TerminalLine`, `ModeChange`, every sub-API interface.                                                                   |
+| `commands/registry.ts`                                               | `commandRegistry` and `carriedCommandRegistry`, built from one `builtins` array.                                                                                                     |
+| `commands/availability.ts`                                           | The binary-presence gate; the list of always-available builtins and game commands.                                                                                                   |
+| `commands/libraryDeps.ts`                                            | The shared-library gate and the command → library link map.                                                                                                                          |
+| `commands/streaming.ts`                                              | `streamedResult`: turns an async generator into a streamed result that keeps its exit code.                                                                                          |
+| `commands/help.ts`, `man.ts`                                         | Read registry metadata to list commands and show manual pages.                                                                                                                       |
+| `commands/daemon.ts`                                                 | One factory behind every service daemon (`sshd`, `mysqld`, `redis-server`, `named`, `snmpd`, …).                                                                                     |
+| `commands/ftpShell.ts`, `mysqlShell.ts`, `redisShell.ts`             | Line interpreters for the `ftp>`, `mysql>` and `redis>` sub-shells (not registered commands).                                                                                        |
+| `commands/<name>.ts`                                                 | One file per command (the catalog below).                                                                                                                                            |
+| `scripting/`                                                         | The `node` sandbox: `runScript`, `buildCommandContext`, the script `console` and `fs`.                                                                                               |
+| `packages/aptPackages.ts`                                            | The `apt` catalog: what each package installs.                                                                                                                                       |
+| `packages/dpkgStatus.ts`, `packageManifest.ts`, `packageVersions.ts` | The `/var/lib/dpkg/status` manifest and version templates.                                                                                                                           |
+| `wordlist/defaultWordlist.ts`, `passwordSweep.ts`                    | The wordlist `hydra` ships, and the one rule that decides what a dictionary attack recovers.                                                                                         |
 
 ## The `Command` contract
 

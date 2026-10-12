@@ -26,14 +26,14 @@
 import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify.js';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
-import { buildWorkstationBaseFsFromIdentity } from '../generation/workstationFs.js';
-import { networkBaseFsForMachineId } from '../generation/lanHostIdentity.js';
-import { hostnameForMachineId } from '../generation/lanTopology.js';
-import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
-import type { Directory } from '../filesystem/types.js';
 import { materializeMachineFs, type OwnerPatchRow } from '../network/materializeMachineFs.js';
 import { md5 } from '../generation/md5.js';
 import { accountIn } from './passwdAccount.js';
+import {
+  resolveStoodOnBox,
+  type FindOccupantWorkstationByMachineId,
+  type StoodOnBox,
+} from './stoodOnBox.js';
 import {
   AUTH_LOG_OWNER,
   AUTH_LOG_PATH,
@@ -52,21 +52,6 @@ import type { HandlerResponse } from './authCreateSession.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import type { FindActiveSession, StandingSession } from '../patches/authorizeMachineAccess.js';
 
-/** The occupancy row of another player's workstation: who owns it (the key its logs file
- *  under), the persisted identity its tree is rebuilt from, and the name it answers to.
- *  The network on it is not read here: one player on several access points has a row on
- *  each, and the one the shell is on is the one its own session row names. */
-export type OccupantWorkstation = {
-  readonly owner_key: string;
-  readonly workstation_machine_id: string;
-  readonly essid: string;
-  readonly workstation_username: string;
-  /** The owner's player-chosen workstation hostname — the name the `su` auth.log
-   *  trace line carries, mirroring the ssh trace's hostname. */
-  readonly workstation_machine_name: string;
-  readonly workstation_root_hash: string;
-};
-
 /** The `sessions` row an elevation inserts. Mirrors the ssh `AuthSessionRow` but
  *  `kind:'su'` — the credential is server-derived, the player_key server-stamped, and
  *  `essid` carried on from the shell it was typed into. */
@@ -83,15 +68,10 @@ export type SuSessionRow = {
 
 export type AuthElevateSessionDeps = {
   readonly nonceStore: NonceStore;
-  /** Whose workstation this is, from `home_network_occupants` (PK `(essid, owner_key)`),
-   *  which carries the identity fields the reconstructed passwd is derived from. Asked
-   *  only for a machine the shell's network does not make. Occupancy means "this machine
-   *  is on that WiFi", so a `su` on a box whose owner has taken it off the network
-   *  resolves to nothing and collapses to a 404 rather than elevating on a machine nobody
-   *  can reach. */
-  readonly findOccupantWorkstationByMachineId: (
-    machineId: string,
-  ) => Promise<{ readonly data: OccupantWorkstation | null; readonly error: unknown }>;
+  /** Whose workstation this is. Asked only for a machine the shell's network does not
+   *  make, so a `su` on a box whose owner has taken it off the network collapses to a 404
+   *  rather than elevating on a machine nobody can reach. */
+  readonly findOccupantWorkstationByMachineId: FindOccupantWorkstationByMachineId;
   /** The caller's live shell on the box — the one `su` is typed into. Its absence is the
    *  refusal; its network locates the box, its tier decides whether a password is asked
    *  for, its account is who the trace names, and its login address is carried on. */
@@ -170,64 +150,6 @@ const logSu = async (
   }
 };
 
-/** The box `su` is typed on: its tree as generated, the name it answers to, and the
- *  journal row its own log lines accrete under. */
-type StoodOnBox = {
-  readonly machineId: string;
-  readonly baseFs: Directory;
-  readonly hostname: string;
-  readonly logWriterKey: string;
-};
-
-type StoodOnBoxResult =
-  | { readonly ok: true; readonly box: StoodOnBox }
-  | { readonly ok: false; readonly status: number; readonly error: string };
-
-const resolveStoodOnBox = async (
-  deps: AuthElevateSessionDeps,
-  machineId: string,
-  essid: string,
-): Promise<StoodOnBoxResult> => {
-  // A machine the shell's own network makes belongs to nobody, so every caller's line on
-  // it files under the network's key, where one would otherwise erase another.
-  const networkFs = networkBaseFsForMachineId(essid, machineId);
-  if (networkFs !== null) {
-    return {
-      ok: true,
-      box: {
-        machineId,
-        baseFs: networkFs,
-        // A deep machine has no name the topology knows, and its id leads with one.
-        hostname: hostnameForMachineId(essid, machineId) ?? machineId,
-        logWriterKey: apGatewayLogWriterKey(essid),
-      },
-    };
-  }
-
-  // Otherwise it is another player's workstation. Occupancy is both its identity and its
-  // reachability: a machine on no WiFi is not there to elevate on.
-  const occupant = await deps.findOccupantWorkstationByMachineId(machineId);
-  if (occupant.error) {
-    return { ok: false, status: 500, error: 'occupant_lookup_failed' };
-  }
-  if (occupant.data === null) {
-    return { ok: false, status: 404, error: 'host_unreachable' };
-  }
-  return {
-    ok: true,
-    box: {
-      machineId,
-      baseFs: buildWorkstationBaseFsFromIdentity({
-        ownerKeyHex: occupant.data.owner_key,
-        username: occupant.data.workstation_username,
-        rootPasswordHash: occupant.data.workstation_root_hash,
-      }),
-      hostname: occupant.data.workstation_machine_name,
-      logWriterKey: occupant.data.owner_key,
-    },
-  };
-};
-
 export const handleAuthElevateSession = async (
   body: unknown,
   deps: AuthElevateSessionDeps,
@@ -254,7 +176,11 @@ export const handleAuthElevateSession = async (
     return { status: 403, body: { error: 'no_session' } };
   }
 
-  const resolved = await resolveStoodOnBox(deps, payload.machine_id, shell.essid);
+  const resolved = await resolveStoodOnBox(
+    deps.findOccupantWorkstationByMachineId,
+    payload.machine_id,
+    shell.essid,
+  );
   if (!resolved.ok) {
     return { status: resolved.status, body: { error: resolved.error } };
   }

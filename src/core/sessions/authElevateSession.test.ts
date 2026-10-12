@@ -2,9 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   handleAuthElevateSession,
   type AuthElevateSessionDeps,
-  type OccupantWorkstation,
   type SuSessionRow,
 } from './authElevateSession.js';
+import type { OccupantWorkstation } from './stoodOnBox.js';
 import { workstationGuestPassword } from '../generation/workstationFs.js';
 import { generateHomeLan } from '../generation/generateHomeLan.js';
 import { baseFsForLanHost, machineIdForLanHost } from '../generation/lanHostIdentity.js';
