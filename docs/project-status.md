@@ -727,20 +727,23 @@ agreed order:
    browsed and swept the owner's box by address and by name, from the WiFi and from a
    guest shell on it, and the owner's one `access.log` row holds every request. The run
    found one thing: in that guest shell `localhost` answered 404 and swept nothing, for
-   pages the box's own address served. **Pick up here (2026-10-11):** the items still
-   open in `backlog.md`: `localhost` in a visitor's shell serving less than the box does
-   (seen in the browser), a neighbour named `localhost` taking loopback traffic (unit
-   probe), and four found by reading: a deep box's own address behind a switch that
-   denies the web port, a data door over `localhost`, a shell on a box whose owner left,
-   and a line break in a trace's free-text fields.
+   pages the box's own address served. ✅ Closed at v0.363.0: loopback in a visitor's
+   shell on a player's box asks the server, as the box's own address does, and the visit
+   is logged from `127.0.0.1` in the owner's log (`scripts/testOccupantFetch.ts` 13/13,
+   `scripts/testOccupantSweep.ts` 12/12). Not played in the browser yet. **Pick up here
+   (2026-10-12):** the items still open in `backlog.md`: a neighbour named `localhost`
+   taking loopback traffic (unit probe), and five found by reading: a deep box's own
+   address behind a switch that denies the web port, a data door over `localhost`, a
+   shell on a box whose owner left, a line break in a trace's free-text fields, and the
+   arm of `recordLanFetch` no client reaches any more.
 9. ✅ **Crypto wallet epic (v0.356.0–v0.362.0, PRs #653–#658, 2026-10-11/12).** Slotted ahead of
    the rest of the sandbox-hardening list: the `wallet` command, a public JSC ledger keyed by
    address, and the operator mint. Seven slices, each TDD + wire-check + migration to dev then
    prod. Two-player browser close-out ran the theft loop (mint → root the box → read the key →
    sweep → gpg the replacement) with no defects. As built:
    [`wallet-architecture.md`](./wallet-architecture.md). **Pick up here (2026-10-12):** back to the
-   sandbox-hardening leftovers in item 8's list above and the defender-side item 6, still the
-   agreed work until the owner reopens missions.
+   sandbox-hardening leftovers in item 8's list above (one closed since, v0.363.0)
+   and the defender-side item 6, still the agreed work until the owner reopens missions.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

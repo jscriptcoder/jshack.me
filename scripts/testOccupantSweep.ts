@@ -14,7 +14,8 @@
 //     key, from the address the visitor LEASES — the visitor writes no row.
 //   - A box with no list is reported as that, and the swept box hears nothing.
 //   - A web port the owner closed to the network refuses; a visitor in a shell ON that
-//     box sweeps its own address with THAT box's list, logged from that address.
+//     box sweeps its own address with THAT box's list, logged from that address, and
+//     sweeps it over loopback the same, logged as a local visit.
 //   - An address nobody leases answers nothing; a caller on no network, or naming a box
 //     they hold no shell on, is refused.
 //
@@ -28,6 +29,7 @@ import { signRequest } from '../src/core/signedRequest/sign.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { lanAddressFor } from '../src/core/network/lanAddress.js';
+import { LOOPBACK_IPV4 } from '../src/core/network/interfaces.js';
 import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
 import { formatPidfileContent } from '../src/core/services/pidfile.js';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
@@ -294,6 +296,21 @@ try {
       log5.length === 5 &&
       log5[4]?.startsWith(`${OWNER_LAN} - - [`) === true,
     `status=${r5.status} results=${JSON.stringify(resultsOf(r5.body))} last=${log5[4] ?? '(none)'}`,
+  );
+
+  // === 5b. The same shell over loopback: the same answer, recorded as a local visit. ===
+  const r5b = await post(
+    await sweep(visitor, { target: LOOPBACK_IPV4, caller_machine_id: OWNER_WS }),
+  );
+  const log5b = linesOf(await readAccessLog(OWNER_WS, owner.publicKeyHex));
+  check(
+    'a shell on the box sweeps it over loopback and finds what the box serves, logged as local',
+    r5b.status === 200 &&
+      JSON.stringify(resultsOf(r5b.body)) === JSON.stringify(resultsOf(r5.body)) &&
+      log5b.length === 6 &&
+      log5b[5]?.startsWith(`${LOOPBACK_IPV4} - - [`) === true &&
+      (await readAccessLog(OWNER_WS, visitor.publicKeyHex)) === '',
+    `status=${r5b.status} results=${JSON.stringify(resultsOf(r5b.body))} last=${log5b[5] ?? '(none)'}`,
   );
   await sr.from('sessions').delete().eq('session_id', VISITOR_SHELL);
   await sr.from('patches').delete().eq('machine_id', OWNER_WS).eq('path', RULES_V4_PATH);

@@ -182,16 +182,34 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   occupant round trip it does not need. One guard in `addressForTarget` would cover them
   all. Found 2026-10-11.
 
-- **In a visitor's shell on a player's box, `localhost` serves less than the box does. Seen
-  in the browser 2026-10-11.** The owner had published three pages as root, which `echo >`
-  leaves readable by root alone. From a guest shell on her box, `curl localhost` answered
-  404 and `gobuster http://localhost` found 0 of 40, while her `access.log` recorded the
-  same requests as `200`, and `curl` and `gobuster` at the box's own address or name, from
-  the same shell, served all three. Loopback reads the tree the client holds for the hop,
-  which the server prunes to what the visitor's tier may read (`patches/readFilter.ts`);
-  every other route asks the server, which reads the page as the web server does. The owner
-  at home is not affected, and nor is a page the visitor's tier can read as a file. Older
-  than the three fixes above; the address route is what made it show.
+- **In a visitor's shell on a player's box, `localhost` served less than the box does —
+  RESOLVED 2026-10-12 (v0.363.0).** Seen in the browser 2026-10-11. The owner had published
+  three pages as root, which `echo >` leaves readable by root alone. From a guest shell on
+  her box, `curl localhost` answered 404 and `gobuster http://localhost` found 0 of 40,
+  while her `access.log` recorded the same requests as `200`, and `curl` and `gobuster` at
+  the box's own address or name, from the same shell, served all three. Loopback read the
+  tree the client holds for the hop, which the server prunes to what the visitor's tier may
+  read (`patches/readFilter.ts`); every other route asked the server, which reads the page
+  as the web server does. Loopback there now asks the server too. `reachWebHost` no longer
+  takes another player's workstation for a box this side holds (it is the box whose address
+  the vantage cannot recover), so `curl`, `lynx`, a followed link and `gobuster` fall
+  through to the fetch and sweep of a fellow occupant, sent the loopback address.
+  `resolveOccupantWebTarget` takes that address to mean the workstation the caller's shell
+  stands on, found by its machine id, past its own filter, and records the visit from
+  `127.0.0.1` in the owner's log. The owner at home, and a shell on a box the network
+  generates, still read the tree they hold. `scripts/testOccupantFetch.ts` (13/13) and
+  `scripts/testOccupantSweep.ts` (12/12) carry the loopback checks, with the page readable
+  by root alone and the shell a guest's. Not played in the browser yet. One thing it left
+  behind is the next item.
+
+- **`recordLanFetch` still answers for a shell on another player's workstation, and no
+  client asks it to.** Since v0.363.0 a fetch or sweep of the box a visitor's shell stands
+  on is served and logged by `resolveOccupantFetch` and `resolveOccupantSweep`, by loopback
+  and by address both. The arm of `workstationTarget` (`core/network/recordLanFetch.ts`)
+  that takes "the one their shell stands on", added at v0.352.0, is now reached only by a
+  request signed outside the game, from a caller who holds a session on the box. Removing
+  it takes its tests and checks 10 and 11 of `scripts/testLanFetchLog.ts` with it. Found
+  2026-10-12.
 
 - **A shell on a player's box whose owner has left the network: `curl localhost` there would
   leave no line. By reading, not reproduced.** The box is found by the lease its owner holds on

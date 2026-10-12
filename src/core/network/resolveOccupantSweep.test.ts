@@ -10,6 +10,7 @@ import { generateIdentity } from '../identity/identity.js';
 import { computeWorkstationId } from '../identity/workstation.js';
 import { generateHomeLan } from '../generation/generateHomeLan.js';
 import { lanAddressFor, type LanLeaseRow } from './lanAddress.js';
+import { LOOPBACK_IPV4 } from './interfaces.js';
 import type { OwnerPatchRow } from './materializeWorkstationFs.js';
 import { defaultFilePermissions } from '../filesystem/defaultPermissions.js';
 import { formatPidfileContent } from '../services/pidfile.js';
@@ -552,6 +553,29 @@ describe('a caller in a shell on the box they sweep', () => {
       (await handleResolveOccupantSweep(await envelope({ caller_machine_id: ALICE_WS }), deps))
         .status,
     ).toBe(200);
+  });
+
+  it('sweeps the box over loopback, and the whole run is logged as a local visit', async () => {
+    const { deps, listPathPatches, upsertPatch } = shellOnAliceBox({
+      listPathPatches: listing('index.html', 'admin'),
+    });
+
+    const response = await handleResolveOccupantSweep(
+      await envelope({ target: LOOPBACK_IPV4, caller_machine_id: ALICE_WS }),
+      deps,
+    );
+
+    expect(response.status).toBe(200);
+    expect(listPathPatches).toHaveBeenCalledWith({ machine_id: ALICE_WS, path: DIRLIST_PATH });
+    expect(appendedLines(upsertPatch)).toEqual([
+      [
+        logLine('/index.html', 200, 'hello'.length, LOOPBACK_IPV4),
+        logLine('/admin', 404, 0, LOOPBACK_IPV4),
+      ],
+    ]);
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({ writer_key: ALICE.publicKeyHex, machine_id: ALICE_WS }),
+    );
   });
 });
 

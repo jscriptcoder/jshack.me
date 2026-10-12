@@ -1216,6 +1216,35 @@ describe('curl from a hop', () => {
       callerMachineId: machineIdForLanHost(hop, ESSID),
     });
   });
+
+  it('serves localhost off the box the shell stands on when the network generates it', async () => {
+    // A generated box is this side's to build whole, so loopback there reads the tree the
+    // shell holds, reports the local visit, and asks the server for no page.
+    const { host: webHost, port } = webHostOnLan();
+    const reported: AccessLogFetch[] = [];
+    const asked: OccupantFetchParams[] = [];
+    const env = {
+      ...shellOn(ESSID, machineIdForLanHost(webHost, ESSID), {
+        fs: baseFsForLanHost(webHost, ESSID),
+        onReport: (fetched) => reported.push(fetched),
+      }),
+      remote: {
+        ...mockRemoteApi(),
+        fetchOccupant: async (params: OccupantFetchParams): Promise<OccupantFetchResult> => {
+          asked.push(params);
+          return { ok: false, error: 'host_unreachable' };
+        },
+      },
+    };
+
+    const { text } = await drain(
+      await curl.execute(env, [`http://localhost:${port}/index.html`], new Map()),
+    );
+
+    expect(text).toBe(servedPage(webHost));
+    expect(asked).toEqual([]);
+    expect(reported.map((fetched) => fetched.target)).toEqual(['127.0.0.1']);
+  });
 });
 
 describe('curl at a fellow occupant of the network', () => {
@@ -1376,5 +1405,83 @@ describe('curl at a fellow occupant of the network', () => {
         callerMachineId: THEIR_WORKSTATION,
       },
     ]);
+  });
+
+  /** What a visitor's client holds of a box it has a shell on: its web server is up, and
+   *  the tree is NOT the box's. The server prunes it to what the login may read, so what
+   *  it shows of the document root is never what the web server would serve. */
+  const visitorShellOnTheirBox = (answer: OccupantFetchResult) =>
+    withNeighbour(answer, {
+      network: mockNetworkView(),
+      session: mockSession({
+        id: 'curl-hop-3',
+        machineId: asMachineId(THEIR_WORKSTATION),
+        essid: ESSID,
+        userType: 'guest',
+        kind: 'ssh',
+      }),
+      fs: mockFsViewFromTree(
+        applyPatches(
+          buildWorkstationBaseFs(PUBKEY, {
+            machineName: 'nebuchadnezzar',
+            username: 'morpheus',
+            rootPassword: 'zion',
+          }),
+          [
+            {
+              path: '/var/run/nginx.pid',
+              content: formatPidfileContent(SERVICE_CATALOG.http, HTTP_DEFAULT_PORT),
+              owner: 'root',
+            },
+            { path: '/var/www/html/index.html', content: 'what the shell holds', owner: 'root' },
+          ],
+        ),
+      ),
+    });
+
+  it.each(['localhost', '127.0.0.1'])(
+    'asks the server for %s in a shell on their box, which serves what the box does',
+    async (loopback) => {
+      const { env, asked, reported } = visitorShellOnTheirBox(served());
+
+      const { text, exitCode } = await drain(
+        await curl.execute(env, [`http://${loopback}/`], new Map()),
+      );
+
+      expect(exitCode).toBe(0);
+      expect(text).toBe(THEIR_PAGE);
+      // Loopback goes over as the loopback address: the visitor holds no other name for
+      // the box, and the server finds it by the shell that asked.
+      expect(asked).toEqual([
+        {
+          essid: ESSID,
+          target: '127.0.0.1',
+          port: HTTP_DEFAULT_PORT,
+          path: '/',
+          callerMachineId: THEIR_WORKSTATION,
+        },
+      ]);
+      // The server records the visit on the box it served from, so nothing is reported here.
+      expect(reported).toEqual([]);
+    },
+  );
+
+  it('reports a 404 over loopback only when the box itself has no such page', async () => {
+    const { env } = visitorShellOnTheirBox({ ok: false, error: 'not_found' });
+
+    const { text, exitCode } = await drain(
+      await curl.execute(env, ['http://localhost/'], new Map()),
+    );
+
+    expect(exitCode).toBe(1);
+    expect(text).toBe('curl: (22) The requested URL returned error: 404');
+  });
+
+  it('is refused over loopback in the name that was typed', async () => {
+    const { env } = visitorShellOnTheirBox({ ok: false, error: 'connection_refused' });
+
+    const { text } = await drain(await curl.execute(env, ['http://localhost:8080/'], new Map()));
+
+    expect(text).toBe('curl: (7) Failed to connect to localhost port 8080: Connection refused');
   });
 });
