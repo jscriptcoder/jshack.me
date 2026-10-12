@@ -1,7 +1,8 @@
 # Plan: every box that isn't yours is served
 
 **Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-12. Slice 1 shipped at
-v0.369.0, slice 2, the audit, is done, and slice 3 shipped at v0.370.0; slice 4 is next. Where
+v0.369.0, slice 2, the audit, is done, slice 3 shipped at v0.370.0 and slice 4 at v0.371.0;
+slice 6 is next. Where
 another doc disagrees with this file, this file wins until the close-out moves its content into
 `docs/`.
 
@@ -296,7 +297,53 @@ already resolves all three kinds of box that way (`resolveTargetBaseFs`).
 `root` with the box's password and gets a row at `root`.
 **Wire-check**: the script that covers `suElevate` today, extended to a generated machine.
 
-### Slice 4: a session holder is served the externally-observable list as well
+### Slice 4: a session holder is served the externally-observable list as well ✅
+
+**As built** (v0.371.0): `filterTreeForSession` in `core/patches/readFilter.ts` is the tier's
+view (`filterTreeForRead`) together with the list's view (`filterTreeToAllowlist`) of the same
+tree. It is composed from those two, so it cannot drift from either, and it keeps every entry in
+the place the box holds it and with its own permissions. The active-session branch of
+`resolveCrossPlayerFs` calls it. Nothing changed on the client and no wire field was added: the
+shell already checks permissions on the node it is handed (`createFsView`), so a listed file a
+tier cannot read answers permission denied where it answered no such file.
+
+One consequence beyond the two files measured: pidfiles are on the list, so a pidfile somebody
+narrowed to `root` now reaches a visitor and `ps` lists that service, as a scan from outside
+already showed its port. `scripts/testPidfileVisibility.ts` asserted the opposite and was
+rewritten. World-readable pidfiles (v0.143.0) are no longer what makes `ps` work on a served
+box; they still let a visitor read the file itself.
+
+Wire-checks: `testCrossPlayerRead` 11/11, `testPidfileVisibility` 4/4, and the eleven other
+scripts that read the served tree unchanged. Mutation: 37 of 38 killed on the changed code, no
+timeouts; the survivor is equivalent (a type-narrowing check that a view's entry under a
+directory's name is a directory, which it always is, both views being prunings of one tree).
+
+**Measured** (2026-10-12, a throwaway probe against the live local stack, since deleted). One
+page under `/var/www` narrowed to `root` was added to each box.
+
+| Box | Tier | Listed files the session was not served |
+| --- | --- | --- |
+| Another player's workstation | `user`, `guest` | the narrowed page |
+| Access point's gateway | `user`, `guest` | `/etc/iptables/rules.v4`, the narrowed page |
+
+A caller with no session on the workstation was served the page. The gateway with no session
+answers 404 `host_unreachable`, which is decision 5 and belongs to slice 5. No client reader on
+a served box depends on `rules.v4` or `acl.conf` yet; the seven `acl.conf` sites bite only once
+switches are served. A `localhost` fetch from a visitor's shell on a player's workstation has
+gone to the server since v0.363.0, so the page mattered there only as proof of the gap.
+
+**Criteria** (owner, 2026-10-12). A session holder is served everything its tier can read plus
+every file on the externally-observable list, from the same tree:
+
+- A `guest` or `user` session on the access point's gateway is served `rules.v4` with its
+  root-only permissions intact.
+- A `guest` or `user` session on another player's workstation is served a page under `/var/www`
+  that somebody narrowed, with its permissions intact.
+- Nothing else is added: `/etc/passwd`, `/root` and a root-only file off the list stay out.
+- A directory the tier cannot enter that holds a listed file is served with its own
+  permissions, holding only the listed files.
+- The client still refuses to read these files.
+- `root`, the owner and a caller with no session are served what they were.
 
 **Value**: a lower-tier shell on a router or switch is served the files its own machinery reads,
 so a scan from it shows what the box really filters.

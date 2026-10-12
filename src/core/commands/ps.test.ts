@@ -14,7 +14,7 @@ import { createLibraryEntries, SYSTEM_LIBRARIES } from '../generation/libraries.
 import { applyPatches, type Patch } from '../filesystem/applyPatches.js';
 import { defaultFilePermissions } from '../filesystem/defaultPermissions.js';
 import { createFsView } from '../filesystem/fsView.js';
-import { filterTreeForRead } from '../patches/readFilter.js';
+import { filterTreeForSession } from '../patches/readFilter.js';
 import { basename } from '../filesystem/path.js';
 import { commandRegistry } from './registry.js';
 import { sshd } from './daemon.js';
@@ -325,11 +325,10 @@ describe('ps after a service is stopped', () => {
  *
  * A hop onto someone else's machine is server-served: the server replays that
  * box's patch journal over its regenerated baseline, prunes the result to what
- * the visitor's tier may read, and only then does `ps` run over what came back.
- * So the permissions a daemon stamps on its pidfile decide, one hop later,
- * whether the box looks like it is serving anything at all — a root-only pidfile
- * is dropped in transit and `ps` prints a bare header on a box plainly running
- * ssh.
+ * the visitor's session is served, and only then does `ps` run over what came
+ * back. A pidfile is what a scan from outside reveals, so the server hands it to
+ * every session whatever its permissions say. Were it dropped in transit, `ps`
+ * would print a bare header on a box plainly running ssh.
  *
  * These tests walk that whole projection rather than a tree built by hand: the
  * write `sshd` really makes, the patch row it becomes, the replay, the prune,
@@ -372,9 +371,9 @@ describe('ps on a box whose owner started a service', () => {
   };
 
   /** The box as the server hands it to a visitor: journal replayed, then pruned
-   *  to the tier their session bought. */
+   *  to what the session they hold is served. */
   const asHandedToVisitor = (pidfile: Patch, userType: UserType): Directory =>
-    filterTreeForRead(applyPatches(varRun({}), [pidfile]), userType);
+    filterTreeForSession(applyPatches(varRun({}), [pidfile]), userType);
 
   it('lists the service to a guest who walked in through its own front door', async () => {
     const pidfile = await startSshd();
@@ -384,8 +383,18 @@ describe('ps on a box whose owner started a service', () => {
     expect(lines).toEqual([HEADER, NO_PID + 'root      sshd        22']);
   });
 
+  it('lists a service whose pidfile somebody narrowed to root', async () => {
+    // The port answers a scan from outside whoever may read the pidfile, so a guest
+    // standing on the box is not told less than a stranger scanning it.
+    const narrowed: Patch = { ...(await startSshd()), permissions: defaultFilePermissions('root') };
+
+    const lines = await runPs(asHandedToVisitor(narrowed, 'guest'), { userType: 'guest' });
+
+    expect(lines).toEqual([HEADER, NO_PID + 'root      sshd        22']);
+  });
+
   it('lists it to a user-tier visitor too', async () => {
-    // Both tiers below root are pruned by the same walker, so a fix that reached
+    // Both tiers below root are served by the same rule, so a fix that reached
     // only guest would be a rule with a hole in it.
     const pidfile = await startSshd();
 
@@ -410,12 +419,10 @@ describe('ps on a box whose owner started a service', () => {
 /**
  * The same projection, for the pidfile an INTRUDER writes.
  *
- * `nc -l` is the fifth producer of a `/var/run` pidfile, and the first four had
- * to be brought into line before a visitor could see any of them. A producer
- * that names no permissions gets its own tier's defaults — root-only, since
- * planting takes root — and the row would then be pruned on exactly the hop that
- * matters: the owner walking back onto their own box through a door the intruder
- * left, and finding it apparently clean.
+ * `nc -l` is the fifth producer of a `/var/run` pidfile. Its row has to reach a
+ * visitor on exactly the hop that matters: the owner walking back onto their own
+ * box through a door the intruder left. A listener pruned in transit would leave
+ * the box looking clean.
  */
 describe('ps on a box somebody planted a listener on', () => {
   const LISTENER = asAbsPath('/var/run/nc-4444.pid');
@@ -450,7 +457,7 @@ describe('ps on a box somebody planted a listener on', () => {
   };
 
   const asHandedToVisitor = (pidfile: Patch, userType: UserType): Directory =>
-    filterTreeForRead(applyPatches(varRun({}), [pidfile]), userType);
+    filterTreeForSession(applyPatches(varRun({}), [pidfile]), userType);
 
   it('shows the backdoor to a guest standing on the box', async () => {
     const lines = await runPs(asHandedToVisitor(await plantListener(), 'guest'), {

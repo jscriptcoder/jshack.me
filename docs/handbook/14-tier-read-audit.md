@@ -16,7 +16,8 @@ A player reads a machine that is not their own workstation in one of two ways.
 
 - **Served.** The server builds the box, prunes the tree to the session's tier and sends it
   (`resolveCrossPlayerFs`). Today that is another player's workstation and the access point's
-  gateway.
+  gateway. Since v0.371.0 the tree also carries every file on the externally-observable list,
+  each with its own permissions.
 - **Rebuilt.** The browser generates the box from the ESSID and replays the raw journal over it.
   Today that is every machine a network generates. The journal still carries rows above the
   session's tier; that is the open half of the security gap in
@@ -59,13 +60,13 @@ The verdicts:
 | 2   | `su` on a generated machine reads `/etc/passwd` in the browser, and the new tier is never recorded on the server.                                                                                                                                                                                                                    | `commands/su.ts:69`                                                  | Fixed in v0.370.0: the server answers `su`.                |
 | 3   | `suElevate` checks the password against the workstation as it was generated, not as it is. A password an exploit reset is accepted by `ssh` and refused by `su`. It also resolves only a player's workstation, so `su` on the access point's gateway answers `host_unreachable`.                                                     | `sessions/authElevateSession.ts`                                     | Fixed in v0.370.0, measured first.                         |
 | 4   | A local exploit (`msfconsole --local`) on a generated machine runs in the browser: it reads the tree at the tier the exploit grants, which is above the session's, and the shell it lands is never recorded on the server. On the access point's gateway the request goes to the server, which resolves only a player's workstation. | `commands/msfconsole.ts` (10 sites), `exploitLocalElevate`           | New slice. Must ship before generated machines are served. |
-| 5   | A scan, a login or a transfer aimed at the layer behind a switch reads the switch's `acl.conf` off the shell's own tree. The file is root-only, so a lower-tier shell on a served switch would treat every port as allowed.                                                                                                          | 7 sites, see [the reach of a deep layer](#the-reach-of-a-deep-layer) | Planned: the session holder is served the list.            |
+| 5   | A scan, a login or a transfer aimed at the layer behind a switch reads the switch's `acl.conf` off the shell's own tree. The file is root-only, so a lower-tier shell on a served switch would treat every port as allowed.                                                                                                          | 7 sites, see [the reach of a deep layer](#the-reach-of-a-deep-layer) | Fixed in v0.371.0: a session is served the list.           |
 | 6   | `chmod` maps the `u` in a mode to the owner's tier by reading `/etc/passwd`. A `guest` session on a served box has no such file, so every owner reads as `guest`.                                                                                                                                                                    | `commands/chmod.ts:153`                                              | New slice. A mode naming `u` is refused without the file.  |
 | 7   | `suElevate` never asked whether the caller held a session on the machine, so the root password alone gave a `root` row on a workstation, with every door shut. Found while defect 3 was measured.                                                                                                                                    | `sessions/authElevateSession.ts`                                     | Fixed in v0.370.0: no session, no `su`.                    |
 
 Defects 1, 2 and 5 were known before the audit. 3, 4 and 6 are what it found, with 6 already
 suspected. 7 is not a read past a tier; it turned up on the live stack while 3 was being measured,
-in the same handler. 2, 3 and 7 are fixed.
+in the same handler. 2, 3, 5 and 7 are fixed.
 
 ## The files machinery reads
 
@@ -152,12 +153,15 @@ of the slice that serves generated machines.
 All seven call `resolveDeepScanHosts(essid, fronting, env.fs.root())`, which reads
 `/etc/switch/acl.conf` off the tree the shell stands on to drop the ports a switch denies.
 
-| Site                                                                                                           | Verdict         |
-| -------------------------------------------------------------------------------------------------------------- | --------------- |
-| `commands/nmap.ts:315`, `ssh.ts:441`, `scp.ts:530`, `ftp.ts:352`, `nc.ts:134`, `ping.ts:104`, `webHost.ts:142` | list (defect 5) |
+| Site                                                                                                           | Verdict |
+| -------------------------------------------------------------------------------------------------------------- | ------- |
+| `commands/nmap.ts:315`, `ssh.ts:441`, `scp.ts:530`, `ftp.ts:352`, `nc.ts:134`, `ping.ts:104`, `webHost.ts:142` | list    |
 
-Fine today, because a switch is a rebuilt machine and the browser holds its whole tree. It breaks
-when switches are served unless a session holder is served the externally-observable list first.
+A switch is still a rebuilt machine, so the browser holds its whole tree. Since v0.371.0 a session
+holder is served the externally-observable list as well as its tier's view (`filterTreeForSession`),
+so these keep reading `acl.conf` once switches are served. Measured on the live stack first: a
+`guest` or `user` session on the access point's gateway was not served `rules.v4`, and neither was
+served a page narrowed to `root` that a caller with no session was.
 
 ### Web pages
 
@@ -167,8 +171,9 @@ when switches are served unless a session holder is served the externally-observ
 | `commands/webHost.ts:138, 146`                                                                                                | The seeded tree of another generated box on the LAN or a deep layer.                                    | fine ³  |
 
 A page under `/var/www` is world-readable unless somebody narrows it, and the list carries the
-whole directory, so a lower-tier shell fetching `localhost` gets what a stranger outside gets.
-Another player's workstation is already answered by the server (`resolveOccupantFetch`).
+whole directory. A session holder is served the list (v0.371.0), so a lower-tier shell fetching
+`localhost` gets what a stranger outside gets. Another player's workstation is already answered by
+the server (`resolveOccupantFetch`).
 
 ³ Seeded content is computable from the ESSID by any client, which is the accepted limit of this
 work. It also means a LAN fetch never replays the journal: a page somebody changed on a generated
@@ -216,7 +221,7 @@ caller gets can still tell them a file or an account exists.
 | `unregisterOccupant`                                                   | `ok`                                                         |                                                                                                       | fine    |
 | `resolveOccupants`                                                     | Each fellow occupant's machine id, LAN address, machine name | Occupancy and leases. Only for a caller standing on that LAN.                                         | fine    |
 | `resolveOccupiedEssids`                                                | `essids`                                                     | Occupancy.                                                                                            | fine    |
-| `resolveCrossPlayerFs`                                                 | `tree`                                                       | The whole box. Full for its owner, pruned to the tier for a session holder, the list for anyone else. | fine    |
+| `resolveCrossPlayerFs`                                                 | `tree`                                                       | The whole box. Full for its owner, tier view plus the list for a session, the list for anyone else.   | fine    |
 | `resolvePublicScan`                                                    | `found`, `ports`                                             | Pidfiles, the manifest, `rules.v4`.                                                                   | list    |
 | `resolveInnerGatewayScan`, `resolveSameLanScan`, `resolveOccupantScan` | `found`, `ports`                                             | The same three. Only for a caller standing on that network.                                           | list    |
 | `resolveHttpFetch`, `resolveOccupantFetch`                             | `content`, `server`                                          | One file under `/var/www`, read as the web server. A search on findit is built from what sites serve. | list    |

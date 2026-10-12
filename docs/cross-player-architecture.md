@@ -229,8 +229,10 @@ one tier filter, the right base. (This is how B `cat`s/`nano`s A's `/etc/iptable
 
 - **Tier 1 — owner** (verified pubkey == `owner_key`): the FULL tree; the session table is
   not even consulted.
-- **Tier 2 — active session:** pruned by the shared read walker at the session's tier
-  (`filterTreeForRead`).
+- **Tier 2 — active session:** what the shared read walker allows at the session's tier,
+  together with everything tier 3 is shown (`filterTreeForSession`). Holding a session never
+  shows less than holding none. A listed file keeps its own permissions, so the shell still
+  refuses to print one the tier cannot read.
 - **Tier 3 — no session:** only the externally-observable allowlist (pidfiles, `/var/www`,
   NAT rules — `filterTreeToAllowlist` / `EXTERNALLY_OBSERVABLE_ALLOWLIST`); everything else
   default-denies.

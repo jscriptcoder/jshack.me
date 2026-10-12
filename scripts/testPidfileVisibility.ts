@@ -18,10 +18,12 @@
 // (`services/pidfile`, `serviceCatalog`), never hand-written: a literal here
 // could agree with itself while disagreeing with what a daemon actually writes.
 //
-// Check 3 is the one that would have FOUND the bug. It seeds a second pidfile
-// wearing the old, root-only shape and asserts the visitor cannot see it — which
-// pins the mechanism rather than the symptom. Without it, checks 1 and 2 could
-// pass for reasons that have nothing to do with permissions.
+// Checks 1 and 2 pin the permissions a daemon stamps: the pidfile arrives readable
+// at the visitor's own tier. Check 3 seeds a second pidfile wearing the old,
+// root-only shape. A pidfile is what a scan from outside reveals, so a session is
+// served that one too, still root's alone to read: `ps` lists the service and `cat`
+// is refused. A session that was shown less than a caller with none is how `ps` came
+// to print a bare header in the first place.
 //
 // Drives the REAL endpoints against a running `vercel dev` + local supabase.
 //
@@ -176,13 +178,17 @@ await seedSession('guest');
 const guestTree = await treeAsVisitorSeesIt();
 const guestSsh = guestTree === null ? undefined : nodeAt(guestTree, 'var', 'run', 'sshd.pid');
 check(
-  'a guest-session visitor is handed the daemon pidfile, content intact',
-  guestSsh?.kind === 'file' && guestSsh.content === SSH_CONTENT,
-  guestSsh?.kind === 'file' ? `present, "${guestSsh.content}"` : 'absent',
+  'a guest-session visitor is handed the daemon pidfile, content intact and readable by guest',
+  guestSsh?.kind === 'file' &&
+    guestSsh.content === SSH_CONTENT &&
+    guestSsh.perms.read.includes('guest'),
+  guestSsh?.kind === 'file'
+    ? `present, "${guestSsh.content}", read ${JSON.stringify(guestSsh.perms.read)}`
+    : 'absent',
 );
 
 // === 2. Same for a user-tier visitor ==========================================
-// Both tiers below root are pruned by the same walker, so a fix that reached only
+// Both tiers below root are served by the same rule, so a fix that reached only
 // one of them would be a rule with a hole in it.
 await seedSession('user');
 const userTree = await treeAsVisitorSeesIt();
@@ -193,15 +199,17 @@ check(
   userSsh?.kind === 'file' ? `present, "${userSsh.content}"` : 'absent',
 );
 
-// === 3. The old root-only shape is still pruned — the check that finds the bug ==
-// The server prunes on the file's OWN permissions. If this pidfile were visible,
-// checks 1 and 2 would be passing for some reason other than the one claimed, and
-// the fix would not be load-bearing.
+// === 3. The old root-only shape reaches the visitor too, still root's to read ====
+// The port answers a scan from outside whatever the pidfile's permissions, so the
+// session is not told less. The permissions travel with the file: that is what
+// keeps the visitor's shell from printing it.
 const userFtp = userTree === null ? undefined : nodeAt(userTree, 'var', 'run', 'vsftpd.pid');
 check(
-  'a pidfile wearing the OLD root-only shape is still pruned away',
-  userFtp === undefined,
-  userFtp === undefined ? 'absent, as a root-only file must be' : 'VISIBLE — pruning is not happening',
+  'a pidfile wearing the OLD root-only shape is served, readable by root alone',
+  userFtp?.kind === 'file' &&
+    userFtp.content === FTP_CONTENT &&
+    JSON.stringify(userFtp.perms.read) === '["root"]',
+  userFtp?.kind === 'file' ? `present, read ${JSON.stringify(userFtp.perms.read)}` : 'absent',
 );
 
 // === 4. The read tier widened; the write tier did not =========================

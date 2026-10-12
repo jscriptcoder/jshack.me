@@ -197,9 +197,11 @@ so two saves from the same base within one request's time can both pass.
 | A generated machine (LAN machine, gateway, deep box)      | Regenerate locally from the ESSID, then replay that machine's journal.                 |
 | Another player's workstation, or the access-point gateway | Ask the server (`resolveCrossPlayerFs`), which rebuilds it and prunes it to your tier. |
 
-The server prunes by tier: the owner gets everything, a session holder gets what their tier may read,
-and anyone else gets only what the network could observe (pidfiles, the boot id, firewall and SNMP
-config, the web root, the package manifest).
+The server prunes by tier: the owner gets everything, and anyone with no session gets only what the
+network could observe (pidfiles, the boot id, firewall and SNMP config, the web root, the package
+manifest). A session holder gets what their tier may read plus that same list, so a session never
+shows less than none. A listed file arrives with its own permissions: a `guest` on a gateway holds
+`rules.v4` in the tree and is still refused when they `cat` it.
 
 ### Tabs
 
