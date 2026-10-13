@@ -1,6 +1,7 @@
 # Plan: mapit.io, a public map of the world
 
-**Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-13. Slice 1 is next.
+**Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-13. Slice 1 is merged
+(v0.376.0, #673); slice 2 is next.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 
@@ -188,7 +189,7 @@ slice starts from a failing test; its acceptance criteria are confirmed with the
 any code. Each PR bumps the version. The pages are pure functions of the declared world, so
 their tests are unit tests in `core/`; what `lynx` makes of a page is a jsdom test in `ui/`.
 
-### Slice 1: mapit.io answers with the map of Harrow Valley
+### Slice 1: mapit.io answers with the map of Harrow Valley (v0.376.0, #673, merged)
 
 **Value**: a player who opens `mapit.io` sees the valley and every town in it.
 **Path**: a third row of `FIXED_SITES` (`generation/fixedSites.ts`); its address after
@@ -219,6 +220,27 @@ doors, and a findit search answers with it. Nothing in `api/` changes, but a fix
 address is resolved by the server.
 **Left for the PR**: the version bump, and the "Adding to the world" step in
 `docs/procedural-world-architecture.md`.
+**As built**:
+
+- mapit.io answers at `193.10.253.15`. Its pages are `MAPIT_PAGES` (`core/mapit/pages.ts`), and
+  the drawing is `HARROW_VALLEY_DRAWING` there.
+- The world exports its towns as `TOWNS` (name, size, region), in the order it declared them.
+  `mapit.test.ts` reads them, so a town row added to the world fails that test until it is drawn.
+- The drawing the owner approved was redrawn before it was built: Kingsford's name had sat on
+  the row beneath its mark, and the criterion asks for every name beside its mark. The river now
+  passes Kingsford on its west side, and Stonebury, Ashby and Wexcombe stand further east.
+- The legend is a `<table>`, which `lynx` lays out in aligned columns.
+- The legend lists every town the world declares, with no filter by region: with one region no
+  test can tell the difference. The test that pins the legend's eleven rows fails when a second
+  region is declared, which is when the filter is written.
+- Every line of the drawing is exactly 78 columns, and a test holds each line to that, so a line
+  a hand leaves a column short fails.
+- Wire-checks: `testMapit` 7 of 7, `testFindit` 19 of 19, `testHackademy` 21 of 21,
+  `testRestoreSite mapit.io` 13 of 13. Mutation: 55 killed, 11 survived (three module-load
+  mutants killed by hand, eight HTML scaffolding a parser repairs).
+- `npm run build` failed two timing budgets on the machine it ran on, and `main` failed the same
+  two there: Ashby's boxes (2.15 ms against 2 ms) and findit's generated web (1,170 ms against
+  1,000 ms). The bundle budget passed at 272,202 B. Not looked into.
 
 ### Slice 2: a town's page lists its places
 
