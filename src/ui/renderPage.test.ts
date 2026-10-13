@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { renderPage } from './renderPage.js';
 import { pickWebPage } from '../core/generation/pools/webPages.js';
+import { MAPIT_PAGES } from '../core/mapit/pages.js';
 
 /** The page a test renders from, when where it came from does not matter. Links
  *  resolve against it, so it has to be a real address. */
@@ -628,5 +629,30 @@ describe('what a form offers, at its edges', () => {
     expect(asText('<body><button type="button">Search <b>now</b></button></body>')).toBe(
       '[ Search now ]',
     );
+  });
+});
+
+describe("mapit.io's front page, as a reader of it sees it", () => {
+  const FRONT_PAGE = MAPIT_PAGES['index.html'] ?? '';
+
+  const drawing = new DOMParser().parseFromString(FRONT_PAGE, 'text/html').querySelector('pre');
+
+  const drawn = (): readonly string[] =>
+    (drawing?.textContent ?? '').split('\n').filter((line) => line.trim() !== '');
+
+  it('shows the drawing line for line as it was drawn', () => {
+    const lines = asLines(FRONT_PAGE);
+    const top = lines.indexOf(drawn()[0] ?? '');
+
+    expect(drawn().length).toBeGreaterThan(1);
+    expect(top).toBeGreaterThanOrEqual(0);
+    expect(lines.slice(top, top + drawn().length)).toEqual(drawn());
+  });
+
+  it('runs no line past 78 columns', () => {
+    const lines = asLines(FRONT_PAGE);
+
+    expect(lines.length).toBeGreaterThan(drawn().length);
+    expect(lines.filter((line) => line.length > 78)).toEqual([]);
   });
 });

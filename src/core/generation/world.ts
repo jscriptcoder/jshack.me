@@ -31,7 +31,7 @@ import {
   type HomeTemplate,
 } from './pools/homeNames.js';
 import { createPrng, type Prng } from './prng.js';
-import { FINDIT_NETWORK, FIXED_SITES, HACKADEMY_NETWORK } from './fixedSites.js';
+import { FINDIT_NETWORK, FIXED_SITES, HACKADEMY_NETWORK, MAPIT_NETWORK } from './fixedSites.js';
 
 /** How much stands behind a network's gateway: one machine, a few, or today's inner
  *  router, switch and chain of hidden segments. */
@@ -89,7 +89,7 @@ export const RIDGEMONT = 'Ridgemont';
 type Town = { readonly region: number; readonly index: number; readonly name: string };
 
 /** How big a town the world draws is. */
-type SizeClass = 'village' | 'town' | 'city';
+export type SizeClass = 'village' | 'town' | 'city';
 
 /** The fewest and the most of something a town keeps. */
 type Range = { readonly min: number; readonly max: number };
@@ -156,6 +156,21 @@ const TOWN_ROWS: readonly DrawnTown[] = [
 
 /** The name of the region `town` stands in. */
 const regionOf = (town: Town): string => REGIONS[town.region].name;
+
+/** A town as anything that lists the world's towns reads it. */
+export type WorldTown = {
+  readonly name: string;
+  readonly size: SizeClass;
+  /** The name of the region it stands in. */
+  readonly region: string;
+};
+
+/** Every town the world declares, in the order it declared them. */
+export const TOWNS: readonly WorldTown[] = [RIDGEMONT_ROW, MILLBROOK, ...TOWN_ROWS].map((town) => ({
+  name: town.name,
+  size: town.size,
+  region: regionOf(town),
+}));
 
 /** A network as a town declares it, before it has a key or a town. The town's council
  *  keeps its directory: a page on its site linking every institution in the town. */
@@ -744,6 +759,8 @@ const ADDRESS_BY_KEY: ReadonlyMap<string, string> = new Map([
   // hackademy came after every corporation, so it answers after them all: no address
   // anybody already holds moves to make room for it.
   [HACKADEMY_NETWORK, placelessAddress(1 + LANDMARK_CORPORATIONS.length + CORPORATIONS.length)],
+  // mapit came after hackademy and answers after it, so again nobody moves.
+  [MAPIT_NETWORK, placelessAddress(2 + LANDMARK_CORPORATIONS.length + CORPORATIONS.length)],
   ...DRAWN_TOWNS.flatMap((drawn) => townAddresses(drawn.town, drawn.networks)),
   // Ridgemont's drawn networks answer after its landmarks, at the places their keys hold.
   ...RIDGEMONT_DRAWN.map((network, index): [string, string] => [

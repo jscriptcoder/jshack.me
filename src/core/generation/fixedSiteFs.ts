@@ -43,7 +43,13 @@ import { FINDIT_FRONT_PAGE } from '../findit/page.js';
 import type { Directory, FileEntry } from '../filesystem/types.js';
 
 import { HACKADEMY_PAGES } from '../hackademy/pages.js';
-import { FINDIT_NETWORK, HACKADEMY_NETWORK, type FixedSite } from './fixedSites.js';
+import { MAPIT_PAGES } from '../mapit/pages.js';
+import {
+  FINDIT_NETWORK,
+  HACKADEMY_NETWORK,
+  MAPIT_NETWORK,
+  type FixedSite,
+} from './fixedSites.js';
 
 /** The chance a fixed site's root password is one a wordlist holds: none. It is a real
  *  host run by people who meant it to stay up, so the way in is the software it runs,
@@ -60,6 +66,7 @@ const configFile = (content: string): FileEntry => file(content, SERVICE_CONFIG_
 const WEB_ROOTS: ReadonlyMap<string, Readonly<Record<string, string>>> = new Map([
   [FINDIT_NETWORK, { 'index.html': FINDIT_FRONT_PAGE }],
   [HACKADEMY_NETWORK, HACKADEMY_PAGES],
+  [MAPIT_NETWORK, MAPIT_PAGES],
 ]);
 
 /**
