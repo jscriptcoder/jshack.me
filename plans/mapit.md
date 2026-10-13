@@ -1,8 +1,8 @@
 # Plan: mapit.io, a public map of the world
 
-**Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-13. Slice 1 is merged
-(v0.376.0, #673). Slice 2 is next: its acceptance criteria are confirmed by the owner and no code
-is written yet.
+**Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-13. Slices 1 and 2 are
+merged (v0.376.0, #673; v0.377.0, #674). Slice 3 is next: its acceptance criteria are not yet
+confirmed, and it starts by measuring (see the slice).
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 
@@ -248,7 +248,7 @@ address is resolved by the server.
   two there: Ashby's boxes (2.15 ms against 2 ms) and findit's generated web (1,170 ms against
   1,000 ms). The bundle budget passed at 272,202 B. Not looked into.
 
-### Slice 2: a town's page lists its places
+### Slice 2: a town's page lists its places (v0.377.0, #674, merged)
 
 **Value**: a player who follows a town on the map reads every public place in it and can follow
 any of them to its site.
@@ -279,6 +279,31 @@ region's legend turned into links.
 **First failing test**: Millbrook's page lists the nine places a search would list there, and
 none of its homes.
 **Wire-check**: `testMapit.ts` serves every town's page byte for byte.
+**As built**:
+
+- A place is on a town's page by `placesIn` (`core/mapit/pages.ts`): it stands in the town,
+  publishes a site and is not unlisted. A test holds every page to what findit's generated index
+  lists for that town, so the two cannot drift apart.
+- Names are written as the world declares them, with no HTML escaping, so `curl` shows
+  `Brew & Code` and `Yates's Café` as `lynx` does. The owner was asked and approved it. The
+  names hold only `&`, `'` and `é` beyond plain characters today; a name holding `<` would
+  break its row, and nothing fails when one is declared.
+- A town's page is titled `<Town> - mapit.io`. Its link back reads the region's name.
+- The count line reads `places` for any count. No town lists fewer than six, so the singular
+  has no test and is not written.
+- The legend test pins the eleven rows with their counts and the total of 284, so a town or a
+  place added to the world changes it; "Adding to the world" says so.
+- Ridgemont's columns add up to 80 with their link numbers and gaps; a test holds every page,
+  as `lynx` lays it out, to 80.
+- Wire-checks: `testMapit` 18 of 18, `testFindit` 19 of 19, `testHackademy` 21 of 21,
+  `testRestoreSite mapit.io` 13 of 13. Mutation: 96 mutants, 70 killed and 26 reported
+  survived (eleven module-load mutants killed by hand, one real and now tested, fourteen HTML
+  scaffolding a parser repairs).
+- The full suite failed one unrelated test by timeout on the machine it ran on, and `main`
+  failed the same one there: `relations.test.ts`, "keeps no shortcut to a client on any other
+  box of the office", about 39 s against a 30 s limit in a full run. It passes alone. Not
+  looked into.
+- `npm run build` was not re-run, so the two timing budgets from slice 1 are still unexamined.
 
 ### Slice 3: a town's page draws its plan
 
