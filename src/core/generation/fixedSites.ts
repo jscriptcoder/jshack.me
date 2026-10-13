@@ -40,8 +40,15 @@ const HACKADEMY: FixedSite = {
   place: { category: 'hacker', place: 'the school' },
 };
 
+const MAPIT: FixedSite = {
+  key: 'mapit.io',
+  domain: 'mapit.io',
+  hostname: 'mapit',
+  place: { category: 'hacker', place: 'the map room' },
+};
+
 /** Every fixed site, in the order their addresses were handed out. */
-export const FIXED_SITES: readonly FixedSite[] = [FINDIT, HACKADEMY];
+export const FIXED_SITES: readonly FixedSite[] = [FINDIT, HACKADEMY, MAPIT];
 
 /** The fixed site known by `key`, or `undefined` for any other network. */
 export const fixedSite = (key: string): FixedSite | undefined =>
@@ -54,3 +61,5 @@ export const FINDIT_DOMAIN = FINDIT.domain;
 export const FINDIT_HOSTNAME = FINDIT.hostname;
 
 export const HACKADEMY_NETWORK = HACKADEMY.key;
+
+export const MAPIT_NETWORK = MAPIT.key;

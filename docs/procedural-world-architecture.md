@@ -249,6 +249,9 @@ than its gateway's ssh from outside.
   name must keep every branch ESSID within 32 characters (ten letters fits). Expect its own
   networks and the gateways of the corporations branching there to move, and nothing else;
   prove it with the dump. Add it to `testTowns` and run `WORLD_SWEEP=full` and `checkBudgets`.
+  Then draw it on its region's map: mapit.io's drawing of Harrow Valley is written by hand
+  (`HARROW_VALLEY_DRAWING`, `core/mapit/pages.ts`), and `mapit.test.ts` fails until the new
+  town stands on it beside the mark of its size.
 - **A region**: append to `REGIONS` with a first octet that is realistic and not `193`, and
   teach `isPublicIp` nothing: it reads `REGION_FIRST_OCTETS`.
 - **A hand-written network in a drawn town or in Ridgemont**: declare it after what the town

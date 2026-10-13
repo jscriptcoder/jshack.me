@@ -23,6 +23,7 @@ const SCANNER = generateIdentity();
 describe.each([
   ['findit.io', 'findit'],
   ['hackademy.io', 'hackademy'],
+  ['mapit.io', 'mapit'],
 ])('reaching the box %s runs on', (key, hostname) => {
   const deps = {
     findNetworkByPublicIp: async () => ({

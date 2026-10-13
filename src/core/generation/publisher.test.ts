@@ -159,3 +159,36 @@ describe('hackademy.io, where the world teaches itself', () => {
     expect(publisherIp('hackademy.io')).toBeUndefined();
   });
 });
+
+describe('mapit.io, where the world is drawn', () => {
+  it('answers its domain from anywhere, at an address of the reserved kind', async () => {
+    const address = siteAddress('mapit.io');
+    expect(address).toBeDefined();
+    expect(address!.startsWith(`${PLACELESS_FIRST_OCTET}.`)).toBe(true);
+    expect(isPublicIp(address!)).toBe(true);
+    const resolved = await resolveName({
+      essid: 'APT-3B-WIFI',
+      name: 'mapit.io',
+      resolveOccupants: async () => [],
+    });
+    expect(resolved).toEqual({ fqdn: 'mapit.io', ip: address });
+  });
+
+  it('shares its address with no institution, and with neither other fixed site', () => {
+    const institutions = Object.keys(PUBLISHED_SITES).map((essid) => publisherIp(essid));
+    expect([
+      ...institutions,
+      siteAddress('findit.io'),
+      siteAddress('hackademy.io'),
+    ]).not.toContain(siteAddress('mapit.io'));
+  });
+
+  it('is found behind its own address, as its own network', () => {
+    expect(networkAt(siteAddress('mapit.io')!)).toBe('mapit.io');
+  });
+
+  it('is no wifi network anybody can join', () => {
+    expect(ESSID_CATALOG.some((entry) => entry.essid === 'mapit.io')).toBe(false);
+    expect(publisherIp('mapit.io')).toBeUndefined();
+  });
+});

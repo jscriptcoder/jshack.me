@@ -16,6 +16,7 @@ import {
   publicAddress,
   REGION_FIRST_OCTETS,
   RIDGEMONT,
+  TOWNS,
   type DeclaredNetwork,
 } from './world.js';
 import { generateHomeLan } from './generateHomeLan.js';
@@ -2478,12 +2479,13 @@ describe("Ridgemont's addresses", () => {
     }
   });
 
-  it('answers findit, hackademy and every corporation in the placeless block', () => {
+  it('answers every fixed site and every corporation in the placeless block', () => {
     const corporations = landmarks().filter((network) => network.category === 'corporate');
     expect(corporations).toHaveLength(20);
     for (const key of [
       FINDIT_NETWORK,
       'hackademy.io',
+      'mapit.io',
       ...corporations.map((network) => network.key),
     ]) {
       const address = publicAddress(key);
@@ -2492,13 +2494,14 @@ describe("Ridgemont's addresses", () => {
     }
   });
 
-  it('keeps findit, hackademy and the landmarks at the addresses they were given', () => {
+  it('keeps the fixed sites and the landmarks at the addresses they were given', () => {
     // An address that moved would strand every note, log line and script a player holds
     // about the network, so the catalog only ever grows at its end.
     expect(
       [
         FINDIT_NETWORK,
         'hackademy.io',
+        'mapit.io',
         'ACME-CORP',
         'NAKATOMI-PLAZA',
         'BREW-AND-CODE',
@@ -2507,6 +2510,7 @@ describe("Ridgemont's addresses", () => {
     ).toEqual([
       [FINDIT_NETWORK, '193.1.0.2'],
       ['hackademy.io', '193.249.140.121'],
+      ['mapit.io', '193.10.253.15'],
       ['ACME-CORP', '193.16.112.149'],
       ['NAKATOMI-PLAZA', '193.55.203.159'],
       ['BREW-AND-CODE', '87.1.159.19'],
@@ -2918,5 +2922,31 @@ describe('the regions of the world', () => {
     for (const octet of REGION_FIRST_OCTETS) {
       expect(octet).not.toBe(PLACELESS_FIRST_OCTET);
     }
+  });
+});
+
+describe('the towns of the world', () => {
+  it('are every town a network stands in, in the order the world declared them', () => {
+    const stoodIn = [...new Set(DECLARED_NETWORKS.flatMap((network) => network.town ?? []))];
+    expect(TOWNS.map((town) => town.name)).toEqual(stoodIn);
+  });
+
+  it('each name the region its networks name', () => {
+    for (const town of TOWNS) {
+      const regions = new Set(
+        DECLARED_NETWORKS.filter((network) => network.town === town.name).map(
+          (network) => network.region,
+        ),
+      );
+      expect([...regions], town.name).toEqual([town.region]);
+    }
+  });
+
+  it('are sized as the world draws them: two cities, three towns, the rest villages', () => {
+    const named = (size: string): readonly string[] =>
+      TOWNS.filter((town) => town.size === size).map((town) => town.name);
+    expect(named('city')).toEqual(['Ridgemont', 'Kingsford']);
+    expect(named('town')).toEqual(['Oakhurst', 'Wexcombe', 'Stonebury']);
+    expect(named('village')).toHaveLength(TOWNS.length - 5);
   });
 });

@@ -29,6 +29,7 @@ const read = (tree: Directory, path: string): string | null => {
 describe.each([
   ['findit.io', 'findit'],
   ['hackademy.io', 'hackademy'],
+  ['mapit.io', 'mapit'],
 ])('the box %s runs on', (key, hostname) => {
   const box = (): Directory => siteBox(key);
 
@@ -100,7 +101,8 @@ describe('the fixed sites, side by side', () => {
       ?.split(':')[1];
 
   it('keep a root password each, so rooting one opens nothing on the other', () => {
-    expect(rootHash('findit.io')).not.toBe(rootHash('hackademy.io'));
+    const hashes = ['findit.io', 'hackademy.io', 'mapit.io'].map(rootHash);
+    expect(new Set(hashes).size).toBe(hashes.length);
   });
 });
 

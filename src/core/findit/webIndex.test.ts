@@ -961,3 +961,15 @@ describe('a site that is its own gateway', () => {
     expect(web.find((page) => page.address === HACKADEMY_DOMAIN)?.title).toBe('Ada builds things');
   });
 });
+
+describe('the map of the world, on the web findit searches', () => {
+  it('comes first for anybody who asks for a map', async () => {
+    expect(rankPages(await indexWith(), 'map')[0]?.address).toBe('mapit.io');
+  });
+
+  it('is found by the name of the region it draws', async () => {
+    expect(rankPages(await indexWith(), 'Harrow Valley').map((page) => page.address)).toContain(
+      'mapit.io',
+    );
+  });
+});
