@@ -10,7 +10,14 @@
  * reader can follow is listed beneath the drawing instead.
  */
 
-import { HARROW_VALLEY, TOWNS, type SizeClass, type WorldTown } from '../generation/world.js';
+import {
+  DECLARED_NETWORKS,
+  HARROW_VALLEY,
+  TOWNS,
+  type DeclaredNetwork,
+  type SizeClass,
+  type WorldTown,
+} from '../generation/world.js';
 
 /**
  * Harrow Valley, drawn by hand. Every town the world declares in the region stands on it
@@ -53,7 +60,31 @@ const SIZES_LARGEST_FIRST: readonly SizeClass[] = ['city', 'town', 'village'];
 const townsBySize = (): readonly WorldTown[] =>
   SIZES_LARGEST_FIRST.flatMap((size) => TOWNS.filter((town) => town.size === size));
 
-const townRow = (town: WorldTown): string => `<tr><td>${town.name}</td><td>${town.size}</td></tr>`;
+/** A network the map shows: one that publishes a site. */
+type MappedPlace = DeclaredNetwork & { readonly site: NonNullable<DeclaredNetwork['site']> };
+
+/**
+ * The places of a town the map shows, in the order the town declares them: every network
+ * standing there whose site a search would list. A home publishes nothing, and a site
+ * that asks crawlers to stay away is left to be found the way it always was.
+ */
+const placesIn = (town: WorldTown): readonly MappedPlace[] =>
+  DECLARED_NETWORKS.filter(
+    (network): network is MappedPlace =>
+      network.town === town.name && network.site !== undefined && network.unlisted !== true,
+  );
+
+/** What kind of place it is: the kind of shop or practice where it has one, and
+ *  otherwise the category every network has. */
+const kindOf = (place: MappedPlace): string => place.subtype ?? place.category;
+
+/** Where a town's page is served, under the document root. */
+const townPath = (town: WorldTown): string => `${town.name.toLowerCase()}.html`;
+
+/** A town's row in its region's legend: the way to its page, how big it is, and how many
+ *  places that page lists. */
+const townRow = (town: WorldTown): string =>
+  `<tr><td><a href="/${townPath(town)}">${town.name}</a></td><td>${town.size}</td><td>${placesIn(town).length} places</td></tr>`;
 
 /** The front page: the region's drawing, and beneath it every town the drawing names. */
 const REGION_PAGE = [
@@ -75,7 +106,34 @@ const REGION_PAGE = [
   '',
 ].join('\n');
 
+/** A place's row. Its name is the link, so the number `lynx` writes in front of a link
+ *  opens the row; the domain is spelled out beside it for `curl`, which follows nothing. */
+const placeRow = (place: MappedPlace): string =>
+  `<tr><td><a href="http://${place.site.domain}/">${place.site.name}</a></td><td>${kindOf(place)}</td><td>${place.site.domain}</td></tr>`;
+
+/** A town's page: what it is, and every place of it the map shows. */
+const townPage = (town: WorldTown): string => {
+  const places = placesIn(town);
+  return [
+    '<html>',
+    '<head>',
+    `<title>${town.name} - mapit.io</title>`,
+    '</head>',
+    '<body>',
+    `<h1>${town.name}</h1>`,
+    `<p>A ${town.size} in ${town.region}. ${places.length} places.</p>`,
+    '<table>',
+    ...places.map(placeRow),
+    '</table>',
+    `<p><a href="/">${town.region}</a></p>`,
+    '</body>',
+    '</html>',
+    '',
+  ].join('\n');
+};
+
 /** Every file the site serves, by its path under the document root. */
 export const MAPIT_PAGES: Readonly<Record<string, string>> = {
   'index.html': REGION_PAGE,
+  ...Object.fromEntries(TOWNS.map((town) => [townPath(town), townPage(town)])),
 };

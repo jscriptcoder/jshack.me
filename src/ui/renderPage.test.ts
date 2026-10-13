@@ -656,3 +656,52 @@ describe("mapit.io's front page, as a reader of it sees it", () => {
     expect(lines.filter((line) => line.length > 78)).toEqual([]);
   });
 });
+
+describe("a town's page on mapit.io, as a reader of it sees it", () => {
+  it("opens each row with its link's number, the columns lined up, and the way back last", () => {
+    expect(asLines(MAPIT_PAGES['millbrook.html'] ?? '')).toEqual([
+      'Millbrook',
+      '',
+      'A village in Harrow Valley. 9 places.',
+      '',
+      '[1]Millbrook Town Council       government  millbrook.gov',
+      '[2]Millbrook Police Department  government  millbrookpd.gov',
+      '[3]Millbrook Public Library     public      millbrooklibrary.org',
+      "[4]Yates's Café                 cafe        yatesscafe.com",
+      '[5]Silverbirch Coffee           coffee-bar  silverbirchcoffee.com',
+      "[6]Warrington's Bakery          bakery      warringtonsbakery.com",
+      '[7]Broad Street Haulage         logistics   broadstreethaulage.com',
+      '[8]Millbrook Cottage Hospital   hospital    millbrookhospital.org',
+      '[9]Gateway Dental               dentist     gatewaydental.com',
+      '',
+      '[10]Harrow Valley',
+    ]);
+  });
+
+  it('shows a name with an ampersand in it as the place writes it', () => {
+    const rows = asLines(MAPIT_PAGES['ridgemont.html'] ?? '');
+
+    expect(rows.filter((row) => row.includes('Brew & Code'))).toHaveLength(1);
+  });
+});
+
+describe('every page of mapit.io, as a reader of it sees it', () => {
+  it('runs no line past 80 columns, link numbers included, so none wraps in a terminal', () => {
+    const pages = Object.entries(MAPIT_PAGES);
+    const tooWide = pages.flatMap(([name, html]) =>
+      asLines(html)
+        .filter((line) => line.length > 80)
+        .map((line) => `${name}: ${line}`),
+    );
+
+    expect(pages.length).toBeGreaterThan(1);
+    expect(tooWide).toEqual([]);
+  });
+
+  it("opens each town's row on the front page with the number that follows it", () => {
+    const rows = asLines(MAPIT_PAGES['index.html'] ?? '');
+
+    expect(rows).toContain('[1]Ridgemont    city     102 places');
+    expect(rows).toContain('[6]Millbrook    village  9 places');
+  });
+});
