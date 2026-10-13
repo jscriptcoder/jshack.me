@@ -1,7 +1,8 @@
 # Plan: mapit.io, a public map of the world
 
 **Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-13. Slice 1 is merged
-(v0.376.0, #673); slice 2 is next.
+(v0.376.0, #673). Slice 2 is next: its acceptance criteria are confirmed by the owner and no code
+is written yet.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 
@@ -101,10 +102,13 @@ All grilled singly.
    road (does not hold a city's hundred markers).
 8. **It is called `mapit.io`.** Rejected: `wayfind.io`, `atlas.io`, and a path on findit.io,
    which would put the atlas on findit's disk.
-9. **A legend row prints a place's name, kind and domain.** The domain is the link to its site.
-   No address, no town's address block and no wifi name is printed anywhere on the map: an
-   address is what `nslookup` is for, a town's block says where its hidden places answer, and
-   matching a wifi name to a place is left to the player.
+9. **A legend row prints a place's name, kind and domain.** The name is the link to its site,
+   so the number `lynx` writes in front of the link opens the row, as it does on a findit
+   result (settled with slice 2, 2026-10-13). No address, no town's address block and no wifi
+   name is printed anywhere on the map: an address is what `nslookup` is for, a town's block
+   says where its hidden places answer, and matching a wifi name to a place is left to the
+   player. Rejected: the domain as the link (the number lands mid-row), and dropping the kind
+   to save width (for a name like `Maddox & Lindley` the kind is all that says what it is).
 10. **Two things point to it.** Hackademy names it once, beside findit, and findit's front page
     links to it. Rejected: leaving it to be found by a search alone.
 11. **`mapit.io/` is Harrow Valley.** There are two levels until a second region is declared; a
@@ -127,8 +131,10 @@ Forced by the above or settled as detail; none of these was a separate choice.
   legend, so the legend's links are the first on the page and the link back to the region comes
   after them.
 - **There is no search box.** A printed atlas has no function behind it; searching is findit's.
-- **A page is at most 78 columns wide.** A test holds every town's plan and legend inside it, so
-  a town that outgrows its canvas fails rather than wraps.
+- **A drawing is 78 columns wide and a page at most 80.** Ridgemont's legend needs the 80: its
+  longest name (31), kind (11) and domain (29) with a three-digit link number and the column
+  gaps come to exactly that, where every other town fits 76. A test holds every page inside
+  it, so a town that outgrows it fails rather than wraps.
 - **The pages are `/` and `/<town>.html`.**
 - **The front page is written to be found.** Its title and first line name the map and Harrow
   Valley, so a findit search for either returns it.
@@ -167,8 +173,8 @@ Forced by the above or settled as detail; none of these was a separate choice.
   place's site under the marker's number.
 - The eleven plans show 284 places between them, and no home, unlisted site, branch or placeless
   corporation.
-- No page prints an address, an address block or a wifi name, and no line of any page is wider
-  than 78 columns.
+- No page prints an address, an address block or a wifi name. No line of a drawing is wider
+  than 78 columns and no line of a page wider than 80.
 - A test fails when the world declares a town its region's drawing does not name.
 - Hackademy names mapit.io once, and findit's front page links to it.
 - `scripts/restoreSite.ts mapit.io` returns a defaced map to the generated one.
@@ -251,19 +257,25 @@ region's legend turned into links.
 **Branch**: `feat/mapit-town-pages`.
 **Acceptance criteria**:
 
-- Each town in the region's legend is a link to `/<town>.html`, and its row gains the number of
-  places that page lists.
-- A town's page is headed with its name, its size class and its region.
+- Each town in the region's legend is a link to `/<town>.html`, the town's name in lower case,
+  and its row gains the number of places that page lists (`[1]Ridgemont  city  102 places`).
+- A town's page is headed with its name, then one line giving its size class, its region and
+  its count (`A village in Harrow Valley. 9 places.`).
 - Its legend has one row for every network that publishes a site, is not unlisted, and stands
   in that town, and no other row: no home, no unlisted site, no branch, no corporation that
   stands in no town.
-- A row prints the place's name, its kind and its domain, and the domain is a link to the
-  place's site. The row's number is the number `lynx` gives that link.
-- A link back to the valley follows the legend.
+- A row is the place's name as a link to its site (`http://<domain>/`), then its kind, then its
+  domain as text. Rows keep the order the town declares its places in.
+- The legend's links are the first on the page, so a row's number is the number `lynx` gives its
+  link. A link back to the valley follows the legend.
+- A name holding `&` or an apostrophe (`Brew & Code`, `Yates's Café`; 38 names do) reads as
+  written in `lynx` and in `curl`.
 - No page prints any network's public address, any town's address block, or any wifi name.
-- No line of any page, as `lynx` shows it with its link numbers, is wider than 78 columns.
-- The eleven pages list 284 places.
+- No line of any page, as `lynx` shows it with its link numbers, is wider than 80 columns.
+- The eleven pages list 284 places, and the count on the front page is the number of rows on
+  that town's page.
 
+**Confirmed by the owner** 2026-10-13.
 **First failing test**: Millbrook's page lists the nine places a search would list there, and
 none of its homes.
 **Wire-check**: `testMapit.ts` serves every town's page byte for byte.
