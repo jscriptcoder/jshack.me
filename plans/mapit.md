@@ -1,7 +1,6 @@
 # Plan: mapit.io, a public map of the world
 
-**Status**: Grilled. Decisions confirmed by the owner 2026-10-13. Not yet sliced: the outline at
-the end is the order agreed in the grill, and each slice still needs its acceptance criteria.
+**Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-13. Slice 1 is next.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 
@@ -143,10 +142,165 @@ Forced by the above or settled as detail; none of these was a separate choice.
 - **The backlog's map entry is rewritten at close-out**, and with it the note that the world
   map of regions waits for a second region.
 
-## Slices (outline, not yet planned)
+- **A drawing is plain ASCII.** No box-drawing or other non-ASCII character, and none of `<`,
+  `>` or `&`, so every font, `lynx` and `curl` show the same picture.
+- **The region's legend lists cities, then towns, then villages**, each size in the order the
+  world declared its towns. A town's legend keeps the order the town declares its places in.
+- **A place's kind is its subtype where it has one, and its category where it has none**, as a
+  landmark has none.
 
-1. **mapit.io exists.** The hand-drawn valley, its legend with each town's size and count, and
-   each town's page as its legend alone. findit lists the site.
-2. **The town plans are drawn** above those legends.
-3. **The pointers.** Hackademy's sentence and the link on findit's front page.
-4. **Close-out.** The as-built docs, the backlog entry, and one browser run across the slices.
+## Left as it is
+
+- **findit.** Its search, its index and its results page are untouched; only its front page
+  gains a link.
+- **Every existing address.** mapit.io answers in the placeless block after hackademy.io, so no
+  network moves.
+- **Town rows.** No coordinate is added to them.
+- **One browser run at close-out** covers every slice.
+
+## Done when
+
+- `lynx http://mapit.io` shows a drawing of Harrow Valley naming all eleven towns, and beneath
+  it a link to each with its size and its count of places.
+- Following a town shows its plan, one numbered marker per place, and beneath it a link to each
+  place's site under the marker's number.
+- The eleven plans show 284 places between them, and no home, unlisted site, branch or placeless
+  corporation.
+- No page prints an address, an address block or a wifi name, and no line of any page is wider
+  than 78 columns.
+- A test fails when the world declares a town its region's drawing does not name.
+- Hackademy names mapit.io once, and findit's front page links to it.
+- `scripts/restoreSite.ts mapit.io` returns a defaced map to the generated one.
+
+## Out of scope
+
+- Fog of war, and any record of what a player has found (decision 1).
+- A live view: a dark site dropping off the map, a player's page appearing on it (decision 3).
+- A search box on mapit.io.
+- A page of the world's regions (decision 11).
+- Coordinates as data, and anything that would read them, such as `ping` by distance.
+- Travel between towns.
+
+## Slices
+
+One PR per slice, each cut from `main` after the one before it merges. A behaviour-changing
+slice starts from a failing test; its acceptance criteria are confirmed with the owner before
+any code. Each PR bumps the version. The pages are pure functions of the declared world, so
+their tests are unit tests in `core/`; what `lynx` makes of a page is a jsdom test in `ui/`.
+
+### Slice 1: mapit.io answers with the map of Harrow Valley
+
+**Value**: a player who opens `mapit.io` sees the valley and every town in it.
+**Path**: a third row of `FIXED_SITES` (`generation/fixedSites.ts`); its address after
+hackademy.io's (`world.ts`, `ADDRESS_BY_KEY`); its pages in `WEB_ROOTS`
+(`generation/fixedSiteFs.ts`), from a new `core/mapit/`.
+**Branch**: `feat/mapit-valley`.
+**Acceptance criteria**:
+
+- `mapit.io` resolves from any network, and its front page is served to `curl` and `lynx`.
+- The front page is a drawing of Harrow Valley. Every town the world declares in the region is
+  named on it, beside the marker of its size class, and the drawing has a key to the three
+  markers.
+- Beneath the drawing the legend names each town with its size class: cities, then towns, then
+  villages.
+- No line of the page is wider than 78 columns.
+- A test fails when a town is declared in the region and the drawing does not name it.
+- A findit search for `map`, and one for `Harrow Valley`, returns mapit.io.
+- The box is a fixed site like the other two: it scans as `22` and `80`, refuses a wrong
+  password, logs a visit in its own `access.log`, and `scripts/restoreSite.ts mapit.io` is
+  accepted.
+- No other network's address changes.
+
+**Shown to the owner first**: the drawing itself, before it is committed.
+**First failing test**: the front page names every town of Harrow Valley.
+**Wire-check**: a new `scripts/testMapit.ts`, modelled on `testHackademy.ts`: every generated
+page is served byte for byte at the site's address, the visit is logged, the scan finds both
+doors, and a findit search answers with it. Nothing in `api/` changes, but a fixed site's
+address is resolved by the server.
+**Left for the PR**: the version bump, and the "Adding to the world" step in
+`docs/procedural-world-architecture.md`.
+
+### Slice 2: a town's page lists its places
+
+**Value**: a player who follows a town on the map reads every public place in it and can follow
+any of them to its site.
+**Path**: `core/mapit/`: the rule for a place being on the map, a page per town, and the
+region's legend turned into links.
+**Branch**: `feat/mapit-town-pages`.
+**Acceptance criteria**:
+
+- Each town in the region's legend is a link to `/<town>.html`, and its row gains the number of
+  places that page lists.
+- A town's page is headed with its name, its size class and its region.
+- Its legend has one row for every network that publishes a site, is not unlisted, and stands
+  in that town, and no other row: no home, no unlisted site, no branch, no corporation that
+  stands in no town.
+- A row prints the place's name, its kind and its domain, and the domain is a link to the
+  place's site. The row's number is the number `lynx` gives that link.
+- A link back to the valley follows the legend.
+- No page prints any network's public address, any town's address block, or any wifi name.
+- No line of any page, as `lynx` shows it with its link numbers, is wider than 78 columns.
+- The eleven pages list 284 places.
+
+**First failing test**: Millbrook's page lists the nine places a search would list there, and
+none of its homes.
+**Wire-check**: `testMapit.ts` serves every town's page byte for byte.
+
+### Slice 3: a town's page draws its plan
+
+**Value**: a player sees where a town's places stand, each town with a face of its own.
+**Path**: `core/mapit/`: a street grid and a plot for every place, drawn on a new stream
+`town-plan-<town key>`, above the legend slice 2 built.
+**Branch**: `feat/mapit-town-plans`.
+**Measure first**: lay out all eleven towns with a throwaway script before settling the three
+canvas sizes, and show the owner Ridgemont's plan (102 markers) and a village's. If a hundred
+markers do not read on one canvas, that goes back to the owner as a question before any code.
+**Acceptance criteria**:
+
+- A town's page shows a plan above its legend: streets, and one numbered marker for every row
+  of the legend, numbered as the legend is.
+- No two markers share a cell or touch, and no marker stands on a street.
+- The canvas is sized by the town's class, and no line of it is wider than 78 columns.
+- The same town draws the same plan every time. Two towns of one size draw different streets.
+- A town given one more place draws a plan with one more marker, with nothing changed by hand.
+- The plan holds no link, so `curl` shows it as `lynx` does.
+
+**First failing test**: a village's plan carries one marker for each place in its legend.
+**Wire-check**: `testMapit.ts`, unchanged in shape: the pages it compares now carry the plans.
+**Left for the PR**: the new stream's row in the "Seeds and streams" table of
+`docs/world-content-architecture.md`.
+
+### Slice 4: hackademy and findit point to the map
+
+**Value**: a player learns the map exists from the two places they already visit.
+**Path**: `core/hackademy/pages.ts`, the web chapter's "Finding sites at all";
+`core/findit/page.ts`, the front page alone.
+**Branch**: `feat/mapit-pointers`.
+**Acceptance criteria**:
+
+- Hackademy's web chapter names mapit.io once, in the paragraph that names findit, and no other
+  page of the site names it.
+- findit's front page carries a link to `http://mapit.io/`.
+- A findit results page carries no such link, and its first result is still link `[1]`.
+
+**First failing test**: findit's front page links to mapit.io, and a search's first result is
+still link 1.
+**Wire-check**: `testHackademy.ts` and `testFindit.ts`, which compare served pages with the
+generated ones.
+**Note**: both pages are files on their boxes. A findit or a hackademy somebody has already
+rewritten in dev or prod keeps its rewritten page until `restoreSite.ts` is run on it.
+**Left for the PR**: decision 7 of `docs/tutorials-architecture.md` ("findit is named once")
+reworded for the second name.
+
+### Last slice: close-out
+
+- `docs/discovery-architecture.md` gains mapit.io as built: the rule for a place being on the
+  map, the two levels, the hand-drawn region and its test, the seeded plans, and the two
+  pointers.
+- `docs/backlog.md`: "The map" under "Procedural world deferred" is rewritten as shipped, with
+  what was dropped (decision 1) and what waits (a page of regions, a live view, a search box).
+- `docs/project-status.md` records the epic, and the handbook's codebase map and glossary name
+  the new site.
+- One browser run with the `e2e` skill covers every slice: the valley and a city's plan in
+  `lynx`, a place followed to its site, the two pointers, and a defaced page restored.
+- This file is deleted.
