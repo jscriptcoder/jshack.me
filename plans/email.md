@@ -1,7 +1,8 @@
 # Plan: email, at emailit.io
 
 **Status**: Grilled, sliced and gap-reviewed. Decisions 1–27 confirmed by the owner 2026-10-14,
-28–41 from a find-gaps review the same day. Slice 1 is planned (below) and next to build.
+28–41 from a find-gaps review the same day. Slice 1 shipped at v0.384.0 (#681, 2026-10-15);
+slice 2 is next and needs its plan.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 
@@ -252,7 +253,7 @@ Read in the code on this date.
 Each slice is its own PR and version bump. A slice that changes `api/` gets its `scripts/test*.ts`
 wire-check. One browser run at the end covers them all.
 
-1. **emailit.io and sign-up.** The fixed site and its front page, `curl -d`, and `/signup`:
+1. ✅ **emailit.io and sign-up** (v0.384.0, #681). The fixed site and its front page, `curl -d`, and `/signup`:
    validation, reserved handles, the daily cap, the hash, and the welcome mail stored (decisions
    38–40). Every other server answers a POST with 405, and the access log records the real method
    (decision 30). The real-password line on Intro. A player who signs up reads `Welcome, neo@emailit.io`; a second
@@ -275,6 +276,25 @@ wire-check. One browser run at the end covers them all.
 
 **Branch**: `feat/emailit-signup` · **Version**: 0.383.0 → 0.384.0 · **Class**: behaviour change ·
 **Delivery**: one PR against `main`.
+
+**As built (2026-10-15, #681, merged as `4cf9ef00`).** Shipped as planned, with these changes:
+
+- **`md5` hashes UTF-8 bytes now.** It hashed each UTF-16 code unit, so a non-ASCII password's
+  hash matched no real tool's. Fixed for every caller (the owner's call): every hash already in
+  the world is ASCII and unchanged, and a player whose Intro root password is non-ASCII no
+  longer matches the hash stored for it.
+- **Every reserved handle reads `"<handle>" is a reserved system name`**, Intro's wording, for
+  emailit's names as for Intro's. `root` and `admin` are in Intro's set only, so emailit's adds
+  five.
+- **The real-password line lives in `gameConfig.ts`** (`REAL_PASSWORD_WARNING`), beside the
+  password rule, so Intro and emailit.io read one constant.
+- **emailit.io answers at `193.26.109.162`**, the next placeless address after mapit.
+- **`SignUp` hands back the database's raw reply** and core reads it, so `api/network.ts` stays a
+  thin adapter. A failed reply, or a word the reader does not know, is a `500 signup_failed`.
+- **A form over 4,096 characters is refused** (`400 payload_invalid`) on both server fetch paths
+  before any lookup.
+- The migration `20261014000000_email.sql` is on jshack-dev and jshack-prod (pushed 2026-10-15).
+- The wire-check is `scripts/testEmailitSignup.ts` (16 checks).
 
 **Value.** A player signs up for `neo@emailit.io` with `curl -d` and is welcomed; the welcome mail
 waits in the tables for slice 3 to read. Every other web server answers a POST with a 405.
