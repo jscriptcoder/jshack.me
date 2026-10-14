@@ -43,7 +43,7 @@ import { formatPidfileContent } from '../src/core/services/pidfile.js';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 import { siteMachineIds } from '../src/core/findit/webIndex.js';
 import { DECLARED_NETWORKS } from '../src/core/generation/world.js';
-import { escapeHtml } from '../src/core/findit/page.js';
+import { escapeHtml, FINDIT_FRONT_PAGE } from '../src/core/findit/page.js';
 import { publicAddressOf } from './publicAddressOf.js';
 
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
@@ -233,8 +233,8 @@ const main = async () => {
   // 1. THE FRONT PAGE IS A FILE; A SEARCH IS NOT.
   const front = await fetchPath(FINDIT_IP, '/');
   check(
-    'findit serves its own front page, with the form that documents it',
-    front.status === 200 && contentOf(front.body).includes('<form action="/" method="GET">'),
+    'findit serves its own front page as generated: the form that documents it, and the map',
+    front.status === 200 && contentOf(front.body) === FINDIT_FRONT_PAGE,
     `status ${front.status}, ${contentOf(front.body).length} chars`,
   );
 

@@ -33,7 +33,8 @@ breaks one is a design change, not an edit.
    rule 2). A rename or removal fails the build instead of silently rotting a page.
 6. **Every example runs as written** on a new player's box: each chapter installs, with
    `# apt install …`, every tool it uses that a fresh box lacks, before its first example.
-7. **findit is named once**, in prose in the web chapter — the world's only pointer to it.
+7. **findit and mapit.io are named once**, in one paragraph of prose in the web chapter —
+   findit's only pointer, and one of mapit.io's two (findit's front page links to the map).
 8. **In-world voice.** The site is a fictional collective's wiki. No fourth wall; never the
    word "game".
 9. **Each chapter ends in Practice**, a short list of things to try on your own box, and links
@@ -79,7 +80,7 @@ words because the shell cannot parse `<bssid>`.
 6. **Services, versions and CVEs** — `ps`, `systemctl status`/`start`/`stop`, `apt update`/
    `list --upgradable`/`upgrade`; the CVE model without an attack; `msfconsole` described.
 7. **The web** — `curl` and `lynx` on hackademy.io and its `robots.txt`, your own nginx on
-   `localhost`, `gobuster http://localhost`; findit named.
+   `localhost`, `gobuster http://localhost`; findit and mapit.io named.
 8. **Traces** — `auth.log`, `kern.log` (every port scan, restart and crash) and `access.log`,
    read with `cat`/`tail`/`grep`. That a root can rewrite a log is said plainly.
 9. **Databases and other services** — your own `mysql` and `redis` (both opened by your own
@@ -102,8 +103,9 @@ browser gets it, through `resolveWebPath` and the box's own tree, and checks the
   link the next one (none for the last).
 - **The getting-in chapter** knocks on hackademy.io with `ssh` and aims `ssh`, `scp` and `ftp`
   at `localhost`.
-- **Every page**: reachable from the front page; findit named only in the web chapter; no
-  example names another host (an IPv4 address or a domain other than hackademy.io).
+- **Every page**: reachable from the front page; findit named only in the web chapter, and
+  mapit.io once there, beside it; no example names another host (an IPv4 address or a domain
+  other than hackademy.io).
 - **Every example** — a `<pre>` line starting at a `$ ` or `# ` prompt, on the site and in the
   README:
   - runs only registered commands (rule 5);
