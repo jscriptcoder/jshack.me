@@ -18,6 +18,7 @@ import {
   type SizeClass,
   type WorldTown,
 } from '../generation/world.js';
+import { drawTownPlan } from './townPlan.js';
 
 /**
  * Harrow Valley, drawn by hand. Every town the world declares in the region stands on it
@@ -111,7 +112,7 @@ const REGION_PAGE = [
 const placeRow = (place: MappedPlace): string =>
   `<tr><td><a href="http://${place.site.domain}/">${place.site.name}</a></td><td>${kindOf(place)}</td><td>${place.site.domain}</td></tr>`;
 
-/** A town's page: what it is, and every place of it the map shows. */
+/** A town's page: what it is, its plan, and every place of it the map shows. */
 const townPage = (town: WorldTown): string => {
   const places = placesIn(town);
   return [
@@ -122,6 +123,9 @@ const townPage = (town: WorldTown): string => {
     '<body>',
     `<h1>${town.name}</h1>`,
     `<p>A ${town.size} in ${town.region}. ${places.length} places.</p>`,
+    '<pre>',
+    ...drawTownPlan(town, places.length),
+    '</pre>',
     '<table>',
     ...places.map(placeRow),
     '</table>',

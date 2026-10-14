@@ -658,11 +658,25 @@ describe("mapit.io's front page, as a reader of it sees it", () => {
 });
 
 describe("a town's page on mapit.io, as a reader of it sees it", () => {
-  it("opens each row with its link's number, the columns lined up, and the way back last", () => {
+  it("shows the plan as it was drawn, then opens each row with its link's number, which is its marker's, and the way back last", () => {
     expect(asLines(MAPIT_PAGES['millbrook.html'] ?? '')).toEqual([
       'Millbrook',
       '',
       'A village in Harrow Valley. 9 places.',
+      '',
+      '+----------------------------------------------------------------------------+',
+      '|                             M I L L B R O O K                              |',
+      '|                                   |           |                            |',
+      '| 2           7     3               | 8 4       |         9                  |',
+      '|                                   |           |                            |',
+      '|-----------------------------------+-----------+----------------------------|',
+      '|                                   |           |                            |',
+      '|               1 6                 |         5 |                            |',
+      '|                                   |           |                            |',
+      '|                                   |           |                            |',
+      '|                                   |           |                            |',
+      '|                                   |           |                            |',
+      '+----------------------------------------------------------------------------+',
       '',
       '[1]Millbrook Town Council       government  millbrook.gov',
       '[2]Millbrook Police Department  government  millbrookpd.gov',

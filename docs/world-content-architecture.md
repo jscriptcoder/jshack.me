@@ -137,6 +137,7 @@ gateways on their own seed key or machine id.
 | `town-unlisted-<town key>` | which of a town's publishers keep their site off every search |
 | `relation-supplier-<key>` | which listed customer, and which of its working shares, keeps an unlisted business's invoice |
 | `relation-invoice-<key>-<ip>` | an invoice's number, date, total and the person who filed it |
+| `town-plan-<town key>` | a town's plan on mapit.io: how many streets cross it each way and where, then the plot each of its places' markers stands on |
 
 ## How big a network is
 
