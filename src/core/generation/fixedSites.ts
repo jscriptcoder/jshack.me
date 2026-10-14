@@ -72,3 +72,4 @@ export const HACKADEMY_NETWORK = HACKADEMY.key;
 export const MAPIT_NETWORK = MAPIT.key;
 
 export const EMAILIT_NETWORK = EMAILIT.key;
+export const EMAILIT_DOMAIN = EMAILIT.domain;
