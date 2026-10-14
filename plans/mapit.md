@@ -1,8 +1,8 @@
 # Plan: mapit.io, a public map of the world
 
 **Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-13. Slices 1 and 2 are
-merged (v0.376.0, #673; v0.377.0, #674). Slice 3 is next: its acceptance criteria are not yet
-confirmed, and it starts by measuring (see the slice).
+merged (v0.376.0, #673; v0.377.0, #674). Slice 3 is next: measured and grilled (decisions
+13 to 15), its acceptance criteria confirmed; code not started.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 
@@ -311,19 +311,47 @@ none of its homes.
 **Path**: `core/mapit/`: a street grid and a plot for every place, drawn on a new stream
 `town-plan-<town key>`, above the legend slice 2 built.
 **Branch**: `feat/mapit-town-plans`.
-**Measure first**: lay out all eleven towns with a throwaway script before settling the three
-canvas sizes, and show the owner Ridgemont's plan (102 markers) and a village's. If a hundred
-markers do not read on one canvas, that goes back to the owner as a question before any code.
-**Acceptance criteria**:
+**Measured** (2026-10-14, a throwaway layout of all eleven towns): a seeded grid of 1–3 long
+streets and 1–5 cross streets, with markers on every other row of a block, a gap between them
+and a cell clear of every street, holds a hundred markers on one 78-column canvas. Ridgemont
+fits its 102 at 29 rows (104 spots) and falls short at 27; at 33 it has 130. At their class
+heights Kingsford has 200 spots for 70, the towns 110 to 161 for 20 to 23, and the villages
+about 70 for 6 to 9. The owner was shown Ridgemont's plan and Millbrook's.
+**Decisions** (owner-confirmed 2026-10-14, grilled singly):
 
-- A town's page shows a plan above its legend: streets, and one numbered marker for every row
-  of the legend, numbered as the legend is.
-- No two markers share a cell or touch, and no marker stands on a street.
-- The canvas is sized by the town's class, and no line of it is wider than 78 columns.
+13. **Markers are scattered.** Each place takes a plot the town's stream picks, so declared
+    order shows nowhere on the plan and the plan reads as a map. Rejected: numbering the plots
+    in reading order, which is easy to search but puts every town's council, police and library
+    top-left and reads as a table.
+14. **A plan is sized by its town's class, and grows.** 13 rows for a village, 19 for a town,
+    33 for a city, all 78 columns. When a town's places outgrow the plots its streets leave,
+    the plan grows two rows at a time until every place fits, so a place added never fails.
+    Rejected: fixed heights with a test that fails (a hand-made change to add a place), and a
+    height fitted to each town's count (a village and a town of one count look alike).
+15. **A plan is framed and named.** The valley's frame, with the town's name spaced out on its
+    first row (`M I L L B R O O K`). No key line: the numbered list beneath is the key.
+    Rejected: a key row like the valley's, and a bare grid without frame or name.
+
+**Acceptance criteria** (confirmed by the owner 2026-10-14):
+
+- A town's page shows its plan between its summary line and its legend: a frame 78 columns
+  wide, the town's name spaced out on its first row, streets, and one numbered marker for every
+  row of the legend, numbered as the legend is.
+- No two markers touch, side by side, above and below or corner to corner, and no marker
+  touches a street or the frame.
+- Markers do not follow reading order: Ridgemont's plan, read left to right and top to bottom,
+  does not count up.
+- A village's plan is 13 rows, a town's 19 and a city's 33, unless its places do not fit, when
+  it is the least height two rows at a time above that which holds them all.
 - The same town draws the same plan every time. Two towns of one size draw different streets.
-- A town given one more place draws a plan with one more marker, with nothing changed by hand.
-- The plan holds no link, so `curl` shows it as `lynx` does.
+- A town given more places than its streets leave room for draws a taller plan with every
+  marker on it, with nothing changed by hand.
+- The plan is plain ASCII with none of `<`, `>` or `&`, and holds no link, so `curl` shows it
+  as `lynx` does and the legend's link numbers are unchanged.
 
+**Path detail**: the plan is drawn by a function of a town and its number of places, so a
+test can draw a town with more places than it has. The stream is keyed by the town's key
+(`r0/t1`), which `TOWNS` exports beside its name.
 **First failing test**: a village's plan carries one marker for each place in its legend.
 **Wire-check**: `testMapit.ts`, unchanged in shape: the pages it compares now carry the plans.
 **Left for the PR**: the new stream's row in the "Seeds and streams" table of
