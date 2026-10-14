@@ -1707,22 +1707,12 @@ describe('a chain broken beneath the box the player is standing on', () => {
     expect(popSession).not.toHaveBeenCalled();
   });
 
-  // One hop deep, the hop's parent is the player's own login, which no reboot can
-  // end — the box they stand on rebooting is the only way that leg goes, and the
-  // boot id already says so without a request.
-  it('asks nothing one hop deep', async () => {
-    const { env, askServer } = standingAtTopOf([leg('hop-a', 'web-01')], async () => new Set());
-
-    const result = expectSync(await runCommandLine(env, 'cat notes.txt', commands));
-
-    expect(contentOf(result.lines)).toContain('hello world');
-    expect(askServer).not.toHaveBeenCalled();
-  });
-
   /**
-   * The one box that can leave the network under a shell is another player's: its
-   * owner disconnects, the server ends every visitor's row, and the box is not there
-   * to carry a marker. So a shell standing on one asks the server, however shallow.
+   * One hop deep, a leg goes when either end of it leaves the network: the box the
+   * shell stands on, when it is another player's and its owner disconnects, or the
+   * player's own box beneath it, which takes every shell it opened with it. Neither
+   * leaves a marker on the box the shell is on, so a shell on any box but the player's
+   * own asks the server, however shallow.
    */
   describe('one hop deep', () => {
     const ESSID = 'BEAN-THERE-WIFI';
@@ -1774,17 +1764,56 @@ describe('a chain broken beneath the box the player is standing on', () => {
       expect(popSession).not.toHaveBeenCalled();
     });
 
-    // Neither can leave its network, and a reboot of either leaves a marker.
+    // Neither can leave its network, but the player's own box can leave from under them.
     it.each([
       ['a box the network generates', generatedId('machine')],
       ["the access point's gateway", generatedId('router')],
-    ])('asks nothing on %s', async (_box, machineId) => {
-      const { env, askServer } = oneHopOnto({ machineId }, async () => new Set());
+    ])('closes a shell on %s the server no longer holds open', async (_box, machineId) => {
+      const { env, popSession } = oneHopOnto({ machineId }, async () => new Set());
+
+      const result = expectSync(await runCommandLine(env, 'cat notes.txt', commands));
+
+      // Named as a player sees it: the id without its hash suffix (`desktop-28`).
+      const name = machineId.slice(0, machineId.lastIndexOf('-'));
+      expect(result.lines).toEqual([errorLine(`Connection to ${name} closed by remote host.`)]);
+      expect(popSession).toHaveBeenCalledTimes(1);
+    });
+
+    it('runs the line on a box the network generates while the server holds the shell open', async () => {
+      const { env, popSession } = oneHopOnto(
+        { machineId: generatedId('machine') },
+        async () => new Set(['hop-a']),
+      );
 
       const result = expectSync(await runCommandLine(env, 'cat notes.txt', commands));
 
       expect(contentOf(result.lines)).toContain('hello world');
-      expect(askServer).not.toHaveBeenCalled();
+      expect(popSession).not.toHaveBeenCalled();
+    });
+
+    // Back home the long way round, through a hop that can still be lost beneath it.
+    it("closes a shell on the player's own box reached through a lost hop", async () => {
+      const ownBox = asMachineId(computeWorkstationId('rig', OWN_KEY));
+      const popSession = vi.fn();
+      const env = mockCommandEnv({
+        identity: mockIdentity({ publicKeyHex: OWN_KEY }),
+        session: mockSession({ id: 'back-home', kind: 'ssh', essid: ESSID, machineId: ownBox }),
+        hopChain: [
+          base,
+          mockSession({ id: 'hop-a', kind: 'ssh', essid: ESSID, machineId: THEIR_BOX }),
+        ],
+        popSession,
+        chain: { openSessionIds: async () => new Set() },
+        fs: mockFsViewFromTree(NOTES, { userType: 'root', cwd: asAbsPath('/home/alice') }),
+      });
+
+      const result = expectSync(await runCommandLine(env, 'cat notes.txt', commands));
+
+      expect(result.lines).toEqual([
+        errorLine('Connection to rig closed by remote host.'),
+        errorLine('Connection to skylab closed by remote host.'),
+      ]);
+      expect(popSession).toHaveBeenCalledTimes(2);
     });
 
     // A command on the player's own box costs no request, elevated or not.

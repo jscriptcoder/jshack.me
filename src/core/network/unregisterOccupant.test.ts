@@ -44,6 +44,7 @@ const makeDeps = (
     nonceStore: freshStore,
     deleteOccupant,
     endVisitorSessions: table.endVisitorSessions,
+    endOwnSessionsAway: table.endOwnSessionsAway,
     endSessionsAbove: table.endSessionsAbove,
     ...options.over,
   };
@@ -265,14 +266,18 @@ describe('the connections to a box that leaves the network', () => {
     expect(result).toEqual({ status: 500, body: { error: 'sessions_end_failed' } });
   });
 
-  it('walks no chain when the box had no visitor to close', async () => {
+  it('walks no chain when the store closed nothing either way', async () => {
     const owner = generateIdentity();
     const endSessionsAbove = vi.fn<UnregisterOccupantDeps['endSessionsAbove']>(async () => ({
       data: [],
       error: null,
     }));
     const { deps } = makeDeps(owner, {
-      over: { endVisitorSessions: async () => ({ data: null, error: null }), endSessionsAbove },
+      over: {
+        endVisitorSessions: async () => ({ data: null, error: null }),
+        endOwnSessionsAway: async () => ({ data: null, error: null }),
+        endSessionsAbove,
+      },
     });
 
     const result = await handleUnregisterOccupant(envelope(owner), deps);
@@ -286,6 +291,111 @@ describe('the connections to a box that leaves the network', () => {
     const { deps } = makeDeps(owner, {
       sessions: [sessionRow({ session_id: 'visitor-shell', machine_id: boxOf(owner) })],
       over: { endSessionsAbove: async () => ({ data: null, error: new Error('db down') }) },
+    });
+
+    const result = await handleUnregisterOccupant(envelope(owner), deps);
+
+    expect(result).toEqual({ status: 500, body: { error: 'sessions_end_failed' } });
+  });
+});
+
+/**
+ * Every shell a player holds on another machine was opened across the network their box
+ * was on, so it goes when the box goes. A row left open kept serving a request signed
+ * outside the game, which read, wrote and knocked on neighbours from a box its owner had
+ * no network to reach.
+ */
+describe("the leaver's own sessions across the network", () => {
+  it('closes their shell on every other machine, recorded as their box leaving', async () => {
+    const owner = generateIdentity();
+    const { deps, table } = makeDeps(owner, {
+      sessions: [
+        sessionRow({
+          session_id: 'on-a-neighbour',
+          player_key: owner.publicKeyHex,
+          machine_id: 'harbour-51110d86',
+        }),
+        sessionRow({
+          session_id: 'on-a-generated-box',
+          player_key: owner.publicKeyHex,
+          machine_id: 'web-01-cafef00d',
+          kind: 'ftp',
+        }),
+      ],
+    });
+
+    const result = await handleUnregisterOccupant(envelope(owner), deps);
+
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    expect(table.reasonOf('on-a-neighbour')).toBe('network_left');
+    expect(table.reasonOf('on-a-generated-box')).toBe('network_left');
+  });
+
+  // A hop that came back to the leaver's own box the long way round stood on a shell
+  // across the network, so it goes with the chain, and so does everything above it.
+  it('closes a hop back onto their own box that stood on one of those shells', async () => {
+    const owner = generateIdentity();
+    const { deps, table } = makeDeps(owner, {
+      sessions: [
+        sessionRow({
+          session_id: 'on-a-neighbour',
+          player_key: owner.publicKeyHex,
+          machine_id: 'harbour-51110d86',
+        }),
+        sessionRow({
+          session_id: 'back-home',
+          player_key: owner.publicKeyHex,
+          machine_id: boxOf(owner),
+          parent_session_id: 'on-a-neighbour',
+        }),
+        sessionRow({
+          session_id: 'above-that',
+          player_key: owner.publicKeyHex,
+          machine_id: 'db-07-cafef00d',
+          parent_session_id: 'back-home',
+        }),
+      ],
+    });
+
+    await handleUnregisterOccupant(envelope(owner), deps);
+
+    expect(table.reasonOf('back-home')).toBe('upstream_lost');
+    expect(table.reasonOf('above-that')).toBe('network_left');
+  });
+
+  it("leaves another player's shell on another machine open", async () => {
+    const owner = generateIdentity();
+    const { deps, table } = makeDeps(owner, {
+      sessions: [sessionRow({ session_id: 'elsewhere', machine_id: 'harbour-51110d86' })],
+    });
+
+    await handleUnregisterOccupant(envelope(owner), deps);
+
+    expect(table.reasonOf('elsewhere')).toBeUndefined();
+  });
+
+  it('closes nothing of theirs when the box had already left', async () => {
+    const owner = generateIdentity();
+    const { deps, table } = makeDeps(owner, {
+      onNetwork: false,
+      sessions: [
+        sessionRow({
+          session_id: 'on-a-neighbour',
+          player_key: owner.publicKeyHex,
+          machine_id: 'harbour-51110d86',
+        }),
+      ],
+    });
+
+    await handleUnregisterOccupant(envelope(owner), deps);
+
+    expect(table.reasonOf('on-a-neighbour')).toBeUndefined();
+  });
+
+  it('reports a server error when their shells could not be closed', async () => {
+    const owner = generateIdentity();
+    const { deps } = makeDeps(owner, {
+      over: { endOwnSessionsAway: async () => ({ data: null, error: new Error('db down') }) },
     });
 
     const result = await handleUnregisterOccupant(envelope(owner), deps);

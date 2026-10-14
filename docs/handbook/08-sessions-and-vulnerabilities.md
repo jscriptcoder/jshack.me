@@ -102,7 +102,10 @@ yet"), which is what lets the very first reboot of a box evict anyone.
 A reboot (or a box going dark) also ends every session **stacked above** that box through the hop
 chain, server-side, with reason `upstream_lost` (`sessions/upstreamLost.ts`, `endChainsAbove`); the
 terminal drops to the deepest surviving hop, printing `Connection to <host> closed by remote host.`
-per closed leg, and rehydration ends any orphaned child the same way. Nothing else re-validates an
+per closed leg, and rehydration ends any orphaned child the same way. A box leaving its network
+closes sessions both ways in the same manner (`network_left`): other players' on it, and its
+owner's on every other machine. A shell on any box but the player's own therefore asks the server
+before each line which of its sessions are still open. Nothing else re-validates an
 open session: a changed password, a closed forward or a new ACL rule affects only new logins, as a
 real `sshd` does — so a defender evicts an intruder by rebooting.
 

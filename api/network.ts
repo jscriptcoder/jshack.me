@@ -12,7 +12,7 @@ import {
 } from '../src/core/network/resolveOccupiedEssids.js';
 import {
   handleUnregisterOccupant,
-  type EndVisitorSessionsParams,
+  type LeavingBoxParams,
 } from '../src/core/network/unregisterOccupant.js';
 import type { EndedSession, EndSessionsAboveParams } from '../src/core/sessions/upstreamLost.js';
 import {
@@ -778,7 +778,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
-  // How a box leaving a network drops every connection to it, shared by the disconnect
+  // How a box leaving a network drops every connection through it, shared by the disconnect
   // and by a join that moves the box off the network it was on. Machine-scoped, minus
   // the owner: every other player's open row on the box closes, including ones no
   // screen is showing. The owner's own rows there are their login on their own machine,
@@ -787,7 +787,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     machine_id,
     owner_key,
     reason,
-  }: EndVisitorSessionsParams) => {
+  }: LeavingBoxParams) => {
     const { data, error } = await supabase
       .from('sessions')
       .update({ ended_at: new Date().toISOString(), end_reason: reason })
@@ -796,6 +796,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .is('ended_at', null)
       .select('session_id, player_key');
     logFailure('disconnect visitor sessions', error);
+    return { data: data as readonly EndedSession[] | null, error };
+  };
+  // The other way through the box: the owner's open rows on every machine but it. Each
+  // was opened across the network the box just left, so none has anything under it now.
+  const endOwnSessionsAway = async ({ machine_id, owner_key, reason }: LeavingBoxParams) => {
+    const { data, error } = await supabase
+      .from('sessions')
+      .update({ ended_at: new Date().toISOString(), end_reason: reason })
+      .eq('player_key', owner_key)
+      .neq('machine_id', machine_id)
+      .is('ended_at', null)
+      .select('session_id, player_key');
+    logFailure('disconnect own sessions', error);
     return { data: data as readonly EndedSession[] | null, error };
   };
   // One rung of a chain standing on a closed row: this player's open rows whose
@@ -834,6 +847,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       nonceStore: noopNonceStore,
       deleteOccupant,
       endVisitorSessions,
+      endOwnSessionsAway,
       endSessionsAbove,
     });
     res.status(status).json(body);
@@ -943,6 +957,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     upsertOccupant,
     deleteOtherOccupancies,
     endVisitorSessions,
+    endOwnSessionsAway,
     endSessionsAbove,
     // Set only in a local `.env.development.local`, never on Preview or Production.
     admitsUndeclaredNetworks: process.env.JSHACK_ADMIT_LAB_NETWORKS === '1',
