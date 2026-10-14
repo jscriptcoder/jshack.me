@@ -1,7 +1,7 @@
 # Plan: email, at emailit.io
 
 **Status**: Grilled, sliced and gap-reviewed. Decisions 1–27 confirmed by the owner 2026-10-14,
-28–41 from a find-gaps review the same day. No slice is planned yet; slice 1 is next.
+28–41 from a find-gaps review the same day. Slice 1 is planned (below) and next to build.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 
@@ -241,10 +241,6 @@ Read in the code on this date.
     `Permission denied`, as any other refused write is. The close-out moves this plan's as-built
     content into a new `docs/email-architecture.md`, beside `wallet-architecture.md`.
 
-## Parked
-
-- **The welcome mail's wording.** Slice 1 stores it; the owner writes it while slice 1 is planned.
-
 ## Out of scope
 
 - The job site, the private per-player mission address, and missions themselves. The job site
@@ -274,6 +270,130 @@ wire-check. One browser run at the end covers them all.
    decisions 25 and 26.
 6. **emailit.io's root view.** `/var/mail/<handle>` and `/etc/emailit/passwd`, built from the
    tables, read-only, and built only for a root caller (decision 31).
+
+## Slice 1 plan: emailit.io and sign-up
+
+**Branch**: `feat/emailit-signup` · **Version**: 0.383.0 → 0.384.0 · **Class**: behaviour change ·
+**Delivery**: one PR against `main`.
+
+**Value.** A player signs up for `neo@emailit.io` with `curl -d` and is welcomed; the welcome mail
+waits in the tables for slice 3 to read. Every other web server answers a POST with a 405.
+
+**Path.** `curl -d` → `fetchPageAcrossNetwork` → `env.remote.fetchPublic` → `adapters/networkApi.ts`
+→ `api/network.ts` `resolveHttpFetch` → `resolveWebTarget` (dark box = unreachable, for free) →
+emailit.io's `/signup` answered by a function, as findit's search is → `email_signup` RPC (one
+transaction: cap, handle, account, welcome mail) → page back → line in emailit.io's `access.log`.
+
+### Choices made while planning (owner to confirm with the plan)
+
+- **The fixed site**: `{ key: 'emailit.io', domain: 'emailit.io', hostname: 'emailit',
+  place: { category: 'hacker', place: 'the post office' } }`, appended last to `FIXED_SITES` so
+  no existing address moves.
+- **`/signup` answers from a function, `/` from a file.** Like findit's search, a rooted emailit.io
+  can deface its front page without breaking sign-up, and a dark one takes both down.
+  `GET /signup` stays a 404 in this slice; slice 2 makes it the form (decision 12).
+- **The front page has no form yet.** It explains sign-up with the `curl -d` line,
+  `apt install mailutils` and decision 8's line. Slice 2 adds the form along with lynx POST, so no
+  build ships a form that does nothing.
+- **Every sign-up answer is `200 OK`**, success or refusal, as a form page that re-renders with
+  its error. Only 405 is new to the status line.
+- **A refusal page is the front page with the error above it.** Messages: the `validateUsername`
+  text for an invalid handle, `"<handle>" is reserved` for decision 6's names,
+  the `validatePassword` text, `That handle is taken`, and
+  `You have signed up 3 addresses today. Try again tomorrow.` A missing field reads as empty.
+- **The 405 page**, from every server that takes no POST, including emailit.io on any path but
+  `/signup`: `<h1>405 Method Not Allowed</h1>`, with `-i` showing
+  `HTTP/1.1 405 Method Not Allowed` and the usual `Server:` header. curl exits 0, as real curl does
+  without `-f`.
+- **The cap is checked before the handle**, so a capped player is told so whatever they ask for.
+- **The welcome text lives in TypeScript** (`core/emailit/`) and is passed to the RPC, so its
+  wording sits in one tested place. The owner chose it 2026-10-14 (`<handle>` filled in):
+
+  ```
+  Welcome to emailit.io, <handle>.
+
+  Your address is <handle>@emailit.io. Anyone who knows it
+  can write to you.
+
+  We cannot reset a lost password, and we will never
+  ask you for it.
+
+  This mailbox is not read. Replies go nowhere.
+
+  -- emailit.io
+  ```
+
+### Acceptance criteria
+
+1. On a box with a way out, `curl emailit.io` prints the front page: how to sign up with
+   `curl -d "handle=<handle>&password=<password>" http://emailit.io/signup`, that `mail` comes from
+   `apt install mailutils`, and "Don't use a password you use anywhere outside this game." A findit
+   search for `email` lists emailit.io, and the site answers on 80 and 22 like the other fixed
+   sites.
+2. `curl -d "handle=neo&password=s3cret" http://emailit.io/signup` prints a page reading
+   `Welcome, neo@emailit.io`, saying the mailbox is ready with a welcome message waiting, and that
+   `mail` comes from `apt install mailutils`. The account row holds `neo` and `md5("s3cret")` in
+   lowercase hex, and neo's inbox holds message 1 from `noreply@emailit.io`, subject
+   `Welcome to emailit.io`, unread.
+3. `handle=Neo` creates `neo`. A second sign-up for `neo`, in any case, prints the front page under
+   `That handle is taken` and changes nothing.
+4. An invalid handle, any of the 14 reserved names (Intro's 7 and decision 6's 7), a password
+   under 4 characters, or a missing field prints the front page under its message and stores
+   nothing.
+5. A player's 4th successful sign-up within 24 hours is refused with the cap message; refused
+   sign-ups do not count toward the 3. Five parallel sign-ups by one player create exactly 3
+   accounts; two players claiming one handle at once leave exactly one owner.
+6. The body is form-decoded: `password=a%26b+c` stores `md5("a&b c")`.
+7. emailit.io's `access.log` gains `"POST /signup HTTP/1.1" 200 <size>`; the password never
+   appears in any log.
+8. `curl -d <anything>` against findit.io, an institution's site, a fellow occupant's box, the
+   player's own box, or emailit.io at any path but `/signup` prints the 405 page (and its status
+   line under `-i`), and that box's `access.log` records `"POST <path> HTTP/1.1" 405 <size>`.
+   GET lines are unchanged.
+9. With emailit.io bricked, the sign-up fails as `curl` does against any dark box and stores
+   nothing; offline, curl reports the network unreachable.
+10. The Intro form shows "Don't use a password you use anywhere outside this game." under the
+    password fields.
+11. `man curl` lists `-d` with a sign-up example.
+
+### Increments (each RED → GREEN → REFACTOR; commit on approval)
+
+1. **The access log names the method.** `formatAccessLogLine` takes a `method` (GET where
+   unnamed); `AccessLogFetch`, `recordLanFetch`, `resolveOccupantFetch` and `resolveHttpFetch` carry
+   it. Generated history stays GET.
+2. **`curl -d` and 405 everywhere.** A string `-d` flag; `PublicFetchParams`,
+   `OccupantFetchParams` and the local read gain `method` and `body`; the result gains `status`. The
+   own-box path, `resolveOccupantFetch` and `resolveHttpFetch` answer a POST with the 405 page and
+   log it. `responseLines` prints the real status line. Manual entry for `-d`.
+3. **emailit.io exists.** `FIXED_SITES` entry, `core/emailit/pages.ts` front page in `WEB_ROOTS`,
+   findit listing (description meta), `restoreSite.ts` header names it.
+4. **Sign-up, decided in core.** `core/emailit/signup.ts`: decode the form, lowercase, validate
+   (`validateUsername` plus the reserved set, `validatePassword`), hash, call a `signUp` dependency
+   that answers `created | taken | capped`, render the page. Unit-tested against a fake.
+5. **`resolveHttpFetch` routes it.** A POST to `/signup` on emailit.io's network goes to step 4;
+   anything else POSTed is 405. Body capped at 4,096 characters by the schema.
+6. **The tables.** Migration `<stamp>_email.sql`: `email_accounts` (handle PK with the handle
+   CHECK, `password_md5` CHECKed as 32 hex, `created_by` key, `created_at`, `next_number`),
+   `email_messages` (`handle` FK, `number`, `sender`, `subject`, `body`, `delivered_at`,
+   `read`, unique `(handle, number)`), RLS on with no policies, and `email_signup(...)` returning
+   `created | taken | capped`: an advisory lock on the player's key, the rolling-24-hour count, an
+   insert that loses a handle race cleanly, and the welcome as message 1. EXECUTE for
+   `service_role` only, as `wallet_transfer`. `api/network.ts` wires `signUp`;
+   `adapters/networkApi.ts` sends `method` and `body`.
+7. **Intro's line**, under the confirm field, jsdom-tested.
+8. **Version bump** to 0.384.0.
+
+### Evidence
+
+- Unit: increments 1–5 and 7, plus the curl command tests.
+- Wire-check `scripts/testEmailitSignup.ts` against `vercel dev` + supabase: criteria 2–9,
+  including the two parallel races, rows read back with the service key, and the access-log lines
+  on emailit.io and findit.io. Existing `testFindit.ts`, `testHttpFetch.ts` and `testLanFetchLog.ts`
+  still pass.
+- Pre-PR: Stryker on `core/emailit/`, `accessLog.ts` and the changed fetch handlers; typecheck;
+  lint; the full test run.
+- The migration is pushed to jshack-dev and jshack-prod at merge (link → push → unlink).
+- No browser run; the epic's one run comes at the end.
 
 ## Backlog from this grill
 
