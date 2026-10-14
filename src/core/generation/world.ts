@@ -88,6 +88,9 @@ export const RIDGEMONT = 'Ridgemont';
 /** A town's place among its region's towns, and what it is called. */
 type Town = { readonly region: number; readonly index: number; readonly name: string };
 
+/** What a town is known by in every stream and key drawn inside it. */
+const townKey = (town: Town): string => `r${town.region}/t${town.index}`;
+
 /** How big a town the world draws is. */
 export type SizeClass = 'village' | 'town' | 'city';
 
@@ -159,6 +162,8 @@ const regionOf = (town: Town): string => REGIONS[town.region].name;
 
 /** A town as anything that lists the world's towns reads it. */
 export type WorldTown = {
+  /** What the town is known by in every stream and key drawn inside it. */
+  readonly key: string;
   readonly name: string;
   readonly size: SizeClass;
   /** The name of the region it stands in. */
@@ -167,6 +172,7 @@ export type WorldTown = {
 
 /** Every town the world declares, in the order it declared them. */
 export const TOWNS: readonly WorldTown[] = [RIDGEMONT_ROW, MILLBROOK, ...TOWN_ROWS].map((town) => ({
+  key: townKey(town),
   name: town.name,
   size: town.size,
   region: regionOf(town),
@@ -385,8 +391,6 @@ const profileOf = (key: string, category: NetworkCategory): NetworkProfile => {
   if (weights === undefined) throw new Error(`no town draws a ${category} network yet`);
   return createPrng(`network-profile-${key}`).pick(byWeight(weights));
 };
-
-const townKey = (town: Town): string => `r${town.region}/t${town.index}`;
 
 /** A business or a practice is named from its kind's templates. */
 const kindTemplates = (kind: NamedKind): readonly string[] => NAME_TEMPLATES[kind.subtype];

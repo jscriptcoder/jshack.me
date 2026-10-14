@@ -255,9 +255,12 @@ than its gateway's ssh from outside.
   valley's legend are generated; the same test pins the legend's rows and the count of places
   the map lists, so both are updated there.
 - **A place on the map**: nothing by hand. A town's page lists every network standing there
-  that publishes a site and is not unlisted, so a new one appears on it. A page must fit 80
-  columns as `lynx` lays it out, link numbers included, and `renderPage.test.ts` fails when a
-  name, kind and domain together run past that.
+  that publishes a site and is not unlisted, so a new one appears on it. Its town's plan
+  (`core/mapit/townPlan.ts`) marks it too, and grows two rows at a time when its streets leave
+  no room for it. A page must fit 80 columns as `lynx` lays it out, link numbers included, and
+  `renderPage.test.ts` fails when a name, kind and domain together run past that. The same
+  file pins Millbrook's page line for line, plan and legend, so a place added to Millbrook is
+  updated there.
 - **A region**: append to `REGIONS` with a first octet that is realistic and not `193`, and
   teach `isPublicIp` nothing: it reads `REGION_FIRST_OCTETS`.
 - **A hand-written network in a drawn town or in Ridgemont**: declare it after what the town
