@@ -1,14 +1,16 @@
 /**
  * handleRecordLanFetch — the server-side action behind a `curl`/`lynx`/`gobuster` fetch
- * of a host on the network the caller stands on, and the own-LAN twin of
- * `resolveHttpFetch`'s cross-player append.
+ * of the player's OWN workstation, at home, and the own-box twin of the append every
+ * served fetch makes.
  *
  * An access log belongs to the SERVER, not to the network path: a web server writes a
  * line for every request it serves, and where the request came from only decides what
- * lands in the source-IP field. A fetch of a host on the caller's own network resolves
- * entirely client-side, so this handler exists to give it the round-trip it needs to
- * leave that line — exactly as `handleNmapScan` does for a scan that also resolved
- * client-side.
+ * lands in the source-IP field. The player's own box is the one box a client serves from
+ * the live tree it holds, so this handler exists to give that fetch the round-trip it
+ * needs to leave its line. Every other box on a network — one the network generates, or
+ * another player's — is served by the server (`resolveOccupantFetch`,
+ * `resolveOccupantSweep`), which records the visit in the same request, and a report
+ * naming one here leaves nothing.
  *
  * It takes a RUN of paths rather than one, because a path sweep is a fetch tool that
  * asks forty questions and its whole cost to the attacker is the wall of 404s it
@@ -25,47 +27,23 @@
  * from an address the traffic never used. This retires the own-LAN path's old trust in a
  * client `source_ip`.
  *
- * WHICH BOX ANSWERED is resolved among the networks the caller reaches, nearest first:
- *   - a host on a DEEP LAYER the box reaches, swept there through the same
- *     `resolveDeepScanHosts` a scan and an ssh login use (a switch fronting the layer
- *     drops the ports its live ACL denies, read off its journal; a router filters
- *     nothing, so its journal is never read);
- *   - the caller's OWN workstation, when the address is the lease they hold — read from
- *     its live journal, because a fresh box serves nothing and an edited page is what a
- *     fetch returns;
- *   - otherwise a generated NPC sibling on the LAN.
- * The loopback address names the box the shell stands ON, and the visit is recorded as
- * local. In a shell on a box the network generates that is the box the caller named and
- * holds a session on, wherever it sits, so nothing is looked up by address and no gateway
- * in front of it is asked: the request never leaves the box. A player's workstation is
- * the one box the network does not generate, and the caller's own is found by the lease
- * they hold. Another player's workstation is never traced here, even from a shell on it:
- * the server serves that box (`resolveOccupantFetch`, `resolveOccupantSweep`) and
- * records the visit as it does.
+ * WHICH BOX ANSWERED is the caller's own workstation when the address is the lease they
+ * hold, read from its live journal, because a fresh box serves nothing and an edited
+ * page is what a fetch returns. The loopback address names the box the shell stands ON,
+ * and the visit is recorded as local; it is traced here only when that box is the
+ * caller's own, found at its lease. Any other address leaves no line.
  *
  * The client names no time, status or size — for any line, however many it asks for.
  * The server reads the resolved tree and works those out itself, so a crafted request
  * can never author a line claiming something was served that never was, and a sweep
  * cannot dress its misses up as hits.
  *
- * The writer key follows the box, not the fetcher. A player's workstation keeps its
- * OWNER's key. A generated or deep NPC host has no owner, and every visitor fetches
- * from the identical box, so it takes the network's own key: one log that every visit
- * accretes into, rather than a row per fetcher where the newest erases the rest.
+ * The line is filed under the OWNER's key, which here is the caller's own.
  */
 
 import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify.js';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
-import { generateHomeLan } from '../generation/generateHomeLan.js';
-import {
-  chainGatewayBaseFs,
-  generatedBaseFsForMachineId,
-  resolveLanHostIdentity,
-} from '../generation/lanHostIdentity.js';
-import { segmentsReachedFrom } from '../generation/lanTopology.js';
-import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
-import { materializeMachineFs } from './materializeMachineFs.js';
 import { lanAddressFor, type LanLeaseRow } from './lanAddress.js';
 import { materializeWorkstationFs, type OwnerPatchRow } from './materializeWorkstationFs.js';
 import { createFsView } from '../filesystem/fsView.js';
@@ -85,7 +63,6 @@ import {
   type MachineLogReadResult,
 } from '../patches/appendMachineLog.js';
 import { asGameTime } from '../types.js';
-import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import { resolveCallerVantageOn, type CallerVantageDeps } from '../sessions/callerVantage.js';
 import type { Directory } from '../filesystem/types.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
@@ -118,9 +95,8 @@ export type RecordLanFetchDeps = CallerVantageDeps & {
   readonly listLeasesByEssid: (
     essid: string,
   ) => Promise<{ readonly data: readonly LanLeaseRow[] | null; readonly error: unknown }>;
-  /** A box's journal, replayed over its seeded base. Reads a player's workstation
-   *  (a fresh box serves nothing, so whether it serves at all lives here), and a switch
-   *  fronting a deep layer (its live ACL). */
+  /** The caller's workstation journal, replayed over its seeded base: a fresh box
+   *  serves nothing, so whether it serves at all lives here. */
   readonly findPatches: (query: {
     readonly machine_id: string;
   }) => Promise<{ readonly data: readonly OwnerPatchRow[] | null; readonly error: unknown }>;
@@ -149,8 +125,8 @@ const recordLanFetchSchema = z
   .refine((payload) => !('player_key' in payload));
 
 /** Which machine answered, the tree it answered from, the ports to judge "serving the
- *  web" against (ACL-applied on a deep layer), the key its log lands under, and the
- *  address the line records it coming from. */
+ *  web" against, the key its log lands under, and the address the line records it
+ *  coming from. */
 type FetchTarget = {
   readonly machineId: string;
   readonly fs: Directory;
@@ -160,13 +136,10 @@ type FetchTarget = {
 };
 
 /** The caller's OWN workstation, when it is the box at `address` on this LAN — the one
- *  player's box a client serves from a tree it holds, and so the one this trace is asked
- *  about. A fetch of any other player's box is served by the server, which records that
- *  visit itself (`resolveOccupantFetch`), a shell on that box included. Found by the
- *  lease its owner holds, and filed under that owner's key. Every read here is
- *  load-bearing — a failure means we cannot tell whose box this is, and guessing would
- *  land the line on a generated host that shares the octet. Null falls through to the
- *  generated-host path, which finds nothing for an address only a player holds. */
+ *  box a client serves from a tree it holds, and so the one this trace is asked about.
+ *  Found by the lease its owner holds, and filed under that owner's key. Every read here
+ *  is load-bearing — a failure means we cannot tell whose box this is, so null, and no
+ *  line. */
 const workstationTarget = async (
   deps: RecordLanFetchDeps,
   essid: string,
@@ -196,112 +169,6 @@ const workstationTarget = async (
   };
 };
 
-/** The host at `address` on a deep layer the caller's box reaches, or null when none is.
- *  A `HandlerResponse` means a read the trace cannot proceed without failed (a switch's
- *  live ACL): a 500 rather than a silently wrong line. Nobody owns a deep NPC host, and
- *  every visitor reaches the identical box, so its log accretes under the network's key. */
-const deepLayerTarget = async (
-  deps: RecordLanFetchDeps,
-  essid: string,
-  callerMachineId: string,
-  address: string,
-): Promise<FetchTarget | HandlerResponse | null> => {
-  for (const segment of segmentsReachedFrom(essid, callerMachineId) ?? []) {
-    const { fronting } = segment;
-    if (fronting === null) continue;
-    let frontingFs = chainGatewayBaseFs(essid, fronting);
-    if (fronting.host.kind === 'switch') {
-      const patches = await deps.findPatches({ machine_id: fronting.machineId });
-      if (patches.error) return { status: 500, body: { error: 'patches_lookup_failed' } };
-      frontingFs = materializeMachineFs(frontingFs, patches.data);
-    }
-    const onLayer = resolveDeepScanHosts(essid, fronting, frontingFs).hosts.find(
-      (entry) => entry.host.ip === address,
-    );
-    if (onLayer !== undefined) {
-      return {
-        machineId: onLayer.machineId,
-        fs: onLayer.baseFs,
-        ports: onLayer.ports,
-        writerKey: apGatewayLogWriterKey(essid),
-        sourceIp: segment.address ?? 'unknown',
-      };
-    }
-  }
-  return null;
-};
-
-/** The generated NPC sibling at `address` on the caller's regenerated LAN, resolved
- *  through the SAME identity map scan and ssh use so the three can never disagree about
- *  which box an address is. Its log files under the network's own key. */
-const generatedHostTarget = (
-  essid: string,
-  address: string,
-  sourceIp: string,
-): FetchTarget | null => {
-  const host = generateHomeLan(essid).hosts.find((candidate) => candidate.ip === address);
-  if (host === undefined) return null;
-  const identity = resolveLanHostIdentity(host, essid);
-  return {
-    machineId: identity.machineId,
-    fs: identity.baseFs,
-    ports: readOpenPorts(identity.baseFs),
-    writerKey: apGatewayLogWriterKey(essid),
-    sourceIp,
-  };
-};
-
-/** The box the shell stands ON, when the network generates it: a LAN host, a gateway at
- *  any depth, or the machine on a deep layer. The caller named it and the vantage already
- *  confirmed the session they hold there, so it is resolved by what it IS rather than by
- *  an address: where the LAN sees a deep box is the gateway in front of it, which is a
- *  different machine. Its own ports, unfiltered, because nothing stands between a box and
- *  itself. Null for a player's workstation, which the network does not generate. */
-const standingBoxTarget = (essid: string, callerMachineId: string): FetchTarget | null => {
-  const fs = generatedBaseFsForMachineId(essid, callerMachineId);
-  if (fs === null) return null;
-  return {
-    machineId: callerMachineId,
-    fs,
-    ports: readOpenPorts(fs),
-    writerKey: apGatewayLogWriterKey(essid),
-    sourceIp: LOOPBACK_IPV4,
-  };
-};
-
-/** The box at the address a request names, among the networks the caller reaches, nearest
- *  first: a deep layer the box reaches, then a player's workstation, then a generated
- *  LAN sibling. The arms are exclusive by construction — a deep address is never a LAN
- *  one, and only a player holds a lease — so the order settles a fetch of a workstation
- *  onto the live box rather than a generated collision. */
-const addressedTarget = async (
-  deps: RecordLanFetchDeps,
-  request: {
-    readonly essid: string;
-    readonly target: string;
-    readonly callerMachineId: string | undefined;
-  },
-  callerKey: string,
-  vantageSourceIp: string | null,
-): Promise<FetchTarget | HandlerResponse | null> => {
-  // Loopback that reaches here stands on a player's workstation, which is found at the
-  // lease it holds, and traced when it is the caller's own. A box the server cannot place
-  // at an address has none to resolve loopback to, so nothing is logged.
-  const address = request.target === LOOPBACK_IPV4 ? vantageSourceIp : request.target;
-  if (address === null) return null;
-  const sourceIp = vantageSourceIp ?? 'unknown';
-
-  const deep =
-    request.callerMachineId === undefined
-      ? null
-      : await deepLayerTarget(deps, request.essid, request.callerMachineId, address);
-  if (deep !== null) return deep;
-  return (
-    (await workstationTarget(deps, request.essid, callerKey, address, sourceIp)) ??
-    generatedHostTarget(request.essid, address, sourceIp)
-  );
-};
-
 export const handleRecordLanFetch = async (
   body: unknown,
   deps: RecordLanFetchDeps,
@@ -324,31 +191,26 @@ export const handleRecordLanFetch = async (
   );
   if (!vantage.ok) return { status: vantage.status, body: { error: vantage.error } };
 
-  // Loopback names the box the shell stands ON, and the line records a local visit.
+  // Loopback names the box the shell stands ON, and the line records a local visit. It
+  // is traced here only when that box is the caller's own workstation, found at the
+  // lease it holds; every other box is served, and its visit recorded, by the server.
   const loopback = payload.target === LOOPBACK_IPV4;
-  const standing =
-    loopback && payload.caller_machine_id !== undefined
-      ? standingBoxTarget(payload.essid, payload.caller_machine_id)
-      : null;
+  const address = loopback ? vantage.sourceIp : payload.target;
   const resolved =
-    standing ??
-    (await addressedTarget(
-      deps,
-      {
-        essid: payload.essid,
-        target: payload.target,
-        callerMachineId: payload.caller_machine_id,
-      },
-      publicKey,
-      vantage.sourceIp,
-    ));
+    address === null
+      ? null
+      : await workstationTarget(
+          deps,
+          payload.essid,
+          publicKey,
+          address,
+          vantage.sourceIp ?? 'unknown',
+        );
   if (resolved === null) return { status: 200, body: { ok: true } };
-  if ('status' in resolved) return resolved;
 
   // Only a REACHED web server logs. The client already decided something answered; the
   // server checks the tree it resolved rather than taking that on trust, and a web
-  // server is service-specific — a box listening on ssh answered nothing here. On a deep
-  // layer the ports are already ACL-shaped, so a port the switch denies refuses here too.
+  // server is service-specific — a box listening on ssh answered nothing here.
   const serving = resolved.ports.some(
     (entry) => entry.port === payload.port && entry.service === SERVICE_CATALOG.http.service,
   );

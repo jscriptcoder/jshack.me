@@ -21,13 +21,9 @@
 
 import type { CommandResult } from './types.js';
 import type { Directory } from '../filesystem/types.js';
-import type { OpenPort } from '../services/pidfile.js';
 import type { ParsedUrl } from '../network/http.js';
 import type { Vantage } from '../network/vantage.js';
 import { errorLine } from './streaming.js';
-import { generateHomeLan } from '../generation/generateHomeLan.js';
-import { baseFsForLanHost } from '../generation/lanHostIdentity.js';
-import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
 import { readOpenPorts } from '../services/pidfile.js';
 import { webProgramOn } from '../network/webServing.js';
 import { resolveLanName } from '../network/resolveName.js';
@@ -53,15 +49,15 @@ export type ReachedHost = {
 export type ErrorResult = Extract<CommandResult, { readonly kind: 'sync' }>;
 
 /** Either the host answered, or here is the line the caller returns instead. `unresolved`
- *  is an address no box this side can build holds — which may still be another
- *  player's — while `refused` is a box that is there and serves no web on that port. */
+ *  is any address but the player's own box at home, which the server answers for, while
+ *  `refused` is their own box serving no web on that port. */
 export type Reach =
   | { readonly ok: true; readonly host: ReachedHost }
   | {
       readonly ok: false;
       readonly reason: 'unresolved' | 'refused';
-      /** The RESOLVED address, as on a reached host: what a caller asks the server about
-       *  when the box may be another player's. */
+      /** The RESOLVED address, as on a reached host: what a caller asks the server
+       *  about. */
       readonly address: string;
       readonly failure: ErrorResult;
     };
@@ -86,69 +82,26 @@ export const connectError = ({
   readonly reason: string;
 }): ErrorResult => error(`${program}: (7) Failed to connect to ${host} port ${port}: ${reason}`);
 
-/** The reached box's tree and the ports it is serving — the two facts the port check
- *  and the read need, found once wherever on the vantage the box turned out to be. */
-type LocatedHost = {
-  readonly fs: Directory;
-  /** The box's open ports AS THE SHELL REACHES THEM. On a deep layer that is after the
-   *  fronting gateway's ACL, so a web tool refuses exactly the port a scan showed shut. */
-  readonly ports: readonly OpenPort[];
-};
-
 /**
- * The box at `address` among the networks the shell reaches, or null when none holds it.
+ * Whether `address` is the player's own workstation, at home — by loopback or by the
+ * address it leased. That is the ONE box this side reads for itself: its filesystem is
+ * the live tree the browser holds, so a `nano` edit or a fresh `mkdir` shows up at once.
  *
- * The shell's OWN box — reached by loopback or by its own address on the LAN it stands
- * on — reads its LIVE tree, NOT a generated one: it is the one host whose filesystem is
- * real, so pointing the generator at it would fabricate a page for a box that may
- * publish nothing, and reading the live tree is what makes a `nano` edit or a fresh
- * `mkdir` show up at once. Every other box is read as the device it is — a generated LAN
- * host, or a host on a deep layer the shell reaches — the same tree `nmap` and every
- * other door read, so a web tool never finds a server a scan showed closed, nor misses
- * one it showed open.
- *
- * One box a shell stands on is NOT this side's to read: another player's workstation.
- * The tree held for it is pruned to what the login may read as files, which is not what
- * its web server serves, so it is no box this side holds and the server answers for it.
- * It is the box whose address the vantage cannot recover.
+ * Every other box is the server's to answer for, because what it serves is in a journal
+ * only the server holds. A box the network generates may have had its pages rewritten,
+ * its web server stopped or its boot files deleted; a fellow occupant's box is built
+ * from their journal; and the tree a shell holds on a box it stands on is pruned to the
+ * session's tier, which is not what the box's web server serves.
  */
-const locateHost = ({
-  root,
+const isOwnBoxAtHome = ({
   vantage,
   isLoopback,
   address,
 }: {
-  readonly root: Directory;
   readonly vantage: Vantage;
   readonly isLoopback: boolean;
   readonly address: string;
-}): LocatedHost | null => {
-  if (isLoopback || address === vantage.address) {
-    return vantage.address === null ? null : { fs: root, ports: readOpenPorts(root) };
-  }
-  // Every network the shell reaches, nearest first: the LAN it stands on, then any deep
-  // layer behind a gateway it reaches. A gateway's ACL already shapes a layer's ports,
-  // so the deep arm trusts `resolveDeepScanHosts` rather than re-reading the raw tree.
-  for (const segment of vantage.reaches) {
-    if (segment.fronting === null) {
-      const host = generateHomeLan(vantage.essid).hosts.find(
-        (candidate) => candidate.ip === address,
-      );
-      if (host !== undefined) {
-        const fs = baseFsForLanHost(host, vantage.essid);
-        return { fs, ports: readOpenPorts(fs) };
-      }
-    } else {
-      const onLayer = resolveDeepScanHosts(vantage.essid, segment.fronting, root).hosts.find(
-        (candidate) => candidate.host.ip === address,
-      );
-      if (onLayer !== undefined) {
-        return { fs: onLayer.baseFs, ports: onLayer.ports };
-      }
-    }
-  }
-  return null;
-};
+}): boolean => vantage.kind === 'home' && (isLoopback || address === vantage.address);
 
 /**
  * Resolve `url`'s host on the network the shell stands on and confirm something is
@@ -183,8 +136,7 @@ export const reachWebHost = ({
   // browser, a followed link and a sweep to the box a curl of that name reaches.
   const isLoopback = LOOPBACK_NAMES.includes(url.host);
   const address = isLoopback ? LOOPBACK_IPV4 : (resolveLanName(essid, url.host)?.ip ?? url.host);
-  const located = locateHost({ root, vantage, isLoopback, address });
-  if (located === null) {
+  if (!isOwnBoxAtHome({ vantage, isLoopback, address })) {
     return {
       ok: false,
       reason: 'unresolved',
@@ -193,11 +145,11 @@ export const reachWebHost = ({
     };
   }
 
-  // The port AS THE SHELL REACHES IT decides whether anything answers — a switch's ACL
-  // can shut a port the box behind it still serves — and the box's own tree then names
-  // the web server holding it, or nothing when what holds it is not the web.
-  const reachable = located.ports.some((entry) => entry.port === url.port);
-  const server = reachable ? webProgramOn(located.fs, url.port) : undefined;
+  // Nothing stands between a box and itself, so every port it opened answers, and its
+  // own tree names the web server holding it, or nothing when what holds it is not the
+  // web.
+  const reachable = readOpenPorts(root).some((entry) => entry.port === url.port);
+  const server = reachable ? webProgramOn(root, url.port) : undefined;
   if (server === undefined) {
     return {
       ok: false,
@@ -214,6 +166,6 @@ export const reachWebHost = ({
 
   return {
     ok: true,
-    host: { fs: located.fs, essid, address, server },
+    host: { fs: root, essid, address, server },
   };
 };

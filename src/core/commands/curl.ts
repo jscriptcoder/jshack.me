@@ -11,13 +11,12 @@
  * host and check something is listening on the port — `reachWebHost`, the step every
  * web tool shares — then ask for the file.
  *
- * Two kinds of target, split by the address itself. An address on the network the shell
- * stands on resolves locally when a box the network generates holds it — or the shell's
- * own box, which reads its live filesystem rather than a generated one (see
- * `reachWebHost`). A PUBLIC address resolves through the server (see
- * `fetchPageAcrossNetwork`), and so does a fellow occupant's address on this network:
- * a player's journal lives server-side, so their page cannot be rebuilt from this
- * client's world.
+ * Two kinds of target, split by the address itself. A PUBLIC address resolves through
+ * the server (see `fetchPageAcrossNetwork`). An address on the network the shell stands
+ * on is read locally only when it is the player's own box at home, which reads its live
+ * filesystem (see `reachWebHost`). Every other box there is asked of the server too:
+ * what a box serves is in its journal, which lives server-side, and a box the network
+ * generates may have been rewritten, stopped or bricked since it was generated.
  *
  * The local path reads the file itself; the others ask for it and are handed content.
  * What they share is the response: all hand the same `responseLines` the same string, so

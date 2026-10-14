@@ -2812,20 +2812,23 @@ describe('full-screen apps a command opens', () => {
   };
 
   it('opens the browser on the page `lynx <url>` fetched', async () => {
-    const state = await startBrowsingGame();
+    // A generated host on the LAN is served by the server, off the box as it stands.
+    const state = await startBrowsingGame({
+      neighbour: () => ({ ok: true, content: '<h1>served</h1>', server: 'nginx' }),
+    });
     const { host, port } = webHostOnLan();
     const url = `http://${host.ip}:${port}/index.html`;
 
     state.setInput(`lynx ${url}`);
     await state.runInput();
 
-    const overlay = state.overlayMode();
-    expect(overlay?.kind).toBe('lynx');
-    expect(overlay).toMatchObject({ url });
+    expect(state.overlayMode()).toMatchObject({ kind: 'lynx', url, content: '<h1>served</h1>' });
   });
 
   it('leaves the screen alone when the page never came back', async () => {
-    const state = await startBrowsingGame();
+    const state = await startBrowsingGame({
+      neighbour: () => ({ ok: false, error: 'not_found' }),
+    });
     const { host, port } = webHostOnLan();
 
     state.setInput(`lynx http://${host.ip}:${port}/nothing-here`);

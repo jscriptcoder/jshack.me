@@ -57,7 +57,7 @@ journal.
 | `network/materializeMachineFs.ts` (and `…RouterFs`, `…WorkstationFs`) | Base tree + ordered journal → the machine's current tree.                                     |
 | `network/resolveName.ts`                                              | Hostname → address (world domains, LAN names, fellow occupants).                              |
 | `network/http.ts`, `resolveHttpFetch.ts`, `resolveHttpSweep.ts`       | The in-game web: URL parsing, document-root confinement, fetches and path sweeps.             |
-| `network/resolveOccupantFetch.ts`                                     | A web fetch of a fellow player's box at its LAN address, served from that player's journal.   |
+| `network/resolveOccupantFetch.ts`                                     | A web fetch of any box on the network but the caller's own, served from its journal.          |
 | `network/resolveOccupantSweep.ts`                                     | A path sweep of that box, through the same door, with the list on the caller's box.           |
 | `sessions/serviceHost.ts`                                             | `reachBox` / `reachServiceHost`: **the** reachability algorithm (it lives in `sessions/`).    |
 | `scan/scanResult.ts`                                                  | The one function that decides what ports a gateway shows from a given vantage.                |

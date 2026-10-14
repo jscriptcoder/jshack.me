@@ -833,15 +833,18 @@ agreed order:
    was denied in `acl.conf`. No defect. One case could not be staged: a shell below
    `root` on a switch (`backlog.md`).
    **Pick up here (2026-10-13):** the items still open in `backlog.md`. Found by reading:
-   a deep box's own address behind a switch that denies the web port, a data door over
-   `localhost`, a field that spoofs the columns after it within its own line, ✅ a leaver's
+   ✅ a deep box's own address behind a switch that denies the web port (closed at v0.382.0
+   with the LAN web fetch below), a data door over `localhost`, a field that spoofs the
+   columns after it within its own line, ✅ a leaver's
    own sessions across the network (closed at v0.381.0: leaving closes the leaver's sessions
    on every other machine too, and a shell on any box but the player's own asks on each line
    whether its session is still open), ✅ a box joined to two networks at once (closed at
    v0.380.0: `nmcli` refuses a second network while connected, and the server's join takes
-   the box off any other network as a disconnect would), a LAN web
-   fetch that never reads the journal, and the session row a scripted exploit leaves
-   behind. Left as they are: the whole tree pulled before every line, and the newest
+   the box off any other network as a disconnect would), ✅ a LAN web fetch that never read
+   the journal (closed at v0.382.0: the server serves every web read of a box that is not
+   the player's own workstation at home, from its journal, so a defaced, deleted, stopped or
+   bricked box reads the same on its LAN as across the internet), and the session row a
+   scripted exploit leaves behind. Left as they are: the whole tree pulled before every line, and the newest
    open row setting the tier.
 9. ✅ **Crypto wallet epic (v0.356.0–v0.362.0, PRs #653–#658, 2026-10-11/12).** Slotted ahead of
    the rest of the sandbox-hardening list: the `wallet` command, a public JSC ledger keyed by

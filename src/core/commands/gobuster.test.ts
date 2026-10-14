@@ -163,6 +163,42 @@ const webHostOnLan = (): { readonly host: LanHost; readonly port: number } => {
   throw new Error('expected a generated web host on the LAN');
 };
 
+/** A sweep run in `env` at a box the server answers for, the server answering `answer`:
+ *  what it printed, what it asked the server, and what it told its own access-log seam. */
+const sweepServed = async (
+  url: string,
+  answer: OccupantSweepResult,
+  env: CommandEnv = envOn(ownBox(installedList('index.html'))),
+) => {
+  const asked: OccupantSweepParams[] = [];
+  const reported: AccessLogFetch[] = [];
+  const served: CommandEnv = {
+    ...env,
+    remote: {
+      ...mockRemoteApi(),
+      sweepOccupant: async (params) => {
+        asked.push(params);
+        return answer;
+      },
+    },
+    log: {
+      appendAuthLog: async () => undefined,
+      appendKernLog: async () => undefined,
+      appendAccessLog: async (fetched) => {
+        reported.push(fetched);
+      },
+    },
+  };
+  return { drained: await drain(await gobuster.execute(served, [url], new Map())), asked, reported };
+};
+
+/** What the server answers for a box whose `/index.html` is all the list found. */
+const FOUND_INDEX: OccupantSweepResult = {
+  ok: true,
+  dirlistFound: true,
+  results: [{ path: '/index.html', status: 200, size: 42 }],
+};
+
 /** An address on the player's own subnet that no host occupies. */
 const unoccupiedIp = (): string => {
   const lan = generateHomeLan(ESSID);
@@ -451,17 +487,19 @@ describe('gobuster refuses before it sweeps, and says which refusal it is', () =
 });
 
 describe('gobuster sweeps the neighbours, not only the box it runs on', () => {
-  it('finds a page on a generated host down the street', async () => {
+  it('asks the server to sweep a generated host down the street', async () => {
+    // The box may have been rewritten, stopped or bricked since it was generated, and
+    // only the server holds the journal that says so. It reads the list off the box the
+    // player stands on, and records the run on the box it swept.
     const { host, port } = webHostOnLan();
-    const tree = ownBox(installedList('index.html'));
 
-    const { drained, reported } = await sweepReporting(tree, `http://${host.ip}:${port}`);
+    const { drained, asked, reported } = await sweepServed(`http://${host.ip}:${port}`, FOUND_INDEX);
 
-    // The list is read where the player STANDS and the pages are read on the TARGET:
-    // sweeping a neighbour is the ordinary use of the tool, and the box swept is the
-    // one whose log records it.
     expect(drained.text).toContain('/index.html');
-    expect(reported[0]?.target).toBe(host.ip);
+    expect(asked).toEqual([
+      { essid: ESSID, target: host.ip, port, callerMachineId: mockSession().machineId },
+    ]);
+    expect(reported).toEqual([]);
   });
 
   it('does not answer for a neighbour by reading the box it runs on', async () => {
@@ -472,7 +510,7 @@ describe('gobuster sweeps the neighbours, not only the box it runs on', () => {
       publishedPage('/mine-alone.html', 'local'),
     );
 
-    const { drained } = await sweepReporting(tree, `http://${host.ip}:${port}`);
+    const { drained } = await sweepServed(`http://${host.ip}:${port}`, FOUND_INDEX, envOn(tree));
 
     // A page published locally is not a find on somebody else's server. Resolving the
     // target to the wrong tree would report the sweeper's own document root back at
@@ -482,16 +520,15 @@ describe('gobuster sweeps the neighbours, not only the box it runs on', () => {
 
   it('sweeps a neighbour named the way its intranet names it', async () => {
     const { host, port } = webHostOnLan();
-    const tree = ownBox(installedList('index.html'));
 
-    const { drained, reported } = await sweepReporting(
-      tree,
+    const { asked } = await sweepServed(
       `http://${host.hostname}.${lanZoneName(ESSID)}:${port}`,
+      FOUND_INDEX,
     );
 
-    expect(drained.text).toContain('/index.html');
-    expect(reported[0]?.target).toBe(host.ip);
+    expect(asked.map((request) => request.target)).toEqual([host.ip]);
   });
+
 });
 
 describe('gobuster runs where the player stands', () => {
@@ -807,14 +844,13 @@ describe('gobuster sweeps a server on another network', () => {
 });
 
 describe('gobuster from a hop', () => {
-  it('sweeps a web host on the LAN the shell stands on, reporting the box it ran from', async () => {
-    // The wordlist comes off the box the player STANDS on (the hop), and the sweep
-    // reaches a neighbour on that box's network — with the player's own card offline.
+  it('asks the server to sweep a web host on the LAN the shell stands on, from that box', async () => {
+    // The sweep reaches a neighbour on the hop's network with the player's own card
+    // offline, and the server reads the list off the box the shell stands on.
     const { host, port } = webHostOnLan();
     const hop = generateHomeLan(ESSID).hosts.find(
       (candidate) => candidate.kind === 'machine' && candidate.ip !== host.ip,
     )!;
-    const reported: AccessLogFetch[] = [];
     const env = mockCommandEnv({
       identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
       network: mockNetworkView(),
@@ -829,25 +865,21 @@ describe('gobuster from a hop', () => {
         userType: 'root',
         kind: 'ssh',
       }),
-      log: {
-        appendAuthLog: async () => undefined,
-        appendKernLog: async () => undefined,
-        appendAccessLog: async (fetched) => {
-          reported.push(fetched);
-        },
-      },
     });
 
-    const drained = await drain(await gobuster.execute(env, [`http://${host.ip}:${port}`], new Map()));
+    const { drained, asked, reported } = await sweepServed(
+      `http://${host.ip}:${port}`,
+      FOUND_INDEX,
+      env,
+    );
 
     expect(drained.exitCode).toBe(0);
-    expect(reported).toHaveLength(1);
-    expect(reported[0]).toMatchObject({
-      essid: ESSID,
-      target: host.ip,
-      callerMachineId: machineIdForLanHost(hop, ESSID),
-    });
+    expect(asked).toEqual([
+      { essid: ESSID, target: host.ip, port, callerMachineId: machineIdForLanHost(hop, ESSID) },
+    ]);
+    expect(reported).toEqual([]);
   });
+
 });
 
 describe('gobuster at a fellow occupant of the network', () => {
@@ -1012,7 +1044,7 @@ describe('gobuster at a fellow occupant of the network', () => {
     // itself answers before anybody else on it is asked: neither costs the round trip.
     expect(byAddress.lookedUp).toEqual([]);
     expect(generated.lookedUp).toEqual([]);
-    expect(generated.asked).toEqual([]);
+    expect(generated.asked.map((request) => request.target)).toEqual([host.ip]);
   });
 
   it('reports nothing to its own access-log seam, since the server records the run', async () => {
@@ -1160,17 +1192,4 @@ describe('gobuster at a fellow occupant of the network', () => {
     },
   );
 
-  it('never asks the server about a box the network generates, served or refusing', async () => {
-    const { host, port } = webHostOnLan();
-
-    const served = await sweepNeighbour(swept(), `http://${host.ip}:${port}`);
-    const refusing = await sweepNeighbour(swept(), `http://${host.ip}:1`);
-
-    // A generated box is this side's to read, and one that refuses has answered.
-    expect(served.asked).toEqual([]);
-    expect(refusing.asked).toEqual([]);
-    expect(refusing.drained.text).toBe(
-      `gobuster: (7) Failed to connect to ${host.ip} port 1: Connection refused`,
-    );
-  });
 });

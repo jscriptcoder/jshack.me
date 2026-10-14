@@ -14,10 +14,10 @@
  * allowed to do — and they return the SAME three outcomes, so nothing downstream has to
  * care how far away the page was.
  *
- * On the network the shell stands on, a box the network generates is read here. An
- * address none of them holds may be a fellow occupant's, whose box is built from a
- * journal only the server has, so that one is asked of the server too. So is loopback
- * in a shell on a fellow occupant's box, which is the same box by its other name.
+ * On the network the shell stands on, only the player's own box at home is read here.
+ * Every other box (one the network generates, or a fellow occupant's) is served from a
+ * journal only the server has, so it is asked of the server. So is loopback in a shell
+ * on any box but the player's own, which is the same box by its other name.
  *
  * Three outcomes rather than two, because a reader treats them differently and the
  * target's log agrees with the split. A page and a 404 both mean the box ANSWERED:
@@ -64,9 +64,9 @@ const recordVisit = ({
 };
 
 /**
- * The page at an address no box this side can build holds — a fellow occupant's, if
- * anybody's. The server says whose box it is, serves the page off their journal and
- * records the visit there itself, so nothing is logged from here. It is asked about the
+ * The page at any address but the player's own box at home. The server says which box
+ * it is (a fellow occupant's, or one the network generates), serves the page off its
+ * journal and records the visit there itself, so nothing is logged from here. It is asked about the
  * RESOLVED address: `localhost` names no machine to it, and the loopback address names
  * the box the shell stands on.
  *

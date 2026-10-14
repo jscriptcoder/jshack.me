@@ -11,6 +11,7 @@ import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js'
 import { buildRemoteHostFs } from '../generation/remoteHostFs.js';
 import { HTTP_DEFAULT_PORT, parseHttpUrl } from '../network/http.js';
 import { lanZoneName } from '../network/resolveName.js';
+import { machineIdForLanHost } from '../generation/lanTopology.js';
 import { vantageOf, type Vantage } from '../network/vantage.js';
 import { asMachineId } from '../types.js';
 import { mockNetworkViewFromConnectivity, mockSession } from '../../test/factories/commandEnv.js';
@@ -212,13 +213,23 @@ describe('fetching one page', () => {
     );
   });
 
-  it('reads a generated host on the LAN the same way it reads the player own box', async () => {
+  it('asks the server for a generated host on the LAN, which serves it from the box as it stands', async () => {
+    // Somebody may have rewritten its pages, stopped its web server or bricked it, and
+    // the journal that says so is the server's alone.
     const { host, port } = webHostOnLan();
+    const served: OccupantFetchResult = { ok: true, content: '<h1>owned</h1>', server: 'nginx' };
 
-    const { result, logged } = await fetchFrom(ownBox(), `http://${host.ip}:${port}/index.html`);
+    const { result, asked, logged } = await fetchFrom(
+      ownBox(),
+      `http://${host.ip}:${port}/index.html`,
+      served,
+    );
 
-    expect(result.kind).toBe('page');
-    expect(logged.map((line) => line.target)).toEqual([host.ip]);
+    expect(result).toEqual({ kind: 'page', content: '<h1>owned</h1>', server: 'nginx' });
+    expect(asked).toEqual([
+      { essid: ESSID, target: host.ip, port, path: '/index.html', callerMachineId: CALLER },
+    ]);
+    expect(logged).toEqual([]);
   });
 });
 
@@ -228,11 +239,8 @@ describe('fetching a page by the name the network gives a host', () => {
     // way must land on the same box `curl` reaches by that name.
     const { host, port } = webHostOnLan();
     const byName = await fetchFrom(ownBox(), `http://${host.hostname}.${lanZoneName(ESSID)}:${port}/`);
-    const byAddress = await fetchFrom(ownBox(), `http://${host.ip}:${port}/`);
 
-    expect(byName.result).toEqual(byAddress.result);
-    expect(byName.result.kind).toBe('page');
-    expect(byName.logged.map((line) => line.target)).toEqual([host.ip]);
+    expect(byName.asked.map((asked) => asked.target)).toEqual([host.ip]);
   });
 
   it('cannot resolve a name the network does not hold, and says the name as typed', async () => {
@@ -316,15 +324,14 @@ describe('fetching a page off a fellow occupant of the network', () => {
     },
   );
 
-  it('never asks the server about a box it reads for itself', async () => {
-    const { host, port } = webHostOnLan();
+  it('never asks the server about the player’s own box at home', async () => {
     const tree = ownBox(WEB_SERVER_RUNNING, published('index.html', '<h1>mine</h1>'));
 
-    const generated = await fetchFrom(tree, `http://${host.ip}:${port}/`, served);
     const own = await fetchFrom(tree, `http://${OWN_IP}/`, served);
+    const loopback = await fetchFrom(tree, 'http://localhost/', served);
 
-    expect(generated.asked).toEqual([]);
     expect(own.asked).toEqual([]);
+    expect(loopback.asked).toEqual([]);
     expect(own.result).toEqual({ kind: 'page', content: '<h1>mine</h1>', server: 'nginx' });
   });
 
@@ -335,5 +342,51 @@ describe('fetching a page off a fellow occupant of the network', () => {
 
     expect(result.kind).toBe('unreachable');
     expect(asked).toEqual([]);
+  });
+});
+
+describe('fetching from a shell on a box the network generates', () => {
+  // The tree a shell holds there is the one the server pruned to the session's tier, not
+  // what the box's web server serves, so the box answers for itself through the server.
+  const { host, port } = webHostOnLan();
+  const HOP = asMachineId(machineIdForLanHost(host, ESSID));
+  const served: OccupantFetchResult = { ok: true, content: '<h1>owned</h1>', server: 'nginx' };
+
+  const fetchOnHop = async (rawUrl: string) => {
+    const url = parseHttpUrl(rawUrl);
+    if (url === null) throw new Error(`test asked for an unparseable url: ${rawUrl}`);
+    const asked: OccupantFetchParams[] = [];
+    const logged: AccessLogFetch[] = [];
+    const vantage = vantageOf(
+      mockSession({ essid: ESSID, machineId: HOP }),
+      mockNetworkViewFromConnectivity(buildColdStartConnectivity(PUBKEY)),
+    );
+    if (vantage === null) throw new Error('expected a hop vantage');
+    const result = await fetchWebPage({
+      root: ownBox(WEB_SERVER_RUNNING, published('index.html', '<h1>pruned copy</h1>')),
+      program: 'curl',
+      url,
+      vantage,
+      callerMachineId: HOP,
+      appendAccessLog: async (fetched) => {
+        logged.push(fetched);
+      },
+      fetchOccupant: async (params) => {
+        asked.push(params);
+        return served;
+      },
+    });
+    return { result, asked, logged };
+  };
+
+  it.each([
+    ['loopback', 'http://localhost/', '127.0.0.1'],
+    ['its own address', `http://${host.ip}:${port}/`, host.ip],
+  ])('asks the server for the box itself by %s', async (_label, rawUrl, target) => {
+    const { result, asked, logged } = await fetchOnHop(rawUrl);
+
+    expect(result).toEqual({ kind: 'page', content: '<h1>owned</h1>', server: 'nginx' });
+    expect(asked.map((params) => params.target)).toEqual([target]);
+    expect(logged).toEqual([]);
   });
 });

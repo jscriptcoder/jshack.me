@@ -313,11 +313,19 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   is served, and has their writes judged, at `guest` in both until the newer one closes. The
   write check already worked this way and the served tree follows it.
 
-- **A LAN web fetch of a generated machine never reads its journal. By reading.** `curl` or
-  `lynx` at a generated box on the caller's own LAN is answered from the tree the box was
-  generated with. A page somebody changed there is served as generated to a reader on its LAN
-  and as changed to a reader across the internet (`resolveHttpFetch` replays the journal). A
-  stale read, not a tier matter. Found by the tier-read audit, 2026-10-12 (handbook chapter 14).
+- **A LAN web fetch of a generated machine never read its journal — RESOLVED 2026-10-14
+  (v0.382.0).** `curl` or `lynx` at a generated box on the caller's own LAN was answered from
+  the tree the box was generated with, and so was `gobuster`. Probed live first: a defaced,
+  deleted, stopped or bricked site server still answered its original page on its LAN, and
+  `recordLanFetch` logged `200` for it every time, the bricked box included. Now the server
+  serves every web read of a box that is not the player's own workstation at home:
+  `resolveOccupantWebTarget`, behind `resolveOccupantFetch` and `resolveOccupantSweep`, falls
+  back to the box the network generated at the address (a LAN host, a host on a deep layer
+  through its switch's live ACL, or the box a shell stands on, the access point's gateway
+  included), replays its journal, checks it boots and records the visit. `recordLanFetch`
+  keeps only the player's own workstation (`scripts/testLanWebServed.ts` 10/10, 2/10 on the
+  old code; `testLanFetchLog.ts` and `testHopWebTools.ts` moved to match). Not played in the
+  browser yet.
 
 - **An exploit fired from a script leaves a session row nobody stands on. By reading, not
   reproduced.** A script cannot be put in a shell, so `msfconsole` reports
@@ -341,11 +349,12 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   v0.371.0 that a session holder is served the file (`testCrossPlayerRead`,
   `testPidfileVisibility`). Play it when a shell-granting hole is live there, or stage one.
 
-- **`curl <its own address>` on a deep box behind a switch that denies the web port is served
-  but not traced. By reading, not reproduced.** The client serves the standing box's own tree
-  whichever of its names was used; the trace only skips the switch for `localhost`, and finds
-  the box by address through the filtered layer otherwise. Only a layer whose switch somebody
-  wrote a deny on shows it. Found 2026-10-10.
+- **`curl <its own address>` on a deep box behind a switch that denies the web port was served
+  but not traced — RESOLVED 2026-10-14 (v0.382.0).** The client served the standing box's own
+  tree whichever of its names was used, and the trace found the box by address through the
+  filtered layer. Closed by the item on LAN web fetches above: the server now serves that read
+  and records it, as the box the shell stands on, past the switch (a unit test in
+  `resolveOccupantFetch.test.ts`).
 
 - **A shell on a deep box could write nothing there, even as root — RESOLVED 2026-10-10
   (v0.350.0).** Found in the browser on ABSTERGO-NET: `ssh root@192.168.190.184` then

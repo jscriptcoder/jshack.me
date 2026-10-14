@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { lynx } from './lynx.js';
 import type {
   AccessLogFetch,
+  CommandEnv,
   CommandResult,
   OccupantFetchParams,
   OccupantFetchResult,
@@ -34,7 +35,6 @@ import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js'
 import { buildRemoteHostFs } from '../generation/remoteHostFs.js';
 import { publisherIp } from '../generation/publisher.js';
 import { readOpenPorts } from '../services/pidfile.js';
-import { createFsView } from '../filesystem/fsView.js';
 import { HTTP_DEFAULT_PORT } from '../network/http.js';
 import { asAbsPath, asMachineId, asPlayerKeyHex } from '../types.js';
 
@@ -105,36 +105,79 @@ const webHostOnLan = (): { readonly host: LanHost; readonly port: number } => {
   throw new Error('expected a generated web host on the LAN');
 };
 
-/** A reachable LAN host whose open port is NOT a web server. */
-const sshHostOnLan = (): { readonly host: LanHost; readonly port: number } => {
-  for (const host of generateHomeLan(ESSID).hosts) {
-    if (host.kind !== 'machine') continue;
-    const ports = readOpenPorts(buildRemoteHostFs(ESSID, host));
-    const ssh = ports.find((entry) => entry.service === 'ssh');
-    const web = ports.find((entry) => entry.service === 'http');
-    if (ssh !== undefined && web === undefined) return { host, port: ssh.port };
-  }
-  throw new Error('expected a generated ssh-but-not-web host on the LAN');
+/** The player's own address on the network they are online on. */
+const OWN_IP = assignHomeNetwork(PUBKEY, ESSID).localIp;
+
+/** The player's own box: the one box `lynx` reads for itself. Every other box is the
+ *  server's to answer for. */
+const ownBox = (...patches: readonly Patch[]): Directory =>
+  applyPatches(
+    buildWorkstationBaseFs(PUBKEY, {
+      machineName: 'workstation',
+      username: 'alice',
+      rootPassword: 'hunter2',
+    }),
+    patches,
+  );
+
+const WEB_SERVER_RUNNING: Patch = {
+  path: '/var/run/nginx.pid',
+  content: formatPidfileContent(SERVICE_CATALOG.http, HTTP_DEFAULT_PORT),
+  owner: 'root',
 };
 
-/** A port `host` has nothing listening on — so a refusal there is about the PORT
- *  and not about the host being unreachable. */
-const closedPortOn = (host: LanHost, serving: number): number => {
-  const open = new Set(readOpenPorts(buildRemoteHostFs(ESSID, host)).map((entry) => entry.port));
-  const closed = Array.from({ length: 100 }, (_unused, index) => serving + index + 1).find(
-    (port) => !open.has(port),
-  );
-  if (closed === undefined) throw new Error('expected a closed port on the host');
-  return closed;
+/** An open port that is not a web server. */
+const SSHD_RUNNING: Patch = {
+  path: `/var/run/${SERVICE_CATALOG.ssh.pidfile}`,
+  content: formatPidfileContent(SERVICE_CATALOG.ssh, SERVICE_CATALOG.ssh.defaultPort),
+  owner: 'root',
 };
 
-/** The page a generated host actually serves. */
-const servedPage = (host: LanHost): string => {
-  const read = createFsView(buildRemoteHostFs(ESSID, host), { userType: 'root' }).read(
-    asAbsPath('/var/www/html/index.html'),
+const publishedPage = (content: string): Patch => ({
+  path: '/var/www/html/index.html',
+  content,
+  owner: 'root',
+});
+
+const OWN_PAGE = '<h1>mine</h1>';
+
+const servingOwnBox = (): Directory => ownBox(WEB_SERVER_RUNNING, publishedPage(OWN_PAGE));
+
+const browseOwn = async (tree: Directory, ...args: readonly string[]): Promise<CommandResult> =>
+  lynx.execute(
+    mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+      fs: mockFsViewFromTree(tree, { userType: 'user', cwd: () => asAbsPath('/') }),
+    }),
+    args,
+    new Map(),
   );
-  if (!read.ok) throw new Error('expected a served page');
-  return read.content;
+
+/** The page the server answers with for a box it serves. */
+const SERVED_PAGE = '<h1>served off the box as it stands</h1>';
+
+/** `lynx` run in `env` (an online player at home by default) at a box the server answers
+ *  for: the result and what it asked the server. */
+const browseServed = async (
+  args: readonly string[],
+  env: CommandEnv = mockCommandEnv({
+    identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+    network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+  }),
+) => {
+  const asked: OccupantFetchParams[] = [];
+  const served: CommandEnv = {
+    ...env,
+    remote: {
+      ...mockRemoteApi(),
+      fetchOccupant: async (params) => {
+        asked.push(params);
+        return { ok: true, content: SERVED_PAGE, server: 'nginx' };
+      },
+    },
+  };
+  return { result: await lynx.execute(served, args, new Map()), asked };
 };
 
 /** An address on the player's own subnet that no host occupies. */
@@ -149,33 +192,40 @@ const unoccupiedIp = (): string => {
 };
 
 describe('lynx opens a browser on a page that came back', () => {
-  it('hands the browser the page a LAN host serves, and the address it was read from', async () => {
+  it('asks the server for a LAN host, and opens the page it answers at the address it read', async () => {
     const { host, port } = webHostOnLan();
 
-    const page = opened(await run(`http://${host.ip}:${port}/index.html`));
+    const { result, asked } = await browseServed([`http://${host.ip}:${port}/index.html`]);
 
-    expect(page.content).toBe(servedPage(host));
-    expect(page.url).toBe(`http://${host.ip}:${port}/index.html`);
+    expect(opened(result)).toEqual({
+      url: `http://${host.ip}:${port}/index.html`,
+      content: SERVED_PAGE,
+    });
+    expect(asked).toEqual([
+      {
+        essid: ESSID,
+        target: host.ip,
+        port,
+        path: '/index.html',
+        callerMachineId: mockSession().machineId,
+      },
+    ]);
   });
 
   it('takes an address typed with no scheme as http, and shows the url it fetched', async () => {
-    const { host, port } = webHostOnLan();
+    const page = opened(await browseOwn(servingOwnBox(), `${OWN_IP}/index.html`));
 
-    const page = opened(await run(`${host.ip}:${port}/index.html`));
-
-    expect(page.content).toBe(servedPage(host));
+    expect(page.content).toBe(OWN_PAGE);
     // The address bar is also the base every relative link resolves against, so it holds
     // the whole url rather than the shorthand that was typed — the web's own port left
     // unwritten, as a browser writes it.
-    const shownPort = port === HTTP_DEFAULT_PORT ? '' : `:${port}`;
-    expect(page.url).toBe(`http://${host.ip}${shownPort}/index.html`);
+    expect(page.url).toBe(`http://${OWN_IP}/index.html`);
   });
 
   it('reads the page a directory stands for, as a browser asking for the root does', async () => {
-    const { host, port } = webHostOnLan();
-
-    expect(opened(await run(`http://${host.ip}:${port}`)).content).toBe(servedPage(host));
+    expect(opened(await browseOwn(servingOwnBox(), `http://${OWN_IP}`)).content).toBe(OWN_PAGE);
   });
+
 });
 
 describe('lynx refuses in the terminal rather than opening on nothing', () => {
@@ -219,9 +269,9 @@ describe('lynx refuses in the terminal rather than opening on nothing', () => {
   });
 
   it('is refused by a host that is up but serves no web', async () => {
-    const { host } = sshHostOnLan();
-
-    const { text, exitCode, kinds } = reported(await run(`http://${host.ip}`));
+    const { text, exitCode, kinds } = reported(
+      await browseOwn(ownBox(SSHD_RUNNING), `http://${OWN_IP}`),
+    );
 
     expect(text).toContain('Connection refused');
     expect(exitCode).toBe(1);
@@ -230,9 +280,7 @@ describe('lynx refuses in the terminal rather than opening on nothing', () => {
   });
 
   it('is refused on a port the web server is not on, however well it serves elsewhere', async () => {
-    const { host, port } = webHostOnLan();
-
-    const { text } = reported(await run(`http://${host.ip}:${closedPortOn(host, port)}`));
+    const { text } = reported(await browseOwn(servingOwnBox(), `http://${OWN_IP}:9999`));
 
     expect(text).toContain('Connection refused');
   });
@@ -240,27 +288,28 @@ describe('lynx refuses in the terminal rather than opening on nothing', () => {
   it('is refused by a port that is open for something that is not a web server', async () => {
     // The port answers and the host is up — but ssh is behind it, and a text
     // browser asking it for a page gets nowhere.
-    const { host, port } = sshHostOnLan();
-
-    const { text } = reported(await run(`http://${host.ip}:${port}`));
+    const { text } = reported(
+      await browseOwn(
+        ownBox(WEB_SERVER_RUNNING, SSHD_RUNNING),
+        `http://${OWN_IP}:${SERVICE_CATALOG.ssh.defaultPort}`,
+      ),
+    );
 
     expect(text).toContain('Connection refused');
   });
 
   it('reports a missing page as a 404 instead of browsing an empty screen', async () => {
-    const { host, port } = webHostOnLan();
-
-    const { text, exitCode } = reported(await run(`http://${host.ip}:${port}/nothing-here`));
+    const { text, exitCode } = reported(
+      await browseOwn(servingOwnBox(), `http://${OWN_IP}/nothing-here`),
+    );
 
     expect(text).toContain('404');
     expect(exitCode).toBe(1);
   });
 
   it('reads nothing above the document root, however the path is written', async () => {
-    const { host, port } = webHostOnLan();
-
     const { text, exitCode } = reported(
-      await run(`http://${host.ip}:${port}/../../etc/passwd`),
+      await browseOwn(servingOwnBox(), `http://${OWN_IP}/../../etc/passwd`),
     );
 
     // A traversal that was SPOTTED says only what a missing file says — telling the
@@ -419,13 +468,17 @@ describe('lynx across the network, at another player public IP', () => {
 });
 
 describe('lynx leaves the same trace on the box it read', () => {
+  /** `lynx` on the player's own box, which is the one box whose trace the client
+   *  reports; the server records a visit to any other box itself. */
   const runReporting = async (
+    tree: Directory,
     ...args: readonly string[]
   ): Promise<{ readonly result: CommandResult; readonly logged: readonly AccessLogFetch[] }> => {
     const logged: AccessLogFetch[] = [];
     const env = mockCommandEnv({
       identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
       network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+      fs: mockFsViewFromTree(tree, { userType: 'user', cwd: () => asAbsPath('/') }),
       log: {
         appendAuthLog: async () => undefined,
         appendKernLog: async () => undefined,
@@ -438,15 +491,13 @@ describe('lynx leaves the same trace on the box it read', () => {
   };
 
   it('is indistinguishable from a curl of the same path', async () => {
-    const { host, port } = webHostOnLan();
-
-    const { logged } = await runReporting(`http://${host.ip}:${port}/index.html`);
+    const { logged } = await runReporting(servingOwnBox(), `http://${OWN_IP}/index.html`);
 
     expect(logged).toEqual([
       {
         essid: ESSID,
-        target: host.ip,
-        port,
+        target: OWN_IP,
+        port: HTTP_DEFAULT_PORT,
         paths: ['/index.html'],
         callerMachineId: mockSession().machineId,
       },
@@ -454,59 +505,21 @@ describe('lynx leaves the same trace on the box it read', () => {
   });
 
   it('records one line for one page, whether or not the page was there', async () => {
-    const { host, port } = webHostOnLan();
-
-    const { logged } = await runReporting(`http://${host.ip}:${port}/nothing-here`);
+    const { logged } = await runReporting(servingOwnBox(), `http://${OWN_IP}/nothing-here`);
 
     expect(logged).toHaveLength(1);
     expect(logged[0]!.paths).toEqual(['/nothing-here']);
   });
 
   it('writes nothing when nothing answered', async () => {
-    const { host } = sshHostOnLan();
-
-    const { logged } = await runReporting(`http://${host.ip}`);
+    const { logged } = await runReporting(ownBox(SSHD_RUNNING), `http://${OWN_IP}`);
 
     expect(logged).toEqual([]);
   });
+
 });
 
 describe('lynx against the player own address', () => {
-  const OWN_IP = assignHomeNetwork(PUBKEY, ESSID).localIp;
-
-  const ownBox = (...patches: readonly Patch[]): Directory =>
-    applyPatches(
-      buildWorkstationBaseFs(PUBKEY, {
-        machineName: 'workstation',
-        username: 'alice',
-        rootPassword: 'hunter2',
-      }),
-      patches,
-    );
-
-  const WEB_SERVER_RUNNING: Patch = {
-    path: '/var/run/nginx.pid',
-    content: formatPidfileContent(SERVICE_CATALOG.http, HTTP_DEFAULT_PORT),
-    owner: 'root',
-  };
-
-  const publishedPage = (content: string): Patch => ({
-    path: '/var/www/html/index.html',
-    content,
-    owner: 'root',
-  });
-
-  const browseOwn = async (tree: Directory, ...args: readonly string[]): Promise<CommandResult> =>
-    lynx.execute(
-      mockCommandEnv({
-        identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
-        network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
-        fs: mockFsViewFromTree(tree, { userType: 'user', cwd: () => asAbsPath('/') }),
-      }),
-      args,
-      new Map(),
-    );
-
   it('reads the page the player just wrote, not a generated one', async () => {
     // The player's own tree is the LIVE one, which is what makes an edit visible: a
     // generated stand-in would show a page this box never published.
@@ -581,17 +594,14 @@ describe('lynx against the player own address', () => {
 });
 
 describe('lynx from a hop', () => {
-  it('opens a web host on the LAN the shell stands on, matching a home read, card offline', async () => {
+  it('asks the server for a web host on the LAN the shell stands on, from that box, card offline', async () => {
     // The target is a neighbour on BEAN-THERE-WIFI; the hop is a different box on the
-    // same LAN. The player's own card is offline, so a page here came from the shell's
-    // network — and it is the same page a read from home would open.
+    // same LAN. The player's own card is offline, so the request travelled from the
+    // shell's box, which the server places the caller at.
     const { host, port } = webHostOnLan();
     const hop = generateHomeLan(ESSID).hosts.find(
       (candidate) => candidate.kind === 'machine' && candidate.ip !== host.ip,
     )!;
-    const target = `http://${host.ip}:${port}/index.html`;
-
-    const atHome = opened(await run(target));
     const hopEnv = mockCommandEnv({
       identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
       network: mockNetworkView(),
@@ -604,9 +614,14 @@ describe('lynx from a hop', () => {
       }),
     });
 
-    const onHop = opened(await lynx.execute(hopEnv, [target], new Map()));
-    expect(onHop.content).toBe(atHome.content);
+    const { result, asked } = await browseServed([`http://${host.ip}:${port}/index.html`], hopEnv);
+
+    expect(opened(result).content).toBe(SERVED_PAGE);
+    expect(asked.map((params) => params.callerMachineId)).toEqual([
+      machineIdForLanHost(hop, ESSID),
+    ]);
   });
+
 });
 
 describe('lynx at a fellow occupant of the network', () => {

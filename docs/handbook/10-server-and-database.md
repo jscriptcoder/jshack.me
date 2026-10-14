@@ -80,8 +80,8 @@ false}})`, per request. The service role bypasses row-level security.
 | `resolveOccupiedEssids`     | Names of networks anyone is connected to (discovery).                                                   | SIG              |
 | `resolveOccupants`          | Fellow players on your network, with their LAN addresses.                                               | SIG + OCC        |
 | `resolveOccupantScan`       | `nmap` a fellow player's box.                                                                           | SIG + OCC        |
-| `resolveOccupantFetch`      | `curl`/`lynx` a fellow player's box at its LAN address; writes its owner's `access.log`.                | SIG + OCC        |
-| `resolveOccupantSweep`      | `gobuster` a fellow player's box at its LAN address; writes its owner's `access.log`.                   | SIG + OCC        |
+| `resolveOccupantFetch`      | `curl`/`lynx` any box on the LAN or a deep layer but your own, from its journal; writes its `access.log`. | SIG + OCC        |
+| `resolveOccupantSweep`      | `gobuster` any box on the LAN or a deep layer but your own, from its journal; writes its `access.log`.    | SIG + OCC        |
 | `resolveSameLanScan`        | `nmap` a generated machine on your LAN (journal-aware).                                                 | SIG              |
 | `resolveInnerGatewayScan`   | `nmap` an inner gateway from outside.                                                                   | SIG              |
 | `resolvePublicScan`         | `nmap` a public IP; writes a `kern.log` trace on the target gateway.                                    | SIG + REACH      |
@@ -100,7 +100,7 @@ false}})`, per request. The service role bypasses row-level security.
 | `recordFtpTransfer`              | Trace an FTP transfer in `vsftpd.log`.                                      | SIG + L1 (session) |
 | `recordPackageDowngrade`         | Trace a package downgrade in `dpkg.log`.                                    | SIG + L1           |
 | `recordZoneTransfer`             | Trace a DNS zone transfer in `named.log`.                                   | SIG                |
-| `recordLanFetch`                 | Trace a LAN web fetch in `access.log`.                                      | SIG                |
+| `recordLanFetch`                 | Trace a web fetch of your own workstation in its `access.log`.              | SIG                |
 | `nmapScan`                       | Trace a LAN or deep scan: one `kern.log` line per scanned host.             | SIG                |
 
 ### `POST /api/sessions`

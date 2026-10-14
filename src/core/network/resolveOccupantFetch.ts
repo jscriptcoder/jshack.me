@@ -1,20 +1,24 @@
 /**
- * handleResolveOccupantFetch — the server-side gate for a web fetch of a FELLOW
- * OCCUPANT's box, at the address it holds on the LAN the caller stands on.
+ * handleResolveOccupantFetch — the server-side gate for a web fetch of any box on the
+ * network the caller stands on but the player's own: a FELLOW OCCUPANT's, at the
+ * address it holds, or one the network generates.
  *
- * Every other host on a LAN is the client's to read: a generated box is a function of
- * the network, so `curl` builds its tree and serves the page itself. A player's
- * workstation is built from THEIR identity and THEIR journal, which live here, so a
- * fetch of one is the same round trip a scan of one already is
- * (`handleResolveOccupantScan`). Without it a scan showed a neighbour's web port open
- * and every web tool answered that no such host existed.
+ * The player's own box at home is the one box the client reads for itself. A fellow
+ * occupant's workstation is built from THEIR identity and THEIR journal, which live
+ * here, so a fetch of one is the same round trip a scan of one already is
+ * (`handleResolveOccupantScan`). A box the network generates is served from its journal
+ * too, because somebody may have rewritten its pages, stopped its web server or bricked
+ * it, and a reader on its own network must see what a reader across the internet sees.
+ * That covers a host on the LAN, a host on a deep layer the caller's shell reaches, and
+ * the box a shell stands on, over loopback.
  *
  * The web is the door with no credential, so reaching the port is the whole gate, and
  * the gate is the one the scan draws: the caller must stand on the network (at home on
- * it, or in a shell on a box that is), the address must be a lease whose holder is on
- * the WiFi now, the box must boot, and the port must be one it answers to the NETWORK
- * with a web server behind it. A port the owner filtered refuses, exactly as the scan
- * shows it shut. The one caller that filter does not stop is a shell on the box itself:
+ * it, or in a shell on a box that is), the box must be there (a lease whose holder is on
+ * the WiFi now, or a box the network generates), the box must boot, and the port must
+ * be one it answers to the NETWORK with a web server behind it. A port the box's filter
+ * closes refuses, exactly as the scan shows it shut, and so does one the switch in front
+ * of a deep layer denies. The one caller no filter stops is a shell on the box itself:
  * nothing stands between a box and its own address.
  *
  * Three refusals, kept apart because the caller turns them into three sentences and a
@@ -25,9 +29,10 @@
  * The request path arrives RAW and is resolved here, through the `resolveWebPath` every
  * web door uses, so a client can name a URL path and never a file on somebody's box.
  *
- * The box that answered records the visit: one line in its OWNER's log, from the
- * address the server places the caller at. A 404 is recorded as readily as a 200; only
- * a fetch that reached no web server leaves nothing, there being no server to write it.
+ * The box that answered records the visit: one line in its OWNER's log (the network's,
+ * for a box nobody owns), from the address the server places the caller at. A 404 is
+ * recorded as readily as a 200; only a fetch that reached no web server leaves nothing,
+ * there being no server to write it.
  */
 
 import { z } from 'zod';
@@ -39,7 +44,18 @@ import { portsOpenToNetwork } from './portsOpenToNetwork.js';
 import { webProgramOn } from './webServing.js';
 import { resolveWebPath } from './http.js';
 import { LOOPBACK_IPV4 } from './interfaces.js';
-import { readOpenPorts } from '../services/pidfile.js';
+import { readOpenPorts, type OpenPort } from '../services/pidfile.js';
+import { generateHomeLan } from '../generation/generateHomeLan.js';
+import {
+  chainGatewayBaseFs,
+  networkBaseFsForMachineId,
+  resolveLanHostIdentity,
+} from '../generation/lanHostIdentity.js';
+import { segmentsReachedFrom, type ChainLink } from '../generation/lanTopology.js';
+import { deniedPortsFor, resolveDeepScanHosts } from '../scan/deepScanHosts.js';
+import { materializeMachineFs } from './materializeMachineFs.js';
+import { canBoot } from '../boot/bootFiles.js';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import { createFsView } from '../filesystem/fsView.js';
 import {
   ACCESS_LOG_OWNER,
@@ -60,7 +76,7 @@ import type { OwnerPatchRow } from './materializeWorkstationFs.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 
-/** What it takes to find a fellow occupant's web server from where the caller stands.
+/** What it takes to find a web server on the network from where the caller stands.
  *  Named apart from the fetch's own dependencies because reaching a box and asking it for
  *  something are different jobs: a single page read and a whole path sweep enter through
  *  the same door, and neither may reach a box the other could not. */
@@ -77,7 +93,8 @@ export type OccupantWebTargetDeps = CallerVantageDeps & {
     essid: string,
   ) => Promise<{ readonly data: readonly LanLeaseRow[] | null; readonly error: unknown }>;
   /** The reached box's FULL journal, replayed over its generated base: whether it
-   *  boots, what it runs, what it filters and the pages themselves. */
+   *  boots, what it runs, what it filters and the pages themselves. Also the journal of
+   *  a switch in front of a deep layer, whose live ACL decides what the layer answers. */
   readonly findPatches: (query: {
     readonly machine_id: string;
   }) => Promise<{ readonly data: readonly OwnerPatchRow[] | null; readonly error: unknown }>;
@@ -96,8 +113,8 @@ export type HandlerResponse = {
   readonly body: Record<string, unknown>;
 };
 
-/** The web server a request reached on a fellow occupant's box, with the log identity
- *  its visit is written under and the address the server places the caller at. */
+/** The web server a request reached, with the log identity its visit is written under
+ *  and the address the server places the caller at. */
 export type OccupantWebTarget = {
   readonly fs: Directory;
   /** The program serving the web there (`nginx`, `apache2`). */
@@ -168,31 +185,166 @@ export const resolveOccupantWebTarget = async (
       ? row.workstation_machine_id === caller.machineId
       : addresses.get(row.owner_key) === request.target,
   );
-  if (occupant === undefined) return UNREACHABLE;
+  // A loopback request never left the box, so it is recorded as a local visit.
+  const sourceIp = loopback ? LOOPBACK_IPV4 : (vantage.sourceIp ?? 'unknown');
 
-  const patches = await deps.findPatches({ machine_id: occupant.workstation_machine_id });
-  if (patches.error) {
-    return { status: 500, body: { error: 'patches_lookup_failed' } };
-  }
-  const occupantFs = bootableOccupantFs(occupant, patches.data);
-  if (occupantFs === null) return UNREACHABLE;
+  const box =
+    occupant === undefined
+      ? await generatedBox(deps, caller.machineId, request, loopback, sourceIp)
+      : await occupantBox(deps, occupant, sourceIp);
+  if ('status' in box) return box;
 
   // What the box answers to the NETWORK, so a web tool refuses exactly the port a scan
   // showed shut. A shell on the box itself reaches its own address past its own filter.
-  const standsOnIt = caller.machineId === occupant.workstation_machine_id;
-  const ports = standsOnIt ? readOpenPorts(occupantFs) : portsOpenToNetwork(occupantFs);
+  const standsOnIt = caller.machineId === box.machineId;
+  const ports = standsOnIt ? readOpenPorts(box.fs) : box.networkPorts;
   const reachable = ports.some((entry) => entry.port === request.port);
-  const server = reachable ? webProgramOn(occupantFs, request.port) : undefined;
+  const server = reachable ? webProgramOn(box.fs, request.port) : undefined;
   if (server === undefined) return REFUSED;
 
   return {
-    fs: occupantFs,
+    fs: box.fs,
     server,
+    machineId: box.machineId,
+    logWriterKey: box.logWriterKey,
+    sourceIp: box.sourceIp,
+  };
+};
+
+/** A box a request reached, up and with its journal replayed, before anybody has asked
+ *  whether it serves the web on the port named. */
+type ReachedBox = Omit<OccupantWebTarget, 'server'> & {
+  /** What the box answers to a caller who is not standing on it: its own filter applied,
+   *  and on a deep layer the ACL of the switch in front of it as well. */
+  readonly networkPorts: readonly OpenPort[];
+};
+
+const PATCHES_FAILED: HandlerResponse = { status: 500, body: { error: 'patches_lookup_failed' } };
+
+/** A fellow occupant's workstation, rebuilt from their identity and their journal. */
+const occupantBox = async (
+  deps: OccupantWebTargetDeps,
+  occupant: HttpFetchOccupant,
+  sourceIp: string,
+): Promise<ReachedBox | HandlerResponse> => {
+  const patches = await deps.findPatches({ machine_id: occupant.workstation_machine_id });
+  if (patches.error) return PATCHES_FAILED;
+  const fs = bootableOccupantFs(occupant, patches.data);
+  if (fs === null) return UNREACHABLE;
+  return {
+    fs,
+    networkPorts: portsOpenToNetwork(fs),
     machineId: occupant.workstation_machine_id,
     logWriterKey: occupant.owner_key,
-    // A loopback request never left the box, so it is recorded as a local visit.
-    sourceIp: loopback ? LOOPBACK_IPV4 : (vantage.sourceIp ?? 'unknown'),
+    sourceIp,
   };
+};
+
+/** A generated box with its journal replayed, or unreachable when it cannot boot. Nobody
+ *  owns it and every visitor reaches the identical box, so its log accretes under the
+ *  network's own key rather than a row per visitor. */
+const replayedGeneratedBox = async (
+  deps: OccupantWebTargetDeps,
+  box: {
+    readonly essid: string;
+    readonly machineId: string;
+    readonly baseFs: Directory;
+    readonly deniedByFront: ReadonlySet<number>;
+    readonly sourceIp: string;
+  },
+): Promise<ReachedBox | HandlerResponse> => {
+  const patches = await deps.findPatches({ machine_id: box.machineId });
+  if (patches.error) return PATCHES_FAILED;
+  const fs = materializeMachineFs(box.baseFs, patches.data);
+  if (!canBoot(fs).ok) return UNREACHABLE;
+  return {
+    fs,
+    networkPorts: portsOpenToNetwork(fs).filter((open) => !box.deniedByFront.has(open.port)),
+    machineId: box.machineId,
+    logWriterKey: apGatewayLogWriterKey(box.essid),
+    sourceIp: box.sourceIp,
+  };
+};
+
+const NOTHING_IN_FRONT: ReadonlySet<number> = new Set();
+
+/** The gateway in front of a deep layer as it stands: a switch's live ACL is in its
+ *  journal, while a router filters nothing, so only a switch's journal is read. */
+const frontingGatewayFs = async (
+  deps: OccupantWebTargetDeps,
+  essid: string,
+  fronting: ChainLink,
+): Promise<Directory | HandlerResponse> => {
+  const baseFs = chainGatewayBaseFs(essid, fronting);
+  if (fronting.host.kind !== 'switch') return baseFs;
+  const patches = await deps.findPatches({ machine_id: fronting.machineId });
+  return patches.error ? PATCHES_FAILED : materializeMachineFs(baseFs, patches.data);
+};
+
+/**
+ * The box the network itself generates at the address, when no player holds it: the box a
+ * shell stands on, over loopback; a host on a deep layer the shell reaches; or a host on
+ * the LAN. Served from its journal like a player's box, because somebody may have
+ * rewritten its pages, stopped its web server or bricked it, and a reader on its own
+ * network must see what a reader across the internet sees.
+ */
+const generatedBox = async (
+  deps: OccupantWebTargetDeps,
+  callerMachineId: string | undefined,
+  request: { readonly essid: string; readonly target: string },
+  loopback: boolean,
+  sourceIp: string,
+): Promise<ReachedBox | HandlerResponse> => {
+  const { essid } = request;
+  if (loopback) {
+    // Found by what it is rather than by an address: the access point's own gateway
+    // stands on no LAN walk, and a deep box is seen on the LAN as the gateway in front.
+    if (callerMachineId === undefined) return UNREACHABLE;
+    const baseFs = networkBaseFsForMachineId(essid, callerMachineId);
+    return baseFs === null
+      ? UNREACHABLE
+      : replayedGeneratedBox(deps, {
+          essid,
+          machineId: callerMachineId,
+          baseFs,
+          deniedByFront: NOTHING_IN_FRONT,
+          sourceIp,
+        });
+  }
+
+  // A deep address is never a LAN one, so the layers come first and need no tiebreak. A
+  // deep box only ever sees the gateway in front of it, whoever is behind that.
+  for (const segment of callerMachineId === undefined
+    ? []
+    : (segmentsReachedFrom(essid, callerMachineId) ?? [])) {
+    const { fronting } = segment;
+    if (fronting === null) continue;
+    const frontingFs = await frontingGatewayFs(deps, essid, fronting);
+    if ('status' in frontingFs) return frontingFs;
+    const onLayer = resolveDeepScanHosts(essid, fronting, frontingFs).hosts.find(
+      (entry) => entry.host.ip === request.target,
+    );
+    if (onLayer !== undefined) {
+      return replayedGeneratedBox(deps, {
+        essid,
+        machineId: onLayer.machineId,
+        baseFs: onLayer.baseFs,
+        deniedByFront: deniedPortsFor(fronting, frontingFs),
+        sourceIp: segment.address ?? 'unknown',
+      });
+    }
+  }
+
+  const host = generateHomeLan(essid).hosts.find((candidate) => candidate.ip === request.target);
+  if (host === undefined) return UNREACHABLE;
+  const { machineId, baseFs } = resolveLanHostIdentity(host, essid);
+  return replayedGeneratedBox(deps, {
+    essid,
+    machineId,
+    baseFs,
+    deniedByFront: NOTHING_IN_FRONT,
+    sourceIp,
+  });
 };
 
 export const handleResolveOccupantFetch = async (
