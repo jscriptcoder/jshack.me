@@ -217,8 +217,9 @@ const CHAPTERS = [
 /** The example scripts the site keeps for a reader to download and run. */
 const SCRIPTS = ['hello.js', 'failed.js'];
 
-/** The one chapter that is allowed — and required — to name findit: the world's one pointer
- *  to the search site a newcomer would otherwise never hear of. */
+/** The one chapter that is allowed — and required — to name findit and mapit.io: the
+ *  world's one pointer to the search site a newcomer would otherwise never hear of, and one
+ *  of the two to the map. */
 const WEB_CHAPTER = `${SITE}/the-web.html`;
 
 describe('the front page of hackademy.io', () => {
@@ -282,6 +283,16 @@ describe('every page of hackademy.io', () => {
       const names = served(page)?.toLowerCase().includes('findit') ?? false;
       expect(names, page).toBe(page === WEB_CHAPTER);
     }
+  });
+
+  it('names mapit.io once, beside findit in the web chapter, and nowhere else', () => {
+    for (const page of everyPage()) {
+      const mentions = (served(page) ?? '').toLowerCase().split('mapit').length - 1;
+      expect(mentions, page).toBe(page === WEB_CHAPTER ? 1 : 0);
+    }
+    const paragraphs = [...parsed(served(WEB_CHAPTER) ?? '').querySelectorAll('p')];
+    const naming = paragraphs.find((paragraph) => paragraph.textContent?.includes('mapit.io'));
+    expect(naming?.textContent).toContain('findit');
   });
 
   it("points every example at the reader's own box, never at somebody else's", () => {

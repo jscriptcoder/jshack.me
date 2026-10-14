@@ -515,7 +515,9 @@ const THE_WEB = page('The web', [
   '<h2>Finding sites at all</h2>',
   '<p>None of this helps until you know a site is there. findit is a search site: it indexes the',
   'web the world can reach and answers for a name or a word, the way you found your way here.',
-  'Point <code>lynx</code> at findit, search for something, and follow what comes back.</p>',
+  'Point <code>lynx</code> at findit, search for something, and follow what comes back. When you',
+  'want where things are rather than what they say, mapit.io has the map: the valley, its towns,',
+  'and what stands in each.</p>',
 
   '<h2>Practice</h2>',
   '<ol>',

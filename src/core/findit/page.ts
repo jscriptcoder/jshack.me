@@ -41,8 +41,17 @@ export const finditDocument = (options: {
     '',
   ].join('\n');
 
-/** The front page: the form, and nothing else to read. */
-export const FINDIT_FRONT_PAGE = finditDocument({ title: 'findit.io', query: '', body: [] });
+/** The front page: the form, and under it the map for a reader who wants where a place
+ *  is rather than what it says. A results page leaves the map off, because a link above
+ *  the results would renumber every one of them. */
+export const FINDIT_FRONT_PAGE = finditDocument({
+  title: 'findit.io',
+  query: '',
+  body: [
+    '<p>Looking for where a place is, not what it says?',
+    '<a href="http://mapit.io/">mapit.io</a> has the map.</p>',
+  ],
+});
 
 /** One result: a name to follow, the address behind it, and what the site says of
  *  itself. The link is spelled out in full because a reader may be `curl`, which

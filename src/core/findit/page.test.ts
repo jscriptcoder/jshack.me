@@ -27,6 +27,10 @@ describe('the front page', () => {
     expect(FINDIT_FRONT_PAGE).not.toContain('<ol>');
     expect(FINDIT_FRONT_PAGE).not.toContain('No matches');
   });
+
+  it('points a reader who wants where a place is, rather than what it says, to the map', () => {
+    expect(FINDIT_FRONT_PAGE).toContain('<a href="http://mapit.io/">mapit.io</a>');
+  });
 });
 
 describe('a page of results', () => {
@@ -36,6 +40,15 @@ describe('a page of results', () => {
     expect(page).toContain('ridgemont.edu');
     expect(page).toContain('Admissions, courses, research and campus life.');
     expect(page).toContain('<ol>');
+  });
+
+  it('leaves the map off, so the first link a reader is given is the first result', () => {
+    // A browser numbers a page's links in order, and a reader follows a result by its
+    // number: a link above the results would make the first result `[2]`.
+    const page = searchResultsPage('university', [indexedPage()]);
+    const links = [...new DOMParser().parseFromString(page, 'text/html').querySelectorAll('a')];
+    expect(links.map((link) => link.getAttribute('href'))).toEqual(['http://ridgemont.edu/']);
+    expect(searchResultsPage('submarine', [])).not.toContain('mapit.io');
   });
 
   it('keeps the search in the form, so the next search starts from the last one', () => {
@@ -101,6 +114,8 @@ describe('the bytes findit puts on the wire', () => {
         '<button type="submit">Search</button>',
         '</form>',
         '<hr>',
+        '<p>Looking for where a place is, not what it says?',
+        '<a href="http://mapit.io/">mapit.io</a> has the map.</p>',
         '</body>',
         '</html>',
         '',
