@@ -2,7 +2,7 @@
 
 **Status**: Grilled, sliced and gap-reviewed. Decisions 1–27 confirmed by the owner 2026-10-14,
 28–41 from a find-gaps review the same day. Slice 1 shipped at v0.384.0 (#681, 2026-10-15);
-slice 2 is next and needs its plan.
+slice 2 is planned (below) and next to build.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 
@@ -414,6 +414,107 @@ transaction: cap, handle, account, welcome mail) → page back → line in email
   lint; the full test run.
 - The migration is pushed to jshack-dev and jshack-prod at merge (link → push → unlink).
 - No browser run; the epic's one run comes at the end.
+
+## Slice 2 plan: lynx sends POST forms
+
+**Branch**: `feat/lynx-post-forms` · **Version**: 0.384.0 → 0.385.0 · **Class**: behaviour change ·
+**Delivery**: one PR against `main`.
+
+**Value.** A lynx player signs up at emailit.io from its front page: types a handle and a
+password, presses Enter, and reads `Welcome, neo@emailit.io`. Going Back never sends the form
+again.
+
+**Path.** Enter on a POST form's field or button in `ui/screens/Lynx.tsx` → `onFollow` with the
+action's address and the form-encoded fields → `followLink` (`ui/state.ts`) →
+`fetchPageAcrossNetwork` / `fetchWebPage` with `body` (slice 1 built both) → the same
+`resolveHttpFetch` route `curl -d` takes → the answer replaces the page; the box logs a POST line.
+No `api/` or database change.
+
+### Choices made while planning (owner to confirm with the plan)
+
+- **`GET /signup` is a file.** emailit.io's web root gains `signup`, holding the front page with
+  its form, so Back after a sign-up, and `curl http://emailit.io/signup`, show the form. It needs
+  no server code, and like every page anyone can see it is a file a rooted emailit.io can deface.
+  Only the POST is answered by a function, so a defaced site still signs people up.
+- **The front page carries the form above the `curl -d` line**: `Handle`, `Password`,
+  `[ Sign up ]`, then decision 8's line. The curl way stays, under "Or from a terminal".
+- **A refusal keeps the handle as it was typed** (`Neo`, not `neo`), in the field's `value`,
+  escaped, and the password field comes back empty.
+- **A password field becomes a field you can type into, and still shows nothing.** `[]` when the
+  reader is elsewhere, `[_]` while they are in it, whatever it holds: no characters and no
+  length, as the masked terminal prompt shows none. What the page filled it with is sent if the
+  reader typed nothing, and never drawn.
+- **A form whose action is only a fragment (`#…`) is sent to the page it sits on**, as a browser
+  sends it. The generated NPC login pages (`action="#" method="post"`) therefore send their form,
+  and the box answers with its 405 page, as decision 30 says every server but emailit.io does.
+  Today such a form is drawn but sends nothing.
+- **A 405 is a page the reader moves to**, as a 404 is: the box answered and logged it.
+  `followLink` today would show any answer that is not a page as the 404 page.
+- **One request at a time.** While a follow, a submit or a Back is waiting for its answer, lynx
+  ignores Enter, ArrowRight, ArrowLeft and Backspace outside a field. A held Enter would otherwise
+  send a sign-up twice, and the second answer (`That handle is taken`) could land last, over the
+  welcome for the address the reader just got. Quitting still works.
+- **The body is the fields form-encoded as a GET form's query is** (`URLSearchParams`), sent to
+  the action's address with any query it carries kept, as a browser does for a POST.
+- **The trail needs no new rule.** It already records the address of the page being left, and
+  Back GETs it, so a page reached by POST is gone back to as `GET /signup`. A test pins it.
+
+### Acceptance criteria
+
+1. `lynx emailit.io` shows a `Handle` field, a `Password` field, a `[ Sign up ]` button and
+   "Don't use a password you use anywhere outside this game.", then the `curl -d` way.
+2. Typing into the Password field shows `[_]` and nothing else; leaving it shows `[]`. No typed
+   character and no count of them ever appears on screen.
+3. Handle `neo`, password `s3cret`, Enter on either field or on `[ Sign up ]`: lynx shows
+   `Welcome, neo@emailit.io` at `http://emailit.io/signup`. The account and its welcome mail exist
+   exactly as after `curl -d` (`md5("s3cret")`), and emailit.io's `access.log` gains
+   `"POST /signup HTTP/1.1" 200 <size>`; the password is in no log.
+4. A refused sign-up (taken, reserved, invalid, short password, the day's cap) shows the front page
+   with the reason above the form, the handle field holding what was typed (`Neo` stays `Neo`) and
+   the password field empty.
+5. From the welcome page, Back, or "Back to emailit.io" and then Back, fetches
+   `http://emailit.io/signup` with GET: the form shows with no error, the log line is
+   `"GET /signup HTTP/1.1" 200 <size>`, and no account is made and no sign-up spent.
+   `curl http://emailit.io/signup` prints the same form.
+6. What is typed arrives as typed: password `a&b c+d%` stores `md5("a&b c+d%")`, and a non-ASCII
+   handle is refused with the usual message rather than mangled.
+7. On a generated NPC login page, Enter on its form shows the 405 page, and that box's
+   `access.log` gains `"POST <path> HTTP/1.1" 405 <size>`. The same on the player's own box when
+   its page has a POST form.
+8. A second Enter while a submit is waiting sends nothing: one sign-up, one log line.
+9. With emailit.io dark, a submit leaves the reader on the form with the connect error in the
+   footer and what they typed still in the fields; nothing is stored.
+10. findit's search (a GET form) and every link and Back behave as before.
+11. `man lynx` says a form is filled in by selecting a field and typing, and sent with Enter.
+
+### Increments (each RED → GREEN → REFACTOR; commit on approval)
+
+1. **renderPage: a password is a field, and `#` sends to the page.** A password input renders as a
+   `field` that is masked (drawn `[]` whatever its value); a fragment-only action resolves to the
+   page's own address. `renderPage.test.ts`'s "offers no password field to type into" flips.
+2. **Lynx submits a POST form.** `onFollow` takes `{ url, body? }`; Enter on a POST form's field or
+   button sends the action and the encoded fields as `body`; the hint offers `⏎ Submit` for it; a
+   masked field reads `[_]` while edited; Back after a POST asks for the address with no body; one
+   request at a time. `http.ts` gains the body encoder beside `formSubmissionUrl`. jsdom tests in
+   `Lynx.test.tsx`.
+3. **followLink carries the body and shows a 405.** Both fetch paths get `body`; a
+   `method_not_allowed` answer moves the reader to its page. Tests in `state.test.ts`.
+4. **emailit.io's form.** `emailitFrontPage` draws the form and takes the typed handle;
+   `answerSignup` hands it back on a refusal; `WEB_ROOTS` gains `signup`. Tests in
+   `emailit.test.ts` (parsed and run through `renderPage`, so the form is proven to be one lynx can
+   send), `signup.test.ts` and `fixedSiteFs.test.ts`.
+5. **`man lynx`, version 0.385.0, handbook** (`05-shell-and-commands.md`).
+
+### Evidence
+
+- Unit and jsdom: increments 1–4; criteria 1–4 and 6–11 at the renderer, the screen,
+  `followLink` and the page builders.
+- Wire-check: `scripts/testEmailitSignup.ts` gains `GET /signup` → 200 with the form and a
+  `GET /signup` log line (criterion 5). No `api/` code changes, so the rest of it and
+  `testHttpFetch.ts` are re-run unchanged.
+- Pre-PR: Stryker on the changed lines of `renderPage.ts`, `Lynx.tsx`, `followLink`,
+  `core/emailit/` and `http.ts`; typecheck; lint; the full test run.
+- No browser run; the epic's one run at the end walks criteria 1–5 and 8 in lynx.
 
 ## Backlog from this grill
 
