@@ -30,6 +30,7 @@ describe.each([
   ['findit.io', 'findit'],
   ['hackademy.io', 'hackademy'],
   ['mapit.io', 'mapit'],
+  ['emailit.io', 'emailit'],
 ])('the box %s runs on', (key, hostname) => {
   const box = (): Directory => siteBox(key);
 
@@ -101,7 +102,7 @@ describe('the fixed sites, side by side', () => {
       ?.split(':')[1];
 
   it('keep a root password each, so rooting one opens nothing on the other', () => {
-    const hashes = ['findit.io', 'hackademy.io', 'mapit.io'].map(rootHash);
+    const hashes = ['findit.io', 'hackademy.io', 'mapit.io', 'emailit.io'].map(rootHash);
     expect(new Set(hashes).size).toBe(hashes.length);
   });
 });

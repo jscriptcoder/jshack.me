@@ -266,6 +266,7 @@ export const recordLanFetch = async (
       target: fetched.target,
       port: fetched.port,
       paths: fetched.paths,
+      ...(fetched.method === undefined ? {} : { method: fetched.method }),
       ...(fetched.callerMachineId === undefined
         ? {}
         : { caller_machine_id: fetched.callerMachineId }),

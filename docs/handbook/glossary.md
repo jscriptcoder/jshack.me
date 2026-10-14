@@ -31,6 +31,7 @@ here refers to a real network or system.
 | **Publisher**               | A declared network that hosts a public web site with a domain name.                                                                                 |
 | **findit.io**               | The in-game search engine, a one-machine network on the public web.                                                                                 |
 | **mapit.io**                | The in-game map of Harrow Valley and each town's public places, a one-machine network on the public web.                                            |
+| **emailit.io**              | Where a player signs up for an email address (`curl -d` to `/signup`), a one-machine network on the public web.                                     |
 | **Forward**                 | A line `forward <public port> to <ip>:<port>` in a router's `/etc/iptables/rules.v4`.                                                               |
 | **Vantage**                 | Where a request is made from: own LAN, same-WiFi player, public internet, or down an inner gateway's chain. Decided by the server from the address. |
 | **Fronted segment**         | The subnet a gateway's forwards may point into.                                                                                                     |

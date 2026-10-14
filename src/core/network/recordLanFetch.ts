@@ -47,7 +47,7 @@ import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
 import { lanAddressFor, type LanLeaseRow } from './lanAddress.js';
 import { materializeWorkstationFs, type OwnerPatchRow } from './materializeWorkstationFs.js';
 import { createFsView } from '../filesystem/fsView.js';
-import { resolveWebPath } from './http.js';
+import { METHOD_NOT_ALLOWED_PAGE, resolveWebPath } from './http.js';
 import { readOpenPorts, type OpenPort } from '../services/pidfile.js';
 import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import { LOOPBACK_IPV4 } from './interfaces.js';
@@ -120,6 +120,8 @@ const recordLanFetchSchema = z
     target: z.string().min(1),
     port: z.number().int(),
     paths: z.array(z.string().min(1)).min(1),
+    /** Present for a POST. No form travels: the own box refuses every one. */
+    method: z.literal('POST').optional(),
     caller_machine_id: z.string().min(1).optional(),
   })
   .refine((payload) => !('player_key' in payload));
@@ -223,6 +225,18 @@ export const handleRecordLanFetch = async (
   const time = asGameTime(deps.now());
   const recordedSource = loopback ? LOOPBACK_IPV4 : resolved.sourceIp;
   const lines = payload.paths.map((requestPath) => {
+    // A POST is refused before any file is looked at: the box takes no form, so every
+    // path answers with the same 405 page.
+    if (payload.method === 'POST') {
+      return formatAccessLogLine({
+        time,
+        method: 'POST',
+        sourceIp: recordedSource,
+        path: requestPath,
+        status: 405,
+        size: METHOD_NOT_ALLOWED_PAGE.length,
+      });
+    }
     const filePath = resolveWebPath(requestPath);
     const page = filePath === null ? null : view.read(filePath);
     const content = page === null || !page.ok ? null : page.content;

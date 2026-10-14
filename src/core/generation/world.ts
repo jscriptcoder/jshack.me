@@ -31,7 +31,13 @@ import {
   type HomeTemplate,
 } from './pools/homeNames.js';
 import { createPrng, type Prng } from './prng.js';
-import { FINDIT_NETWORK, FIXED_SITES, HACKADEMY_NETWORK, MAPIT_NETWORK } from './fixedSites.js';
+import {
+  EMAILIT_NETWORK,
+  FINDIT_NETWORK,
+  FIXED_SITES,
+  HACKADEMY_NETWORK,
+  MAPIT_NETWORK,
+} from './fixedSites.js';
 
 /** How much stands behind a network's gateway: one machine, a few, or today's inner
  *  router, switch and chain of hidden segments. */
@@ -765,6 +771,8 @@ const ADDRESS_BY_KEY: ReadonlyMap<string, string> = new Map([
   [HACKADEMY_NETWORK, placelessAddress(1 + LANDMARK_CORPORATIONS.length + CORPORATIONS.length)],
   // mapit came after hackademy and answers after it, so again nobody moves.
   [MAPIT_NETWORK, placelessAddress(2 + LANDMARK_CORPORATIONS.length + CORPORATIONS.length)],
+  // emailit came after mapit, and takes the next address.
+  [EMAILIT_NETWORK, placelessAddress(3 + LANDMARK_CORPORATIONS.length + CORPORATIONS.length)],
   ...DRAWN_TOWNS.flatMap((drawn) => townAddresses(drawn.town, drawn.networks)),
   // Ridgemont's drawn networks answer after its landmarks, at the places their keys hold.
   ...RIDGEMONT_DRAWN.map((network, index): [string, string] => [

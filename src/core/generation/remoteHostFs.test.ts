@@ -587,7 +587,7 @@ describe('buildRemoteHostFs', () => {
       ];
 
       expect(templates).toHaveLength(4);
-      expect(md5(templates.sort().join('\n'))).toBe('eccc054787c6764e4138d8d1e3ba6769');
+      expect(md5(templates.sort().join('\n'))).toBe('1aea15a9145945dda89520cbcc235f99');
     });
 
     it('holds every bucket to what the general pages already promise', () => {

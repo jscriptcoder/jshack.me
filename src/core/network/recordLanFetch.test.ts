@@ -11,7 +11,7 @@ import { lanAddressFor, type LanLeaseRow } from './lanAddress.js';
 import { formatPidfileContent, readOpenPorts } from '../services/pidfile.js';
 import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import { createFsView } from '../filesystem/fsView.js';
-import { resolveWebPath } from './http.js';
+import { METHOD_NOT_ALLOWED_PAGE, resolveWebPath } from './http.js';
 import { ACCESS_LOG_PATH, formatAccessLogLine } from '../logging/accessLog.js';
 import { asGameTime } from '../types.js';
 import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
@@ -495,6 +495,38 @@ describe('handleRecordLanFetch', () => {
     );
 
     expect(writtenLog(upsertPatch).content).toContain('"GET /../../etc/passwd HTTP/1.1" 404 0');
+  });
+
+  it('records a POST as the 405 the box answered it with, whatever the path holds', async () => {
+    // No box on a LAN takes a form. The box still answered, with its 405 page, and the
+    // line says what was tried: a page that exists is refused exactly as a miss is.
+    const caller = generateIdentity();
+    const { deps, upsertPatch } = servingOwnDeps(caller);
+
+    await handleRecordLanFetch(
+      await envelope(
+        caller,
+        { target: OWN_IP, port: 80, paths: ['/', '/nothing'] },
+        { method: 'POST' },
+      ),
+      deps,
+    );
+
+    expect(writtenLog(upsertPatch).content).toBe(
+      ['/', '/nothing']
+        .map(
+          (path) =>
+            `${formatAccessLogLine({
+              time: asGameTime(FIXED_NOW),
+              method: 'POST',
+              sourceIp: OWN_IP,
+              path,
+              status: 405,
+              size: METHOD_NOT_ALLOWED_PAGE.length,
+            })}\n`,
+        )
+        .join(''),
+    );
   });
 
   it('leaves no line on a box whose open port is ssh rather than a web server', async () => {

@@ -2,7 +2,8 @@
  * MD5 hash per RFC 1321 (https://www.ietf.org/rfc/rfc1321.txt).
  *
  * Ported verbatim from the legacy generator (`src/utils/md5.ts`). Used to hash
- * passwords inline in the virtual `/etc/passwd` (jshack has no `/etc/shadow`).
+ * passwords inline in the virtual `/etc/passwd` (jshack has no `/etc/shadow`). Text is
+ * hashed as its UTF-8 bytes, so any password's hash is the one real cracking tools find.
  * The magic constants (sine-derived integers), shift amounts, and initial state
  * are all defined by the RFC — they are NOT arbitrary.
  */
@@ -165,7 +166,13 @@ const hex = (x: number) => {
   return s;
 };
 
+/** The text as its UTF-8 bytes, one character per byte: what md5 is defined over. A
+ *  character beyond ASCII is several bytes, and a hash of its UTF-16 code unit would match
+ *  no real tool's. */
+const utf8Bytes = (text: string): string =>
+  Array.from(new TextEncoder().encode(text), (byte) => String.fromCharCode(byte)).join('');
+
 export const md5 = (s: string): string => {
-  const state = md5core(s);
+  const state = md5core(utf8Bytes(s));
   return hex(state[0]) + hex(state[1]) + hex(state[2]) + hex(state[3]);
 };

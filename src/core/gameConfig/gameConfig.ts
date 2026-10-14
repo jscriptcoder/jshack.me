@@ -56,6 +56,11 @@ export const validateUsername = (value: string): string | null => {
   return null;
 };
 
+/** Said to the person at the keyboard, not to their character, wherever the game asks for
+ *  a password: the hashes it keeps can end up in other players' hands by design, and
+ *  people reuse their real passwords. */
+export const REAL_PASSWORD_WARNING = "Don't use a password you use anywhere outside this game.";
+
 export const validatePassword = (value: string): string | null => {
   if (value.length < MIN_PASSWORD_LENGTH)
     return `Password must be at least ${MIN_PASSWORD_LENGTH} characters`;

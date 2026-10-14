@@ -1,6 +1,6 @@
-// Operator restore for a fixed site (findit.io, hackademy.io, mapit.io) — returns a rooted or
-// defaced site to its generated state. The operator runs it by hand; nothing in the world
-// heals a fixed site on its own.
+// Operator restore for a fixed site (findit.io, hackademy.io, mapit.io, emailit.io) —
+// returns a rooted or defaced site to its generated state. The operator runs it by hand;
+// nothing in the world heals a fixed site on its own.
 //
 // A restore is a REBOOT. It happens in this order, and the order is the safety:
 //

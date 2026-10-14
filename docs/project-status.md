@@ -873,6 +873,13 @@ agreed order:
     what waits are in `backlog.md` under "Procedural world deferred". **Pick up here
     (2026-10-14):** item 8's list and item 6, still the agreed work until the owner reopens
     missions.
+11. **Email at emailit.io (in flight since 2026-10-14; plan [`plans/email.md`](../plans/email.md)).**
+    Groundwork the owner reopened ahead of missions: a job site will later mail each player a
+    private address. Slice 1 (v0.384.0): emailit.io is a fixed site, `curl -d` POSTs a form,
+    `/signup` opens an account in the new `email_accounts`/`email_messages` tables through
+    `email_signup` and leaves the welcome mail waiting, every other web server answers a POST
+    with 405 and logs it as one, `md5` hashes UTF-8 bytes, and the Intro form warns off real
+    passwords. **Pick up here:** the plan's slice 2, lynx sending POST forms.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

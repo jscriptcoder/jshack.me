@@ -43,7 +43,7 @@ import { baseFsForLanHost, machineIdForLanHost } from '../generation/lanHostIden
 import { publisherIp } from '../generation/publisher.js';
 import { readOpenPorts } from '../services/pidfile.js';
 import { createFsView } from '../filesystem/fsView.js';
-import { HTTP_DEFAULT_PORT } from '../network/http.js';
+import { HTTP_DEFAULT_PORT, METHOD_NOT_ALLOWED_PAGE } from '../network/http.js';
 import { asAbsPath, asMachineId, asPlayerKeyHex } from '../types.js';
 import { chainLinks } from '../generation/lanTopology.js';
 import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
@@ -1424,5 +1424,176 @@ describe('curl at a fellow occupant of the network', () => {
     const { text } = await drain(await curl.execute(env, ['http://localhost:8080/'], new Map()));
 
     expect(text).toBe('curl: (7) Failed to connect to localhost port 8080: Connection refused');
+  });
+});
+
+describe('curl -d sends a form, and a server that takes none answers 405', () => {
+  const THEIR_PUBLIC_IP = '87.0.113.7';
+  const FORM = 'handle=neo&password=s3cret';
+
+  /** `curl` typed as a whole command line, so `-d` is parsed the way a player's typing
+   *  is, with every seam it can reach captured. */
+  const typed = async (
+    line: string,
+    answers: {
+      readonly fetchPublic?: PublicFetchResult;
+      readonly fetchOccupant?: OccupantFetchResult;
+    } = {},
+  ) => {
+    const reported: AccessLogFetch[] = [];
+    const askedPublic: PublicFetchParams[] = [];
+    const askedOccupant: OccupantFetchParams[] = [];
+    const env = mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+      fs: mockFsViewFromTree(servingOwnBox(), { userType: 'user', cwd: () => asAbsPath('/') }),
+      remote: {
+        ...mockRemoteApi(),
+        fetchPublic: async (params) => {
+          askedPublic.push(params);
+          return answers.fetchPublic ?? { ok: false, error: 'network_error' };
+        },
+        fetchOccupant: async (params) => {
+          askedOccupant.push(params);
+          return answers.fetchOccupant ?? { ok: false, error: 'network_error' };
+        },
+      },
+      log: {
+        appendAuthLog: async () => undefined,
+        appendKernLog: async () => undefined,
+        appendAccessLog: async (fetched) => {
+          reported.push(fetched);
+        },
+      },
+    });
+    const drained = await drain(await runCommandLine(env, line, new Map([['curl', curl]])));
+    return { drained, reported, askedPublic, askedOccupant };
+  };
+
+  it("answers a POST to the player's own box with the 405 page, as a served response", async () => {
+    const { drained } = await typed(`curl -d ${FORM} http://${OWN_IP}/`);
+
+    // A 405 is the server answering, not curl failing: real curl prints the page and
+    // exits 0 unless told to fail on an error status.
+    expect(drained.exitCode).toBe(0);
+    expect(drained.text).toBe(METHOD_NOT_ALLOWED_PAGE);
+  });
+
+  it('prints the 405 status line, and the server that sent it, under -i', async () => {
+    const { drained } = await typed(`curl -i -d ${FORM} http://${OWN_IP}/`);
+
+    const lines = drained.text.split('\n');
+    expect(lines.slice(0, 3)).toEqual([
+      'HTTP/1.1 405 Method Not Allowed',
+      'Server: nginx',
+      `Content-Length: ${METHOD_NOT_ALLOWED_PAGE.length}`,
+    ]);
+  });
+
+  it("reports the refused POST to the own box's log as a POST, without the form", async () => {
+    const { reported } = await typed(`curl -d ${FORM} http://${OWN_IP}/index.html`);
+
+    expect(reported).toEqual([
+      {
+        essid: ESSID,
+        target: OWN_IP,
+        port: HTTP_DEFAULT_PORT,
+        paths: ['/index.html'],
+        method: 'POST',
+        callerMachineId: mockSession().machineId,
+      },
+    ]);
+  });
+
+  it('still reports nothing when nothing answered the POST', async () => {
+    const { drained, reported } = await typed(`curl -d ${FORM} http://${OWN_IP}:9999/`);
+
+    expect(drained.exitCode).toBe(1);
+    expect(reported).toEqual([]);
+  });
+
+  it("prints the 405 status line a fellow occupant's box answers with under -i", async () => {
+    const { host, port } = webHostOnLan();
+
+    const { drained } = await typed(`curl -i -d ${FORM} http://${host.ip}:${port}/`, {
+      fetchOccupant: { ok: false, error: 'method_not_allowed', server: 'apache2' },
+    });
+
+    expect(drained.text.split('\n').slice(0, 2)).toEqual([
+      'HTTP/1.1 405 Method Not Allowed',
+      'Server: Apache',
+    ]);
+  });
+
+  it("sends the form to a fellow occupant's box and prints the 405 it answers with", async () => {
+    const { host, port } = webHostOnLan();
+
+    const { drained, askedOccupant } = await typed(`curl -d ${FORM} http://${host.ip}:${port}/`, {
+      fetchOccupant: { ok: false, error: 'method_not_allowed', server: 'apache2' },
+    });
+
+    expect(askedOccupant.map((asked) => asked.body)).toEqual([FORM]);
+    expect(drained.exitCode).toBe(0);
+    expect(drained.text).toBe(METHOD_NOT_ALLOWED_PAGE);
+  });
+
+  it('sends the form across the network exactly as typed, and prints the page that comes back', async () => {
+    const { drained, askedPublic } = await typed(
+      `curl -d ${FORM} http://${THEIR_PUBLIC_IP}/signup`,
+      { fetchPublic: { ok: true, content: '<h1>Welcome, neo@emailit.io</h1>', server: 'nginx' } },
+    );
+
+    expect(askedPublic).toEqual([
+      {
+        target: THEIR_PUBLIC_IP,
+        port: HTTP_DEFAULT_PORT,
+        path: '/signup',
+        body: FORM,
+        callerMachineId: mockSession().machineId,
+      },
+    ]);
+    expect(drained.text).toBe('<h1>Welcome, neo@emailit.io</h1>');
+  });
+
+  it('prints the 405 a public server answers a POST with, naming that server under -i', async () => {
+    const { drained } = await typed(`curl -i -d ${FORM} http://${THEIR_PUBLIC_IP}/`, {
+      fetchPublic: { ok: false, error: 'method_not_allowed', server: 'apache2' },
+    });
+
+    expect(drained.exitCode).toBe(0);
+    expect(drained.text.split('\n').slice(0, 2)).toEqual([
+      'HTTP/1.1 405 Method Not Allowed',
+      'Server: Apache',
+    ]);
+    expect(drained.text).toContain(METHOD_NOT_ALLOWED_PAGE);
+  });
+
+  it('sends a quoted form without its quotes, as a shell hands it over', async () => {
+    const { askedPublic } = await typed(`curl -d "${FORM}" http://${THEIR_PUBLIC_IP}/signup`, {
+      fetchPublic: { ok: true, content: 'page', server: 'nginx' },
+    });
+
+    expect(askedPublic.map((asked) => asked.body)).toEqual([FORM]);
+  });
+
+  it('documents -d in its manual, with signing up at emailit.io as the example', () => {
+    expect(curl.manual?.synopsis).toBe('curl [-i] [-d <data>] <url>');
+    expect(curl.manual?.description).toContain('With -d, curl POSTs a form');
+    expect(curl.manual?.arguments).toContainEqual({
+      name: '-d',
+      description: 'POST this form data instead of fetching, e.g. -d handle=neo',
+    });
+    expect(curl.manual?.examples).toContainEqual({
+      command: 'curl -d "handle=neo&password=s3cret" http://emailit.io/signup',
+      description: 'Sign up for an address at emailit.io by POSTing its form',
+    });
+  });
+
+  it('sends no body at all when -d is not given, so a plain fetch stays a GET', async () => {
+    const { askedPublic } = await typed(`curl http://${THEIR_PUBLIC_IP}/`, {
+      fetchPublic: { ok: true, content: 'page', server: 'nginx' },
+    });
+
+    expect(askedPublic[0]).not.toHaveProperty('body');
   });
 });

@@ -38,3 +38,16 @@ describe('md5 (RFC 1321 known vectors)', () => {
     expect(md5('a'.repeat(56))).toBe('3b0c8ac703f828b04c6c197006d17218');
   });
 });
+
+describe('md5 of text beyond ASCII', () => {
+  // A player can type any character into a password, and the hash must be the one a real
+  // cracking tool computes for it: md5 of the text's UTF-8 bytes. Expected values are
+  // Node's own `crypto.createHash('md5')` over UTF-8.
+  it('hashes a two-byte character as its UTF-8 bytes', () => {
+    expect(md5('caf\u00e9')).toBe('07117fe4a1ebd544965dc19573183da2');
+  });
+
+  it('hashes a character outside the BMP as its four UTF-8 bytes', () => {
+    expect(md5('\u{1F511} key')).toBe('3cacdc0e51732369e4fb57bf23976993');
+  });
+});

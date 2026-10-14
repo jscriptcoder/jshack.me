@@ -39,10 +39,11 @@ import { lanAddressesByOwner, type LanLeaseRow } from './lanAddress.js';
 import { webProgramOn } from './webServing.js';
 import { canBoot } from '../boot/bootFiles.js';
 import { createFsView } from '../filesystem/fsView.js';
-import { HTTP_DEFAULT_PORT, resolveWebPath } from './http.js';
+import { HTTP_DEFAULT_PORT, METHOD_NOT_ALLOWED_PAGE, resolveWebPath } from './http.js';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import { generatedLanBox } from './generatedLanBox.js';
-import { FINDIT_NETWORK } from '../generation/fixedSites.js';
+import { EMAILIT_NETWORK, FINDIT_NETWORK } from '../generation/fixedSites.js';
+import { answerSignup, type SignUp } from '../emailit/signup.js';
 import { indexedWeb, siteOn, type MachinePatchRow } from '../findit/webIndex.js';
 import { rankPages } from '../findit/search.js';
 import { searchResultsPage } from '../findit/page.js';
@@ -51,6 +52,7 @@ import {
   ACCESS_LOG_PATH,
   ACCESS_LOG_PERMISSIONS,
   formatAccessLogLine,
+  type HttpMethod,
 } from '../logging/accessLog.js';
 import {
   resolveVantageSourceIp,
@@ -136,6 +138,8 @@ export type ResolveHttpFetchDeps = WebTargetDeps & {
   readonly findPatchesForMachines: (
     machineIds: readonly string[],
   ) => Promise<{ readonly data: readonly MachinePatchRow[] | null; readonly error: unknown }>;
+  /** Open an emailit.io account. Only a form POSTed to emailit's `/signup` reaches it. */
+  readonly signUp: SignUp;
 };
 
 const UNREACHABLE: HandlerResponse = { status: 404, body: { error: 'host_unreachable' } };
@@ -151,6 +155,8 @@ const resolveHttpFetchSchema = z
     /** The URL path as written by the client, NOT a filesystem path. Resolved
      *  server-side — see the module doc. */
     path: z.string().min(1),
+    /** A form, which makes the request a POST. Never logged: a form can hold a password. */
+    body: z.string().max(4096).optional(),
     /** The box the caller fetched FROM, when they stand on a hop. Absent at home. The
      *  server reads the network off its session row to trace the hit to where it came
      *  from, and refuses a box the caller does not hold. */
@@ -282,10 +288,16 @@ const logFetch = async (
   target: FetchTarget,
   actorKey: string,
   standingEssid: string | null,
-  hit: { readonly path: string; readonly status: number; readonly size: number },
+  hit: {
+    readonly method?: HttpMethod;
+    readonly path: string;
+    readonly status: number;
+    readonly size: number;
+  },
 ): Promise<void> => {
   const line = formatAccessLogLine({
     time: asGameTime(deps.now()),
+    ...(hit.method === undefined ? {} : { method: hit.method }),
     // The box the caller fetched from decides the origin: a hop traces to that network's
     // public IP, home to the caller's own — derived server-side either way.
     sourceIp: await resolveVantageSourceIp(deps, { actorKey, standingEssid }),
@@ -379,6 +391,12 @@ const searchedFor = (requestPath: string): string | null => {
   return asked === '' ? null : asked;
 };
 
+/** Where emailit.io takes a sign-up. */
+const SIGNUP_PATH = '/signup';
+
+/** A request path without its query string. */
+const pathOf = (requestPath: string): string => requestPath.split('?')[0] ?? requestPath;
+
 /**
  * findit's answer to a search — the one address in this world that replies from a
  * FUNCTION rather than from a file.
@@ -436,6 +454,41 @@ export const handleResolveHttpFetch = async (
   });
   if ('status' in target) {
     return target;
+  }
+
+  // emailit.io's `/signup` is the one place in the world that takes a form, and like
+  // findit's search it answers from a function, not a file: a rooted emailit.io can deface
+  // its front page without breaking sign-up, and a dark one has already refused above.
+  if (
+    payload.body !== undefined &&
+    target.essid === EMAILIT_NETWORK &&
+    pathOf(payload.path) === SIGNUP_PATH
+  ) {
+    const page = await answerSignup({
+      form: payload.body,
+      playerKey: publicKey,
+      signUp: deps.signUp,
+    });
+    if (page === null) return { status: 500, body: { error: 'signup_failed' } };
+    await logFetch(deps, target, publicKey, standing.standingEssid, {
+      method: 'POST',
+      path: payload.path,
+      status: 200,
+      size: page.length,
+    });
+    return { status: 200, body: { ok: true, content: page, server: target.server } };
+  }
+
+  // No other server takes a form. It still answered, with its 405 page, so the refusal is
+  // recorded like any served response — as the POST it was, never with the form.
+  if (payload.body !== undefined) {
+    await logFetch(deps, target, publicKey, standing.standingEssid, {
+      method: 'POST',
+      path: payload.path,
+      status: 405,
+      size: METHOD_NOT_ALLOWED_PAGE.length,
+    });
+    return { status: 405, body: { error: 'method_not_allowed', server: target.server } };
   }
 
   // findit answers a search from a function; every other address, and every other path

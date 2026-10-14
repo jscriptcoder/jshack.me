@@ -44,7 +44,9 @@ import type { Directory, FileEntry } from '../filesystem/types.js';
 
 import { HACKADEMY_PAGES } from '../hackademy/pages.js';
 import { MAPIT_PAGES } from '../mapit/pages.js';
+import { EMAILIT_FRONT_PAGE } from '../emailit/pages.js';
 import {
+  EMAILIT_NETWORK,
   FINDIT_NETWORK,
   HACKADEMY_NETWORK,
   MAPIT_NETWORK,
@@ -67,6 +69,7 @@ const WEB_ROOTS: ReadonlyMap<string, Readonly<Record<string, string>>> = new Map
   [FINDIT_NETWORK, { 'index.html': FINDIT_FRONT_PAGE }],
   [HACKADEMY_NETWORK, HACKADEMY_PAGES],
   [MAPIT_NETWORK, MAPIT_PAGES],
+  [EMAILIT_NETWORK, { 'index.html': EMAILIT_FRONT_PAGE }],
 ]);
 
 /**
