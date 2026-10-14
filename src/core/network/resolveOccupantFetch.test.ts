@@ -18,7 +18,7 @@ import {
   programPidfilePath,
 } from '../services/pidfile.js';
 import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
-import { HTTP_DEFAULT_PORT } from './http.js';
+import { HTTP_DEFAULT_PORT, METHOD_NOT_ALLOWED_PAGE } from './http.js';
 import { ACCESS_LOG_PATH } from '../logging/accessLog.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
@@ -151,12 +151,13 @@ const aliceServing = (...extra: readonly OwnerPatchRow[]): readonly OwnerPatchRo
 const FETCH_TIME = Date.UTC(2026, 6, 30, 13, 55, 36);
 
 const accessLine = (fields: {
+  readonly method?: string;
   readonly sourceIp?: string;
   readonly path?: string;
   readonly status?: number;
   readonly size?: number;
 }): string =>
-  `${fields.sourceIp ?? BOB_LAN_IP} - - [30/Jul/2026:13:55:36 +0000] "GET ${fields.path ?? '/'} HTTP/1.1" ${fields.status ?? 200} ${fields.size ?? 0}`;
+  `${fields.sourceIp ?? BOB_LAN_IP} - - [30/Jul/2026:13:55:36 +0000] "${fields.method ?? 'GET'} ${fields.path ?? '/'} HTTP/1.1" ${fields.status ?? 200} ${fields.size ?? 0}`;
 
 type Overrides = Partial<ResolveOccupantFetchDeps> & {
   /** Alice's journal. Any other machine's is empty. */
@@ -208,6 +209,7 @@ type Asked = {
   readonly target?: string;
   readonly port?: number;
   readonly path?: string;
+  readonly body?: string;
   readonly caller_machine_id?: string;
 };
 
@@ -474,6 +476,58 @@ describe('the visit is recorded on the box that answered', () => {
     expect((await handleResolveOccupantFetch(await envelope(), deps)).body).toMatchObject({
       content: ALICE_PAGE,
     });
+  });
+});
+
+describe('a form POSTed to a neighbour', () => {
+  it('is refused with a 405 that names the program that answered', async () => {
+    const { deps } = makeDeps({ aliceJournal: [apacheUp, publishedPage(ALICE_PAGE)] });
+
+    const refused = await handleResolveOccupantFetch(
+      await envelope({ body: 'handle=neo&password=s3cret' }),
+      deps,
+    );
+
+    expect(refused).toEqual({
+      status: 405,
+      body: { error: 'method_not_allowed', server: 'apache2' },
+    });
+  });
+
+  it('is refused even at a page the box publishes, and recorded as the POST it was', async () => {
+    const { deps, upsertPatch } = makeDeps();
+
+    await handleResolveOccupantFetch(await envelope({ body: 'handle=neo&password=s3cret' }), deps);
+
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: `${accessLine({ method: 'POST', status: 405, size: METHOD_NOT_ALLOWED_PAGE.length })}\n`,
+      }),
+    );
+  });
+
+  it('takes a form of up to 4,096 characters and refuses a longer one unread', async () => {
+    const { deps, listOccupantsByEssid } = makeDeps();
+
+    const atTheLimit = await handleResolveOccupantFetch(
+      await envelope({ body: 'a'.repeat(4096) }),
+      deps,
+    );
+    expect(atTheLimit.status).toBe(405);
+    listOccupantsByEssid.mockClear();
+    expect(
+      await handleResolveOccupantFetch(await envelope({ body: 'a'.repeat(4097) }), deps),
+    ).toEqual({ status: 400, body: { error: 'payload_invalid' } });
+    expect(listOccupantsByEssid).not.toHaveBeenCalled();
+  });
+
+  it('still reaches nothing where nothing serves the web, and leaves no line', async () => {
+    const { deps, upsertPatch } = makeDeps({ aliceJournal: [] });
+
+    expect(await handleResolveOccupantFetch(await envelope({ body: 'a=b' }), deps)).toEqual(
+      REFUSED,
+    );
+    expect(upsertPatch).not.toHaveBeenCalled();
   });
 });
 

@@ -724,6 +724,62 @@ describe('fetchPublicPage', () => {
     });
   });
 
+  it('sends a form as the body of the request', async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(405, { error: 'method_not_allowed', server: 'nginx' }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    await fetchPublicPage(deps, { ...PARAMS, body: 'handle=neo&password=s3cret' });
+
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected verified envelope');
+    expect(verified.payload).toMatchObject({
+      action: 'resolveHttpFetch',
+      body: 'handle=neo&password=s3cret',
+    });
+  });
+
+  it('sends no body for a plain fetch', async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, { ok: true, content: '<h1>hi</h1>', server: 'nginx' }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    await fetchPublicPage(deps, PARAMS);
+
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected verified envelope');
+    expect(verified.payload).not.toHaveProperty('body');
+  });
+
+  it('reports a 405 as the server refusing the POST, naming the program that refused it', async () => {
+    const deps = makeDeps(
+      vi.fn(async () =>
+        jsonResponse(405, { error: 'method_not_allowed', server: 'apache2' }),
+      ) as unknown as typeof fetch,
+    );
+
+    expect(await fetchPublicPage(deps, { ...PARAMS, body: 'a=b' })).toEqual({
+      ok: false,
+      error: 'method_not_allowed',
+      server: 'apache2',
+    });
+  });
+
+  it('treats a 405 that names no server as a reply it cannot read', async () => {
+    const deps = makeDeps(
+      vi.fn(async () =>
+        jsonResponse(405, { error: 'method_not_allowed' }),
+      ) as unknown as typeof fetch,
+    );
+
+    expect(await fetchPublicPage(deps, { ...PARAMS, body: 'a=b' })).toEqual({
+      ok: false,
+      error: 'network_error',
+    });
+  });
+
   it('passes an empty page through as a page, not as a failure', async () => {
     const deps = makeDeps(
       vi.fn(async () =>
@@ -846,6 +902,62 @@ describe('fetchOccupantPage', () => {
       port: PARAMS.port,
       path: PARAMS.path,
       caller_machine_id: HOP_BOX,
+    });
+  });
+
+  it('sends a form as the body of the request', async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(405, { error: 'method_not_allowed', server: 'nginx' }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    await fetchOccupantPage(deps, { ...PARAMS, body: 'handle=neo&password=s3cret' });
+
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected verified envelope');
+    expect(verified.payload).toMatchObject({
+      action: 'resolveOccupantFetch',
+      body: 'handle=neo&password=s3cret',
+    });
+  });
+
+  it('sends no body for a plain fetch', async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, { ok: true, content: '<h1>hi</h1>', server: 'nginx' }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    await fetchOccupantPage(deps, PARAMS);
+
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected verified envelope');
+    expect(verified.payload).not.toHaveProperty('body');
+  });
+
+  it('reports a 405 as the server refusing the POST, naming the program that refused it', async () => {
+    const deps = makeDeps(
+      vi.fn(async () =>
+        jsonResponse(405, { error: 'method_not_allowed', server: 'apache2' }),
+      ) as unknown as typeof fetch,
+    );
+
+    expect(await fetchOccupantPage(deps, { ...PARAMS, body: 'a=b' })).toEqual({
+      ok: false,
+      error: 'method_not_allowed',
+      server: 'apache2',
+    });
+  });
+
+  it('treats a 405 that names no server as a reply it cannot read', async () => {
+    const deps = makeDeps(
+      vi.fn(async () =>
+        jsonResponse(405, { error: 'method_not_allowed' }),
+      ) as unknown as typeof fetch,
+    );
+
+    expect(await fetchOccupantPage(deps, { ...PARAMS, body: 'a=b' })).toEqual({
+      ok: false,
+      error: 'network_error',
     });
   });
 

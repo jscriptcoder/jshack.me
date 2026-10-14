@@ -6,6 +6,7 @@ import {
   readOwnPatches,
   postAuthLog,
   postKernLog,
+  recordLanFetch,
   recordScan,
   type PatchClientDeps,
 } from './patchApi.js';
@@ -473,6 +474,48 @@ describe('recordScan', () => {
     await expect(
       recordScan(deps, { essid: 'E', target: '192.168.1.1', callerMachineId: 'hop-box-1' }),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe('recordLanFetch', () => {
+  it('tells the server a refused POST was a POST, and never sends a form', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    await recordLanFetch(deps, {
+      essid: 'BEAN-THERE-WIFI',
+      target: '192.168.1.20',
+      port: 80,
+      paths: ['/signup'],
+      method: 'POST',
+      callerMachineId: undefined,
+    });
+
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected verified envelope');
+    expect(verified.payload).toMatchObject({
+      action: 'recordLanFetch',
+      paths: ['/signup'],
+      method: 'POST',
+    });
+    expect(verified.payload).not.toHaveProperty('body');
+  });
+
+  it('names no method for a plain fetch, which the server reads as a GET', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    await recordLanFetch(deps, {
+      essid: 'BEAN-THERE-WIFI',
+      target: '192.168.1.20',
+      port: 80,
+      paths: ['/'],
+      callerMachineId: undefined,
+    });
+
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected verified envelope');
+    expect(verified.payload).not.toHaveProperty('method');
   });
 });
 

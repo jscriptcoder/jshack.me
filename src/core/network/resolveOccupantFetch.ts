@@ -42,7 +42,7 @@ import { lanAddressesByOwner, type LanLeaseRow } from './lanAddress.js';
 import { bootableOccupantFs } from './natHosts.js';
 import { portsOpenToNetwork } from './portsOpenToNetwork.js';
 import { webProgramOn } from './webServing.js';
-import { resolveWebPath } from './http.js';
+import { METHOD_NOT_ALLOWED_PAGE, resolveWebPath } from './http.js';
 import { LOOPBACK_IPV4 } from './interfaces.js';
 import { readOpenPorts, type OpenPort } from '../services/pidfile.js';
 import { generateHomeLan } from '../generation/generateHomeLan.js';
@@ -143,6 +143,9 @@ const resolveOccupantFetchSchema = z
     port: z.number().int(),
     /** The URL path as written by the client, NOT a filesystem path. */
     path: z.string().min(1),
+    /** A form, which makes the request a POST. No box on a LAN takes one, so it is never
+     *  read, only refused. */
+    body: z.string().max(4096).optional(),
     /** The box the fetch ran from. Absent means the caller's own workstation. */
     caller_machine_id: z.string().min(1).optional(),
   })
@@ -366,21 +369,27 @@ export const handleResolveOccupantFetch = async (
   );
   if ('status' in target) return target;
 
+  // A POST is refused before any file is looked at: the box takes no form, and answers
+  // every path with the same 405 page.
+  const posted = payload.body !== undefined;
+
   // Read as the SERVER, not as the caller: a page published under the document root is
   // written by root and readable by root alone, and the requester has no account here.
-  const filePath = resolveWebPath(payload.path);
+  const filePath = posted ? null : resolveWebPath(payload.path);
   const page =
     filePath === null ? null : createFsView(target.fs, { userType: 'root' }).read(filePath);
   const content = page === null || !page.ok ? null : page.content;
 
   const line = formatAccessLogLine({
     time: asGameTime(deps.now()),
+    method: posted ? 'POST' : 'GET',
     sourceIp: target.sourceIp,
     // The path AS ASKED FOR, never as resolved: a request that resolved to nothing is
     // exactly the line a defender needs to see.
     path: payload.path,
-    status: content === null ? 404 : 200,
-    size: content === null ? 0 : content.length,
+    ...(posted
+      ? { status: 405, size: METHOD_NOT_ALLOWED_PAGE.length }
+      : { status: content === null ? 404 : 200, size: content === null ? 0 : content.length }),
   });
   try {
     await appendMachineLog(
@@ -398,6 +407,7 @@ export const handleResolveOccupantFetch = async (
     // best-effort: the served page stands regardless of a logging failure.
   }
 
+  if (posted) return { status: 405, body: { error: 'method_not_allowed', server: target.server } };
   return content === null
     ? NOT_FOUND
     : { status: 200, body: { ok: true, content, server: target.server } };

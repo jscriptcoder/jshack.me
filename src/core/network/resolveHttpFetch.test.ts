@@ -19,7 +19,7 @@ import {
   programPidfilePath,
 } from '../services/pidfile.js';
 import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
-import { HTTP_DEFAULT_PORT } from './http.js';
+import { HTTP_DEFAULT_PORT, METHOD_NOT_ALLOWED_PAGE } from './http.js';
 import { ACCESS_LOG_PATH } from '../logging/accessLog.js';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import { siteServer } from '../generation/siteServer.js';
@@ -1017,6 +1017,79 @@ describe('the fetched machine records the hit', () => {
       body: { ok: true, content: ALICE_PAGE, server: 'nginx' },
     });
     expect(upsertPatch).not.toHaveBeenCalled();
+  });
+});
+
+describe('a form POSTed across the network', () => {
+  const FORM = 'handle=neo&password=s3cret';
+
+  it("is refused by a player's box with a 405 that names the program that answered", async () => {
+    const { deps } = makeDeps({ patches: aliceServing() });
+
+    expect(await handleResolveHttpFetch(envelope({ body: FORM }), deps)).toEqual({
+      status: 405,
+      body: { error: 'method_not_allowed', server: 'nginx' },
+    });
+  });
+
+  it('is recorded on that box as the POST it was, never with the form', async () => {
+    const { deps, upsertPatch } = makeDeps({ patches: aliceServing() });
+
+    await handleResolveHttpFetch(envelope({ body: FORM, path: '/index.html' }), deps);
+
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        writer_key: ALICE.publicKeyHex,
+        machine_id: ALICE_WS,
+        path: ACCESS_LOG_PATH,
+        content: `${BOB_PUBLIC_IP} - - [30/Jul/2026:13:55:36 +0000] "POST /index.html HTTP/1.1" 405 ${METHOD_NOT_ALLOWED_PAGE.length}\n`,
+      }),
+    );
+  });
+
+  it('is refused by findit too, which runs no search for it', async () => {
+    const { deps, findPatchesForMachines } = makeDeps({
+      lookup: async () => ({
+        data: { router_machine_id: computeApGatewayId(FINDIT_NETWORK), essid: FINDIT_NETWORK },
+        error: null,
+      }),
+      listOccupantsByEssid: async () => ({ data: [], error: null }),
+      listLeasesByEssid: async () => ({ data: [], error: null }),
+    });
+
+    const response = await handleResolveHttpFetch(
+      envelope({ target: siteAddress(FINDIT_DOMAIN), path: '/?q=university', body: FORM }),
+      deps,
+    );
+
+    expect(response).toEqual({
+      status: 405,
+      body: { error: 'method_not_allowed', server: 'nginx' },
+    });
+    expect(findPatchesForMachines).not.toHaveBeenCalled();
+  });
+
+  it('reaches nothing where a GET would reach nothing, and leaves no line', async () => {
+    const { deps, upsertPatch } = makeDeps({ lookup: async () => ({ data: null, error: null }) });
+
+    expect(await handleResolveHttpFetch(envelope({ body: FORM }), deps)).toEqual({
+      status: 404,
+      body: { error: 'host_unreachable' },
+    });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('takes a form of up to 4,096 characters and refuses a longer one unread', async () => {
+    const { deps, findNetworkByPublicIp } = makeDeps({ patches: aliceServing() });
+
+    const atTheLimit = await handleResolveHttpFetch(envelope({ body: 'a'.repeat(4096) }), deps);
+    expect(atTheLimit.status).toBe(405);
+    findNetworkByPublicIp.mockClear();
+    expect(await handleResolveHttpFetch(envelope({ body: 'a'.repeat(4097) }), deps)).toEqual({
+      status: 400,
+      body: { error: 'payload_invalid' },
+    });
+    expect(findNetworkByPublicIp).not.toHaveBeenCalled();
   });
 });
 

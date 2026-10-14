@@ -201,6 +201,18 @@ export const resolvePublic = async (
   }
 };
 
+/** A server's refusal of a POST, read off a failed reply, or null when the reply is not
+ *  one. It must name the program that refused: a `Server` header the far box never sent
+ *  would be invented here. */
+const methodNotAllowed = (
+  body: unknown,
+): { readonly ok: false; readonly error: 'method_not_allowed'; readonly server: string } | null => {
+  const refused = body as { readonly error?: unknown; readonly server?: unknown } | null;
+  return refused?.error === 'method_not_allowed' && typeof refused.server === 'string'
+    ? { ok: false, error: 'method_not_allowed', server: refused.server }
+    : null;
+};
+
 /**
  * Fetch one page from a machine behind another player's public IP (backs
  * `env.remote.fetchPublic`).
@@ -221,10 +233,13 @@ export const fetchPublicPage = async (
       target: params.target,
       port: params.port,
       path: params.path,
+      ...(params.body === undefined ? {} : { body: params.body }),
       caller_machine_id: params.callerMachineId,
     });
     const body: unknown = await response.json();
     if (!response.ok) {
+      const refused = methodNotAllowed(body);
+      if (refused !== null) return refused;
       const failed = body as { readonly error?: string };
       if (failed.error === 'not_found') return { ok: false, error: 'not_found' };
       if (failed.error === 'host_unreachable') return { ok: false, error: 'host_unreachable' };
@@ -272,10 +287,13 @@ export const fetchOccupantPage = async (
       target: params.target,
       port: params.port,
       path: params.path,
+      ...(params.body === undefined ? {} : { body: params.body }),
       caller_machine_id: params.callerMachineId,
     });
     const body: unknown = await response.json();
     if (!response.ok) {
+      const refused = methodNotAllowed(body);
+      if (refused !== null) return refused;
       const failed = body as { readonly error?: string };
       const refusal = OCCUPANT_FETCH_REFUSALS.find((error) => error === failed.error);
       return { ok: false, error: refusal ?? 'network_error' };
