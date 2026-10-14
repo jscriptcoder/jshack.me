@@ -35,7 +35,7 @@ import type { MachineId } from '../types.js';
 import type { Vantage } from '../network/vantage.js';
 import type { ParsedUrl } from '../network/http.js';
 import { createFsView } from '../filesystem/fsView.js';
-import { resolveWebPath } from '../network/http.js';
+import { METHOD_NOT_ALLOWED_PAGE, resolveWebPath } from '../network/http.js';
 import { connectError, reachWebHost, type ErrorResult, type Reach } from './webHost.js';
 
 export type PageResult =
@@ -43,6 +43,13 @@ export type PageResult =
   | { readonly kind: 'page'; readonly content: string; readonly server: string }
   /** The box answered and had nothing there — logged, because it answered. */
   | { readonly kind: 'not_found' }
+  /** The box answered a POST it does not take, with its 405 page — logged, because it
+   *  answered. */
+  | {
+      readonly kind: 'method_not_allowed';
+      readonly content: typeof METHOD_NOT_ALLOWED_PAGE;
+      readonly server: string;
+    }
   /** Nothing answered, so nothing was logged and nowhere was visited. */
   | { readonly kind: 'unreachable'; readonly failure: ErrorResult };
 
@@ -79,6 +86,7 @@ const fetchFromOccupant = async ({
   program,
   url,
   essid,
+  body,
   callerMachineId,
   fetchOccupant,
 }: {
@@ -86,6 +94,7 @@ const fetchFromOccupant = async ({
   readonly program: string;
   readonly url: ParsedUrl;
   readonly essid: string;
+  readonly body: string | undefined;
   readonly callerMachineId: MachineId;
   readonly fetchOccupant: RemoteApi['fetchOccupant'];
 }): Promise<PageResult> => {
@@ -94,6 +103,7 @@ const fetchFromOccupant = async ({
     target: unresolved.address,
     port: url.port,
     path: url.path,
+    ...(body === undefined ? {} : { body }),
     callerMachineId,
   });
   if (fetched.ok) {
@@ -101,6 +111,9 @@ const fetchFromOccupant = async ({
   }
   if (fetched.error === 'not_found') {
     return { kind: 'not_found' };
+  }
+  if (fetched.error === 'method_not_allowed') {
+    return { kind: 'method_not_allowed', content: METHOD_NOT_ALLOWED_PAGE, server: fetched.server };
   }
   if (fetched.error === 'connection_refused') {
     return {
@@ -124,6 +137,7 @@ export const fetchWebPage = async ({
   program,
   url,
   vantage,
+  body,
   callerMachineId,
   appendAccessLog,
   fetchOccupant,
@@ -132,6 +146,8 @@ export const fetchWebPage = async ({
   readonly program: string;
   readonly url: ParsedUrl;
   readonly vantage: Vantage;
+  /** A form to POST. No box on a LAN takes one: a server that answers refuses it. */
+  readonly body?: string | undefined;
   readonly callerMachineId: MachineId;
   readonly appendAccessLog: (fetched: AccessLogFetch) => Promise<void>;
   readonly fetchOccupant: RemoteApi['fetchOccupant'];
@@ -144,6 +160,7 @@ export const fetchWebPage = async ({
           program,
           url,
           essid: vantage.essid,
+          body,
           callerMachineId,
           fetchOccupant,
         })
@@ -155,8 +172,18 @@ export const fetchWebPage = async ({
   // asked either way, and what a defender needs to see is that it was asked.
   recordVisit({
     appendAccessLog,
-    fetched: { essid, target: address, port: url.port, paths: [url.path], callerMachineId },
+    fetched: {
+      essid,
+      target: address,
+      port: url.port,
+      paths: [url.path],
+      ...(body === undefined ? {} : { method: 'POST' as const }),
+      callerMachineId,
+    },
   });
+  if (body !== undefined) {
+    return { kind: 'method_not_allowed', content: METHOD_NOT_ALLOWED_PAGE, server };
+  }
 
   const filePath = resolveWebPath(url.path);
   if (filePath === null) {
@@ -189,11 +216,14 @@ export const fetchWebPage = async ({
 export const fetchPageAcrossNetwork = async ({
   program,
   url,
+  body,
   callerMachineId,
   fetchPublic,
 }: {
   readonly program: string;
   readonly url: ParsedUrl;
+  /** A form to POST, sent as typed. Whether anything takes it is the far server's call. */
+  readonly body?: string | undefined;
   readonly callerMachineId: MachineId;
   readonly fetchPublic: RemoteApi['fetchPublic'];
 }): Promise<PageResult> => {
@@ -201,6 +231,7 @@ export const fetchPageAcrossNetwork = async ({
     target: url.host,
     port: url.port,
     path: url.path,
+    ...(body === undefined ? {} : { body }),
     callerMachineId,
   });
   if (fetched.ok) {
@@ -208,6 +239,9 @@ export const fetchPageAcrossNetwork = async ({
   }
   if (fetched.error === 'not_found') {
     return { kind: 'not_found' };
+  }
+  if (fetched.error === 'method_not_allowed') {
+    return { kind: 'method_not_allowed', content: METHOD_NOT_ALLOWED_PAGE, server: fetched.server };
   }
   const reason = fetched.error === 'host_unreachable' ? 'Connection refused' : 'Network error';
   return {

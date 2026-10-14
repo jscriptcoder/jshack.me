@@ -22,6 +22,18 @@ export const HTTP_DEFAULT_PORT = 80;
  *  HTTP however the request path is written. */
 export const WEB_ROOT = '/var/www/html';
 
+/** What every web server answers a POST with, unless it is one of the few that take a
+ *  form. One page whichever program serves it, so a refusal reads the same everywhere. */
+export const METHOD_NOT_ALLOWED_PAGE = [
+  '<html>',
+  '<head><title>405 Method Not Allowed</title></head>',
+  '<body>',
+  '<h1>405 Method Not Allowed</h1>',
+  '<p>This server does not accept POST requests.</p>',
+  '</body>',
+  '</html>',
+].join('\n');
+
 /** The file served when a request names a directory rather than a file. */
 const DIRECTORY_INDEX = 'index.html';
 

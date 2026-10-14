@@ -38,7 +38,7 @@ const error = (message: string): CommandResult => ({
 
 const text = (content: string): TerminalLine => ({ kind: 'text', content });
 
-const USAGE = 'curl: usage: curl <url> (e.g. http://192.168.1.5)';
+const USAGE = 'curl: usage: curl [-i] [-d <data>] <url> (e.g. http://192.168.1.5)';
 
 /** No connected LAN to reach anything over — offline, or online with no
  *  associated, addressed wlan0. */
@@ -55,9 +55,16 @@ const SERVER_TOKENS: Readonly<Record<string, string>> = {
   apache2: 'Apache',
 };
 
+/** The status lines a response here can carry. */
+const STATUS_LINES = {
+  200: 'HTTP/1.1 200 OK',
+  405: 'HTTP/1.1 405 Method Not Allowed',
+} as const;
+
 /** The response. Under `-i` the status line and headers come first, then a blank
  *  line, then the body — the wire order, so what the player sees is what came back. */
 type Response = {
+  readonly status: keyof typeof STATUS_LINES;
   readonly content: string;
   /** The program that answered (`nginx`, `apache2`). */
   readonly server: string;
@@ -65,12 +72,13 @@ type Response = {
 };
 
 async function* responseLines({
+  status,
   content,
   server,
   includeHeaders,
 }: Response): AsyncIterable<TerminalLine> {
   if (includeHeaders) {
-    yield text('HTTP/1.1 200 OK');
+    yield text(STATUS_LINES[status]);
     yield text(`Server: ${SERVER_TOKENS[server]}`);
     yield text(`Content-Length: ${content.length}`);
     yield text('');
@@ -97,6 +105,9 @@ const execute: Command['execute'] = async (env, args, flags) => {
     return error(`curl: (3) URL rejected: ${raw}`);
   }
   const requested = typed.url;
+  // `-d` is what makes the request a POST; the parser hands a valued flag over as text.
+  const posted = flags.get('-d');
+  const body = typeof posted === 'string' ? posted : undefined;
 
   // Where the shell stands: the hop on top of the stack and its network, or the
   // player's own WiFi on their own box. At home with no connected, addressed card there
@@ -126,6 +137,7 @@ const execute: Command['execute'] = async (env, args, flags) => {
     ? await fetchPageAcrossNetwork({
         program: 'curl',
         url,
+        body,
         callerMachineId: env.session.machineId,
         fetchPublic: (params) => env.remote.fetchPublic(params),
       })
@@ -134,6 +146,7 @@ const execute: Command['execute'] = async (env, args, flags) => {
         program: 'curl',
         url,
         vantage,
+        body,
         callerMachineId: env.session.machineId,
         appendAccessLog: (fetched) => env.log.appendAccessLog(fetched),
         fetchOccupant: (params) => env.remote.fetchOccupant(params),
@@ -144,7 +157,14 @@ const execute: Command['execute'] = async (env, args, flags) => {
   if (page.kind === 'not_found') {
     return error(NOT_FOUND);
   }
-  return respond({ content: page.content, server: page.server, includeHeaders: flags.has('-i') });
+  // A server that takes no POST still answers, with a page of its own, and curl prints it
+  // as it would any other: the request reached a server, it just said no.
+  return respond({
+    status: page.kind === 'method_not_allowed' ? 405 : 200,
+    content: page.content,
+    server: page.server,
+    includeHeaders: flags.has('-i'),
+  });
 };
 
 export const curl: Command = {
@@ -155,11 +175,11 @@ export const curl: Command = {
   // The binary ships in /bin on every box, like `ls` — so a fetch is possible from
   // wherever the player currently stands, not only from their own workstation.
   availability: { kind: 'any-machine' },
-  flags: { '-i': 'boolean' },
+  flags: { '-i': 'boolean', '-d': 'string' },
   manual: {
-    synopsis: 'curl [-i] <url>',
+    synopsis: 'curl [-i] [-d <data>] <url>',
     description:
-      'Fetch a URL over HTTP and print what the server returns. Reaches hosts on the network you are on — your own at home, or the network of a box you have a shell on — e.g. "curl http://192.168.1.5", including your own address once you are running a web server, and any public IP that forwards its web port, by its address or by the domain an institution publishes it under, e.g. "curl http://ridgemont.edu/". The "http://" may be left off, as with real curl: "curl ridgemont.edu" fetches the same page. No login is needed: a web server publishes its document root to whoever asks, and nothing else on the target is readable this way. Requires a network connection.',
+      'Fetch a URL over HTTP and print what the server returns. Reaches hosts on the network you are on — your own at home, or the network of a box you have a shell on — e.g. "curl http://192.168.1.5", including your own address once you are running a web server, and any public IP that forwards its web port, by its address or by the domain an institution publishes it under, e.g. "curl http://ridgemont.edu/". The "http://" may be left off, as with real curl: "curl ridgemont.edu" fetches the same page. No login is needed: a web server publishes its document root to whoever asks, and nothing else on the target is readable this way. With -d, curl POSTs a form instead, written as name=value pairs joined by "&", e.g. curl -d "handle=neo&password=s3cret" http://emailit.io/signup; as with real curl, a "&" or "=" inside a value is written %26 or %3D. Most servers take no form and answer 405 Method Not Allowed. Requires a network connection.',
     arguments: [
       {
         name: 'url',
@@ -167,6 +187,7 @@ export const curl: Command = {
         required: true,
       },
       { name: '-i', description: 'Print the response status line and headers before the body' },
+      { name: '-d', description: 'POST this form data instead of fetching, e.g. -d handle=neo' },
     ],
     examples: [
       { command: 'curl http://192.168.1.5', description: 'Fetch the default page from a host' },
@@ -181,6 +202,10 @@ export const curl: Command = {
       {
         command: 'curl http://203.0.113.7',
         description: "Fetch another player's page across the network — no login needed",
+      },
+      {
+        command: 'curl -d "handle=neo&password=s3cret" http://emailit.io/signup',
+        description: 'Sign up for an address at emailit.io by POSTing its form',
       },
     ],
   },

@@ -326,6 +326,8 @@ export type PublicFetchParams = {
   readonly target: string;
   readonly port: number;
   readonly path: string;
+  /** A form to POST, exactly as typed after `curl -d`. Absent, the request is a GET. */
+  readonly body?: string;
   /** The box the fetch ran from. The server reads the network off its session row to
    *  trace the hit to the hop rather than the caller's home, and refuses a box the caller
    *  does not hold. Absent names the caller's own workstation (a fetch from home). */
@@ -340,7 +342,9 @@ export type PublicFetchParams = {
 export type PublicFetchResult =
   /** `server` is the program that answered (`nginx`, `apache2`), for `curl -i`. */
   | { readonly ok: true; readonly content: string; readonly server: string }
-  | { readonly ok: false; readonly error: 'host_unreachable' | 'not_found' | 'network_error' };
+  | { readonly ok: false; readonly error: 'host_unreachable' | 'not_found' | 'network_error' }
+  /** A server that takes no POST was sent one. It answered, so it names itself. */
+  | { readonly ok: false; readonly error: 'method_not_allowed'; readonly server: string };
 
 /** What a web tool hands the fellow-occupant fetch: an address on the network the shell
  *  stands on that no generated box holds, so only the server can say whose it is.
@@ -350,6 +354,8 @@ export type OccupantFetchParams = {
   readonly target: string;
   readonly port: number;
   readonly path: string;
+  /** A form to POST. No box on a LAN takes one, so its only effect is the 405. */
+  readonly body?: string;
   /** The box the fetch ran from. The server places the caller there, refuses a network
    *  they do not stand on, and derives the address the visit is logged from. */
   readonly callerMachineId: MachineId;
@@ -364,7 +370,8 @@ export type OccupantFetchResult =
   | {
       readonly ok: false;
       readonly error: 'host_unreachable' | 'connection_refused' | 'not_found' | 'network_error';
-    };
+    }
+  | { readonly ok: false; readonly error: 'method_not_allowed'; readonly server: string };
 
 /** What a path sweep hands the cross-network seam. It names no words: the server
  *  reads the path list off `callerMachineId`'s journal, the way a credential sweep
@@ -506,6 +513,9 @@ export type AccessLogFetch = {
    *  misses around a hit is what a defender reads and forty signed requests to write
    *  it would be a different kind of expensive. */
   readonly paths: readonly string[];
+  /** Present when the request was a POST, which the own box refuses with a 405. Only the
+   *  method travels; the form itself never leaves the client. */
+  readonly method?: 'POST';
   /** The box the request ran from (`undefined` at home on the player's own workstation).
    *  The server places the caller from this — their live session on it — and refuses a
    *  box they do not hold, so the address a line records is never a client's claim. */
