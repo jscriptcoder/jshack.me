@@ -1,8 +1,8 @@
 # Plan: mapit.io, a public map of the world
 
-**Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-13. Slices 1 and 2 are
-merged (v0.376.0, #673; v0.377.0, #674). Slice 3 is next: measured and grilled (decisions
-13 to 15), its acceptance criteria confirmed; code not started.
+**Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-13 and, for the town
+plans, 2026-10-14. Slices 1 to 3 are merged (v0.376.0, #673; v0.377.0, #674; v0.378.0, #675).
+Slice 4 is next: its acceptance criteria are not yet confirmed.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 
@@ -305,7 +305,7 @@ none of its homes.
   looked into.
 - `npm run build` was not re-run, so the two timing budgets from slice 1 are still unexamined.
 
-### Slice 3: a town's page draws its plan
+### Slice 3: a town's page draws its plan (v0.378.0, #675, merged)
 
 **Value**: a player sees where a town's places stand, each town with a face of its own.
 **Path**: `core/mapit/`: a street grid and a plot for every place, drawn on a new stream
@@ -356,6 +356,27 @@ test can draw a town with more places than it has. The stream is keyed by the to
 **Wire-check**: `testMapit.ts`, unchanged in shape: the pages it compares now carry the plans.
 **Left for the PR**: the new stream's row in the "Seeds and streams" table of
 `docs/world-content-architecture.md`.
+**As built**:
+
+- A plan is `drawTownPlan(town, placeCount)` (`core/mapit/townPlan.ts`), and a town's page
+  puts it between its summary line and its legend. `TOWNS` carries each town's `key`.
+- A village lays out one long street and one or two cross streets, a town one or two and two
+  or three, a city two or three and four or five. Long streets stand at least four rows apart,
+  and cross streets eight columns, so every block holds a row of markers; the room left over
+  is shared out at random.
+- Markers stand on every other row of a block and a column apart, a cell clear of streets,
+  the name and the frame, on plots the stream picks.
+- Today every town fits at its class height. Millbrook's streets would hold 69 places
+  numbered in two figures on 13 rows and 92 on 15; a test pins both points.
+- `renderPage.test.ts` pins Millbrook's page in `lynx` line for line, plan included, so a
+  place added to Millbrook is updated there; "Adding to the world" says so.
+- No test holds the street counts of a town or a city; only a pinned town or city plan would.
+  Left to the owner.
+- Wire-checks: `testMapit` 18 of 18, `testRestoreSite mapit.io` 13 of 13. Full suite 8936
+  of 8936. Mutation: Stryker reported 88 killed, 4 timeouts and 39 survived of 131, which
+  misreports this module because every page is drawn when it loads. Every mutant run by hand
+  was killed except the street-count ranges and one guard that can never be false. Three
+  tests were added at the gate, and two pieces of dead code were removed.
 
 ### Slice 4: hackademy and findit point to the map
 
