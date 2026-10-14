@@ -846,7 +846,10 @@ agreed order:
    bricked box reads the same on its LAN as across the internet), and ✅ the session row a
    scripted exploit leaves behind (closed at v0.383.0: a fire from a script opens no session on
    the server, so it no longer sets the tier the player's real shell there is served at). The four closed at v0.368.0 and v0.380.0–v0.382.0 were
-   played in one two-player browser run on 2026-10-14, with no defect. Left as they are: the whole tree pulled before every line, and the newest
+   played in one two-player browser run on 2026-10-14, with no defect. v0.383.0 was played the
+   same day, also with no defect: a guest shell on a LAN box stayed at guest while a `node`
+   script on the player's own box fired a root hole there, and only the same fire typed at the
+   prompt opened a row. Left as they are: the whole tree pulled before every line, and the newest
    open row setting the tier.
 9. ✅ **Crypto wallet epic (v0.356.0–v0.362.0, PRs #653–#658, 2026-10-11/12).** Slotted ahead of
    the rest of the sandbox-hardening list: the `wallet` command, a public JSC ledger keyed by
