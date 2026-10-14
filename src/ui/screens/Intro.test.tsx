@@ -57,6 +57,16 @@ describe('Intro — menu step', () => {
 });
 
 describe('Intro — form step', () => {
+  it('warns the person at the keyboard off a password they use outside the game', () => {
+    // Other players can come to read the hashes this game keeps, and people reuse passwords.
+    render(() => <Intro onSubmit={vi.fn()} />);
+    startNewGame();
+
+    expect(
+      screen.getByText("Don't use a password you use anywhere outside this game."),
+    ).toBeInTheDocument();
+  });
+
   it('calls onSubmit with the typed config when all fields are valid and passwords match', () => {
     const onSubmit = vi.fn();
     render(() => <Intro onSubmit={onSubmit} />);

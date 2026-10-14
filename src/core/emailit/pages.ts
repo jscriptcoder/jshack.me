@@ -11,11 +11,7 @@
  */
 
 import { escapeHtml } from '../findit/page.js';
-
-/** Said to the person at the keyboard, not to their character: the hashes behind these
- *  accounts are shown to other players by design, and people reuse real passwords. The
- *  Intro form says the same. */
-export const REAL_PASSWORD_WARNING = "Don't use a password you use anywhere outside this game.";
+import { REAL_PASSWORD_WARNING } from '../gameConfig/gameConfig.js';
 
 const page = (title: string, body: readonly string[], description?: string): string =>
   [

@@ -16,6 +16,7 @@
 import { createSignal, type JSX, Show } from 'solid-js';
 import {
   type GameConfig,
+  REAL_PASSWORD_WARNING,
   validateMachineName,
   validatePassword,
   validateUsername,
@@ -204,6 +205,8 @@ export const Intro = (props: IntroProps) => {
               }}
             />
           </div>
+
+          <p class="text-xs text-[var(--theme-text-dim)]">{REAL_PASSWORD_WARNING}</p>
 
           <Show when={error()}>
             <p class="text-xs text-[var(--theme-error)]" role="alert">
