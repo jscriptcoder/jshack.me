@@ -10,6 +10,7 @@ import { assignHomeNetwork } from './homeNetwork.js';
 import { lanAddressFor } from './lanAddress.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import { DECLARED_NETWORKS, RIDGEMONT } from '../generation/world.js';
+import { sessionRow, sessionTable, type SessionRow } from '../../test/factories/sessionTable.js';
 
 /**
  * `handleRegisterNetwork` is the server-side join action. It verifies the signed
@@ -41,21 +42,39 @@ const ROOT_HASH = 'd41d8cd98f00b204e9800998ecf8427e';
 // constraint, so it is wire-checked.
 const LEASED_OCTET = 84;
 
-const makeDeps = (over: Partial<RegisterNetworkDeps> = {}) => {
+/** A handler wired to stub stores and an in-memory `sessions` table. The box joins from
+ *  no network unless `onNetwork` names the one it is already on. */
+const makeDeps = (
+  over: Partial<RegisterNetworkDeps> = {},
+  options: { readonly onNetwork?: string; readonly sessions?: readonly SessionRow[] } = {},
+) => {
   const upsertOccupant = vi.fn<(row: HomeNetworkOccupantRow) => Promise<{ error: unknown }>>(
     async () => ({ error: null }),
   );
   const allocateLanLease = vi.fn<(essid: string, ownerKey: string) => Promise<number>>(
     async () => LEASED_OCTET,
   );
+  const deleteOtherOccupancies = vi.fn<RegisterNetworkDeps['deleteOtherOccupancies']>(
+    async (query) => ({
+      data:
+        options.onNetwork === undefined || options.onNetwork === query.essid
+          ? []
+          : [{ workstation_machine_id: WORKSTATION_ID }],
+      error: null,
+    }),
+  );
+  const table = sessionTable(options.sessions ?? []);
   const deps: RegisterNetworkDeps = {
     nonceStore: freshStore,
     allocateLanLease,
     upsertOccupant,
+    deleteOtherOccupancies,
+    endVisitorSessions: table.endVisitorSessions,
+    endSessionsAbove: table.endSessionsAbove,
     admitsUndeclaredNetworks: false,
     ...over,
   };
-  return { deps, upsertOccupant, allocateLanLease };
+  return { deps, upsertOccupant, allocateLanLease, deleteOtherOccupancies, table };
 };
 
 const envelope = (id: ReturnType<typeof generateIdentity>, over: Record<string, unknown> = {}) =>
@@ -368,4 +387,176 @@ describe('handleRegisterNetwork: which networks a player may join', () => {
       expect(upsertOccupant).not.toHaveBeenCalled();
     },
   );
+});
+
+/**
+ * A box is on one network at a time. A join from a box already on another network takes
+ * it off that one first, exactly as a disconnect would: its occupancy there goes, and so
+ * does every connection another player held to it through that network. The game client
+ * refuses the second join itself; this is what holds for a request that skips it, or for
+ * a disconnect whose fire-and-forget leave never landed.
+ */
+describe('handleRegisterNetwork: one network at a time', () => {
+  const OLD_NETWORK = 'TYRELL-CORP';
+
+  it('takes the box off every other network it is on, scoped to the verified pubkey', async () => {
+    const id = generateIdentity();
+    const { deps, deleteOtherOccupancies } = makeDeps({}, { onNetwork: OLD_NETWORK });
+
+    const result = await handleRegisterNetwork(envelope(id), deps);
+
+    expect(result.status).toBe(200);
+    expect(deleteOtherOccupancies).toHaveBeenCalledTimes(1);
+    expect(deleteOtherOccupancies).toHaveBeenCalledWith({
+      essid: ESSID,
+      owner_key: id.publicKeyHex,
+    });
+  });
+
+  it("closes a visitor's session on the box, recorded as the box leaving", async () => {
+    const id = generateIdentity();
+    const { deps, table } = makeDeps(
+      {},
+      {
+        onNetwork: OLD_NETWORK,
+        sessions: [sessionRow({ session_id: 'visitor-shell', machine_id: WORKSTATION_ID })],
+      },
+    );
+
+    await handleRegisterNetwork(envelope(id), deps);
+
+    expect(table.reasonOf('visitor-shell')).toBe('network_left');
+  });
+
+  it('closes the sessions a visitor opened from the box, all the way up their chain', async () => {
+    const id = generateIdentity();
+    const { deps, table } = makeDeps(
+      {},
+      {
+        onNetwork: OLD_NETWORK,
+        sessions: [
+          sessionRow({ session_id: 'visitor-shell', machine_id: WORKSTATION_ID }),
+          sessionRow({
+            session_id: 'hop-from-the-box',
+            machine_id: 'web-01-cafef00d',
+            parent_session_id: 'visitor-shell',
+          }),
+        ],
+      },
+    );
+
+    await handleRegisterNetwork(envelope(id), deps);
+
+    expect(table.reasonOf('hop-from-the-box')).toBe('upstream_lost');
+  });
+
+  it("leaves the owner's own sessions on their box open", async () => {
+    const id = generateIdentity();
+    const { deps, table } = makeDeps(
+      {},
+      {
+        onNetwork: OLD_NETWORK,
+        sessions: [
+          sessionRow({
+            session_id: 'own-su',
+            player_key: id.publicKeyHex,
+            machine_id: WORKSTATION_ID,
+            kind: 'su',
+          }),
+        ],
+      },
+    );
+
+    await handleRegisterNetwork(envelope(id), deps);
+
+    expect(table.reasonOf('own-su')).toBeUndefined();
+  });
+
+  // Re-joining the network the box is already on moves it nowhere, so nobody standing
+  // on it through that network is thrown off.
+  it('closes nothing when the box is on no other network', async () => {
+    const id = generateIdentity();
+    const { deps, table } = makeDeps(
+      {},
+      {
+        onNetwork: ESSID,
+        sessions: [sessionRow({ session_id: 'visitor-shell', machine_id: WORKSTATION_ID })],
+      },
+    );
+
+    const result = await handleRegisterNetwork(envelope(id), deps);
+
+    expect(result.status).toBe(200);
+    expect(table.reasonOf('visitor-shell')).toBeUndefined();
+  });
+
+  it('closes nothing when the store answers with no rows at all', async () => {
+    const id = generateIdentity();
+    const endVisitorSessions = vi.fn<RegisterNetworkDeps['endVisitorSessions']>(async () => ({
+      data: [],
+      error: null,
+    }));
+    const { deps } = makeDeps({
+      deleteOtherOccupancies: vi.fn(async () => ({ data: null, error: null })),
+      endVisitorSessions,
+    });
+
+    const result = await handleRegisterNetwork(envelope(id), deps);
+
+    expect(result.status).toBe(200);
+    expect(endVisitorSessions).not.toHaveBeenCalled();
+  });
+
+  it('leaves the old network untouched when the new one is not joinable', async () => {
+    const id = generateIdentity();
+    const { deps, deleteOtherOccupancies } = makeDeps({}, { onNetwork: OLD_NETWORK });
+
+    await handleRegisterNetwork(envelope(id, { essid: OUT_OF_TOWN_KEYS[0] }), deps);
+
+    expect(deleteOtherOccupancies).not.toHaveBeenCalled();
+  });
+
+  // No address on the new network means no join, so the box stays where it was.
+  it('leaves the old network untouched when no address could be leased', async () => {
+    const id = generateIdentity();
+    const { deps, deleteOtherOccupancies } = makeDeps(
+      {
+        allocateLanLease: vi.fn(async () => {
+          throw new Error('lan lease allocation exhausted');
+        }),
+      },
+      { onNetwork: OLD_NETWORK },
+    );
+
+    await handleRegisterNetwork(envelope(id), deps);
+
+    expect(deleteOtherOccupancies).not.toHaveBeenCalled();
+  });
+
+  it('reports a server error, without joining, when the old network could not be left', async () => {
+    const id = generateIdentity();
+    const { deps, upsertOccupant } = makeDeps({
+      deleteOtherOccupancies: vi.fn(async () => ({ data: null, error: new Error('db down') })),
+    });
+
+    const result = await handleRegisterNetwork(envelope(id), deps);
+
+    expect(result).toEqual({ status: 500, body: { error: 'occupant_delete_failed' } });
+    expect(upsertOccupant).not.toHaveBeenCalled();
+  });
+
+  // Loud, as a disconnect's is: a join that left a visitor's row open puts the box on a
+  // new network while the visitor still stands on it through the old one.
+  it('reports a server error, without joining, when the sessions could not be closed', async () => {
+    const id = generateIdentity();
+    const { deps, upsertOccupant } = makeDeps(
+      { endVisitorSessions: async () => ({ data: null, error: new Error('db down') }) },
+      { onNetwork: OLD_NETWORK },
+    );
+
+    const result = await handleRegisterNetwork(envelope(id), deps);
+
+    expect(result).toEqual({ status: 500, body: { error: 'sessions_end_failed' } });
+    expect(upsertOccupant).not.toHaveBeenCalled();
+  });
 });

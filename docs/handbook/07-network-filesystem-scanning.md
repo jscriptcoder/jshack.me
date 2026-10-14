@@ -233,12 +233,16 @@ the `ed25519:` prefix.
 
 1. The player cracks a WiFi password and runs `nmcli connect <essid> <password>`. `nmcli` finds
    the typed name among the last scan's entries by the name each broadcasts (`essidOf`), and joins
-   under the network's key, which is what every later step stores.
+   under the network's key, which is what every later step stores. A box is on one network at a
+   time: while `wlan0` is associated, a connect to another network is refused (`nmcli: already
+   connected to <name> — run 'nmcli disconnect' first`) before the password is checked.
 2. The client posts a signed `registerNetwork` action. The server first refuses a network outside
    Ridgemont, or one the world does not declare, with `403 network_not_joinable` and writes
    nothing (the local-only `JSHACK_ADMIT_LAB_NETWORKS=1` admits the wire-checks' undeclared lab
-   networks). Then it allocates or reuses the player's LAN lease, and only then writes the
-   occupancy row, so every occupant has an address. The network's public IP is its place in the
+   networks). Then it allocates or reuses the player's LAN lease. It then takes the box off every
+   other network it occupies, exactly as a disconnect would (step 4), which holds the one-network
+   rule for a request that skips `nmcli` and for a disconnect whose leave never landed. Only then
+   does it write the occupancy row, so every occupant has an address. The network's public IP is its place in the
    world, so the join stores none.
 3. The client sets `wlan0` to associated with the leased IP and caches the lease in `localStorage`.
    If the server is unreachable later, a cached lease lets the client come back online; a network

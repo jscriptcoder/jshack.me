@@ -280,6 +280,69 @@ describe('nmcli', () => {
       expect(joinCalls).toEqual([]);
       expect(wlan0Of(get()).ipv4).toBe('192.168.5.20');
     });
+
+    // A box is on one network at a time. Joining a second would leave it reachable on
+    // the first while its own tools act from the second.
+    it('refuses to join a second network while connected to one', async () => {
+      const { env, get, joinCalls } = nmcliEnv(
+        connectedTo('BEAN-THERE-WIFI', 'AA:BB:CC:DD:EE:01', '192.168.5.20'),
+        {
+          wifiNetworks: [
+            crackableNet(),
+            crackableNet({ essid: 'SKY-NET', bssid: 'AA:BB:CC:DD:EE:03' }),
+          ],
+        },
+      );
+
+      const { text, exitCode } = syncResult(
+        await nmcli.execute(env, ['connect', 'SKY-NET', 'sunshine2024'], NO_FLAGS),
+      );
+
+      expect(text).toBe(
+        "nmcli: already connected to BEAN-THERE-WIFI — run 'nmcli disconnect' first",
+      );
+      expect(exitCode).toBe(1);
+      expect(joinCalls).toEqual([]);
+      expect(wlan0Of(get()).association).toEqual({
+        essid: 'BEAN-THERE-WIFI',
+        bssid: 'AA:BB:CC:DD:EE:01',
+      });
+      expect(wlan0Of(get()).ipv4).toBe('192.168.5.20');
+    });
+
+    // Whatever the player meant to join, the answer is the same: leave this one first.
+    it('answers a bare connect while connected with the network the player is on', async () => {
+      const { env } = nmcliEnv(connectedTo('BEAN-THERE-WIFI', 'AA:BB:CC:DD:EE:01', '192.168.5.20'));
+
+      const { text, exitCode } = syncResult(await nmcli.execute(env, ['connect'], NO_FLAGS));
+
+      expect(text).toBe(
+        "nmcli: already connected to BEAN-THERE-WIFI — run 'nmcli disconnect' first",
+      );
+      expect(exitCode).toBe(1);
+    });
+
+    // The refusal comes before the password is checked, so it says nothing about whether
+    // the password was right.
+    it('refuses a second network before checking its password', async () => {
+      const { env } = nmcliEnv(
+        connectedTo('BEAN-THERE-WIFI', 'AA:BB:CC:DD:EE:01', '192.168.5.20'),
+        {
+          wifiNetworks: [
+            crackableNet(),
+            crackableNet({ essid: 'SKY-NET', bssid: 'AA:BB:CC:DD:EE:03' }),
+          ],
+        },
+      );
+
+      const { text } = syncResult(
+        await nmcli.execute(env, ['connect', 'SKY-NET', 'wrongpw'], NO_FLAGS),
+      );
+
+      expect(text).toBe(
+        "nmcli: already connected to BEAN-THERE-WIFI — run 'nmcli disconnect' first",
+      );
+    });
   });
 
   describe('disconnect', () => {
@@ -413,19 +476,17 @@ describe('nmcli', () => {
       expect(joinCalls).toEqual([]);
     });
 
-    it('joins it from another network the player is on', async () => {
-      const { env, get, joinCalls } = nmcliEnv(
-        connectedTo('BEAN-THERE-WIFI', 'AA:BB:CC:DD:EE:01', '192.168.5.20'),
-        { wifiNetworks: [crackableNet(), hospital()] },
+    it('names the network the player is on when refusing a second one', async () => {
+      const { env, joinCalls } = nmcliEnv(connectedTo(KEY, 'AA:BB:CC:DD:EE:57', '192.168.5.20'), {
+        wifiNetworks: [crackableNet(), hospital()],
+      });
+
+      const { text } = syncResult(
+        await nmcli.execute(env, ['connect', 'BEAN-THERE-WIFI', 'sunshine2024'], NO_FLAGS),
       );
 
-      const { text } = await drainAsync(
-        await nmcli.execute(env, ['connect', NAME, 'sunshine2024'], NO_FLAGS),
-      );
-
-      expect(joinCalls).toEqual([KEY]);
-      expect(wlan0Of(get()).association).toEqual({ essid: KEY, bssid: 'AA:BB:CC:DD:EE:57' });
-      expect(text).toContain(`Connected to ${NAME}`);
+      expect(text).toBe(`nmcli: already connected to ${NAME} — run 'nmcli disconnect' first`);
+      expect(joinCalls).toEqual([]);
     });
 
     it('reports it connected by its name', async () => {

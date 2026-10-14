@@ -8,7 +8,8 @@
  * IP via `env.setInterface` — flipping `isOnline()` true. `disconnect` clears
  * that state; `status` reports it.
  *
- * Preconditions: own workstation (`isOwnWorkstation`), and — the mutual-
+ * Preconditions: own workstation (`isOwnWorkstation`), not already on another
+ * network (one at a time — `disconnect` first), and — the mutual-
  * exclusivity tightening over legacy — `wlan0` must NOT be in monitor mode
  * (airmon-ng enforces the reverse: you can't monitor an associated NIC). A
  * non-crackable AP has no `password` on the discriminated union, so it can
@@ -97,6 +98,14 @@ const handleConnect = (
     essidOf(wlan0.association.essid) === essid
   ) {
     return text([`Already connected to ${essid}`]);
+  }
+  // A box is on one network at a time: joining a second would leave it reachable on the
+  // first while its own tools act from the second. Refused before the password is
+  // checked, so the refusal says nothing about it.
+  if (wlan0.association !== null) {
+    return error(
+      `nmcli: already connected to ${essidOf(wlan0.association.essid)} — run 'nmcli disconnect' first`,
+    );
   }
   if (essid === undefined || password === undefined) {
     return error('nmcli: usage: nmcli connect <ESSID> <password>');
