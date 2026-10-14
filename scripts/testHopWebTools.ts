@@ -2,7 +2,8 @@
 //
 // B sits at home and holds a shell on a box on network N. Every fetch names that box
 // (`caller_machine_id`), and the server works out from B's session row where B stands —
-// never from anything the request claims. So:
+// never from anything the request claims. A box on N is served by the server, which
+// records the visit as it serves the page (`resolveOccupantFetch`). So:
 //   - a fetch of a serving host on N's LAN lands an access.log line on THAT host, under
 //     N's own key, naming the HOP's LAN address — not a client-sent source;
 //   - a fetch of a web host on a DEEP layer the hop reaches lands a line on that host,
@@ -40,7 +41,6 @@ import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 import { publicAddressOf } from './publicAddressOf.js';
 import { leaveNetwork, standOnNetwork } from './standVantage.js';
 
-const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
 const url = process.env.SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -176,12 +176,14 @@ await standOnNetwork(sr, HOME, bob, 34);
 await seedSession('ssh-hop-web-lan', HOP_BOX, N);
 await seedSession('ssh-hop-web-deep', deep.gatewayMachineId, deep.essid);
 
+// The server serves a box on the network the hop stands on and records the visit in the
+// same request, so the fetch IS the trace.
 const fetched = (essid: string, target: string, port: number, over: Record<string, unknown>) =>
-  signRequest(bob, 'recordLanFetch', { essid, target, port, paths: ['/'], ...over });
+  signRequest(bob, 'resolveOccupantFetch', { essid, target, port, path: '/', ...over });
 
 try {
   // === 1. A LAN fetch from the hop lands on the serving host, from the hop's address. ===
-  const lan = await post(PATCHES, await fetched(N, nServing.ip, SERVING_PORT, { caller_machine_id: HOP_BOX }));
+  const lan = await post(NETWORK, await fetched(N, nServing.ip, SERVING_PORT, { caller_machine_id: HOP_BOX }));
   const servingLog = await readAccessLog(SERVING_ID, apGatewayLogWriterKey(N));
   check(
     "a LAN fetch from the hop names the hop's LAN address on the serving host",
@@ -191,7 +193,7 @@ try {
 
   // === 2. A deep-layer fetch lands on the deep host, from the layer's .1. ===
   const deepFetch = await post(
-    PATCHES,
+    NETWORK,
     await fetched(deep.essid, deep.ip, deep.port, { caller_machine_id: deep.gatewayMachineId }),
   );
   const deepLog = await readAccessLog(deep.hostId, apGatewayLogWriterKey(deep.essid));
@@ -203,7 +205,7 @@ try {
 
   // === 3. A fetch naming a box B holds no shell on is refused. ===
   const noSession = await post(
-    PATCHES,
+    NETWORK,
     await fetched(N, nServing.ip, SERVING_PORT, { caller_machine_id: SERVING_ID }),
   );
   check(
@@ -214,7 +216,7 @@ try {
 
   // === 4. A fetch naming a network the hop is not on is refused. ===
   const wrongNet = await post(
-    PATCHES,
+    NETWORK,
     await fetched(HOME, nServing.ip, SERVING_PORT, { caller_machine_id: HOP_BOX }),
   );
   check(
@@ -228,7 +230,7 @@ try {
   await sr.from('sessions').delete().eq('session_id', 'ssh-hop-web-lan');
   await seedSession('ssh-hop-web-self', SERVING_ID, N);
   const loop = await post(
-    PATCHES,
+    NETWORK,
     await fetched(N, '127.0.0.1', SERVING_PORT, { caller_machine_id: SERVING_ID }),
   );
   const selfLog = await readAccessLog(SERVING_ID, apGatewayLogWriterKey(N));

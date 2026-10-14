@@ -1,8 +1,8 @@
 /**
- * handleResolveOccupantSweep — the server-side gate for a path sweep of a FELLOW
- * OCCUPANT's box, at the address it holds on the LAN the caller stands on.
- * `gobuster http://<a player's LAN address>` asks a neighbour's box about every word in
- * a list and reports which ones answer.
+ * handleResolveOccupantSweep — the server-side gate for a path sweep of a box on the
+ * network the caller stands on: a FELLOW OCCUPANT's, at the address it holds, or one
+ * the network generates. `gobuster http://<an address on the LAN>` asks the box about
+ * every word in a list and reports which ones answer.
  *
  * It enters through the door a fetch of that box does (`resolveOccupantWebTarget`), so
  * the two can never disagree about which box an address reaches, whether it serves the

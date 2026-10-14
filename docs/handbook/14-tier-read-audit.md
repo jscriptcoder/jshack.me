@@ -174,7 +174,7 @@ with no session was.
 | Site                                                                                                                          | Reads                                                                                                   | Verdict |
 | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | ------- |
 | `commands/curl.ts:134`, `lynx.ts:88`, `gobuster.ts:239`, `ui/state.ts:1627` (handed on to `webHost.ts:127`, `webPage.ts:168`) | `/var/www` on the box the shell stands on, read as the web server, when the address is the shell's own. | list    |
-| `commands/webHost.ts:138, 146`                                                                                                | The seeded tree of another generated box on the LAN or a deep layer.                                    | fine ³  |
+| `commands/webHost.ts:138, 146`                                                                                                | Removed in v0.382.0: another box on the LAN or a deep layer is served (`resolveOccupantFetch`).          | fine ³  |
 
 A page under `/var/www` is world-readable unless somebody narrows it, and the list carries the
 whole directory. A session holder is served the list (v0.371.0), so a lower-tier shell fetching
@@ -182,9 +182,9 @@ whole directory. A session holder is served the list (v0.371.0), so a lower-tier
 the server (`resolveOccupantFetch`).
 
 ³ Seeded content is computable from the ESSID by any client, which is the accepted limit of this
-work. It also means a LAN fetch never replays the journal: a page somebody changed on a generated
-box is served as generated to a reader on its LAN, and as changed to a reader across the internet
-(`resolveHttpFetch` replays). That is a stale read, not a tier matter, and is not scheduled.
+work. Until v0.382.0 a LAN fetch never replayed the journal, so a page somebody changed on a
+generated box was served as generated to a reader on its LAN. Since then the server serves every
+web read of a box that is not the player's own workstation at home, from its journal.
 
 ### Accounts
 

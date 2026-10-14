@@ -20,9 +20,9 @@
  * confinement, one port check — because two readings of a URL would mean a path
  * reachable through one tool and refused by the other.
  *
- * Two kinds of box are not this client's to read, and the server runs the sweep of
- * both: one behind a public address, and a fellow occupant's on this network. Either
- * is built from its owner's journal, which lives server-side.
+ * Every box but the player's own is the server's to sweep: one behind a public
+ * address, a fellow occupant's on this network, and one the network generates. Each is
+ * read from its journal, which lives server-side.
  *
  * Every miss is silent HERE and loud on the target: the attacker's screen shows
  * only what answered, while the box records each probe it was asked about. That
@@ -238,8 +238,8 @@ const execute: Command['execute'] = async (env, args) => {
 
   const reached = reachWebHost({ root: env.fs.root(), program: 'gobuster', url, vantage });
   if (!reached.ok) {
-    // An address no box this side can build holds is a fellow occupant's, if anybody's.
-    // The server says whose it is, sweeps it with the list on the box named here and
+    // Any address but the player's own box at home is the server's to answer for. The
+    // server says which box it is, sweeps it with the list on the box named here and
     // records the run there itself, so nothing is logged from this side. It is asked about
     // the resolved address, so loopback in a shell on a fellow occupant's box reaches it.
     if (reached.reason !== 'unresolved') {

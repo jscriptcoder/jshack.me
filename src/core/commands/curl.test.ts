@@ -40,7 +40,6 @@ import { assignHomeNetwork } from '../network/homeNetwork.js';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
 import { buildRemoteHostFs } from '../generation/remoteHostFs.js';
 import { baseFsForLanHost, machineIdForLanHost } from '../generation/lanHostIdentity.js';
-import { buildDeepHostFs } from '../generation/deepHostFs.js';
 import { publisherIp } from '../generation/publisher.js';
 import { readOpenPorts } from '../services/pidfile.js';
 import { createFsView } from '../filesystem/fsView.js';
@@ -49,7 +48,7 @@ import { asAbsPath, asMachineId, asPlayerKeyHex } from '../types.js';
 import { chainLinks } from '../generation/lanTopology.js';
 import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
 import { crackableEssidPool } from '../generation/generateWifi.js';
-import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
+import { buildDirectory } from '../../test/factories/filesystem.js';
 
 /**
  * `curl <url>` fetches over HTTP — the one door that opens without a credential.
@@ -122,41 +121,6 @@ const webHostOnLan = (): { readonly host: LanHost; readonly port: number } => {
   throw new Error('expected a generated web host on the LAN');
 };
 
-/** A generated NPC host on the LAN running ssh, with the port it listens on — a
- *  reachable host whose open port is NOT a web server. */
-const sshHostOnLan = (): { readonly host: LanHost; readonly port: number } => {
-  for (const host of generateHomeLan(ESSID).hosts) {
-    if (host.kind !== 'machine') continue;
-    const ports = readOpenPorts(buildRemoteHostFs(ESSID, host));
-    const ssh = ports.find((entry) => entry.service === 'ssh');
-    const web = ports.find((entry) => entry.service === 'http');
-    if (ssh !== undefined && web === undefined) return { host, port: ssh.port };
-  }
-  throw new Error('expected a generated ssh-but-not-web host on the LAN');
-};
-
-/** A generated web host listening on the DEFAULT port, and one on an alternate —
- *  so the tests can tell "the URL's port was honoured" from "any port would do". */
-const webHostOnPort = (wanted: (port: number) => boolean): LanHost => {
-  for (const host of generateHomeLan(ESSID).hosts) {
-    if (host.kind !== 'machine') continue;
-    const web = readOpenPorts(buildRemoteHostFs(ESSID, host)).find(
-      (entry) => entry.service === 'http',
-    );
-    if (web !== undefined && wanted(web.port)) return host;
-  }
-  throw new Error('expected a generated web host on a matching port');
-};
-
-/** The page a generated host actually serves — the expected fetch body. */
-const servedPage = (host: LanHost): string => {
-  const read = createFsView(buildRemoteHostFs(ESSID, host), { userType: 'root' }).read(
-    asAbsPath('/var/www/html/index.html'),
-  );
-  if (!read.ok) throw new Error('expected a served page');
-  return read.content;
-};
-
 /** An address on the player's own subnet that no host occupies. */
 const unoccupiedIp = (): string => {
   const lan = generateHomeLan(ESSID);
@@ -168,17 +132,109 @@ const unoccupiedIp = (): string => {
   return free;
 };
 
-/** Run `curl` against an online player, capturing what it reported to the access-log
- *  seam. `failing` makes that seam reject, so a test can prove the fetch does not
- *  depend on it. */
+/** The player's own address on the network they are online on. */
+const OWN_IP = assignHomeNetwork(PUBKEY, ESSID).localIp;
+
+/** The player's own box as generated, plus any patches — applied through the
+ *  SAME `applyPatches` the game uses, so a pidfile written by `nginx` and a page
+ *  edited with `nano` reach the tree the way they really would. It is the one box
+ *  `curl` reads for itself; every other box is the server's to answer for. */
+const ownBox = (...patches: readonly Patch[]): Directory =>
+  applyPatches(
+    buildWorkstationBaseFs(PUBKEY, {
+      machineName: 'workstation',
+      username: 'alice',
+      rootPassword: 'hunter2',
+    }),
+    patches,
+  );
+
+/** What `nginx` leaves behind when it starts on the default port. */
+const WEB_SERVER_RUNNING: Patch = {
+  path: '/var/run/nginx.pid',
+  content: formatPidfileContent(SERVICE_CATALOG.http, HTTP_DEFAULT_PORT),
+  owner: 'root',
+};
+
+/** What `sshd` leaves behind: an open port that is not a web server. */
+const SSHD_RUNNING: Patch = {
+  path: `/var/run/${SERVICE_CATALOG.ssh.pidfile}`,
+  content: formatPidfileContent(SERVICE_CATALOG.ssh, SERVICE_CATALOG.ssh.defaultPort),
+  owner: 'root',
+};
+
+const publishedPage = (content: string): Patch => ({
+  path: '/var/www/html/index.html',
+  content,
+  owner: 'root',
+});
+
+const OWN_PAGE = '<html>\n<h1>alice was here</h1>\n</html>';
+
+/** The own box serving `OWN_PAGE` on the default port. */
+const servingOwnBox = (): Directory => ownBox(WEB_SERVER_RUNNING, publishedPage(OWN_PAGE));
+
+/** `curl` run by an online player standing on the given own-box tree. */
+const fetchOwn = async (tree: Directory, ...args: readonly string[]): Promise<Drained> =>
+  drain(
+    await curl.execute(
+      mockCommandEnv({
+        identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+        network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+        fs: mockFsViewFromTree(tree, { userType: 'user', cwd: () => asAbsPath('/') }),
+      }),
+      args,
+      new Map(),
+    ),
+  );
+
+/** The page the server answers with for a box it serves. */
+const SERVED_PAGE = '<h1>served off the box as it stands</h1>';
+
+/** `curl` run by an online player at a box the server answers for: what it printed,
+ *  what it asked the server, and what it reported to its own access-log seam. */
+const runServed = async (
+  args: readonly string[],
+  answer: OccupantFetchResult = { ok: true, content: SERVED_PAGE, server: 'nginx' },
+) => {
+  const asked: OccupantFetchParams[] = [];
+  const reported: AccessLogFetch[] = [];
+  const env = mockCommandEnv({
+    identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+    network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+    remote: {
+      ...mockRemoteApi(),
+      fetchOccupant: async (params) => {
+        asked.push(params);
+        return answer;
+      },
+    },
+    log: {
+      appendAuthLog: async () => undefined,
+      appendKernLog: async () => undefined,
+      appendAccessLog: async (fetched) => {
+        reported.push(fetched);
+      },
+    },
+  });
+  return { drained: await drain(await curl.execute(env, args, new Map())), asked, reported };
+};
+
+/** Run `curl` against an online player on their own box, capturing what it reported to
+ *  the access-log seam. `failing` makes that seam reject, so a test can prove the fetch
+ *  does not depend on it. */
 const runReporting = async (
   args: readonly string[],
-  options: { readonly failing?: boolean } = {},
+  options: { readonly failing?: boolean; readonly tree?: Directory } = {},
 ): Promise<{ readonly drained: Drained; readonly reported: readonly AccessLogFetch[] }> => {
   const reported: AccessLogFetch[] = [];
   const env = mockCommandEnv({
     identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
     network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+    fs: mockFsViewFromTree(options.tree ?? servingOwnBox(), {
+      userType: 'user',
+      cwd: () => asAbsPath('/'),
+    }),
     log: {
       appendAuthLog: async () => undefined,
       appendKernLog: async () => undefined,
@@ -192,16 +248,17 @@ const runReporting = async (
 };
 
 describe('curl at a name instead of an address', () => {
-  it('fetches by NAME exactly what it fetches by address', async () => {
+  it('asks about the address a name stands for, exactly as about the address itself', async () => {
     // The name is what the scan printed. Nothing about the request changes when the
-    // player uses it — same page, same status, same everything on screen.
+    // player uses it — same question to the server, same page on screen.
     const { host, port } = webHostOnLan();
 
-    const byAddress = await run(`http://${host.ip}:${port}/index.html`);
-    const byName = await run(`http://${host.hostname}:${port}/index.html`);
+    const byAddress = await runServed([`http://${host.ip}:${port}/index.html`]);
+    const byName = await runServed([`http://${host.hostname}:${port}/index.html`]);
 
-    expect(byAddress.exitCode).toBe(0);
-    expect(byName).toEqual(byAddress);
+    expect(byName.asked.map((asked) => asked.target)).toEqual([host.ip]);
+    expect(byName.asked).toEqual(byAddress.asked);
+    expect(byName.drained).toEqual(byAddress.drained);
   });
 
   it('leaves a name nothing answers to exactly as typed, for curl own answer', async () => {
@@ -212,22 +269,11 @@ describe('curl at a name instead of an address', () => {
     expect(text).toBe('curl: (6) Could not resolve host: nosuchbox');
   });
 
-  it('keeps the path a named URL carries, down to the miss', async () => {
-    const { host, port } = webHostOnLan();
-
-    const byAddress = await run(`http://${host.ip}:${port}/nothing-here`);
-    const byName = await run(`http://${host.hostname}:${port}/nothing-here`);
-
-    expect(byAddress.exitCode).not.toBe(0);
-    expect(byName).toEqual(byAddress);
-  });
 });
 
 describe('curl leaves a trace on the box it fetched', () => {
   it('reports the fetch so the server can write that box access.log', async () => {
-    const { host, port } = webHostOnLan();
-
-    const { reported } = await runReporting([`http://${host.ip}:${port}/index.html`]);
+    const { reported } = await runReporting([`http://${OWN_IP}/index.html`]);
 
     // The client names WHAT it fetched and the box it ran from. It never names the
     // source address, the time, the status or the size — the server places the caller
@@ -235,8 +281,8 @@ describe('curl leaves a trace on the box it fetched', () => {
     expect(reported).toEqual([
       {
         essid: ESSID,
-        target: host.ip,
-        port,
+        target: OWN_IP,
+        port: HTTP_DEFAULT_PORT,
         // One fetch, one path: the seam carries a run of them because a sweep asks
         // many at once, and `curl` must never claim requests it did not make.
         paths: ['/index.html'],
@@ -246,9 +292,7 @@ describe('curl leaves a trace on the box it fetched', () => {
   });
 
   it('reports a miss as readily as a hit — the 404 is the interesting line', async () => {
-    const { host, port } = webHostOnLan();
-
-    const { drained, reported } = await runReporting([`http://${host.ip}:${port}/nothing-here`]);
+    const { drained, reported } = await runReporting([`http://${OWN_IP}/nothing-here`]);
 
     expect(drained.exitCode).not.toBe(0);
     expect(reported).toHaveLength(1);
@@ -256,9 +300,7 @@ describe('curl leaves a trace on the box it fetched', () => {
   });
 
   it('reports a traversal attempt, which is the fetch worth recording most', async () => {
-    const { host, port } = webHostOnLan();
-
-    const { reported } = await runReporting([`http://${host.ip}:${port}/../../etc/passwd`]);
+    const { reported } = await runReporting([`http://${OWN_IP}/../../etc/passwd`]);
 
     expect(reported).toHaveLength(1);
     expect(reported[0]!.paths).toEqual(['/../../etc/passwd']);
@@ -267,11 +309,10 @@ describe('curl leaves a trace on the box it fetched', () => {
   it('reports nothing when nothing answered', async () => {
     // No server, no log: an access log belongs to a web server that handled a
     // request, and neither of these reached one.
-    const { host } = webHostOnLan();
-    const ssh = sshHostOnLan();
-
-    const closed = await runReporting([`http://${host.ip}:9999`]);
-    const wrongService = await runReporting([`http://${ssh.host.ip}:${ssh.port}`]);
+    const closed = await runReporting([`http://${OWN_IP}:9999`]);
+    const wrongService = await runReporting([`http://${OWN_IP}:${SERVICE_CATALOG.ssh.defaultPort}`], {
+      tree: ownBox(WEB_SERVER_RUNNING, SSHD_RUNNING),
+    });
     const nobody = await runReporting([`http://${unoccupiedIp()}`]);
 
     expect(closed.reported).toEqual([]);
@@ -279,61 +320,55 @@ describe('curl leaves a trace on the box it fetched', () => {
     expect(nobody.reported).toEqual([]);
   });
 
-  it('serves the page even when the report fails — the trace is best-effort', async () => {
+  it('reports nothing for a box the server answers for, since the server records the visit', async () => {
     const { host, port } = webHostOnLan();
 
-    const { drained } = await runReporting([`http://${host.ip}:${port}`], { failing: true });
+    const { reported } = await runServed([`http://${host.ip}:${port}/index.html`]);
+
+    expect(reported).toEqual([]);
+  });
+
+  it('serves the page even when the report fails — the trace is best-effort', async () => {
+    const { drained } = await runReporting([`http://${OWN_IP}`], { failing: true });
 
     expect(drained.exitCode).toBe(0);
-    expect(drained.text).toContain('<html>');
+    expect(drained.text).toBe(OWN_PAGE);
   });
+
 });
 
 describe('curl', () => {
-  it('returns the page a host on the LAN serves', async () => {
+  it('asks the server for a host on the LAN, and prints the page it answers with', async () => {
+    // The box may have been rewritten, stopped or bricked since it was generated, and
+    // only the server holds the journal that says so.
     const { host, port } = webHostOnLan();
 
-    const { text, exitCode } = await run(`http://${host.ip}:${port}`);
+    const { drained, asked } = await runServed([`http://${host.ip}:${port}/index.html`]);
 
-    expect(exitCode).toBe(0);
-    expect(text).toContain('<html>');
-    expect(text).toContain(host.hostname); // the page names the host serving it
-  });
-
-  it('is refused by a router or switch on every web port nmap shows closed', async () => {
-    // Every door reads a gateway as the device it is, and nmap reports only what
-    // that device runs; a web request must agree rather than find a server nmap never saw.
-    const webPorts = [SERVICE_CATALOG.http.defaultPort, ...SERVICE_CATALOG.http.altPorts];
-    const infrastructure = generateHomeLan(ESSID).hosts.filter((host) => host.kind !== 'machine');
-    expect(infrastructure.length).toBeGreaterThan(0);
-
-    const answered = [];
-    for (const host of infrastructure) {
-      const open = readOpenPorts(baseFsForLanHost(host, ESSID)).map((entry) => entry.port);
-      for (const port of webPorts.filter((candidate) => !open.includes(candidate))) {
-        const { text } = await run(`http://${host.ip}:${port}/`);
-        if (!text.includes('Connection refused')) answered.push(`${host.hostname}:${port}`);
-      }
-    }
-    expect(answered).toEqual([]);
+    expect(drained).toMatchObject({ exitCode: 0, text: SERVED_PAGE });
+    expect(asked).toEqual([
+      {
+        essid: ESSID,
+        target: host.ip,
+        port,
+        path: '/index.html',
+        callerMachineId: mockSession().machineId,
+      },
+    ]);
   });
 
   it('takes an address typed with no scheme as http, as real curl does', async () => {
-    const { host, port } = webHostOnLan();
-
-    const { text, exitCode } = await run(`${host.ip}:${port}`);
+    const { text, exitCode } = await fetchOwn(servingOwnBox(), OWN_IP);
 
     expect(exitCode).toBe(0);
-    expect(text).toContain(host.hostname);
+    expect(text).toBe(OWN_PAGE);
   });
 
   describe('nothing outside the document root is reachable', () => {
     it('refuses to climb out of the web root, however the path is written', async () => {
-      const { host, port } = webHostOnLan();
-      // Every one of these resolves to a real, readable file on the target — the
-      // box has an /etc/passwd, and the fetch reads as the server's own account —
-      // so only the document root confines them. A leak here would hand over
-      // credentials to a caller with no session on the box at all.
+      // Every one of these resolves to a real, readable file on the box — it has an
+      // /etc/passwd, and the fetch reads as the server's own account — so only the
+      // document root confines them.
       const escapes = [
         '/../../etc/passwd',
         '/../../../etc/passwd',
@@ -342,7 +377,7 @@ describe('curl', () => {
       ];
 
       for (const escape of escapes) {
-        const { text, exitCode } = await run(`http://${host.ip}:${port}${escape}`);
+        const { text, exitCode } = await fetchOwn(servingOwnBox(), `http://${OWN_IP}${escape}`);
 
         expect(exitCode).not.toBe(0);
         expect(text).not.toContain('root:');
@@ -351,31 +386,32 @@ describe('curl', () => {
     });
 
     it('returns 404 for a path the web root does not hold', async () => {
-      const { host, port } = webHostOnLan();
-
-      const { text, exitCode } = await run(`http://${host.ip}:${port}/nothing-here.html`);
+      const { text, exitCode } = await fetchOwn(
+        servingOwnBox(),
+        `http://${OWN_IP}/nothing-here.html`,
+      );
 
       expect(exitCode).not.toBe(0);
       expect(text).toContain('404');
     });
+
   });
 
   describe('reaching the target', () => {
     it('refuses the connection when nothing listens on the port', async () => {
-      const { host } = webHostOnLan();
-
-      const { text, exitCode } = await run(`http://${host.ip}:9999`);
+      const { text, exitCode } = await fetchOwn(servingOwnBox(), `http://${OWN_IP}:9999`);
 
       expect(exitCode).not.toBe(0);
       expect(text).toContain('Connection refused');
     });
 
     it('refuses the connection when the port serves something other than a web server', async () => {
-      // A reachable host with an open port is not a web server: pointing curl at
-      // sshd must fail rather than serving a page the host does not publish.
-      const { host, port } = sshHostOnLan();
-
-      const { text, exitCode } = await run(`http://${host.ip}:${port}`);
+      // An open port is not a web server: pointing curl at sshd must fail rather than
+      // serving a page the box does not publish.
+      const { text, exitCode } = await fetchOwn(
+        ownBox(SSHD_RUNNING),
+        `http://${OWN_IP}:${SERVICE_CATALOG.ssh.defaultPort}`,
+      );
 
       expect(exitCode).not.toBe(0);
       expect(text).toContain('Connection refused');
@@ -384,24 +420,13 @@ describe('curl', () => {
     it('serves the web port of a host that runs ssh as well', async () => {
       // A box with several services must serve the RIGHT one: it is enough that the
       // web port is among what is open, not that everything open is a web server.
-      const both = generateHomeLan(ESSID).hosts.find((host) => {
-        if (host.kind !== 'machine') return false;
-        const ports = readOpenPorts(buildRemoteHostFs(ESSID, host));
-        return (
-          ports.some((entry) => entry.service === 'http') &&
-          ports.some((entry) => entry.service === 'ssh')
-        );
-      });
-      if (both === undefined) throw new Error('expected a host running both ssh and http');
-      const web = readOpenPorts(buildRemoteHostFs(ESSID, both)).find(
-        (entry) => entry.service === 'http',
+      const { text, exitCode } = await fetchOwn(
+        ownBox(WEB_SERVER_RUNNING, SSHD_RUNNING, publishedPage(OWN_PAGE)),
+        `http://${OWN_IP}`,
       );
-      if (web === undefined) throw new Error('expected a web port');
-
-      const { text, exitCode } = await run(`http://${both.ip}:${web.port}`);
 
       expect(exitCode).toBe(0);
-      expect(text).toContain('<html>');
+      expect(text).toBe(OWN_PAGE);
     });
 
     it('cannot resolve an address no host on the LAN holds', async () => {
@@ -414,61 +439,43 @@ describe('curl', () => {
     });
   });
 
-  describe('the URL names the port', () => {
-    it('reaches a host serving on the default port when the URL omits one', async () => {
-      const host = webHostOnPort((port) => port === HTTP_DEFAULT_PORT);
-
-      const { text, exitCode } = await run(`http://${host.ip}`);
-
-      expect(exitCode).toBe(0);
-      expect(text).toContain('<html>');
-    });
-
-    it('does not reach a host serving on a non-standard port when the URL omits one', async () => {
-      // The port in the URL has to matter: a box publishing on :8080 is not
-      // published on :80, and finding that port is part of the recon.
-      const host = webHostOnPort((port) => port !== HTTP_DEFAULT_PORT);
-
-      const { text, exitCode } = await run(`http://${host.ip}`);
-
-      expect(exitCode).not.toBe(0);
-      expect(text).toContain('Connection refused');
-    });
-  });
-
   describe('response headers', () => {
     it('prints the status line and headers before the body under -i', async () => {
-      const { host, port } = webHostOnLan();
-
       const { text, exitCode } = await drain(
-        await curl.execute(onlineEnv(), [`http://${host.ip}:${port}`], new Map([['-i', true]])),
+        await curl.execute(
+          mockCommandEnv({
+            identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+            network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+            fs: mockFsViewFromTree(servingOwnBox(), { userType: 'user', cwd: () => asAbsPath('/') }),
+          }),
+          [`http://${OWN_IP}`],
+          new Map([['-i', true]]),
+        ),
       );
 
       // The exact wire order: status line, headers, ONE blank line, then the body.
       // The blank line is what separates headers from content — without it a client
       // would read the first line of HTML as another header.
-      const page = servedPage(host);
       expect(exitCode).toBe(0);
       expect(text.split('\n').slice(0, 4)).toEqual([
         'HTTP/1.1 200 OK',
         'Server: nginx',
-        `Content-Length: ${page.length}`,
+        `Content-Length: ${OWN_PAGE.length}`,
         '',
       ]);
-      expect(text).toContain(page.split('\n')[0]);
+      expect(text.split('\n').slice(4).join('\n')).toBe(OWN_PAGE);
     });
 
     it('prints the body alone without -i', async () => {
-      const { host, port } = webHostOnLan();
-
-      const { text, kinds } = await run(`http://${host.ip}:${port}`);
+      const { text, kinds } = await fetchOwn(servingOwnBox(), `http://${OWN_IP}`);
 
       expect(text).not.toContain('HTTP/1.1');
       expect(text).not.toContain('Content-Length');
-      expect(text).toBe(servedPage(host));
+      expect(text).toBe(OWN_PAGE);
       // A fetched page is ordinary output, not error-styled.
       expect(new Set(kinds)).toEqual(new Set(['text']));
     });
+
   });
 
   describe('rejects what it cannot fetch', () => {
@@ -588,48 +595,6 @@ describe('curl', () => {
 });
 
 describe('curl against the player own address', () => {
-  const OWN_IP = assignHomeNetwork(PUBKEY, ESSID).localIp;
-
-  /** The player's own box as generated, plus any patches — applied through the
-   *  SAME `applyPatches` the game uses, so a pidfile written by `nginx` and a page
-   *  edited with `nano` reach the tree the way they really would. */
-  const ownBox = (...patches: readonly Patch[]): Directory =>
-    applyPatches(
-      buildWorkstationBaseFs(PUBKEY, {
-        machineName: 'workstation',
-        username: 'alice',
-        rootPassword: 'hunter2',
-      }),
-      patches,
-    );
-
-  /** What `nginx` leaves behind when it starts on the default port. */
-  const WEB_SERVER_RUNNING: Patch = {
-    path: '/var/run/nginx.pid',
-    content: formatPidfileContent(SERVICE_CATALOG.http, HTTP_DEFAULT_PORT),
-    owner: 'root',
-  };
-
-  const publishedPage = (content: string): Patch => ({
-    path: '/var/www/html/index.html',
-    content,
-    owner: 'root',
-  });
-
-  /** `curl` run by an online player standing on the given own-box tree. */
-  const fetchOwn = async (tree: Directory, ...args: readonly string[]): Promise<Drained> =>
-    drain(
-      await curl.execute(
-        mockCommandEnv({
-          identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
-          network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
-          fs: mockFsViewFromTree(tree, { userType: 'user', cwd: () => asAbsPath('/') }),
-        }),
-        args,
-        new Map(),
-      ),
-    );
-
   it('serves the box own default page once a web server is running', async () => {
     const { text, exitCode } = await fetchOwn(ownBox(WEB_SERVER_RUNNING), `http://${OWN_IP}`);
 
@@ -1083,6 +1048,29 @@ describe('curl from a hop', () => {
       },
     });
 
+  /** `curl` run in `env` at a box the server answers for: what it printed, what it asked
+   *  the server, and what it reported to its own access-log seam. */
+  const servedOnHop = async (
+    essid: string,
+    machineId: string,
+    url: string,
+    over: { readonly fs?: Directory } = {},
+  ) => {
+    const asked: OccupantFetchParams[] = [];
+    const reported: AccessLogFetch[] = [];
+    const env = {
+      ...shellOn(essid, machineId, { ...over, onReport: (fetched) => reported.push(fetched) }),
+      remote: {
+        ...mockRemoteApi(),
+        fetchOccupant: async (params: OccupantFetchParams): Promise<OccupantFetchResult> => {
+          asked.push(params);
+          return { ok: true, content: SERVED_PAGE, server: 'nginx' };
+        },
+      },
+    };
+    return { drained: await drain(await curl.execute(env, [url], new Map())), asked, reported };
+  };
+
   /** The first crackable network whose inner gateway fronts a layer with a web host:
    *  the essid, that gateway's machine id (the hop), and the host + port behind it. */
   const deepWebHost = (): {
@@ -1109,33 +1097,33 @@ describe('curl from a hop', () => {
     throw new Error('expected a crackable network with a web host on a deep layer');
   };
 
-  const deepServedPage = (essid: string, host: LanHost): string => {
-    const read = createFsView(buildDeepHostFs(essid, host), { userType: 'root' }).read(
-      asAbsPath('/var/www/html/index.html'),
-    );
-    if (!read.ok) throw new Error('expected a served deep page');
-    return read.content;
-  };
-
-  it('reaches a web host on the LAN the shell stands on, with the home card offline', async () => {
+  it('asks the server for a web host on the LAN the shell stands on, with the home card offline', async () => {
     // The hop is one NPC box on BEAN-THERE-WIFI; the target is a different web host on
-    // the same LAN. At home, offline, curl reaches nothing — so a page here can only
-    // have come from the shell's network.
+    // the same LAN. At home, offline, curl reaches nothing — so the request can only
+    // have travelled from the shell's box, which the server places the caller at.
     const { host: webHost, port } = webHostOnLan();
     const hop = generateHomeLan(ESSID).hosts.find(
       (candidate) => candidate.kind === 'machine' && candidate.ip !== webHost.ip,
     )!;
 
-    const result = await drain(
-      await curl.execute(
-        shellOn(ESSID, machineIdForLanHost(hop, ESSID)),
-        [`http://${webHost.ip}:${port}/index.html`],
-        new Map(),
-      ),
+    const { drained, asked, reported } = await servedOnHop(
+      ESSID,
+      machineIdForLanHost(hop, ESSID),
+      `http://${webHost.ip}:${port}/index.html`,
     );
 
-    expect(result.exitCode).toBe(0);
-    expect(result.text).toBe(servedPage(webHost));
+    expect(drained).toMatchObject({ exitCode: 0, text: SERVED_PAGE });
+    expect(asked).toEqual([
+      {
+        essid: ESSID,
+        target: webHost.ip,
+        port,
+        path: '/index.html',
+        callerMachineId: machineIdForLanHost(hop, ESSID),
+      },
+    ]);
+    // The server records the visit on the box it served, so nothing is reported here.
+    expect(reported).toEqual([]);
   });
 
   it('does not reach the player home LAN from a foreign hop', async () => {
@@ -1157,134 +1145,47 @@ describe('curl from a hop', () => {
     expect(result.text).toBe(`curl: (6) Could not resolve host: ${homeWebHost.ip}`);
   });
 
-  it('reaches a web host on a deep layer the shell reaches', async () => {
+  it('asks the server for a web host on a deep layer the shell reaches', async () => {
     // A shell on an inner gateway reaches the layer it fronts. A web host there answers
     // by its deep-layer address, the same box nmap renders from that shell.
     const deep = deepWebHost();
 
-    const result = await drain(
-      await curl.execute(
-        shellOn(deep.essid, deep.gatewayMachineId, { fs: buildDirectory({}) }),
-        [`http://${deep.host.ip}:${deep.port}`],
-        new Map(),
-      ),
+    const { drained, asked } = await servedOnHop(
+      deep.essid,
+      deep.gatewayMachineId,
+      `http://${deep.host.ip}:${deep.port}`,
+      { fs: buildDirectory({}) },
     );
 
-    expect(result.exitCode).toBe(0);
-    expect(result.text).toBe(deepServedPage(deep.essid, deep.host));
-  });
-
-  /** A switch fronting a layer with a web host on it, and that host's web port: the
-   *  one device whose ACL can shut a port the box behind it still serves. */
-  const webHostBehindSwitch = (): {
-    readonly essid: string;
-    readonly switchMachineId: string;
-    readonly host: LanHost;
-    readonly port: number;
-  } => {
-    for (const essid of crackableEssidPool) {
-      for (const link of chainLinks(essid)) {
-        if (link.host.kind !== 'switch') continue;
-        const web = resolveDeepScanHosts(essid, link, buildDirectory({})).hosts.find(
-          (candidate) =>
-            candidate.host.kind === 'machine' &&
-            candidate.ports.some((open) => open.service === 'http'),
-        );
-        if (web !== undefined) {
-          const port = web.ports.find((open) => open.service === 'http')!.port;
-          return { essid, switchMachineId: link.machineId, host: web.host, port };
-        }
-      }
-    }
-    throw new Error('expected a crackable network with a web host behind a switch');
-  };
-
-  /** A switch's own tree holding just its ACL. */
-  const switchWithAcl = (acl: string): Directory =>
-    buildDirectory({
-      etc: buildDirectory({ switch: buildDirectory({ 'acl.conf': buildFile(acl) }) }),
-    });
-
-  it('refuses a web port the switch in front of it denies, though the box behind still serves it', async () => {
-    // The ACL is what the shell reaches, not what the box runs: a web tool refuses
-    // exactly the port a scan from here shows shut. The same fetch without the deny
-    // line is served, so the refusal is the ACL's and nothing else's.
-    const behind = webHostBehindSwitch();
-    const fetchWith = async (acl: string) =>
-      drain(
-        await curl.execute(
-          shellOn(behind.essid, behind.switchMachineId, { fs: switchWithAcl(acl) }),
-          [`http://${behind.host.ip}:${behind.port}`],
-          new Map(),
-        ),
-      );
-
-    const denied = await fetchWith(`deny ${behind.port}\n`);
-    const allowed = await fetchWith('');
-
-    expect(denied.text).toBe(
-      `curl: (7) Failed to connect to ${behind.host.ip} port ${behind.port}: Connection refused`,
-    );
-    expect(allowed.text).toBe(deepServedPage(behind.essid, behind.host));
-  });
-
-  it('reports the fetch under the box the shell stands on, not the player home', async () => {
-    const { host: webHost, port } = webHostOnLan();
-    const hop = generateHomeLan(ESSID).hosts.find(
-      (candidate) => candidate.kind === 'machine' && candidate.ip !== webHost.ip,
-    )!;
-    const reported: AccessLogFetch[] = [];
-
-    await drain(
-      await curl.execute(
-        shellOn(ESSID, machineIdForLanHost(hop, ESSID), {
-          onReport: (fetched) => reported.push(fetched),
-        }),
-        [`http://${webHost.ip}:${port}/index.html`],
-        new Map(),
-      ),
-    );
-
-    // The server derives the source address from the caller's box, so the client names
-    // the box it ran on and never a source IP.
-    expect(reported).toHaveLength(1);
-    expect(reported[0]).toMatchObject({
-      essid: ESSID,
-      target: webHost.ip,
-      port,
-      paths: ['/index.html'],
-      callerMachineId: machineIdForLanHost(hop, ESSID),
-    });
-  });
-
-  it('serves localhost off the box the shell stands on when the network generates it', async () => {
-    // A generated box is this side's to build whole, so loopback there reads the tree the
-    // shell holds, reports the local visit, and asks the server for no page.
-    const { host: webHost, port } = webHostOnLan();
-    const reported: AccessLogFetch[] = [];
-    const asked: OccupantFetchParams[] = [];
-    const env = {
-      ...shellOn(ESSID, machineIdForLanHost(webHost, ESSID), {
-        fs: baseFsForLanHost(webHost, ESSID),
-        onReport: (fetched) => reported.push(fetched),
-      }),
-      remote: {
-        ...mockRemoteApi(),
-        fetchOccupant: async (params: OccupantFetchParams): Promise<OccupantFetchResult> => {
-          asked.push(params);
-          return { ok: false, error: 'host_unreachable' };
-        },
+    expect(drained.text).toBe(SERVED_PAGE);
+    expect(asked).toEqual([
+      {
+        essid: deep.essid,
+        target: deep.host.ip,
+        port: deep.port,
+        path: '/',
+        callerMachineId: deep.gatewayMachineId,
       },
-    };
+    ]);
+  });
 
-    const { text } = await drain(
-      await curl.execute(env, [`http://localhost:${port}/index.html`], new Map()),
+  it('asks the server for localhost on a box the network generates', async () => {
+    // The tree the shell holds there is pruned to its session's tier, which is not what
+    // the box's web server serves, so the box answers for itself through the server.
+    const { host: webHost, port } = webHostOnLan();
+
+    const { drained, asked, reported } = await servedOnHop(
+      ESSID,
+      machineIdForLanHost(webHost, ESSID),
+      `http://localhost:${port}/index.html`,
+      { fs: baseFsForLanHost(webHost, ESSID) },
     );
 
-    expect(text).toBe(servedPage(webHost));
-    expect(asked).toEqual([]);
-    expect(reported.map((fetched) => fetched.target)).toEqual(['127.0.0.1']);
+    expect(drained.text).toBe(SERVED_PAGE);
+    expect(asked.map((params) => params.target)).toEqual(['127.0.0.1']);
+    expect(reported).toEqual([]);
   });
+
 });
 
 describe('curl at a fellow occupant of the network', () => {

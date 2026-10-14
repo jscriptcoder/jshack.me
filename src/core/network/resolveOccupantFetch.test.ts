@@ -24,6 +24,15 @@ import type { NonceStore } from '../signedRequest/nonceStore.js';
 import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
 import { logRead } from '../../test/factories/logRows.js';
+import { chainGatewayBaseFs, resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { readOpenPorts } from '../services/pidfile.js';
+import { createFsView } from '../filesystem/fsView.js';
+import { resolveWebPath } from './http.js';
+import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
+import { crackableEssidPool } from '../generation/generateWifi.js';
+import { chainLinks } from '../generation/lanTopology.js';
+import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
+import { computeApGatewayId } from '../identity/router.js';
 
 /**
  * `handleResolveOccupantFetch` serves a page off a FELLOW OCCUPANT's box to a caller on
@@ -572,6 +581,28 @@ describe('loopback from a caller who stands on no neighbour’s box', () => {
     expect(findPatches).not.toHaveBeenCalled();
     expect(upsertPatch).not.toHaveBeenCalled();
   });
+
+  it('names nobody’s box from a shell on a workstation whose owner has left the WiFi', async () => {
+    // The shell still stands on Alice's box, but her box is not on the network now and
+    // the network generates no such box, so loopback finds nothing to serve.
+    const { deps, findPatches } = makeDeps({
+      findActiveSession: async ({ machine_id }) => ({
+        data:
+          machine_id === ALICE_WS ? { username: 'guest', userType: 'guest', essid: ESSID } : null,
+        error: null,
+      }),
+      findHomeVantage: async () => ({ data: null, error: null }),
+      listOccupantsByEssid: async () => ({ data: [bobOccupant], error: null }),
+    });
+
+    expect(
+      await handleResolveOccupantFetch(
+        await envelope({ target: LOOPBACK_IPV4, caller_machine_id: ALICE_WS }),
+        deps,
+      ),
+    ).toEqual(UNREACHABLE);
+    expect(findPatches).not.toHaveBeenCalled();
+  });
 });
 
 describe('the LAN boundary', () => {
@@ -686,5 +717,450 @@ describe('a lookup that fails is a server error, never a derived answer', () => 
       status: 500,
       body: { error: 'patches_lookup_failed' },
     });
+  });
+});
+
+/** The first box the network generates on this LAN that runs a web server, its machine
+ *  id, the port it serves, and the page it was generated with at `/`. */
+const generatedWebHost = (() => {
+  for (const host of generateHomeLan(ESSID).hosts) {
+    if (host.kind !== 'machine') continue;
+    const { machineId, baseFs } = resolveLanHostIdentity(host, ESSID);
+    const open = readOpenPorts(baseFs).find(
+      (entry) => entry.service === SERVICE_CATALOG.http.service,
+    );
+    const indexPath = resolveWebPath('/');
+    const page =
+      indexPath === null ? null : createFsView(baseFs, { userType: 'root' }).read(indexPath);
+    if (open !== undefined && page !== null && page.ok) {
+      return { host, machineId, port: open.port, generatedPage: page.content };
+    }
+  }
+  throw new Error(`expected a generated web host on ${ESSID}`);
+})();
+
+/** A row somebody wrote on a generated box: a root shell there, say. */
+const generatedBoxRow = (path: string, content: string | null): OwnerPatchRow =>
+  journalRow({
+    path,
+    content,
+    permissions: content === null ? null : defaultFilePermissions('root'),
+    nodeType: content === null ? null : 'file',
+  });
+
+describe('a box the network generates on the caller’s LAN', () => {
+  const DEFACED = '<h1>owned</h1>';
+  const INDEX = '/var/www/html/index.html';
+  const PIDFILE = `/var/run/${SERVICE_CATALOG.http.pidfile}`;
+
+  /** Bob at home on the WiFi; the generated web host carries `journal`. */
+  const withJournal = (journal: readonly OwnerPatchRow[], over: Overrides = {}) =>
+    makeDeps({
+      findPatches: async ({ machine_id }) => ({
+        data: machine_id === generatedWebHost.machineId ? journal : [],
+        error: null,
+      }),
+      ...over,
+    });
+
+  const askGenerated = (asked: Asked = {}) =>
+    envelope({ target: generatedWebHost.host.ip, port: generatedWebHost.port, ...asked });
+
+  it('serves the page it was generated with while nobody has changed it', async () => {
+    const { deps } = withJournal([]);
+
+    expect(await handleResolveOccupantFetch(await askGenerated(), deps)).toEqual({
+      status: 200,
+      body: { ok: true, content: generatedWebHost.generatedPage, server: 'nginx' },
+    });
+  });
+
+  it('serves the page its journal holds now, not the one it was generated with', async () => {
+    const { deps } = withJournal([generatedBoxRow(INDEX, DEFACED)]);
+
+    expect(await handleResolveOccupantFetch(await askGenerated(), deps)).toEqual({
+      status: 200,
+      body: { ok: true, content: DEFACED, server: 'nginx' },
+    });
+  });
+
+  it('answers not found for a page somebody deleted there', async () => {
+    const { deps } = withJournal([generatedBoxRow(INDEX, null)]);
+
+    expect(await handleResolveOccupantFetch(await askGenerated(), deps)).toEqual(NOT_FOUND);
+  });
+
+  it('refuses the connection once its web server was stopped', async () => {
+    const { deps } = withJournal([generatedBoxRow(PIDFILE, null)]);
+
+    expect(await handleResolveOccupantFetch(await askGenerated(), deps)).toEqual(REFUSED);
+  });
+
+  it('refuses a web port its filter closes to the network, as a scan shows it shut', async () => {
+    const { deps } = withJournal([
+      generatedBoxRow('/etc/iptables/rules.v4', `deny ${generatedWebHost.port}`),
+    ]);
+
+    expect(await handleResolveOccupantFetch(await askGenerated(), deps)).toEqual(REFUSED);
+  });
+
+  it('reports a failed journal read as a server error, never as the generated page', async () => {
+    const { deps } = withJournal([], {
+      findPatches: async () => ({ data: null, error: new Error('down') }),
+    });
+
+    expect(await handleResolveOccupantFetch(await askGenerated(), deps)).toEqual({
+      status: 500,
+      body: { error: 'patches_lookup_failed' },
+    });
+  });
+
+  it('is unreachable once bricked, and nothing is logged', async () => {
+    const { deps, upsertPatch } = withJournal([bootTombstone]);
+
+    expect(await handleResolveOccupantFetch(await askGenerated(), deps)).toEqual(UNREACHABLE);
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('refuses every web port a router or switch on the LAN does not run, as nmap shows them shut', async () => {
+    // Every door reads a gateway as the device it is; a web request must agree rather
+    // than find a server nmap never saw.
+    const webPorts = [SERVICE_CATALOG.http.defaultPort, ...SERVICE_CATALOG.http.altPorts];
+    const infrastructure = generateHomeLan(ESSID).hosts.filter((host) => host.kind !== 'machine');
+    expect(infrastructure.length).toBeGreaterThan(0);
+    const { deps } = makeDeps();
+
+    const answered: string[] = [];
+    for (const host of infrastructure) {
+      const { baseFs } = resolveLanHostIdentity(host, ESSID);
+      const open = readOpenPorts(baseFs).map((entry) => entry.port);
+      for (const port of webPorts.filter((candidate) => !open.includes(candidate))) {
+        const response = await handleResolveOccupantFetch(
+          await envelope({ target: host.ip, port }),
+          deps,
+        );
+        if (response.status === 200) answered.push(`${host.hostname}:${port}`);
+      }
+    }
+    expect(answered).toEqual([]);
+  });
+
+  it('records the visit in its own log under the network’s key, with what was served', async () => {
+    const { deps, upsertPatch } = withJournal([generatedBoxRow(INDEX, DEFACED)]);
+
+    await handleResolveOccupantFetch(await askGenerated(), deps);
+
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        writer_key: apGatewayLogWriterKey(ESSID),
+        machine_id: generatedWebHost.machineId,
+        path: ACCESS_LOG_PATH,
+        content: `${accessLine({ size: DEFACED.length })}\n`,
+      }),
+    );
+  });
+
+  describe('from a shell standing on it', () => {
+    const shellOnGeneratedBox = (journal: readonly OwnerPatchRow[]) =>
+      withJournal(journal, {
+        findActiveSession: async ({ machine_id }) => ({
+          data:
+            machine_id === generatedWebHost.machineId
+              ? { username: 'root', userType: 'root', essid: ESSID }
+              : null,
+          error: null,
+        }),
+        findHomeVantage: async () => ({ data: null, error: null }),
+      });
+
+    const askOverLoopback = () =>
+      askGenerated({ target: LOOPBACK_IPV4, caller_machine_id: generatedWebHost.machineId });
+
+    it('serves loopback the page its journal holds, past its own filter, as a local visit', async () => {
+      const { deps, upsertPatch } = shellOnGeneratedBox([
+        generatedBoxRow(INDEX, DEFACED),
+        generatedBoxRow('/etc/iptables/rules.v4', `deny ${generatedWebHost.port}`),
+      ]);
+
+      expect(await handleResolveOccupantFetch(await askOverLoopback(), deps)).toEqual({
+        status: 200,
+        body: { ok: true, content: DEFACED, server: 'nginx' },
+      });
+      expect(upsertPatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          writer_key: apGatewayLogWriterKey(ESSID),
+          machine_id: generatedWebHost.machineId,
+          content: `${accessLine({ sourceIp: LOOPBACK_IPV4, size: DEFACED.length })}\n`,
+        }),
+      );
+    });
+
+    it('is refused over loopback once the box’s web server was stopped', async () => {
+      const { deps } = shellOnGeneratedBox([generatedBoxRow(PIDFILE, null)]);
+
+      expect(await handleResolveOccupantFetch(await askOverLoopback(), deps)).toEqual(REFUSED);
+    });
+  });
+});
+
+describe('a box on a deep layer the caller’s shell reaches', () => {
+  /** The first crackable network whose inner ROUTER fronts a layer with a web host: the
+   *  network, that gateway (where the shell stands), the layer's subnet, and the host. */
+  const deep = (() => {
+    for (const essid of crackableEssidPool) {
+      for (const gateway of chainLinks(essid)) {
+        if (gateway.host.kind !== 'router') continue;
+        const web = resolveDeepScanHosts(
+          essid,
+          gateway,
+          chainGatewayBaseFs(essid, gateway),
+        ).hosts.find(
+          (entry) =>
+            entry.host.kind === 'machine' &&
+            entry.ports.some((open) => open.service === SERVICE_CATALOG.http.service),
+        );
+        if (web !== undefined) {
+          return {
+            essid,
+            gateway,
+            subnet: web.host.ip.split('.').slice(0, 3).join('.'),
+            host: web.host,
+            machineId: web.machineId,
+            port: web.ports.find((open) => open.service === SERVICE_CATALOG.http.service)!.port,
+          };
+        }
+      }
+    }
+    throw new Error('expected a crackable network with a web host on a router-fronted layer');
+  })();
+
+  const DEFACED = '<h1>deep and owned</h1>';
+
+  const shellOnGateway = (journal: readonly OwnerPatchRow[]) =>
+    makeDeps({
+      findActiveSession: async ({ machine_id }) => ({
+        data:
+          machine_id === deep.gateway.machineId
+            ? { username: 'root', userType: 'root', essid: deep.essid }
+            : null,
+        error: null,
+      }),
+      findHomeVantage: async () => ({ data: null, error: null }),
+      findPatches: async ({ machine_id }) => ({
+        data: machine_id === deep.machineId ? journal : [],
+        error: null,
+      }),
+    });
+
+  const askDeep = () =>
+    signRequest(BOB, 'resolveOccupantFetch', {
+      essid: deep.essid,
+      target: deep.host.ip,
+      port: deep.port,
+      path: '/',
+      caller_machine_id: deep.gateway.machineId,
+    });
+
+  it('serves the page its journal holds, logged from the gateway in front of it', async () => {
+    const { deps, upsertPatch } = shellOnGateway([
+      generatedBoxRow('/var/www/html/index.html', DEFACED),
+    ]);
+
+    expect(await handleResolveOccupantFetch(await askDeep(), deps)).toEqual({
+      status: 200,
+      body: { ok: true, content: DEFACED, server: expect.any(String) },
+    });
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        writer_key: apGatewayLogWriterKey(deep.essid),
+        machine_id: deep.machineId,
+        content: `${accessLine({ sourceIp: `${deep.subnet}.1`, size: DEFACED.length })}\n`,
+      }),
+    );
+  });
+
+  it('is unreachable once bricked', async () => {
+    const { deps } = shellOnGateway([bootTombstone]);
+
+    expect(await handleResolveOccupantFetch(await askDeep(), deps)).toEqual(UNREACHABLE);
+  });
+
+  it('reads no journal of the router in front, which filters nothing', async () => {
+    const { deps, findPatches } = shellOnGateway([]);
+
+    await handleResolveOccupantFetch(await askDeep(), deps);
+
+    expect(findPatches).not.toHaveBeenCalledWith({ machine_id: deep.gateway.machineId });
+  });
+});
+
+describe('a box on a deep layer behind a switch', () => {
+  /** The first crackable network with a web host behind a SWITCH, whose live ACL can shut
+   *  a port the box behind it still serves. */
+  const behind = (() => {
+    for (const essid of crackableEssidPool) {
+      for (const link of chainLinks(essid)) {
+        if (link.host.kind !== 'switch') continue;
+        const web = resolveDeepScanHosts(essid, link, chainGatewayBaseFs(essid, link)).hosts.find(
+          (entry) =>
+            entry.host.kind === 'machine' &&
+            entry.ports.some((open) => open.service === SERVICE_CATALOG.http.service),
+        );
+        if (web !== undefined) {
+          return {
+            essid,
+            theSwitch: link,
+            host: web.host,
+            port: web.ports.find((open) => open.service === SERVICE_CATALOG.http.service)!.port,
+          };
+        }
+      }
+    }
+    throw new Error('expected a crackable network with a web host behind a switch');
+  })();
+
+  /** Bob in a root shell on the switch, its journal holding `acl`. */
+  const shellOnSwitch = (acl: string) =>
+    makeDeps({
+      findActiveSession: async ({ machine_id }) => ({
+        data:
+          machine_id === behind.theSwitch.machineId
+            ? { username: 'root', userType: 'root', essid: behind.essid }
+            : null,
+        error: null,
+      }),
+      findHomeVantage: async () => ({ data: null, error: null }),
+      findPatches: async ({ machine_id }) => ({
+        data:
+          machine_id === behind.theSwitch.machineId
+            ? [generatedBoxRow('/etc/switch/acl.conf', acl)]
+            : [],
+        error: null,
+      }),
+    });
+
+  const askBehind = () =>
+    signRequest(BOB, 'resolveOccupantFetch', {
+      essid: behind.essid,
+      target: behind.host.ip,
+      port: behind.port,
+      path: '/',
+      caller_machine_id: behind.theSwitch.machineId,
+    });
+
+  it('refuses a web port the switch’s live ACL denies, though the box behind still serves it', async () => {
+    const denied = await handleResolveOccupantFetch(
+      await askBehind(),
+      shellOnSwitch(`deny ${behind.port}
+`).deps,
+    );
+    const allowed = await handleResolveOccupantFetch(await askBehind(), shellOnSwitch('').deps);
+
+    expect(denied).toEqual(REFUSED);
+    expect(allowed.status).toBe(200);
+  });
+
+  it('serves a shell on the box behind the switch its own address, past the ACL, and logs it', async () => {
+    // The request never leaves the box, so the switch in front has no say in it.
+    const hostId = resolveDeepScanHosts(
+      behind.essid,
+      behind.theSwitch,
+      chainGatewayBaseFs(behind.essid, behind.theSwitch),
+    ).hosts.find((entry) => entry.host.ip === behind.host.ip)!.machineId;
+    const { deps, upsertPatch } = makeDeps({
+      findActiveSession: async ({ machine_id }) => ({
+        data:
+          machine_id === hostId
+            ? { username: 'root', userType: 'root', essid: behind.essid }
+            : null,
+        error: null,
+      }),
+      findHomeVantage: async () => ({ data: null, error: null }),
+      findPatches: async ({ machine_id }) => ({
+        data:
+          machine_id === behind.theSwitch.machineId
+            ? [
+                generatedBoxRow(
+                  '/etc/switch/acl.conf',
+                  `deny ${behind.port}
+`,
+                ),
+              ]
+            : [],
+        error: null,
+      }),
+    });
+
+    const response = await handleResolveOccupantFetch(
+      await signRequest(BOB, 'resolveOccupantFetch', {
+        essid: behind.essid,
+        target: behind.host.ip,
+        port: behind.port,
+        path: '/',
+        caller_machine_id: hostId,
+      }),
+      deps,
+    );
+
+    expect(response.status).toBe(200);
+    expect(upsertPatch).toHaveBeenCalledWith(
+      expect.objectContaining({ machine_id: hostId, path: ACCESS_LOG_PATH }),
+    );
+  });
+
+  it('reports a failed read of the switch’s ACL as a server error, never as an open port', async () => {
+    const { deps } = makeDeps({
+      ...shellOnSwitch('').deps,
+      findPatches: async () => ({ data: null, error: new Error('down') }),
+    });
+
+    expect(await handleResolveOccupantFetch(await askBehind(), deps)).toEqual({
+      status: 500,
+      body: { error: 'patches_lookup_failed' },
+    });
+  });
+});
+
+describe('a shell on the access point’s own gateway', () => {
+  // The gateway belongs to the access point rather than standing on its LAN as a host,
+  // so no LAN walk finds it; the box a shell stands on is found by what it is.
+  const GATEWAY = computeApGatewayId(ESSID);
+  const GATEWAY_IP = `${generateHomeLan(ESSID).subnet}.1`;
+  const PAGE = '<h1>the router says hello</h1>';
+
+  const shellOnGateway = () =>
+    makeDeps({
+      findActiveSession: async ({ machine_id }) => ({
+        data: machine_id === GATEWAY ? { username: 'root', userType: 'root', essid: ESSID } : null,
+        error: null,
+      }),
+      findHomeVantage: async () => ({ data: null, error: null }),
+      findPatches: async ({ machine_id }) => ({
+        data:
+          machine_id === GATEWAY
+            ? [
+                generatedBoxRow(
+                  `/var/run/${SERVICE_CATALOG.http.pidfile}`,
+                  formatPidfileContent(SERVICE_CATALOG.http, HTTP_DEFAULT_PORT),
+                ),
+                generatedBoxRow('/var/www/html/index.html', PAGE),
+              ]
+            : [],
+        error: null,
+      }),
+    });
+
+  it.each([
+    ['loopback', LOOPBACK_IPV4],
+    ['its own address on the LAN', GATEWAY_IP],
+  ])('is served the page the gateway publishes, by %s', async (_label, target) => {
+    const { deps } = shellOnGateway();
+
+    expect(
+      await handleResolveOccupantFetch(
+        await envelope({ target, caller_machine_id: GATEWAY }),
+        deps,
+      ),
+    ).toEqual({ status: 200, body: { ok: true, content: PAGE, server: 'nginx' } });
   });
 });
