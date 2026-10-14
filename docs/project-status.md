@@ -834,8 +834,10 @@ agreed order:
    `root` on a switch (`backlog.md`).
    **Pick up here (2026-10-13):** the items still open in `backlog.md`. Found by reading:
    a deep box's own address behind a switch that denies the web port, a data door over
-   `localhost`, a field that spoofs the columns after it within its own line, a leaver's
-   own sessions across the network, ✅ a box joined to two networks at once (closed at
+   `localhost`, a field that spoofs the columns after it within its own line, ✅ a leaver's
+   own sessions across the network (closed at v0.381.0: leaving closes the leaver's sessions
+   on every other machine too, and a shell on any box but the player's own asks on each line
+   whether its session is still open), ✅ a box joined to two networks at once (closed at
    v0.380.0: `nmcli` refuses a second network while connected, and the server's join takes
    the box off any other network as a disconnect would), a LAN web
    fetch that never reads the journal, and the session row a scripted exploit leaves

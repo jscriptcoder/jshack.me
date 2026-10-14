@@ -12,13 +12,15 @@
  * Only wired into the explicit `nmcli disconnect` — closing the tab leaves the row
  * (you stay connected, consistent with ESSID rehydration on reload).
  *
- * A box that leaves the network drops every connection to it. The session rows other
+ * A box that leaves the network drops every connection through it. The session rows other
  * players hold on the box close with the occupancy row, and so does every session they
  * opened from it, because a row that outlived the box's place on the WiFi kept placing
  * its holder on that network, at no address: every door they knocked on from it
- * recorded `unknown`. The owner's own rows on their box stay open — taking a machine
- * off the WiFi is not logging out of it. The row is deleted FIRST, so nobody can log in
- * between the two steps and keep a session the disconnect was meant to end.
+ * recorded `unknown`. The owner's rows on every OTHER machine close too: each was opened
+ * across the network the box just left, and one left open still answered a request
+ * signed outside the game. The owner's own rows on their box stay open — taking a
+ * machine off the WiFi is not logging out of it. The row is deleted FIRST, so nobody can
+ * log in between the two steps and keep a session the disconnect was meant to end.
  */
 
 import { z } from 'zod';
@@ -32,9 +34,9 @@ import {
   type EndSessionsAbove,
 } from '../sessions/upstreamLost.js';
 
-export type EndVisitorSessionsParams = {
+export type LeavingBoxParams = {
   readonly machine_id: string;
-  /** Whose box it is: their own rows on it are the ones left open. */
+  /** Whose box it is: their rows on it stay open, and their rows anywhere else close. */
   readonly owner_key: string;
   readonly reason: EndReason;
 };
@@ -53,7 +55,12 @@ export type UnregisterOccupantDeps = {
   /** Close every open row on the box that is not its owner's, answering with the rows
    *  it closed, which are where the chains above them start. */
   readonly endVisitorSessions: (
-    params: EndVisitorSessionsParams,
+    params: LeavingBoxParams,
+  ) => Promise<{ readonly data: readonly EndedSession[] | null; readonly error: unknown }>;
+  /** Close every open row the owner holds on any machine but the box, answering with the
+   *  rows it closed: each was opened across the network the box just left. */
+  readonly endOwnSessionsAway: (
+    params: LeavingBoxParams,
   ) => Promise<{ readonly data: readonly EndedSession[] | null; readonly error: unknown }>;
   readonly endSessionsAbove: EndSessionsAbove;
 };
@@ -65,22 +72,28 @@ export type HandlerResponse = {
 
 export type DropConnectionsDeps = Pick<
   UnregisterOccupantDeps,
-  'endVisitorSessions' | 'endSessionsAbove'
+  'endVisitorSessions' | 'endOwnSessionsAway' | 'endSessionsAbove'
 >;
 
 /**
- * Close every connection other players held to a box that just left a network: their
- * rows on it, and every chain they built on those. The owner's own rows stay open.
- * `false` when any of it could not be closed. Shared by the disconnect and by a join
- * that moves the box off the network it was on.
+ * Close every connection that ran through a box that just left a network, both ways:
+ * other players' rows on it, the owner's rows on every other machine, and every chain
+ * built on any of those. The owner's own rows on the box stay open. `false` when any of
+ * it could not be closed. Shared by the disconnect and by a join that moves the box off
+ * the network it was on.
  */
-export const dropConnectionsTo = async (
+export const dropConnectionsThrough = async (
   deps: DropConnectionsDeps,
   box: { readonly machine_id: string; readonly owner_key: string },
 ): Promise<boolean> => {
-  const ended = await deps.endVisitorSessions({ ...box, reason: 'network_left' });
-  if (ended.error) return false;
-  const chains = await endChainsAbove(deps.endSessionsAbove, ended.data ?? []);
+  const visitors = await deps.endVisitorSessions({ ...box, reason: 'network_left' });
+  if (visitors.error) return false;
+  const ownAway = await deps.endOwnSessionsAway({ ...box, reason: 'network_left' });
+  if (ownAway.error) return false;
+  const chains = await endChainsAbove(deps.endSessionsAbove, [
+    ...(visitors.data ?? []),
+    ...(ownAway.data ?? []),
+  ]);
   return chains.ok;
 };
 
@@ -114,7 +127,7 @@ export const handleUnregisterOccupant = async (
 
   // Loud, as a reboot's is: a disconnect that left a visitor's row open tells the owner
   // they are clear while the visitor still stands on their network.
-  const dropped = await dropConnectionsTo(deps, {
+  const dropped = await dropConnectionsThrough(deps, {
     machine_id: left.data.workstation_machine_id,
     owner_key: publicKey,
   });

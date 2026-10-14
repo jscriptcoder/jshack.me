@@ -70,6 +70,7 @@ const makeDeps = (
     upsertOccupant,
     deleteOtherOccupancies,
     endVisitorSessions: table.endVisitorSessions,
+    endOwnSessionsAway: table.endOwnSessionsAway,
     endSessionsAbove: table.endSessionsAbove,
     admitsUndeclaredNetworks: false,
     ...over,
@@ -472,15 +473,52 @@ describe('handleRegisterNetwork: one network at a time', () => {
     expect(table.reasonOf('own-su')).toBeUndefined();
   });
 
+  // Every shell the player held elsewhere was opened across the network the box just
+  // left, so it goes with the box.
+  it("closes the player's own shells on other machines, hops included", async () => {
+    const id = generateIdentity();
+    const { deps, table } = makeDeps(
+      {},
+      {
+        onNetwork: OLD_NETWORK,
+        sessions: [
+          sessionRow({
+            session_id: 'on-a-neighbour',
+            player_key: id.publicKeyHex,
+            machine_id: 'harbour-51110d86',
+          }),
+          sessionRow({
+            session_id: 'hop-from-there',
+            player_key: id.publicKeyHex,
+            machine_id: 'web-01-cafef00d',
+            parent_session_id: 'on-a-neighbour',
+          }),
+        ],
+      },
+    );
+
+    await handleRegisterNetwork(envelope(id), deps);
+
+    expect(table.reasonOf('on-a-neighbour')).toBe('network_left');
+    expect(table.reasonOf('hop-from-there')).toBe('network_left');
+  });
+
   // Re-joining the network the box is already on moves it nowhere, so nobody standing
-  // on it through that network is thrown off.
+  // on it through that network is thrown off, and nothing it reached through it is lost.
   it('closes nothing when the box is on no other network', async () => {
     const id = generateIdentity();
     const { deps, table } = makeDeps(
       {},
       {
         onNetwork: ESSID,
-        sessions: [sessionRow({ session_id: 'visitor-shell', machine_id: WORKSTATION_ID })],
+        sessions: [
+          sessionRow({ session_id: 'visitor-shell', machine_id: WORKSTATION_ID }),
+          sessionRow({
+            session_id: 'on-a-neighbour',
+            player_key: id.publicKeyHex,
+            machine_id: 'harbour-51110d86',
+          }),
+        ],
       },
     );
 
@@ -488,6 +526,7 @@ describe('handleRegisterNetwork: one network at a time', () => {
 
     expect(result.status).toBe(200);
     expect(table.reasonOf('visitor-shell')).toBeUndefined();
+    expect(table.reasonOf('on-a-neighbour')).toBeUndefined();
   });
 
   it('closes nothing when the store answers with no rows at all', async () => {

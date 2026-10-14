@@ -262,12 +262,24 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   the raw journal `listPatches` handed a session holder, closed at v0.374.0 (handbook chapter
   13). The other two are the next two items.
 
-- **A player who leaves a WiFi keeps the sessions they opened across it. By reading, not
-  reproduced.** The disconnect closes other players' rows on the leaver's box and nothing of
-  the leaver's own: a shell they hold on a neighbour's box, or on a box the network
-  generates, stays open on the server after their own machine is off the network. The game
-  client stops every network command while disconnected; a request signed outside it is not
-  stopped. Found 2026-10-12.
+- **A player who leaves a WiFi kept the sessions they opened across it — RESOLVED
+  2026-10-14 (v0.381.0).** Proved live first (`scripts/testLeaverSessionsClose.ts` against
+  the old server: 5/13). After `nmcli disconnect`, and after a join that moved the box to
+  another network, the leaver's shells on a neighbour's box and on a generated box stayed
+  open; a request signed outside the game still read the neighbour's box as a shell there,
+  wrote both boxes, and fetched a third occupant's page from the neighbour's box. Leaving
+  now closes the leaver's open rows on every machine but their own (`network_left`) with
+  every hop above them, beside the visitors' rows it already closed
+  (`dropConnectionsThrough`, shared by the disconnect and the join); their rows on their own
+  box stay open (13/13). The browser is told on the next line: a shell on any box but the
+  player's own now asks which of its sessions are open, one hop deep on a generated box or a
+  gateway included, which costs that shell one request a line. Not played in the browser
+  yet. One neighbour found on the way is the next item.
+
+- **An `ftp>` prompt across the network after its owner leaves. Not checked.** Leaving
+  closes the leaver's `ftp` rows with the rest, so the server refuses what the prompt sends
+  next. Whether the prompt tells the player, as a shell now does, was not looked at: it runs
+  beside the shell and keeps its own session rather than a hop. Found 2026-10-14.
 
 - **`nmcli connect <another network>` without a disconnect left the box on both — RESOLVED
   2026-10-14 (v0.380.0).** Proved live first (`scripts/testOneNetworkAtATime.ts` against the

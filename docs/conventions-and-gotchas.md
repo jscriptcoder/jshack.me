@@ -1706,9 +1706,17 @@ state costs you more than one wrong attempt.
   it recorded `unknown`, and the shell followed the box onto whatever WiFi it joined next.
   The visitor's shell learns it from the rows: one hop deep on another player's
   workstation, each line first asks which of its sessions are open (`lostLegs` in
-  `core/shell/runLine.ts`), because a box that is gone carries no marker to read. A
-  generated box and an access point's gateway cannot leave, so a shell on one still asks
-  nothing one hop deep. Wire-check `scripts/testDisconnectedUnreachable.ts`.
+  `core/shell/runLine.ts`), because a box that is gone carries no marker to read.
+  Wire-check `scripts/testDisconnectedUnreachable.ts`.
+- **...and every connection FROM it** (v0.381.0). The leaver's own open rows on every other
+  machine close too (`network_left`, the same `dropConnectionsThrough` for a disconnect and
+  for a join that moves the box), with every hop above them: each was opened across the
+  network the box just left, and one left open still answered a request signed outside the
+  game, reading, writing and knocking on neighbours from there. Their rows on their own box
+  stay open. So a shell on ANY box but the player's own asks before each line, one hop deep
+  included — a generated box cannot leave, but the box beneath the shell can. Only a shell
+  on the player's own box one hop deep asks nothing. Wire-check
+  `scripts/testLeaverSessionsClose.ts`.
 - **`home_network_occupants` is the single source for "whose machine is this, and is it
   reachable".** Every cross-player by-`machine_id` resolver reads it and nothing else — there
   is no registry to consult first and no fallback to arbitrate. Its row means "this machine is

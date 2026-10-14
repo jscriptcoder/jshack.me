@@ -3148,6 +3148,9 @@ describe('a listener killed while an intruder is standing inside it', () => {
     vi.stubGlobal('localStorage', storage);
 
     let targetJournal: readonly Patch[] = [listenerPatch];
+    // The server holds open every session it admitted: a shell on a box that is not the
+    // player's own asks before each line whether its row is still there.
+    const opened: string[] = [];
     const json = (body: unknown) => ({ ok: true, status: 200, json: async () => body });
     vi.stubGlobal(
       'fetch',
@@ -3156,10 +3159,13 @@ describe('a listener killed while an intruder is standing inside it', () => {
           string,
           unknown
         >;
-        if (fields.action === 'listSessions') return json({ sessions: [] });
+        if (fields.action === 'listSessions') {
+          return json({ sessions: opened.map((sessionId) => ({ session_id: sessionId })) });
+        }
         // The box answers for itself: the pidfile names who it admits, so the gate
         // needs no credential to have been sent.
         if (fields.action === 'authCreateSession') {
+          opened.push(String(fields.session_id));
           return json({ ok: true, username: 'mallory', userType: 'root' });
         }
         if (fields.action === 'resolveCrossPlayerFs') {
@@ -3309,6 +3315,9 @@ describe('a backdoor on a box across the network', () => {
     let bootId: string | null = startingBootId;
     const actions: string[] = [];
     const journalsAsked: string[] = [];
+    // The server holds open every session it admitted: a shell on a box that is not the
+    // player's own asks before each line whether its row is still there.
+    const opened: string[] = [];
     const json = (body: unknown) => ({ ok: true, status: 200, json: async () => body });
     vi.stubGlobal(
       'fetch',
@@ -3318,11 +3327,14 @@ describe('a backdoor on a box across the network', () => {
           unknown
         >;
         actions.push(String(fields.action));
-        if (fields.action === 'listSessions') return json({ sessions: [] });
+        if (fields.action === 'listSessions') {
+          return json({ sessions: opened.map((sessionId) => ({ session_id: sessionId })) });
+        }
         // The address answers, but nothing the catalog can name is on that port — so
         // netcat knocks instead of grabbing a banner.
         if (fields.action === 'resolvePublicScan') return json({ found: true, ports: [] });
         if (fields.action === 'authCreateSessionPublic') {
+          opened.push(String(fields.session_id));
           return json({ ok: true, username: 'mallory', userType: 'root', machine_id: THEIR_BOX, essid: THEIR_ESSID });
         }
         // The stranger's box, materialized by the only party that can.

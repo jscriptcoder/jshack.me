@@ -45,7 +45,6 @@ import {
 } from '../commands/types.js';
 import { listenerOn } from '../services/pidfile.js';
 import { readBootId } from '../boot/bootId.js';
-import { isCrossPlayerWorkstation } from '../network/crossPlayerHop.js';
 import type { AbsPath } from '../types.js';
 import { hasTty } from '../sessions/hasTty.js';
 import { tokenize } from './tokenize.js';
@@ -55,8 +54,7 @@ import { resolveWriteTarget, type WriteTarget } from '../filesystem/writeTarget.
 import { resolveAbsPath } from '../filesystem/path.js';
 import { stubName } from '../generation/binaries.js';
 import { mayExecute } from '../commands/availability.js';
-import { parseWorkstationId } from '../identity/workstation.js';
-import { computeApGatewayId } from '../identity/router.js';
+import { isOwnWorkstation, parseWorkstationId } from '../identity/workstation.js';
 import { homeDirectory } from '../sessions/homeDirectory.js';
 
 const syncError = (content: string, exitCode: number): CommandResult => ({
@@ -134,33 +132,24 @@ const bootIdMoved = (session: Session, fs: FsView): boolean =>
 const hostOf = (session: Session): string =>
   parseWorkstationId(session.machineId)?.name ?? session.machineId;
 
-/** Whether the shell stands on another player's workstation: the one kind of machine
- *  whose owner can take it off the network under a visitor. Judged on the network the
- *  BOX is on, which the session records, so a generated box reached across networks is
- *  still seen as generated. An access point's gateway is nobody's to rebuild locally
- *  either, but it cannot leave the network it is the door of. */
-const standsOnAnotherPlayersBox = (env: CommandEnv): boolean => {
-  const { machineId, essid } = env.session;
-  return (
-    essid !== null &&
-    computeApGatewayId(essid) !== machineId &&
-    isCrossPlayerWorkstation({ machineId, publicKeyHex: env.identity.publicKeyHex, essid })
-  );
-};
-
 /** The legs of this terminal's chain the server has ended, newest first — every
  *  pushed session from the lowest one no longer open up to the top, because a leg
  *  standing on a lost one stands on nothing, whatever its own row says yet. Empty
  *  when the chain holds, or when the server could not be asked: the rows are the
  *  authority and this is only how the player is told.
  *
- *  Asked two hops deep or more, and at any depth on another player's box. One hop
- *  deep, the hop stands on the player's own login, which no reboot can end, so the
- *  only way that leg goes is its own box going: rebooting, which the boot id already
- *  says without a request, or leaving the network, which only a player's box can do
- *  and which leaves no box there to carry a marker. */
+ *  Asked two hops deep or more, and at any depth on a box that is not the player's
+ *  own. A leg goes when either end of it leaves the network — another player's box
+ *  under the shell, or the player's own box beneath it, which takes every shell it
+ *  opened with it — and neither leaves a marker on the box the shell stands on. Only a
+ *  shell on the player's own box, one hop deep, stands on nothing that can leave. */
 const lostLegs = async (env: CommandEnv): Promise<readonly Session[]> => {
-  if (env.hopChain.length < 2 && !standsOnAnotherPlayersBox(env)) return [];
+  if (
+    env.hopChain.length < 2 &&
+    isOwnWorkstation(env.session.machineId, env.identity.publicKeyHex)
+  ) {
+    return [];
+  }
   const open = await env.chain.openSessionIds();
   if (open === null) return [];
   const pushed = [...env.hopChain.slice(1), env.session];
