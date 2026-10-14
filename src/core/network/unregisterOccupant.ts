@@ -63,6 +63,27 @@ export type HandlerResponse = {
   readonly body: Record<string, unknown>;
 };
 
+export type DropConnectionsDeps = Pick<
+  UnregisterOccupantDeps,
+  'endVisitorSessions' | 'endSessionsAbove'
+>;
+
+/**
+ * Close every connection other players held to a box that just left a network: their
+ * rows on it, and every chain they built on those. The owner's own rows stay open.
+ * `false` when any of it could not be closed. Shared by the disconnect and by a join
+ * that moves the box off the network it was on.
+ */
+export const dropConnectionsTo = async (
+  deps: DropConnectionsDeps,
+  box: { readonly machine_id: string; readonly owner_key: string },
+): Promise<boolean> => {
+  const ended = await deps.endVisitorSessions({ ...box, reason: 'network_left' });
+  if (ended.error) return false;
+  const chains = await endChainsAbove(deps.endSessionsAbove, ended.data ?? []);
+  return chains.ok;
+};
+
 // Loose so the envelope fields pass through; the refine keeps the codebase-wide
 // posture that a client never claims identity — the caller IS the verified pubkey,
 // so an owner_key/player_key in the payload is a forgery attempt.
@@ -93,16 +114,11 @@ export const handleUnregisterOccupant = async (
 
   // Loud, as a reboot's is: a disconnect that left a visitor's row open tells the owner
   // they are clear while the visitor still stands on their network.
-  const ended = await deps.endVisitorSessions({
+  const dropped = await dropConnectionsTo(deps, {
     machine_id: left.data.workstation_machine_id,
     owner_key: publicKey,
-    reason: 'network_left',
   });
-  if (ended.error) {
-    return { status: 500, body: { error: 'sessions_end_failed' } };
-  }
-  const chains = await endChainsAbove(deps.endSessionsAbove, ended.data ?? []);
-  if (!chains.ok) {
+  if (!dropped) {
     return { status: 500, body: { error: 'sessions_end_failed' } };
   }
   return { status: 200, body: { ok: true } };

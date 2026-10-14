@@ -269,11 +269,17 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   client stops every network command while disconnected; a request signed outside it is not
   stopped. Found 2026-10-12.
 
-- **`nmcli connect <another network>` without a disconnect leaves the box on both. By
-  reading.** The join writes a second occupancy row and removes none, so the box stays
-  reachable on the first WiFi and its visitors' sessions stay open, while the player's own
-  tools act from the second. Handbook chapter 13 lists the stale `updated_at` half of this.
-  Found 2026-10-12.
+- **`nmcli connect <another network>` without a disconnect left the box on both — RESOLVED
+  2026-10-14 (v0.380.0).** Proved live first (`scripts/testOneNetworkAtATime.ts` against the
+  old server: 5/10, the box on both networks and a visitor still logging in on the first).
+  Decided by the owner: a box is on one network at a time. `nmcli` refuses a connect to a
+  second network while `wlan0` is associated, before the password is checked. The server
+  holds the same rule for a request that skips the game, and for a disconnect whose
+  fire-and-forget leave never landed: `registerNetwork` takes the box off every other network
+  it occupies, closing its visitors' sessions and their chains as a disconnect does
+  (`dropConnectionsTo`, shared with `unregisterOccupant`), rather than refusing the join, which
+  would have stranded a player whose leave was lost. With one row per owner, handbook chapter
+  13's stale-`updated_at` question went with it (10/10).
 
 - **What a network was generated with is computable by any client. The accepted limit of the
   served-boxes work (owner, 2026-10-12).** The generators ship in the bundle, since `nmap`, the

@@ -24,6 +24,7 @@ import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
 import { lanAddressFor } from './lanAddress.js';
 import { declaredNetwork, RIDGEMONT } from '../generation/world.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
+import { dropConnectionsTo, type DropConnectionsDeps } from './unregisterOccupant.js';
 
 /** An occupancy row: the join records the player as a live occupant of the ESSID's
  *  LAN, keyed `(essid, owner_key)` so every occupant of a shared AP coexists. This is
@@ -56,6 +57,17 @@ export type RegisterNetworkDeps = {
    *  adapter from `allocateLanLease` over the `network_lan_leases` store. */
   readonly allocateLanLease: (essid: string, ownerKey: string) => Promise<number>;
   readonly upsertOccupant: (row: HomeNetworkOccupantRow) => Promise<{ readonly error: unknown }>;
+  /** Remove the caller's occupancy of every network OTHER than `essid`, answering with
+   *  the rows it removed, which name the box that left. Empty when it was on none. */
+  readonly deleteOtherOccupancies: (query: {
+    readonly essid: string;
+    readonly owner_key: string;
+  }) => Promise<{
+    readonly data: readonly { readonly workstation_machine_id: string }[] | null;
+    readonly error: unknown;
+  }>;
+  readonly endVisitorSessions: DropConnectionsDeps['endVisitorSessions'];
+  readonly endSessionsAbove: DropConnectionsDeps['endSessionsAbove'];
   /** Whether a join may reach a network the world does not declare. Only a local
    *  `vercel dev` admits them, so the wire-checks can each join a made-up network whose
    *  gateway nobody has written to. */
@@ -113,6 +125,22 @@ export const handleRegisterNetwork = async (
     leasedOctet = await deps.allocateLanLease(payload.essid, publicKey);
   } catch {
     return { status: 500, body: { error: 'lease_allocation_failed' } };
+  }
+
+  // A box is on one network at a time, so joining this one takes it off any other,
+  // exactly as a disconnect would. The game refuses a second join itself; this holds for
+  // a request that skips it, and for a disconnect whose fire-and-forget leave never
+  // landed. After the lease, so a join that cannot happen leaves the box where it was.
+  const left = await deps.deleteOtherOccupancies({ essid: payload.essid, owner_key: publicKey });
+  if (left.error) {
+    return { status: 500, body: { error: 'occupant_delete_failed' } };
+  }
+  const leftBoxes = new Set((left.data ?? []).map((row) => row.workstation_machine_id));
+  for (const machineId of leftBoxes) {
+    const dropped = await dropConnectionsTo(deps, { machine_id: machineId, owner_key: publicKey });
+    if (!dropped) {
+      return { status: 500, body: { error: 'sessions_end_failed' } };
+    }
   }
 
   // The address is held, so record the player as a live occupant of the ESSID's LAN. Keyed by (essid, owner_key) so every occupant of a shared AP coexists.
