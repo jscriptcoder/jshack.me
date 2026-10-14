@@ -1221,6 +1221,9 @@ export type ExploitRunParams = {
    *  script this shell could read, which reaches the server as the same fire as naming
    *  none at all. */
   readonly writes?: readonly { readonly path: string; readonly content: string }[] | undefined;
+  /** The fire came from a script, which has nowhere to put a shell down — so the server
+   *  answers a shell hole without opening a session nobody would stand in. */
+  readonly scripted?: boolean | undefined;
 };
 
 /** What came back. On success the CVE is the attacker's to keep — they earned it,
@@ -1407,6 +1410,8 @@ export type ExploitLocalElevateParams = {
    *  server-side. Undefined whenever no script ran, which reaches the server as the same
    *  fire as naming none at all. */
   readonly writes?: readonly { readonly path: string; readonly content: string }[] | undefined;
+  /** The fire came from a script — see `ExploitRunParams.scripted`. */
+  readonly scripted?: boolean | undefined;
 };
 
 /** The exploit seam. `run` fires at a network service; `elevateLocal` fires a library

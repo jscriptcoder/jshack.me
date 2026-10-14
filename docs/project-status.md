@@ -843,8 +843,9 @@ agreed order:
    the box off any other network as a disconnect would), ✅ a LAN web fetch that never read
    the journal (closed at v0.382.0: the server serves every web read of a box that is not
    the player's own workstation at home, from its journal, so a defaced, deleted, stopped or
-   bricked box reads the same on its LAN as across the internet), and the session row a
-   scripted exploit leaves behind. The four closed at v0.368.0 and v0.380.0–v0.382.0 were
+   bricked box reads the same on its LAN as across the internet), and ✅ the session row a
+   scripted exploit leaves behind (closed at v0.383.0: a fire from a script opens no session on
+   the server, so it no longer sets the tier the player's real shell there is served at). The four closed at v0.368.0 and v0.380.0–v0.382.0 were
    played in one two-player browser run on 2026-10-14, with no defect. Left as they are: the whole tree pulled before every line, and the newest
    open row setting the tier.
 9. ✅ **Crypto wallet epic (v0.356.0–v0.362.0, PRs #653–#658, 2026-10-11/12).** Slotted ahead of

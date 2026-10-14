@@ -456,10 +456,12 @@ const exploitPayloadFields = (params: {
   readonly arg?: string | undefined;
   readonly content?: string | undefined;
   readonly writes?: readonly { readonly path: string; readonly content: string }[] | undefined;
+  readonly scripted?: boolean | undefined;
 }): Readonly<Record<string, unknown>> => ({
   ...(params.arg === undefined ? {} : { arg: params.arg }),
   ...(params.content === undefined ? {} : { content: params.content }),
   ...(params.writes === undefined ? {} : { writes: params.writes }),
+  ...(params.scripted === true ? { scripted: true } : {}),
 });
 
 /** Fire a CVE at a port on a host on the caller's own LAN. No credential goes out —

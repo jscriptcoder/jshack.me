@@ -334,14 +334,19 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   `access.log` held the size each visit was served. As-built: `cross-player-architecture.md`
   §3, web reads on the LAN.
 
-- **An exploit fired from a script leaves a session row nobody stands on. By reading, not
-  reproduced.** A script cannot be put in a shell, so `msfconsole` reports
-  `Full shell available` and pushes no session (`env.scripted`). Where the server answers the
-  fire, which since v0.372.0 includes `--local` on every box that is not the player's own, it
-  has already inserted the row, and nothing closes it short of a reboot or the player leaving
-  the network. By the rule two items up that row would also set the tier the player's other
-  shell there is served at; not checked. Seen 2026-10-12 while the local exploit moved to the
-  server.
+- **An exploit fired from a script left a session row nobody stands on — RESOLVED 2026-10-14
+  (v0.383.0).** A script cannot be put in a shell, so `msfconsole` reports
+  `Full shell available` and pushes no session (`env.scripted`), but the server had already
+  inserted the row, and nothing closed it short of a reboot or the player leaving the network.
+  Probed live first: by the rule two items up, that row set the tier the player's real shell on
+  the box was served at. A root shell was served at `user` after a script fired a `user` hole
+  there, and a guest shell at `root` after a `root` one, while each prompt still showed the old
+  tier. Now the client sends `scripted: true` and both `exploitCreateSession` and
+  `exploitLocalElevate` answer a shell hole without inserting a row. `--local` also writes no
+  `session opened` line, since no session opened; the network fire still writes the break-in to
+  the daemon's log, since the attack did happen. The flag can only make a caller hold less, so
+  the server trusts it as sent (`scripts/testScriptedExploitLeavesNoRow.ts` 6/6, 1/6 on the old
+  code).
 
 - **Three guards in `ui/state.ts` have no test that fails without them (mutation, v0.374.0).**
   Two drop a served tree that arrives for a box the player has already left

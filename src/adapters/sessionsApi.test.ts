@@ -810,6 +810,21 @@ describe('runExploit', () => {
     });
   });
 
+  it('says a fire came from a script, and says nothing when it did not', async () => {
+    // A script cannot stand in a shell, so the server must not open one for it.
+    const fetchSpy = vi.fn(async () => jsonResponse(404, { error: 'not_vulnerable' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    await runExploit(deps, { ...params, scripted: true });
+    await runExploit(deps, params);
+
+    const scripted = await verifyPayload(sentEnvelope(fetchSpy, 0));
+    const typed = await verifyPayload(sentEnvelope(fetchSpy, 1));
+    if (!scripted.ok || !typed.ok) throw new Error('expected verified envelopes');
+    expect(scripted.payload).toMatchObject({ scripted: true });
+    expect(typed.payload).not.toHaveProperty('scripted');
+  });
+
   it('maps the refusal 404 to not_vulnerable', async () => {
     const fetchSpy = vi.fn(async () => jsonResponse(404, { error: 'not_vulnerable' }));
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
@@ -1389,6 +1404,20 @@ describe('postExploitLocalElevate', () => {
       content: 'payload\n',
       writes: [{ path: '/tmp/dropped.txt', content: 'planted\n' }],
     });
+  });
+
+  it('says a local fire came from a script, and says nothing when it did not', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(404, { error: 'not_vulnerable' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    await postExploitLocalElevate(deps, { ...params, scripted: true });
+    await postExploitLocalElevate(deps, params);
+
+    const scripted = await verifyPayload(sentEnvelope(fetchSpy, 0));
+    const typed = await verifyPayload(sentEnvelope(fetchSpy, 1));
+    if (!scripted.ok || !typed.ok) throw new Error('expected verified envelopes');
+    expect(scripted.payload).toMatchObject({ scripted: true });
+    expect(typed.payload).not.toHaveProperty('scripted');
   });
 
   it('omits an absent third token rather than signing an undefined the server must verify', async () => {
