@@ -36,8 +36,14 @@ export const ACCESS_LOG_PERMISSIONS: FilePermissions = {
   execute: ['root'],
 };
 
+/** The HTTP methods a request in this world can use. */
+export type HttpMethod = 'GET' | 'POST';
+
 export type AccessLogEvent = {
   readonly time: GameTime;
+  /** What the request asked to do, `GET` when unnamed. Never its body: a POST's body is a
+   *  form, and a form can hold a password. */
+  readonly method?: HttpMethod;
   /** The requester's resolved source IP (server-derived — see `crossPlayerSourceIp`). */
   readonly sourceIp: string;
   /** The URL path AS REQUESTED, not the file that answered it: a request for a path
@@ -66,9 +72,10 @@ export const formatAccessTimestamp = (time: GameTime): string => {
  *  which, on this door, is every request. */
 export const formatAccessLogLine = ({
   time,
+  method = 'GET',
   sourceIp,
   path,
   status,
   size,
 }: AccessLogEvent): string =>
-  `${sourceIp} - - [${formatAccessTimestamp(time)}] "GET ${path} HTTP/1.1" ${status} ${size}`;
+  `${sourceIp} - - [${formatAccessTimestamp(time)}] "${method} ${path} HTTP/1.1" ${status} ${size}`;
