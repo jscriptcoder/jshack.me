@@ -51,7 +51,7 @@ disagree, the code wins; fix the doc.
   from a network's place, the scan's pool and injector, joins, how every network is reached, and
   how to add a town (the procedural world epic, shipped).
 - [discovery-architecture.md](./discovery-architecture.md) — names and the public web: the
-  in-game DNS, publisher networks, and the findit.io search engine.
+  in-game DNS, publisher networks, the findit.io search engine, and the mapit.io map.
 - [vulnerability-architecture.md](./vulnerability-architecture.md) — the vulnerability system:
   the world clock, package timelines, the three axes, effects, and the defender's loop.
 - [tutorials-architecture.md](./tutorials-architecture.md) — the in-game tutorials: the home

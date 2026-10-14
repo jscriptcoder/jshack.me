@@ -653,37 +653,28 @@ decision, not a gap.
   (it destroys the persistence that makes PvP damage meaningful), and deleting the injector
   stays rejected (it would leave the shared-LAN work no live consumer).
   **Procedural world deferred** (each needs its own grill):
-  - **The map**, with fog of war: Ridgemont lit, a town appearing once one of its networks is
-    touched. Needs the first per-player exploration record (where it is stored, what counts as
-    "found"). Brings the town rows' map coordinates and `ping` across networks, latency growing
-    with distance. The world map of regions waits for a second region.
-    Why it matters: 612 networks are invisible today. Nothing shows a player how much world
-    there is or how much of it they have seen, so the scale reads as sameness rather than as an
-    open world; a found count per town ("41/178") is what makes it something to complete.
-    Shape proposed 2026-10-09, not yet grilled:
-    - **A `map` command opens a full-screen overlay**, the Lynx/Nano pattern: box-drawing
-      characters in the active theme's colours, arrows to move, Enter to zoom in, Esc to zoom
-      out. It reads as the player's own tool, not a game menu. Precedents: Uplink's world map
-      and Hacknet's netmap, which grows a node each time something is found.
-    - **Three zoom levels.** The *region*: the towns at their authored coordinates, an
-      untouched town fogged or absent, each lit town with its found count. A *town*: a graph of
-      the networks the player knows, each edge the route that led there (findit, the council
-      directory, a lead's kind, `whois`), so it reads as the player's own investigation board
-      rather than a street plan; that is the shape the discovery design already has. A
-      *network*: its topology as the player has scanned it (gateway, machines, inner router),
-      deep layers `???` until pivoted into.
-    - **Five states a network can be in**, each a glyph, each something the player did: heard
-      of (a file or trace named it), reached (scanned or its site fetched), got in (a session),
-      root, bricked.
-    - **The exploration record is the root decision**: server-side, keyed by the player's
-      identity, written as a side effect of actions the server already sees (scans, `whois`,
-      sessions, patches). The rest of the map follows from what it records.
-    - **Town coordinates are authored data on the rows**, append-only like the rows
-      themselves; a town's internal layout is computed from its graph each render, never stored.
-    - **Later, a multiplayer layer**: addresses from the player's own traces shown as "someone
-      came from here", which is the missing route to deliberate rendezvous (below).
-    - Plain DOM like the other overlays, so the jsdom + `@solidjs/testing-library` harness
-      tests it; no canvas.
+  - **The map — SHIPPED as mapit.io (2026-10-14, v0.376.0–v0.379.0, #673–#676).** A site on
+    the public web, the same for every player: Harrow Valley drawn by hand, a seeded plan of
+    each town with its public places, and a link from findit's front page and hackademy's web
+    chapter. As built: `discovery-architecture.md`, "mapit.io: the map". The shape proposed
+    here on 2026-10-09 was **dropped, not deferred**, when the site was grilled (2026-10-13):
+    the `map` overlay, fog of war, the per-player exploration record, found counts per town,
+    the five states of a network, and `ping` latency growing with distance. Bringing any of it
+    back is a new grill. **What waits:**
+    - **A page of the world's regions** above the valley, once a second region is declared.
+      Until then `mapit.io/` is Harrow Valley, and the test pinning the region's eleven legend
+      rows fails when a second region's towns join the list, which is when its filter is
+      written.
+    - **A live map**, where a dark site drops off and a player's page appears. The map is files
+      on its box; a live one would read every town's journals, as findit's search does.
+    - **A search box on mapit.io.** Searching is findit's.
+    - **Left open by the build:** no test holds the street counts of a town or a city (a pinned
+      town and city plan would); a place name holding `<` would break its row on the map, and
+      nothing fails when one is declared. Found beside it and not looked into: `npm run build`
+      failed two timing budgets on the developer machine, on `main` as well (Ashby's boxes,
+      2.15 ms against 2 ms; findit's generated web, 1,170 ms against 1,000 ms), and
+      `relations.test.ts` once timed out in a full run ("keeps no shortcut to a client on any
+      other box of the office", about 39 s against 30 s) while passing alone.
   - **Travel** between towns and regions. Joining another town's WiFi gives another public
     address, since the address belongs to the network. Needs a server-authoritative player
     location; until then the join refuses every network outside Ridgemont.

@@ -847,6 +847,20 @@ agreed order:
    [`wallet-architecture.md`](./wallet-architecture.md). **Pick up here (2026-10-12):** back to the
    sandbox-hardening leftovers in item 8's list above (four closed since, v0.363.0 to v0.366.0)
    and the defender-side item 6, still the agreed work until the owner reopens missions.
+10. ✅ **mapit.io (v0.376.0–v0.379.0, PRs #673–#676, 2026-10-13/14).** The world on one map, in
+    place of the backlog's `map` overlay: a fixed site whose front page is Harrow Valley drawn
+    by hand, and a page per town with a seeded street plan marking its public places, 284 in
+    all, numbered as `lynx` numbers their links. findit's front page and hackademy's web chapter
+    point to it. As built: [`discovery-architecture.md`](./discovery-architecture.md), "mapit.io:
+    the map". Played in the browser 2026-10-14 (v0.379.0), a new player on FLAT-7C: findit's
+    front page showed `[1]mapit.io`, which opened the valley; Ridgemont's 33-row plan showed
+    102 scattered markers over its legend, and its `[5]` opened Dunder Mifflin's site; the web
+    chapter served the new sentence; a search for `map` answered with mapit.io and no pointer;
+    a defaced front page planted in the journal was served to `lynx`, and
+    `scripts/restoreSite.ts mapit.io` brought the map back. No defect. What was dropped and
+    what waits are in `backlog.md` under "Procedural world deferred". **Pick up here
+    (2026-10-14):** item 8's list and item 6, still the agreed work until the owner reopens
+    missions.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

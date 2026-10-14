@@ -8,12 +8,13 @@ layers), then to networks they were never told about at all. Two doors deliver i
   zone transfer that hands over a whole organisation's address plan across every layer.
 - **X2 — the public web.** Institutional networks publish their own websites at stable
   domains, and `findit.io` is a search engine over them (and over players' own pages), so
-  a player finds a network by searching for what it does.
+  a player finds a network by searching for what it does. `mapit.io` is the map of them: the
+  valley's towns, and the public places in each.
 
 This is the shipped model of Phase 2 of the legacy-parity epic: X1 (#487–#490,
 v0.206.0–v0.209.0, closed 2026-09-08) and X2 (#551–#562, v0.265.0–v0.276.0, closed
-2026-09-26). The epic's plan file was retired on close-out; this doc holds the design and
-its accepted costs.
+2026-09-26). mapit.io followed (#673–#676, v0.376.0–v0.379.0, closed 2026-10-14). Each
+epic's plan file was retired on close-out; this doc holds the design and its accepted costs.
 
 It sits on the generators it does not re-describe — the LAN and deep-layer topology, role
 and service placement, and the generated site content (`world-content-architecture.md`) —
@@ -23,8 +24,8 @@ and on the cross-player reachability, forwarding and trace machinery
 
 Source: `src/core/network/resolveName.ts` and `http.ts` (name resolution), the `dig`/
 `nslookup` commands and `generation/generateDnsZone.ts` (X1), and `src/core/findit/`,
-`generation/publisher.ts`, `generation/siteServer.ts`, `generation/fixedSiteFs.ts` (X2), and
-the `whois` command (the registry over the world's addresses).
+`generation/publisher.ts`, `generation/siteServer.ts`, `generation/fixedSiteFs.ts` (X2),
+`src/core/mapit/` (the map), and the `whois` command (the registry over the world's addresses).
 
 ## X1 — DNS
 
@@ -253,6 +254,56 @@ it is a **reboot**: it ends every open session on findit (`rebooted`), empties i
 `patches`, and writes a fresh boot marker — in that order, so a shell that stood on the old
 box has its writes refused mid-restore and cannot survive onto the clean one. Wiping the
 journal alone would leave a standing root shell still root on the clean box.
+
+### mapit.io: the map
+
+`mapit.io` shows a player what is where, the same for every player: findit answers a player
+who already has a word to search for, and the map shows the valley to one who has none. It
+replaced the backlog's `map` overlay, and fog of war, a per-player record of what was found and
+`ping` latency growing with distance were dropped with it.
+
+- **It is a printed atlas.** Its pages are files on its box's disk, generated from the declared
+  world with the box (`MAPIT_PAGES`, `core/mapit/pages.ts`, through `WEB_ROOTS` in
+  `generation/fixedSiteFs.ts`), as hackademy.io's are. Nothing on it is live: a bricked shop
+  stays on the map, and a player's own page never appears. The box is the third row of
+  `FIXED_SITES` and an ordinary fixed site: `sshd` and nginx, a root password no wordlist
+  holds, an `access.log` of its own, at `193.10.253.15` in the placeless block after
+  hackademy.io, so no other address moved. Whoever roots it rewrites the map for everybody,
+  and `scripts/restoreSite.ts mapit.io` puts it back.
+- **A place is on the map** when it stands in a town, publishes a site and is not unlisted
+  (`placesIn`). Homes, unlisted sites, branches and the 28 placeless corporations stay off, so
+  leads, the council directories, `whois` and findit stay the way to them. A test holds every
+  town's page to what findit's generated index lists for that town, so the two cannot drift
+  apart. 284 places today, 102 of them in Ridgemont.
+- **Two levels.** `/` is Harrow Valley: one hand-drawn ASCII constant
+  (`HARROW_VALLEY_DRAWING`) with each town's name beside a marker for its size, and beneath it
+  a legend linking every town, cities then towns then villages, with its size class and its
+  count of places. `/<town>.html` is a town: a summary line, its plan, and a legend row per
+  place, its name as a link to `http://<domain>/`, its kind, and its domain as text. No page
+  prints an address, a town's address block or a wifi name.
+- **A town's plan is seeded** (`drawTownPlan`, `core/mapit/townPlan.ts`, on
+  `town-plan-<town key>`): a street grid framed 78 columns wide with the town's name spaced out
+  on its first row, 13 rows for a village, 19 for a town and 33 for a city, and one numbered
+  marker per place on plots the stream picks, so declared order shows nowhere. When a town's
+  places outgrow its plots the plan grows two rows at a time, so a place added needs no hand.
+- **The numbers are `lynx`'s.** A drawing holds no link, so `lynx` shifts nothing and `curl`
+  shows it clean, and a page's first links are its legend's, so marker 12 is link `[12]`. A
+  drawing is plain ASCII with no `<`, `>` or `&`, every drawn line is 78 columns, and no page
+  line as `lynx` lays it out passes 80 (Ridgemont's legend needs exactly 80). Names are
+  written unescaped, so `Brew & Code` reads the same in `curl` and `lynx`; a name holding `<`
+  would break its row, and nothing fails when one is declared.
+- **Two things point to it.** Hackademy's web chapter names it once, beside findit
+  (`tutorials-architecture.md`, decision 7), and findit's front page links to it under the
+  form. A results page does not, since a link above the results would renumber them. Its own
+  title and description name the map and Harrow Valley, so a findit search for either finds it.
+- **Adding to the world**: a place added needs nothing; a town added must be drawn on its
+  region's map, and `mapit.test.ts` fails until it is; a second region needs a drawing of its
+  own and a page of regions above the valley (`procedural-world-architecture.md`, "Adding to
+  the world").
+
+Not built, and each needs a grill of its own: a live map (a dark site dropping off, a player's
+page appearing), a search box, a page of regions before a second region exists, coordinates as
+data (and anything reading them, such as `ping` by distance), and travel.
 
 ### Leads: the only way to a home
 

@@ -86,6 +86,8 @@ src/
 | `mysql/`, `redis/` | Datadir schemas and statement engines for the database and key-value store.                                               | 8       |
 | `cve/`             | The world clock and the vulnerability derivation.                                                                         | 8       |
 | `findit/`          | The in-game search engine.                                                                                                | 8       |
+| `hackademy/`       | hackademy.io's pages and the home `README`.                                                                               | —       |
+| `mapit/`           | mapit.io's pages: the valley's drawing and each town's seeded plan.                                                       | —       |
 | `logging/`         | One formatter per log file; source-IP and writer-key rules.                                                               | 8       |
 | `patches/`         | Server handlers for the journal (write, list, remove, log appends, traces), L1, L2, the read filter.                      | 9, 10   |
 | `signedRequest/`   | Envelope schema, signing, verification.                                                                                   | 9       |
@@ -115,7 +117,7 @@ builders), `lanDatabase.ts` and `lanStore.ts` (find real generated database and 
 | `test*.ts` (80 files)      | Wire-checks: drive the real `api/` endpoints against `vercel dev` and local Supabase.                                            |
 | `publicAddressOf.ts`       | A declared network's derived public address, for a wire-check to aim at; stops the run for a network the world does not declare. |
 | `seedCrossPlayerTarget.ts` | One-shot setup for a two-player browser run (not self-cleaning; run with `clean` after).                                         |
-| `restoreSite.ts`           | Operator tool: reset a fixed site (`findit.io`, `hackademy.io`) to its generated state. Can target production.                   |
+| `restoreSite.ts`           | Operator tool: reset a fixed site (`findit.io`, `hackademy.io`, `mapit.io`) to its generated state. Can target production.       |
 | `verifyPatchesRls.ts`      | Checks row-level security on `patches` (anonymous access denied).                                                                |
 
 Run any of them with `npx dotenv -e .env.development.local -- npx tsx scripts/<name>.ts`.
@@ -135,7 +137,7 @@ files). `.branches/` and `.temp/` are CLI state and git-ignored.
 | `backlog.md`                         | Deliberately deferred work and future content ideas.                                            |
 | `cross-player-architecture.md`       | As-built cross-player system.                                                                   |
 | `world-content-architecture.md`      | As-built generated content and its rules.                                                       |
-| `discovery-architecture.md`          | As-built DNS and public web (findit.io).                                                        |
+| `discovery-architecture.md`          | As-built DNS and public web (findit.io, mapit.io).                                              |
 | `vulnerability-architecture.md`      | As-built vulnerability system.                                                                  |
 | `e2e-shared-network-verification.md` | Two-player browser journeys and a coverage map.                                                 |
 | `legacy/`                            | The retired React app's design, and the rewrite blueprint. Historical.                          |

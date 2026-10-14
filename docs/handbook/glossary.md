@@ -27,9 +27,10 @@ here refers to a real network or system.
 | **Workstation**             | A player's own machine. Machine id `<name>-<8 hex of sha256('ed25519:' + public key)>`.                                                             |
 | **Occupant / occupancy**    | A player connected to a WiFi network, recorded in `home_network_occupants`. Occupancy is what makes a player reachable on that LAN.                 |
 | **Lease**                   | A player's permanent LAN address on a network (`network_lan_leases`). Survives disconnects.                                                         |
-| **Public IP**               | A network's internet address, derived from its place in the world (`87.<town>.x.y`, or `193` for findit and the corporations). Never stored.        |
+| **Public IP**               | A network's internet address, derived from its place in the world (`87.<town>.x.y`, or `193` for fixed sites and corporations). Never stored.       |
 | **Publisher**               | A declared network that hosts a public web site with a domain name.                                                                                 |
 | **findit.io**               | The in-game search engine, a one-machine network on the public web.                                                                                 |
+| **mapit.io**                | The in-game map of Harrow Valley and each town's public places, a one-machine network on the public web.                                            |
 | **Forward**                 | A line `forward <public port> to <ip>:<port>` in a router's `/etc/iptables/rules.v4`.                                                               |
 | **Vantage**                 | Where a request is made from: own LAN, same-WiFi player, public internet, or down an inner gateway's chain. Decided by the server from the address. |
 | **Fronted segment**         | The subnet a gateway's forwards may point into.                                                                                                     |

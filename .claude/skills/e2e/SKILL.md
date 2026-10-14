@@ -728,3 +728,17 @@ guest-tier, which is enough to READ but not to write its root-owned `/var/www/ht
   that hopped on while findit had NO marker captured no boot-id to compare, so the marker the restore
   writes cannot notify it — findit's SECOND restore onward evicts cleanly. The enforcement (closed
   session, refused write) does not depend on it.
+
+**Showing a fixed site defaced and restored, before any root window is open** (verified
+2026-10-14, v0.379.0, on mapit.io). Plant the defaced page the way `scripts/testRestoreSite.ts`
+does: a temp file inside the repo upserting one `patches` row with the service-role client,
+`machine_id` = `computeApGatewayId('<domain>')`, `path` `/var/www/html/index.html`, `owner`
+`root`, `permissions` `WEB_PAGE_FILE`, `node_type` `file`, any `writer_key`, `is_new` false,
+`onConflict` `machine_id,path,writer_key`. `lynx <domain>` serves it to the player at once;
+`scripts/restoreSite.ts <domain>` deletes it with every other row on the box, and the next
+`lynx` shows the generated page.
+
+- **findit's front page opens typing in its search field.** To reach the link under the form,
+  `Escape` out of the field, then `ArrowDown` twice (the button, then `[1]mapit.io`). The
+  selected link is the element with `aria-current="true"`; read its `textContent` before
+  pressing `Enter`.
