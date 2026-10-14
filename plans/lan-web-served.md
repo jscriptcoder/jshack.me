@@ -1,8 +1,8 @@
 # Plan: a web read on the LAN is served
 
-**Status**: Probed and decided. The fix shape was confirmed by the owner 2026-10-14. Slice 1 is
-next. Where another doc disagrees with this file, this file wins until the close-out moves its
-content into `docs/`.
+**Status**: Slice 1 MERGED (v0.382.0, #679, 2026-10-14), and slice 2 folded into it. The
+close-out browser run is all that is left. Where another doc disagrees with this file, this file
+wins until the close-out moves its content into `docs/`.
 
 ## Goal
 
@@ -65,16 +65,25 @@ marked "by reading" was not run live.
 2. **Every journal effect counts, not only a changed page.** A deleted page is a 404, a stopped
    web server refuses, a bricked box answers nothing, and a port the box filters refuses, as
    the scan shows it.
-3. **`curl`, `lynx` and `gobuster` all move, in two PRs.** Slice 1 is the fetch (`curl`, `lynx`,
-   a followed link) and the server reach both fetch and sweep share. Slice 2 is the sweep
-   (`gobuster`).
+3. **`curl`, `lynx` and `gobuster` all move, in one PR.** First planned as two PRs, the fetch then
+   the sweep. Folded into one (owner-confirmed 2026-10-14) once slice 1 showed the three tools
+   share one client reach (`reachWebHost`) and one server reach (`resolveOccupantWebTarget`):
+   moving the fetch alone would have meant a second copy of the reach.
 4. **`recordLanFetch` keeps only the player's own workstation.** That is the one box the client
    still serves from its live tree. Its generated-host, deep-layer and standing-box arms go with
    slice 1, and the sweep's own use of it goes with slice 2.
 
 ## Slices
 
-### Slice 1: a page on a generated box is served from its journal
+### Slice 1: a page on a generated box is served from its journal — MERGED (v0.382.0, #679)
+
+As built: everything below, plus `gobuster` (slice 2) and two things the diff review and the
+mutation gate found. A shell on the access point's own gateway is found by
+`networkBaseFsForMachineId` over loopback, since no LAN walk holds the gateway. A shell on a deep
+box fetching its own address is served past the switch in front, which also closed the backlog
+item on that box being served but not traced. Wire-check `scripts/testLanWebServed.ts` 10/10
+(2/10 on the old code). Mutation: `resolveOccupantFetch.ts` 175 killed, 4 survived (all
+equivalent), 0 timeouts.
 
 - `resolveOccupantWebTarget` falls back, when no occupant holds the address, to the box the
   network generates there: a LAN host through `generatedLanBox`, a host on a deep layer the
@@ -94,7 +103,7 @@ marked "by reading" was not run live.
   `testOccupantSweep.ts`, and move any `testLanFetchLog.ts` checks that covered the deleted arms
   into the new script.
 
-### Slice 2: a sweep of a generated box is served from its journal
+### Slice 2: a sweep of a generated box is served from its journal — FOLDED INTO SLICE 1
 
 - `gobuster` takes the same `unresolved` → `sweepOccupant` route for a generated box. The server
   reach is already shared, so this slice is client routing plus its tests, and the sweep's last
