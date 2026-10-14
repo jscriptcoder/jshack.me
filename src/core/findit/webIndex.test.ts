@@ -962,6 +962,12 @@ describe('a site that is its own gateway', () => {
   });
 });
 
+describe('emailit.io, on the web findit searches', () => {
+  it('comes first for anybody who asks for an email address', async () => {
+    expect(rankPages(await indexWith(), 'email')[0]?.address).toBe('emailit.io');
+  });
+});
+
 describe('the map of the world, on the web findit searches', () => {
   it('comes first for anybody who asks for a map', async () => {
     expect(rankPages(await indexWith(), 'map')[0]?.address).toBe('mapit.io');
