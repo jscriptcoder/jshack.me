@@ -33,7 +33,14 @@ import type {
 import type { PatchRow } from '../patches/upsertPatch.js';
 import { siteAddress } from '../generation/publisher.js';
 import { publicAddress } from '../generation/world.js';
-import { FINDIT_DOMAIN, FINDIT_NETWORK, HACKADEMY_NETWORK } from '../generation/fixedSites.js';
+import {
+  EMAILIT_DOMAIN,
+  EMAILIT_NETWORK,
+  FINDIT_DOMAIN,
+  FINDIT_NETWORK,
+  HACKADEMY_NETWORK,
+} from '../generation/fixedSites.js';
+import type { SignUp } from '../emailit/signup.js';
 import { FINDIT_FRONT_PAGE } from '../findit/page.js';
 import type { MachinePatchRow } from '../findit/webIndex.js';
 import { logRead } from '../../test/factories/logRows.js';
@@ -187,6 +194,7 @@ type FetchOverrides = {
   findPatchesForMachines?: (machineIds: readonly string[]) => Promise<WebPatchesResult>;
   findActiveSession?: FindActiveSession;
   findPublicIpByEssid?: FindPublicIpByEssid;
+  signUp?: SignUp;
 };
 
 const makeDeps = (over: FetchOverrides = {}) => {
@@ -222,6 +230,8 @@ const makeDeps = (over: FetchOverrides = {}) => {
   const findPublicIpByEssid = vi.fn<FindPublicIpByEssid>(
     over.findPublicIpByEssid ?? derivedPublicIpByEssid,
   );
+  // Default: every sign-up opens its account. Only emailit's `/signup` ever asks.
+  const signUp = vi.fn<SignUp>(over.signUp ?? (async () => ({ data: 'created', error: null })));
   const deps: ResolveHttpFetchDeps = {
     nonceStore: freshStore,
     findPatchesForMachines,
@@ -235,9 +245,11 @@ const makeDeps = (over: FetchOverrides = {}) => {
     findHomeNetworkByOwnerKey,
     findActiveSession,
     findPublicIpByEssid,
+    signUp,
   };
   return {
     deps,
+    signUp,
     findNetworkByPublicIp,
     findPatches,
     listOccupantsByEssid,
@@ -1090,6 +1102,142 @@ describe('a form POSTed across the network', () => {
       body: { error: 'payload_invalid' },
     });
     expect(findNetworkByPublicIp).not.toHaveBeenCalled();
+  });
+});
+
+describe('emailit.io signs a reader up', () => {
+  const EMAILIT_IP = siteAddress(EMAILIT_DOMAIN) ?? '';
+  const EMAILIT_ID = computeApGatewayId(EMAILIT_NETWORK);
+  const FORM = 'handle=neo&password=s3cret';
+  const onEmailit = {
+    lookup: async () => ({
+      data: { router_machine_id: EMAILIT_ID, essid: EMAILIT_NETWORK },
+      error: null,
+    }),
+    listOccupantsByEssid: async () => ({ data: [], error: null }),
+    listLeasesByEssid: async () => ({ data: [], error: null }),
+  };
+  const request = (fields: Record<string, unknown>) =>
+    signRequest(BOB, 'resolveHttpFetch', {
+      target: EMAILIT_IP,
+      port: HTTP_DEFAULT_PORT,
+      path: '/signup',
+      ...fields,
+    });
+  const contentOf = (response: { body: Record<string, unknown> }): string =>
+    typeof response.body.content === 'string' ? response.body.content : '';
+
+  it('opens the account a form at /signup asks for, and welcomes the reader', async () => {
+    const { deps } = makeDeps(onEmailit);
+
+    const response = await handleResolveHttpFetch(request({ body: FORM }), deps);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ ok: true, server: 'nginx' });
+    expect(contentOf(response)).toContain('Welcome, neo@emailit.io');
+  });
+
+  it('counts the sign-up against the player who sent it, as the signature proves them', async () => {
+    const { deps, signUp } = makeDeps(onEmailit);
+
+    await handleResolveHttpFetch(request({ body: FORM }), deps);
+
+    expect(signUp).toHaveBeenCalledWith(
+      expect.objectContaining({ handle: 'neo', playerKey: BOB.publicKeyHex }),
+    );
+  });
+
+  it('answers a refusal the store gives with the front page and its reason', async () => {
+    const { deps } = makeDeps({
+      ...onEmailit,
+      signUp: async () => ({ data: 'taken', error: null }),
+    });
+
+    const response = await handleResolveHttpFetch(request({ body: FORM }), deps);
+
+    expect(response.status).toBe(200);
+    expect(contentOf(response)).toContain('That handle is taken');
+  });
+
+  it('records the sign-up in its log as a POST, with no trace of the form', async () => {
+    const { deps, upsertPatch } = makeDeps(onEmailit);
+
+    const response = await handleResolveHttpFetch(request({ body: FORM }), deps);
+
+    const logged = upsertPatch.mock.calls
+      .map(([row]) => row)
+      .find((row) => row.path === ACCESS_LOG_PATH);
+    expect(logged?.machine_id).toBe(EMAILIT_ID);
+    expect(logged?.content).toBe(
+      `${BOB_PUBLIC_IP} - - [30/Jul/2026:13:55:36 +0000] "POST /signup HTTP/1.1" 200 ${contentOf(response).length}\n`,
+    );
+    expect(JSON.stringify(upsertPatch.mock.calls)).not.toContain('s3cret');
+  });
+
+  it('takes a form at /signup however its query string reads', async () => {
+    const { deps, signUp } = makeDeps(onEmailit);
+
+    await handleResolveHttpFetch(request({ path: '/signup?from=front', body: FORM }), deps);
+
+    expect(signUp).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a form anywhere else on the box, as every other server does', async () => {
+    const { deps, signUp } = makeDeps(onEmailit);
+
+    const response = await handleResolveHttpFetch(request({ path: '/', body: FORM }), deps);
+
+    expect(response).toEqual({
+      status: 405,
+      body: { error: 'method_not_allowed', server: 'nginx' },
+    });
+    expect(signUp).not.toHaveBeenCalled();
+  });
+
+  it('takes no form at /signup on any other site', async () => {
+    const { deps, signUp } = makeDeps({ patches: aliceServing() });
+
+    const response = await handleResolveHttpFetch(envelope({ path: '/signup', body: FORM }), deps);
+
+    expect(response.status).toBe(405);
+    expect(signUp).not.toHaveBeenCalled();
+  });
+
+  it('says a plain fetch of /signup finds nothing there', async () => {
+    const { deps, signUp } = makeDeps(onEmailit);
+
+    expect(await handleResolveHttpFetch(request({}), deps)).toEqual({
+      status: 404,
+      body: { error: 'not_found' },
+    });
+    expect(signUp).not.toHaveBeenCalled();
+  });
+
+  it('signs nobody up while the box will not come up', async () => {
+    const { deps, signUp } = makeDeps({
+      ...onEmailit,
+      patches: patchesByMachine({
+        [EMAILIT_ID]: [{ ...publishedPage(''), path: '/boot/vmlinuz', content: null }],
+      }),
+    });
+
+    expect(await handleResolveHttpFetch(request({ body: FORM }), deps)).toEqual({
+      status: 404,
+      body: { error: 'host_unreachable' },
+    });
+    expect(signUp).not.toHaveBeenCalled();
+  });
+
+  it('reports a store it could not reach as a server error, not as a refusal', async () => {
+    const { deps } = makeDeps({
+      ...onEmailit,
+      signUp: async () => ({ data: null, error: { message: 'connection refused' } }),
+    });
+
+    expect(await handleResolveHttpFetch(request({ body: FORM }), deps)).toEqual({
+      status: 500,
+      body: { error: 'signup_failed' },
+    });
   });
 });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { answerSignup, type NewAccount, type SignUpOutcome } from './signup.js';
+import { answerSignup, type NewAccount } from './signup.js';
 import { md5 } from '../generation/md5.js';
 
 /**
@@ -10,23 +10,30 @@ import { md5 } from '../generation/md5.js';
 
 const PLAYER_KEY = 'b'.repeat(64);
 
-/** A store that answers every sign-up with `outcome` (null: it could not be reached),
- *  and remembers what it was asked. */
-const storeAnswering = (outcome: SignUpOutcome | null) => {
+/** What the store answers, as it comes off the wire. */
+type StoreReply = { readonly data: unknown; readonly error: unknown };
+
+/** A store that answers every sign-up with `reply`, and remembers what it was asked. */
+const storeAnswering = (reply: StoreReply) => {
   const asked: NewAccount[] = [];
   return {
     asked,
     signUp: async (account: NewAccount) => {
       asked.push(account);
-      return outcome;
+      return reply;
     },
   };
 };
 
+/** The store's word for an outcome, as it comes back. */
+const answered = (word: unknown): StoreReply => ({ data: word, error: null });
+
+const UNREACHABLE: StoreReply = { data: null, error: { message: 'connection refused' } };
+
 /** The page a sign-up answers with, as a reader sees it: the text, markup and entities
  *  gone. Null when there was no page to see. */
-const signUpWith = async (form: string, outcome: SignUpOutcome | null = 'created') => {
-  const store = storeAnswering(outcome);
+const signUpWith = async (form: string, reply: StoreReply = answered('created')) => {
+  const store = storeAnswering(reply);
   const page = await answerSignup({ form, playerKey: PLAYER_KEY, signUp: store.signUp });
   const text =
     page === null
@@ -170,21 +177,31 @@ describe('a sign-up refused before the store is asked', () => {
 
 describe('a sign-up the store refuses', () => {
   it('says the handle is taken', async () => {
-    const { text } = await signUpWith('handle=neo&password=s3cret', 'taken');
+    const { text } = await signUpWith('handle=neo&password=s3cret', answered('taken'));
 
     expect(text).toContain('That handle is taken');
     expect(text).not.toContain('Welcome, neo@emailit.io');
   });
 
   it('says the day’s sign-ups are spent', async () => {
-    const { text } = await signUpWith('handle=neo&password=s3cret', 'capped');
+    const { text } = await signUpWith('handle=neo&password=s3cret', answered('capped'));
 
     expect(text).toContain('You have signed up 3 addresses today. Try again tomorrow.');
     expect(text).not.toContain('Welcome, neo@emailit.io');
   });
 
   it('answers with no page at all when the store cannot be reached', async () => {
-    const { page } = await signUpWith('handle=neo&password=s3cret', null);
+    const { page } = await signUpWith('handle=neo&password=s3cret', UNREACHABLE);
+
+    expect(page).toBeNull();
+  });
+
+  it.each([
+    ['a word it does not know', answered('maybe')],
+    ['nothing at all', answered(null)],
+    ['a word alongside an error', { data: 'created', error: { message: 'timeout' } }],
+  ])('answers with no page when the store says %s, rather than guessing', async (_case, reply) => {
+    const { page } = await signUpWith('handle=neo&password=s3cret', reply);
 
     expect(page).toBeNull();
   });

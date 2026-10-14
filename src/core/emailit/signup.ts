@@ -12,6 +12,7 @@
  * it, and the hash is the deliberately weak one every password in the world is kept as.
  */
 
+import { z } from 'zod';
 import { md5 } from '../generation/md5.js';
 import { validatePassword, validateUsername } from '../gameConfig/gameConfig.js';
 import { EMAILIT_DOMAIN } from '../generation/fixedSites.js';
@@ -62,12 +63,17 @@ export type NewAccount = {
   readonly welcome: { readonly sender: string; readonly subject: string; readonly body: string };
 };
 
-/** `taken`: somebody holds the handle. `capped`: the player has signed up as often as a
- *  day allows. */
-export type SignUpOutcome = 'created' | 'taken' | 'capped';
+/** The store's word for what it did. `taken`: somebody holds the handle. `capped`: the
+ *  player has signed up as often as a day allows. */
+const signUpOutcomeSchema = z.enum(['created', 'taken', 'capped']);
 
-/** Open an account, or say why not. Null when the store could not be asked. */
-export type SignUp = (account: NewAccount) => Promise<SignUpOutcome | null>;
+type SignUpOutcome = z.infer<typeof signUpOutcomeSchema>;
+
+/** Open an account, or say why not: the store's reply as it came off the wire, read
+ *  here. */
+export type SignUp = (
+  account: NewAccount,
+) => Promise<{ readonly data: unknown; readonly error: unknown }>;
 
 const REFUSED_BY_STORE: Readonly<Record<Exclude<SignUpOutcome, 'created'>, string>> = {
   taken: 'That handle is taken',
@@ -97,13 +103,17 @@ export const answerSignup = async ({
   const refusal = refusedHandle(handle) ?? validatePassword(password);
   if (refusal !== null) return emailitFrontPage(refusal);
 
-  const outcome = await signUp({
+  const reply = await signUp({
     handle,
     passwordMd5: md5(password),
     playerKey,
     welcome: { sender: WELCOME_SENDER, subject: WELCOME_SUBJECT, body: welcomeBody(handle) },
   });
-  if (outcome === null) return null;
+  // A store that failed, or answered with a word nobody taught it, has not said what
+  // happened: a page claiming either way would be a guess.
+  const read = signUpOutcomeSchema.safeParse(reply.data);
+  if (reply.error || !read.success) return null;
+  const outcome = read.data;
   return outcome === 'created'
     ? welcomePage(`${handle}@${EMAILIT_DOMAIN}`)
     : emailitFrontPage(REFUSED_BY_STORE[outcome]);

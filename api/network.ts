@@ -431,6 +431,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         logFailure('http-fetch web index lookup', error);
         return { data: data as readonly WebIndexPatchRow[] | null, error };
       },
+      // Only a form POSTed to emailit.io's /signup reaches this. The cap, the handle and
+      // the welcome are one transaction inside the function, and its answer is a word,
+      // handed over as it came off the wire for the handler to read.
+      signUp: async ({ handle, passwordMd5, playerKey, welcome }) => {
+        const { data, error } = await supabase.rpc('email_signup', {
+          signup_handle: handle,
+          signup_password_md5: passwordMd5,
+          signup_player_key: playerKey,
+          welcome_sender: welcome.sender,
+          welcome_subject: welcome.subject,
+          welcome_body: welcome.body,
+        });
+        logFailure('http-fetch email sign-up', error);
+        return { data: data as unknown, error };
+      },
     });
     res.status(status).json(body);
     return;
