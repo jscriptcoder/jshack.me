@@ -966,6 +966,12 @@ describe('emailit.io, on the web findit searches', () => {
   it('comes first for anybody who asks for an email address', async () => {
     expect(rankPages(await indexWith(), 'email')[0]?.address).toBe('emailit.io');
   });
+
+  it('is listed by what it says of itself: free email, and how to read it', async () => {
+    expect((await found('emailit.io'))?.description).toBe(
+      'emailit.io: free email for everybody on the net. Sign up for an address, and read your mail with mail.',
+    );
+  });
 });
 
 describe('the map of the world, on the web findit searches', () => {

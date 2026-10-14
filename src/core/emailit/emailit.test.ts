@@ -12,14 +12,17 @@ import type { Directory } from '../filesystem/types.js';
 
 const emailitBox = (): Directory => materializeApGatewayFs({ essid: EMAILIT_NETWORK }, []);
 
-/** The front page as a reader sees it: the text, with the markup and its entities gone. */
-const frontPageText = (): string => {
+/** The front page as served, parsed the way a browser reads it. */
+const frontPage = (): Document => {
   const path = resolveWebPath('/');
   if (path === null) throw new Error('the front page has no path');
   const read = createFsView(emailitBox(), { userType: 'root' }).read(path);
   if (!read.ok) throw new Error('emailit.io serves no front page');
-  return new DOMParser().parseFromString(read.content, 'text/html').body.textContent ?? '';
+  return new DOMParser().parseFromString(read.content, 'text/html');
 };
+
+/** The front page as a reader sees it: the text, with the markup and its entities gone. */
+const frontPageText = (): string => frontPage().body.textContent ?? '';
 
 describe('the front page of emailit.io', () => {
   it('shows the command that signs a reader up, ready to fill in', () => {
@@ -30,6 +33,13 @@ describe('the front page of emailit.io', () => {
 
   it('says where the mail program comes from', () => {
     expect(frontPageText()).toContain('apt install mailutils');
+  });
+
+  it('opens with what the site is, and no error above it until a sign-up is refused', () => {
+    const opening = frontPageText().replace(/\s+/g, ' ').trim();
+
+    expect(opening).toMatch(/^emailit\.io Free email for everybody/);
+    expect(frontPage().querySelector('strong')).toBeNull();
   });
 
   it('warns the person at the keyboard off their real passwords', () => {

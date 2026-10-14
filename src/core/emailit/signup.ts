@@ -19,12 +19,10 @@ import { EMAILIT_DOMAIN } from '../generation/fixedSites.js';
 import { emailitFrontPage, welcomePage } from './pages.js';
 
 /** Handles nobody may sign up for, on top of the system names the Intro form keeps for
- *  itself: they are the addresses mail itself is run from, and `noreply` is the one the
- *  welcome comes from. */
+ *  itself (`root` and `admin` among them): they are the addresses mail itself is run from,
+ *  and `noreply` is the one the welcome comes from. */
 const RESERVED_HANDLES: ReadonlySet<string> = new Set([
   'postmaster',
-  'admin',
-  'root',
   'abuse',
   'noreply',
   'support',

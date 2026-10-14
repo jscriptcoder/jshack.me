@@ -1512,6 +1512,19 @@ describe('curl -d sends a form, and a server that takes none answers 405', () =>
     expect(reported).toEqual([]);
   });
 
+  it("prints the 405 status line a fellow occupant's box answers with under -i", async () => {
+    const { host, port } = webHostOnLan();
+
+    const { drained } = await typed(`curl -i -d ${FORM} http://${host.ip}:${port}/`, {
+      fetchOccupant: { ok: false, error: 'method_not_allowed', server: 'apache2' },
+    });
+
+    expect(drained.text.split('\n').slice(0, 2)).toEqual([
+      'HTTP/1.1 405 Method Not Allowed',
+      'Server: Apache',
+    ]);
+  });
+
   it("sends the form to a fellow occupant's box and prints the 405 it answers with", async () => {
     const { host, port } = webHostOnLan();
 
@@ -1561,6 +1574,19 @@ describe('curl -d sends a form, and a server that takes none answers 405', () =>
     });
 
     expect(askedPublic.map((asked) => asked.body)).toEqual([FORM]);
+  });
+
+  it('documents -d in its manual, with signing up at emailit.io as the example', () => {
+    expect(curl.manual?.synopsis).toBe('curl [-i] [-d <data>] <url>');
+    expect(curl.manual?.description).toContain('With -d, curl POSTs a form');
+    expect(curl.manual?.arguments).toContainEqual({
+      name: '-d',
+      description: 'POST this form data instead of fetching, e.g. -d handle=neo',
+    });
+    expect(curl.manual?.examples).toContainEqual({
+      command: 'curl -d "handle=neo&password=s3cret" http://emailit.io/signup',
+      description: 'Sign up for an address at emailit.io by POSTing its form',
+    });
   });
 
   it('sends no body at all when -d is not given, so a plain fetch stays a GET', async () => {

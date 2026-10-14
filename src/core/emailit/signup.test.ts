@@ -66,6 +66,14 @@ describe('a sign-up the store accepts', () => {
     expect(text).toContain('apt install mailutils');
   });
 
+  it('links the reader back to the front page', async () => {
+    const { page } = await signUpWith('handle=neo&password=s3cret');
+    const back = new DOMParser().parseFromString(page ?? '', 'text/html').querySelector('a');
+
+    expect(back?.textContent).toBe('Back to emailit.io');
+    expect(back?.getAttribute('href')).toBe('/');
+  });
+
   it('stores the handle, the md5 of the password and the player who signed up', async () => {
     const { asked } = await signUpWith('handle=neo&password=s3cret');
 

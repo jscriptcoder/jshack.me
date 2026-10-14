@@ -767,6 +767,19 @@ describe('fetchPublicPage', () => {
     });
   });
 
+  it('reads a refusal that happens to name a server as that refusal, not as a 405', async () => {
+    const deps = makeDeps(
+      vi.fn(async () =>
+        jsonResponse(404, { error: 'not_found', server: 'nginx' }),
+      ) as unknown as typeof fetch,
+    );
+
+    expect(await fetchPublicPage(deps, { ...PARAMS, body: 'a=b' })).toEqual({
+      ok: false,
+      error: 'not_found',
+    });
+  });
+
   it('treats a 405 that names no server as a reply it cannot read', async () => {
     const deps = makeDeps(
       vi.fn(async () =>
