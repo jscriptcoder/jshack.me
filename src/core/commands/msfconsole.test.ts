@@ -1506,6 +1506,20 @@ describe('msfconsole', () => {
     expect(out.exitCode).toBe(0);
   });
 
+  it('tells the server a fire came from a script, so no session is opened for it', async () => {
+    // The server mints the row before it answers, and the newest open row sets the tier
+    // the player's real shell on that box is served at — so a shell nobody stands in
+    // must never be opened. A typed fire still asks for its shell.
+    const scripted = scriptedRun();
+    const typed = exploitEnv();
+
+    await scripted.fire(TARGET.ip, String(PORT));
+    await drain(await msfconsole.execute(typed.env, [TARGET.ip, String(PORT)], NO_FLAGS));
+
+    expect(scripted.run.mock.calls[0]![0].scripted).toBe(true);
+    expect(typed.run.mock.calls[0]![0].scripted).not.toBe(true);
+  });
+
   it('tells a script a limited shell apart from a full one', async () => {
     // The distinction the interactive path already draws, kept for the same reason: a
     // caller told "Full" that then cannot pivot onward has been lied to by its own
@@ -2984,6 +2998,24 @@ describe('msfconsole --local', () => {
     expect([...out]).not.toContain('[+] Full shell as root@rig');
     expect(pushed).toEqual([]);
     expect(cwds).toEqual([]);
+  });
+
+  it('tells the server a --local fire on a box not the player’s own came from a script', async () => {
+    // Answered by the server, which would otherwise mint a row the script never stands in.
+    const scripted = crossPlayerLocalEnv();
+    const context = buildCommandContext(
+      scripted.env,
+      new Map([[msfconsole.name, msfconsole]]),
+      () => undefined,
+    );
+    const typed = crossPlayerLocalEnv();
+
+    await context.msfconsole('su', { '--local': true });
+    await drain(await msfconsole.execute(typed.env, ['su'], localFlags));
+
+    expect(scripted.elevateLocal.mock.calls[0]![0].scripted).toBe(true);
+    expect(scripted.pushed).toEqual([]);
+    expect(typed.elevateLocal.mock.calls[0]![0].scripted).not.toBe(true);
   });
 
   it('reports a limited shell from a script when the caller has no terminal', async () => {

@@ -520,6 +520,10 @@ async function* fire(env: CommandEnv, attempt: Attempt): AsyncGenerator<Terminal
     arg: attempt.arg,
     content: attempt.content,
     writes: attempt.writes,
+    // A script reports a shell rather than entering it (see `renderExploitResult`), so the
+    // server must not open one: a row nobody stands in would set the tier the player's
+    // real shell on that box is served at.
+    scripted: env.scripted === true,
   });
 
   return yield* renderExploitResult(env, result, {
@@ -954,6 +958,8 @@ async function* fireLocalThroughServer(
     ...(arg === undefined ? {} : { arg }),
     ...(payload.content === undefined ? {} : { content: payload.content }),
     ...(payload.writes === undefined ? {} : { writes: payload.writes }),
+    // As on the network path: a script opens no session, so the server mints no row.
+    scripted: env.scripted === true,
   });
 
   return yield* renderExploitResult(env, result, {
