@@ -130,6 +130,22 @@ internalPort}`; else `none` (router-own wins a same-port tie). It shares `readRu
   neither an occupant nor a generated box reaches nothing. `rules.v4` is parsed first purely to
   shed work: an AP that forwards nothing skips the occupancy read and every journal fetch, and
   only the boxes a forward actually names are read.
+- **Web reads on the LAN:** `curl`, `lynx` (a followed link included) and `gobuster` share one
+  client reach, `reachWebHost` (`core/commands/webHost.ts`). It reads only the player's own
+  workstation at home, by loopback or by its own leased address, from the live tree, and that
+  visit is traced by `recordLanFetch` (`core/network/recordLanFetch.ts`). Every other address
+  goes to the server: `resolveOccupantFetch` for a page and `resolveOccupantSweep` for a sweep,
+  both behind one reach, `resolveOccupantWebTarget` (`core/network/resolveOccupantFetch.ts`). It
+  places the caller from its session and finds the box at the address: a fellow occupant's
+  workstation by lease and occupancy, else the box the network generates there. That is a LAN
+  host, a host on a deep layer the caller reaches (through the live ACL of a switch in front),
+  or, by loopback or its own address, the box the caller's shell stands on, the access point's
+  gateway included. Either way the box is its journal replayed, gated on `canBoot`, and answers
+  only on a port it serves to the network, less what a switch in front denies. So a defaced,
+  deleted, stopped or bricked box reads the same on its own LAN as across the internet, and as
+  same-LAN `nmap` shows it. The visit is written to the box's `access.log` in the same request,
+  under the occupant's key or `ap:<essid>`, with the status and size actually served, so the
+  page and its line cannot disagree (`scripts/testLanWebServed.ts`).
 - **Login (routes by destination port):** `ssh [-p port] <user>@<public IP>` takes the
   cross-player branch in `core/commands/ssh.ts` (`executePublicLogin`): reachability via
   `resolvePublic`, then `authenticatePublic` carries the **destination port** (default 22).
@@ -491,6 +507,8 @@ mitigation is a server-side game-logic re-run.
 | Public scan resolve    | `core/scan/resolvePublicScan.ts`                                                   |
 | Forward→occupant resolve | `core/network/natHosts.ts` (`bootableOccupantFs` + `natPortResolver`)            |
 | Ownerless-box log key  | `core/logging/apGatewayLogWriter.ts` (`apGatewayLogWriterKey(essid)`)               |
+| LAN web reach (client) | `core/commands/webHost.ts` (`reachWebHost`)                                        |
+| LAN web serve + trace  | `core/network/resolveOccupantFetch.ts` (`resolveOccupantWebTarget`)                |
 | su elevation (server)  | `core/sessions/authElevateSession.ts`                                              |
 | Public ssh gate        | `core/sessions/authCreateSessionPublic.ts`                                         |
 | Trace append primitive | `core/patches/appendMachineLog.ts`                                                 |

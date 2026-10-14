@@ -258,7 +258,8 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   back. The visitor's next line prints `Connection to <box> closed by remote host.`: one hop
   deep on another player's workstation the shell now asks which of its sessions are open,
   which costs that shell one request a line. `scripts/testDisconnectedUnreachable.ts` carries
-  the checks (13/13). Not played in the browser yet. Three things were found on the way. One,
+  the checks (13/13). Played in the browser 2026-10-14: a `guest` shell on the leaver's box
+  printed the line on its next command. Three things were found on the way. One,
   the raw journal `listPatches` handed a session holder, closed at v0.374.0 (handbook chapter
   13). The other two are the next two items.
 
@@ -273,8 +274,9 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   (`dropConnectionsThrough`, shared by the disconnect and the join); their rows on their own
   box stay open (13/13). The browser is told on the next line: a shell on any box but the
   player's own now asks which of its sessions are open, one hop deep on a generated box or a
-  gateway included, which costs that shell one request a line. Not played in the browser
-  yet. One neighbour found on the way is the next item.
+  gateway included, which costs that shell one request a line. Played in the browser
+  2026-10-14: a `root` shell on a generated site server closed on its next line once its
+  player disconnected from a second terminal. One neighbour found on the way is the next item.
 
 - **An `ftp>` prompt across the network after its owner leaves. Not checked.** Leaving
   closes the leaver's `ftp` rows with the rest, so the server refuses what the prompt sends
@@ -291,7 +293,8 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   it occupies, closing its visitors' sessions and their chains as a disconnect does
   (`dropConnectionsTo`, shared with `unregisterOccupant`), rather than refusing the join, which
   would have stranded a player whose leave was lost. With one row per owner, handbook chapter
-  13's stale-`updated_at` question went with it (10/10).
+  13's stale-`updated_at` question went with it (10/10). Played in the browser 2026-10-14: a
+  second `nmcli connect` while connected was refused, and the player held one occupancy row.
 
 - **What a network was generated with is computable by any client. The accepted limit of the
   served-boxes work (owner, 2026-10-12).** The generators ship in the bundle, since `nmap`, the
@@ -324,8 +327,12 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   through its switch's live ACL, or the box a shell stands on, the access point's gateway
   included), replays its journal, checks it boots and records the visit. `recordLanFetch`
   keeps only the player's own workstation (`scripts/testLanWebServed.ts` 10/10, 2/10 on the
-  old code; `testLanFetchLog.ts` and `testHopWebTools.ts` moved to match). Not played in the
-  browser yet.
+  old code; `testLanFetchLog.ts` and `testHopWebTools.ts` moved to match). Played in the
+  browser 2026-10-14 on CITY-HALL-WIFI's site server: from its LAN and from across the
+  internet, `curl`, `lynx` (with a followed link) and `gobuster` read the defaced page, a 404
+  once it was deleted, a refusal once apache stopped and nothing once it was bricked, and its
+  `access.log` held the size each visit was served. As-built: `cross-player-architecture.md`
+  §3, web reads on the LAN.
 
 - **An exploit fired from a script leaves a session row nobody stands on. By reading, not
   reproduced.** A script cannot be put in a shell, so `msfconsole` reports

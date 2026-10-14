@@ -115,7 +115,10 @@ publisher is in the index, so the index is predictable to build and test.
 anywhere: `nmap <domain>` shows the gateway's `22` plus the forwarded `80`, `-sV` shows
 the webserver's version, and a live CVE on it is exploitable across networks through the
 existing routing — a shell there lands INSIDE the LAN without the wifi ever being cracked.
-That is the point: wifi and the internet are two routes into one network.
+That is the point: wifi and the internet are two routes into one network. Both routes read
+the same box: a web read from the LAN is served from the webserver's journal too, so a
+defaced, stopped or bricked site reads the same from both sides
+([`cross-player-architecture.md`](./cross-player-architecture.md) §3, web reads on the LAN).
 
 ### The small world DNS
 

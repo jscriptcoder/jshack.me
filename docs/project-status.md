@@ -753,7 +753,7 @@ agreed order:
    opened from it, and the visitor's next line says the connection closed. Probed on the
    live stack first: the session row had outlived the box's place on the WiFi, so a
    visitor still acted on that network from it, logged as `unknown`
-   (`scripts/testDisconnectedUnreachable.ts` 13/13). Not played in the browser yet.
+   (`scripts/testDisconnectedUnreachable.ts` 13/13). Played in the browser 2026-10-14.
    ✅ And at v0.369.0 a visitor is refused the raw journal of a box the server serves:
    `listPatches` had handed a `guest` session on another player's workstation every row
    on it, root-only files and the wallet key's row included. Now it answers 403
@@ -844,7 +844,8 @@ agreed order:
    the journal (closed at v0.382.0: the server serves every web read of a box that is not
    the player's own workstation at home, from its journal, so a defaced, deleted, stopped or
    bricked box reads the same on its LAN as across the internet), and the session row a
-   scripted exploit leaves behind. Left as they are: the whole tree pulled before every line, and the newest
+   scripted exploit leaves behind. The four closed at v0.368.0 and v0.380.0–v0.382.0 were
+   played in one two-player browser run on 2026-10-14, with no defect. Left as they are: the whole tree pulled before every line, and the newest
    open row setting the tier.
 9. ✅ **Crypto wallet epic (v0.356.0–v0.362.0, PRs #653–#658, 2026-10-11/12).** Slotted ahead of
    the rest of the sandbox-hardening list: the `wallet` command, a public JSC ledger keyed by
