@@ -2,7 +2,7 @@
 
 **Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-13 and, for the town
 plans, 2026-10-14. Slices 1 to 3 are merged (v0.376.0, #673; v0.377.0, #674; v0.378.0, #675).
-Slice 4 is next: its acceptance criteria are not yet confirmed.
+Slice 4 is in progress: its acceptance criteria were confirmed by the owner 2026-10-14.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 
@@ -384,11 +384,15 @@ test can draw a town with more places than it has. The stream is keyed by the to
 **Path**: `core/hackademy/pages.ts`, the web chapter's "Finding sites at all";
 `core/findit/page.ts`, the front page alone.
 **Branch**: `feat/mapit-pointers`.
-**Acceptance criteria**:
+**Acceptance criteria** (confirmed by the owner 2026-10-14):
 
 - Hackademy's web chapter names mapit.io once, in the paragraph that names findit, and no other
-  page of the site names it.
-- findit's front page carries a link to `http://mapit.io/`.
+  page of the site names it. The sentence follows "follow what comes back.": "When you want
+  where things are rather than what they say, mapit.io has the map: the valley, its towns, and
+  what stands in each." The Practice list is unchanged.
+- findit's front page carries a link to `http://mapit.io/`, in one line under the rule so the
+  form stays first: "Looking for where a place is, not what it says? mapit.io has the map.",
+  with `mapit.io` the link. findit does not index itself, so no search answers differently.
 - A findit results page carries no such link, and its first result is still link `[1]`.
 
 **First failing test**: findit's front page links to mapit.io, and a search's first result is
