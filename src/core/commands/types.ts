@@ -1640,6 +1640,11 @@ export type DeleteResult =
   /** As a message's: the inbox holds nothing by that number, or the login was refused. */
   | { readonly ok: false; readonly error: Exclude<MessageResult, { ok: true }>['error'] };
 
+export type PasswdResult =
+  | { readonly ok: true }
+  /** As an inbox's: a wrong old password is a login that failed. */
+  | { readonly ok: false; readonly error: Exclude<InboxResult, { ok: true }>['error'] };
+
 /** A message on its way out. `to` is the recipient's handle; the domain is always
  *  emailit.io's, and the sender is whoever the login names. */
 export type OutgoingMail = {

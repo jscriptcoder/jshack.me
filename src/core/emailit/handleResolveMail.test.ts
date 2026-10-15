@@ -8,6 +8,7 @@ import { md5 } from '../generation/md5.js';
 import type { OwnerPatchRow } from '../network/materializeWorkstationFs.js';
 import {
   handleResolveMail,
+  type ChangePassword,
   type DeleteMessage,
   type OpenInbox,
   type OpenMessage,
@@ -43,6 +44,7 @@ const makeDeps = (
     readonly openMessage?: OpenMessage;
     readonly sendMessage?: SendMessage;
     readonly deleteMessage?: DeleteMessage;
+    readonly changePassword?: ChangePassword;
     readonly journal?: readonly OwnerPatchRow[];
   } = {},
 ) => {
@@ -59,6 +61,9 @@ const makeDeps = (
   );
   const deleteMessage = vi.fn(
     over.deleteMessage ?? (async () => ({ data: { outcome: 'deleted' }, error: null })),
+  );
+  const changePassword = vi.fn(
+    over.changePassword ?? (async () => ({ data: { outcome: 'changed' }, error: null })),
   );
   const findNetworkByPublicIp = vi.fn(async (publicIp: string) => ({
     data:
@@ -78,8 +83,17 @@ const makeDeps = (
     openMessage,
     sendMessage,
     deleteMessage,
+    changePassword,
   };
-  return { deps, openInbox, openMessage, sendMessage, deleteMessage, findNetworkByPublicIp };
+  return {
+    deps,
+    openInbox,
+    openMessage,
+    sendMessage,
+    deleteMessage,
+    changePassword,
+    findNetworkByPublicIp,
+  };
 };
 
 const inboxRequest = (fields: Record<string, unknown> = {}) =>
@@ -496,6 +510,108 @@ describe('emailit.io deletes a message for whoever holds the password', () => {
 
     expect((await handleResolveMail(deleteRequest({ number }), deps)).status).toBe(400);
     expect(deleteMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe('emailit.io changes the password for whoever holds the old one', () => {
+  const passwdRequest = (fields: Record<string, unknown> = {}) =>
+    inboxRequest({ op: 'passwd', newPassword: 'n3wer', ...fields });
+
+  it('answers that the password changed', async () => {
+    const { deps } = makeDeps();
+
+    expect(await handleResolveMail(passwdRequest(), deps)).toEqual({
+      status: 200,
+      body: { ok: true },
+    });
+  });
+
+  it('hands the store the md5 of the old password and of the new, never either password', async () => {
+    const { deps, changePassword, openInbox } = makeDeps();
+
+    await handleResolveMail(passwdRequest(), deps);
+
+    expect(changePassword).toHaveBeenCalledWith({
+      handle: 'neo',
+      passwordMd5: md5('s3cret'),
+      playerKey: BOB.publicKeyHex,
+      newPasswordMd5: md5('n3wer'),
+    });
+    expect(openInbox).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['login_failed', 401],
+    ['throttled', 429],
+  ])('passes on a refusal of %s as %i', async (outcome, status) => {
+    const { deps } = makeDeps({
+      changePassword: async () => ({ data: { outcome }, error: null }),
+    });
+
+    expect(await handleResolveMail(passwdRequest(), deps)).toEqual({
+      status,
+      body: { error: outcome },
+    });
+  });
+
+  it('changes nothing while emailit.io will not come up', async () => {
+    const { deps, changePassword } = makeDeps({
+      journal: [
+        {
+          path: '/boot/vmlinuz',
+          content: null,
+          owner: 'root',
+          permissions: null,
+          node_type: null,
+          updated_at: '2026-10-15T09:00:00.000Z',
+          writer_key: BOB.publicKeyHex,
+        },
+      ],
+    });
+
+    expect((await handleResolveMail(passwdRequest(), deps)).status).toBe(404);
+    expect(changePassword).not.toHaveBeenCalled();
+  });
+
+  it('reports a store it could not ask as a server error', async () => {
+    const { deps } = makeDeps({
+      changePassword: async () => ({ data: null, error: { message: 'connection refused' } }),
+    });
+
+    expect(await handleResolveMail(passwdRequest(), deps)).toEqual({
+      status: 500,
+      body: { error: 'mail_failed' },
+    });
+  });
+
+  it('reports an answer it cannot read as a server error', async () => {
+    const { deps } = makeDeps({
+      changePassword: async () => ({ data: { outcome: 'deleted' }, error: null }),
+    });
+
+    expect((await handleResolveMail(passwdRequest(), deps)).status).toBe(500);
+  });
+
+  it('takes a new password of 4 characters, the shortest a sign-up takes', async () => {
+    const { deps, changePassword } = makeDeps();
+
+    expect((await handleResolveMail(passwdRequest({ newPassword: 'abcd' }), deps)).status).toBe(
+      200,
+    );
+    expect(changePassword).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ['a 3-character new password', { newPassword: 'abc' }],
+    ['no new password', { newPassword: undefined }],
+  ])('turns away %s, asking nobody', async (_label, fields) => {
+    const { deps, changePassword } = makeDeps();
+
+    expect(await handleResolveMail(passwdRequest(fields), deps)).toEqual({
+      status: 400,
+      body: { error: 'payload_invalid' },
+    });
+    expect(changePassword).not.toHaveBeenCalled();
   });
 });
 

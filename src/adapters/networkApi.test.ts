@@ -8,6 +8,7 @@ import {
   leaveHomeNetwork,
   openMailInbox,
   deleteMailMessage,
+  changeMailPassword,
   readMailMessage,
   sendMail,
   resolveCrossPlayerFs,
@@ -1144,6 +1145,61 @@ describe('deleteMailMessage', () => {
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
 
     expect(await deleteMailMessage(deps, LOGIN, 2)).toEqual({ ok: false, error: 'network_error' });
+  });
+});
+
+describe('changeMailPassword', () => {
+  const LOGIN = { handle: 'neo', password: 's3cret' };
+
+  it('signs a resolveMail request carrying the old password and the new, and says it changed', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await changeMailPassword(deps, LOGIN, 'n3wer')).toEqual({ ok: true });
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected verified envelope');
+    expect(verified.payload).toMatchObject({
+      action: 'resolveMail',
+      op: 'passwd',
+      handle: 'neo',
+      password: 's3cret',
+      newPassword: 'n3wer',
+    });
+  });
+
+  it.each([
+    [401, { error: 'login_failed' }, 'login_failed'],
+    [429, { error: 'throttled' }, 'throttled'],
+    [404, { error: 'host_unreachable' }, 'host_unreachable'],
+    [404, { error: 'no_message' }, 'network_error'],
+    [500, { error: 'mail_failed' }, 'network_error'],
+  ])('reads a %i %o as %s', async (status, body, error) => {
+    const fetchSpy = vi.fn(async () => jsonResponse(status, body));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await changeMailPassword(deps, LOGIN, 'n3wer')).toEqual({ ok: false, error });
+  });
+
+  it('reads a 200 that does not say it changed as the request failing', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, {}));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await changeMailPassword(deps, LOGIN, 'n3wer')).toEqual({
+      ok: false,
+      error: 'network_error',
+    });
+  });
+
+  it('reads a request that never came back as the request failing', async () => {
+    const fetchSpy = vi.fn(async () => {
+      throw new TypeError('Failed to fetch');
+    });
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await changeMailPassword(deps, LOGIN, 'n3wer')).toEqual({
+      ok: false,
+      error: 'network_error',
+    });
   });
 });
 

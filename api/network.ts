@@ -454,7 +454,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (actionOf(req.body) === 'resolveMail') {
     // `mail`: an inbox, or one message in it, opened to whoever holds its password, a
-    // message sent from it, or one deleted from it. Reached through emailit.io's web server like a fetch, so a
+    // message sent from it, one deleted from it, or its password changed. Reached through emailit.io's web server like a fetch, so a
     // dark emailit.io has no mail; the password check and the work are one call into the
     // function, and its answer is handed over as it came off the wire for the handler to
     // read.
@@ -505,6 +505,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           delete_number: number,
         });
         logFailure('mail delete', error);
+        return { data: data as unknown, error };
+      },
+      // The old password is checked in the same call that stores the new one's hash.
+      changePassword: async ({ handle, passwordMd5, playerKey, newPasswordMd5 }) => {
+        const { data, error } = await supabase.rpc('email_passwd', {
+          passwd_handle: handle,
+          passwd_password_md5: passwordMd5,
+          passwd_player_key: playerKey,
+          passwd_new_md5: newPasswordMd5,
+        });
+        logFailure('mail passwd', error);
         return { data: data as unknown, error };
       },
     });
