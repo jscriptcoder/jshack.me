@@ -1611,11 +1611,12 @@ export type InboxMessage = {
 export type InboxResult =
   | { readonly ok: true; readonly messages: readonly InboxMessage[] }
   /** `host_unreachable`: emailit.io did not answer. `login_failed`: a wrong password, or
-   *  a handle nobody holds, which the server does not tell apart. `network_error`: OUR
-   *  side failing to ask, or an answer that was not one. */
+   *  a handle nobody holds, which the server does not tell apart. `throttled`: this player
+   *  has guessed wrong too often in the last minute, and nothing was checked.
+   *  `network_error`: OUR side failing to ask, or an answer that was not one. */
   | {
       readonly ok: false;
-      readonly error: 'host_unreachable' | 'login_failed' | 'network_error';
+      readonly error: 'host_unreachable' | 'login_failed' | 'throttled' | 'network_error';
     };
 
 /** One message opened to be read: what the list shows of it, and its body as written. */
@@ -1626,7 +1627,12 @@ export type MessageResult =
   /** As an inbox's, and `no_message`: the inbox holds nothing by that number. */
   | {
       readonly ok: false;
-      readonly error: 'host_unreachable' | 'login_failed' | 'no_message' | 'network_error';
+      readonly error:
+        | 'host_unreachable'
+        | 'login_failed'
+        | 'throttled'
+        | 'no_message'
+        | 'network_error';
     };
 
 /** The emailit.io seam. Every request carries the login, because the server keeps no

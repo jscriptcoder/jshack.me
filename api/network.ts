@@ -460,19 +460,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { status, body } = await handleResolveMail(req.body, {
       nonceStore: noopNonceStore,
       ...webTargetDepsVia({ supabase, label: 'mail' }),
-      openInbox: async ({ handle, passwordMd5 }) => {
+      // The player's key goes with every password check: wrong passwords are held back
+      // per guesser, counted inside the function.
+      openInbox: async ({ handle, passwordMd5, playerKey }) => {
         const { data, error } = await supabase.rpc('email_inbox', {
           inbox_handle: handle,
           inbox_password_md5: passwordMd5,
+          inbox_player_key: playerKey,
         });
         logFailure('mail inbox', error);
         return { data: data as unknown, error };
       },
       // Opening a message marks it read in the same call.
-      openMessage: async ({ handle, passwordMd5, number }) => {
+      openMessage: async ({ handle, passwordMd5, playerKey, number }) => {
         const { data, error } = await supabase.rpc('email_read', {
           read_handle: handle,
           read_password_md5: passwordMd5,
+          read_player_key: playerKey,
           read_number: number,
         });
         logFailure('mail read', error);

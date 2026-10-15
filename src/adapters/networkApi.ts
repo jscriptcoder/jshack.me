@@ -278,13 +278,13 @@ const inboxResponseSchema = z.object({
 
 /** The refusals emailit.io gives for an inbox. Anything else that is not one is our own
  *  side failing to ask. */
-const INBOX_REFUSALS = ['host_unreachable', 'login_failed'] as const;
+const INBOX_REFUSALS = ['host_unreachable', 'login_failed', 'throttled'] as const;
 
 /**
  * Open an emailit.io inbox with a handle and its password (backs `env.mail.inbox`).
  *
- * emailit.io not answering and a failed login are the two refusals a player is told
- * apart. Everything else — a 500, an unverifiable envelope, a malformed body, a thrown
+ * emailit.io not answering, a failed login and a player held back for guessing wrong too
+ * often are the refusals a player is told apart. Everything else — a 500, an unverifiable envelope, a malformed body, a thrown
  * request — is `network_error`.
  */
 export const openMailInbox = async (
@@ -319,7 +319,7 @@ export const openMailInbox = async (
 const messageResponseSchema = z.object({ ok: z.literal(true), message: openedMessageSchema });
 
 /** The refusals emailit.io gives for one message. */
-const MESSAGE_REFUSALS = ['host_unreachable', 'login_failed', 'no_message'] as const;
+const MESSAGE_REFUSALS = ['host_unreachable', 'login_failed', 'throttled', 'no_message'] as const;
 
 /**
  * Open one message of an emailit.io inbox by its number (backs `env.mail.read`). The

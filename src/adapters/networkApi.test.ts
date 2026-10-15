@@ -925,6 +925,7 @@ describe('openMailInbox', () => {
 
   it.each([
     [401, { error: 'login_failed' }, 'login_failed'],
+    [429, { error: 'throttled' }, 'throttled'],
     [404, { error: 'host_unreachable' }, 'host_unreachable'],
     [500, { error: 'mail_failed' }, 'network_error'],
     [401, { error: 'signature_invalid' }, 'network_error'],
@@ -991,6 +992,7 @@ describe('readMailMessage', () => {
   it.each([
     [404, { error: 'no_message' }, 'no_message'],
     [401, { error: 'login_failed' }, 'login_failed'],
+    [429, { error: 'throttled' }, 'throttled'],
     [404, { error: 'host_unreachable' }, 'host_unreachable'],
     [500, { error: 'mail_failed' }, 'network_error'],
   ])('reads a %i %o as %s', async (status, body, error) => {

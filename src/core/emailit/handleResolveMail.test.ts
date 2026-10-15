@@ -114,6 +114,17 @@ describe('emailit.io opens an inbox to whoever holds its password', () => {
     });
   });
 
+  it('says the player must wait when the store is holding their guesses back', async () => {
+    const { deps } = makeDeps({
+      openInbox: async () => ({ data: { outcome: 'throttled' }, error: null }),
+    });
+
+    expect(await handleResolveMail(inboxRequest(), deps)).toEqual({
+      status: 429,
+      body: { error: 'throttled' },
+    });
+  });
+
   it('opens nothing while emailit.io will not come up', async () => {
     const { deps, openInbox } = makeDeps({
       journal: [
@@ -214,6 +225,17 @@ describe('emailit.io opens one message, and marks it read', () => {
     expect(await handleResolveMail(messageRequest(), deps)).toEqual({
       status: 401,
       body: { error: 'login_failed' },
+    });
+  });
+
+  it('says the player must wait when the store is holding their guesses back', async () => {
+    const { deps } = makeDeps({
+      openMessage: async () => ({ data: { outcome: 'throttled' }, error: null }),
+    });
+
+    expect(await handleResolveMail(messageRequest(), deps)).toEqual({
+      status: 429,
+      body: { error: 'throttled' },
     });
   });
 

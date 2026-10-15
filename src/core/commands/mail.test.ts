@@ -377,6 +377,15 @@ describe('mail — when there is no inbox to list', () => {
     expect(asked).toEqual([]);
   });
 
+  it('says to wait when emailit.io is holding back guesses from this player', async () => {
+    const { env } = mailEnv({ answers: { ok: false, error: 'throttled' } });
+
+    const result = await mail.execute(env, [], NO_FLAGS);
+
+    expect(linesOf(result, 'error')).toEqual(['mail: too many failed logins, wait a minute']);
+    expect(exitCodeOf(result)).toBe(1);
+  });
+
   it('says the login failed when emailit.io turns the password down, naming the address', async () => {
     const { env } = mailEnv({ answers: { ok: false, error: 'login_failed' } });
 
@@ -498,6 +507,14 @@ describe('mail read — one message, which emailit.io then marks read', () => {
 
     expect(linesOf(result, 'error')).toEqual([USAGE]);
     expect(opensAsked).toEqual([]);
+  });
+
+  it('says to wait when emailit.io is holding back guesses from this player', async () => {
+    const { env } = mailEnv({ opens: { ok: false, error: 'throttled' } });
+
+    const result = await mail.execute(env, ['read', '1'], NO_FLAGS);
+
+    expect(linesOf(result, 'error')).toEqual(['mail: too many failed logins, wait a minute']);
   });
 
   it('says the login failed when emailit.io turns the password down', async () => {
@@ -665,6 +682,19 @@ describe('mail login — the login written to ~/.mailrc', () => {
     expect(linesOf(result, 'error')).toEqual(['mail: no address given']);
     expect(prompted).toHaveLength(1);
     expect(asked).toEqual([]);
+  });
+
+  it('writes nothing, and says to wait, while emailit.io is holding back guesses', async () => {
+    const { env, treeAfter } = mailEnv({
+      tree: boxWith({}),
+      typed: ['neo', 's3cret'],
+      answers: { ok: false, error: 'throttled' },
+    });
+
+    const result = await mail.execute(env, ['login'], NO_FLAGS);
+
+    expect(linesOf(result, 'error')).toEqual(['mail: too many failed logins, wait a minute']);
+    expect(readAs(treeAfter(), 'user', ALICE_RC).ok).toBe(false);
   });
 
   it('writes nothing, and leaves a saved login as it was, when the login fails', async () => {

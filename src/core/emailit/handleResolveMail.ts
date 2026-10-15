@@ -13,6 +13,11 @@
  * and it answers a wrong password and a handle nobody holds the same way: a login that
  * failed says nothing about which half was wrong.
  *
+ * Wrong passwords are held back per guesser: the store counts each player's failures by
+ * the key that signed the request, and refuses every check from a player with 5 in the
+ * last minute (`throttled`). No account is ever locked, so nobody can lock anybody out
+ * of their mail by guessing at it.
+ *
  * Mail leaves no line in emailit.io's `access.log`. It is not a page fetch, and a check
  * for new mail every minute would bury the log.
  */
@@ -61,11 +66,13 @@ export type ResolveMailDeps = WebTargetDeps & {
 const inboxAnswerSchema = z.discriminatedUnion('outcome', [
   z.object({ outcome: z.literal('opened'), messages: z.array(listedMessageSchema) }),
   z.object({ outcome: z.literal('login_failed') }),
+  z.object({ outcome: z.literal('throttled') }),
 ]);
 
 const messageAnswerSchema = z.discriminatedUnion('outcome', [
   z.object({ outcome: z.literal('opened'), message: openedMessageSchema }),
   z.object({ outcome: z.literal('login_failed') }),
+  z.object({ outcome: z.literal('throttled') }),
   z.object({ outcome: z.literal('no_message') }),
 ]);
 
@@ -85,6 +92,7 @@ const EMAILIT_IP = siteAddress(EMAILIT_DOMAIN) ?? '';
 
 const MAIL_FAILED: HandlerResponse = { status: 500, body: { error: 'mail_failed' } };
 const LOGIN_FAILED: HandlerResponse = { status: 401, body: { error: 'login_failed' } };
+const THROTTLED: HandlerResponse = { status: 429, body: { error: 'throttled' } };
 
 export const handleResolveMail = async (
   body: unknown,
@@ -113,6 +121,7 @@ export const handleResolveMail = async (
     const answer = messageAnswerSchema.safeParse(reply.data);
     if (reply.error || !answer.success) return MAIL_FAILED;
     if (answer.data.outcome === 'login_failed') return LOGIN_FAILED;
+    if (answer.data.outcome === 'throttled') return THROTTLED;
     if (answer.data.outcome === 'no_message') {
       return { status: 404, body: { error: 'no_message' } };
     }
@@ -123,5 +132,6 @@ export const handleResolveMail = async (
   const answer = inboxAnswerSchema.safeParse(reply.data);
   if (reply.error || !answer.success) return MAIL_FAILED;
   if (answer.data.outcome === 'login_failed') return LOGIN_FAILED;
+  if (answer.data.outcome === 'throttled') return THROTTLED;
   return { status: 200, body: { ok: true, messages: answer.data.messages } };
 };

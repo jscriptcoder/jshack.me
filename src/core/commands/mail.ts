@@ -128,8 +128,13 @@ const listLine = ({ number, sender, subject, deliveredAt, read }: InboxMessage):
 type Saved = { readonly address: string; readonly login: MailLogin };
 
 /** What a request emailit.io refused, or that never got there, says. */
-const unanswered = (saved: Saved, error: Exclude<InboxResult, { ok: true }>['error']) =>
-  refusal(error === 'login_failed' ? `mail: login failed for ${saved.address}` : UNREACHABLE);
+const unanswered = (saved: Saved, error: Exclude<InboxResult, { ok: true }>['error']) => {
+  if (error === 'login_failed') return refusal(`mail: login failed for ${saved.address}`);
+  // Held back for guessing wrong too often: nothing was checked, the right password
+  // included, until the player's oldest failure is a minute old.
+  if (error === 'throttled') return refusal('mail: too many failed logins, wait a minute');
+  return refusal(UNREACHABLE);
+};
 
 /** A message's `Date:` header: `Thu, 15 Oct 2026 09:12:03 +0000`, in UTC. */
 const headerDate = (deliveredAt: string): string =>
