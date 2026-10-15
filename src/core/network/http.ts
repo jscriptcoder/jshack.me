@@ -133,26 +133,35 @@ export const resolveHref = ({
   return formatUrl({ host: from.host, port: from.port, path });
 };
 
+type FormField = { readonly name: string; readonly value: string };
+
+/**
+ * What a form's fields read as on the wire: a GET form's query, and a POST form's body.
+ *
+ * Every field goes in the order the page wrote it. Values are form-encoded exactly as
+ * the servers here decode them: a space becomes `+`, and every character that could end
+ * a field or change what it names (`&`, `=`, `+`, `%`) is escaped, so what a reader
+ * typed arrives as what they typed.
+ */
+export const encodeForm = (fields: readonly FormField[]): string =>
+  new URLSearchParams(fields.map(({ name, value }) => [name, value])).toString();
+
 /**
  * The address a GET form sends a reader to: its action, asking what was typed into it.
  *
  * The query is the whole question, so whatever query the action already carried is
- * replaced rather than added to, and every field goes in the order the page wrote it.
- * Values are form-encoded exactly as findit decodes them: a space becomes `+`, and
- * every character that could end the address or change what it names is escaped, so
- * what a searcher typed arrives as what they typed.
+ * replaced rather than added to.
  */
 export const formSubmissionUrl = ({
   action,
   fields,
 }: {
   readonly action: string;
-  readonly fields: readonly { readonly name: string; readonly value: string }[];
+  readonly fields: readonly FormField[];
 }): string => {
   const queryAt = action.indexOf('?');
   const target = queryAt === -1 ? action : action.slice(0, queryAt);
-  const query = new URLSearchParams(fields.map(({ name, value }) => [name, value]));
-  return `${target}?${query.toString()}`;
+  return `${target}?${encodeForm(fields)}`;
 };
 
 /**
