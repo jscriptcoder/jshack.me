@@ -5,8 +5,12 @@ import {
   mockCommandEnv,
   mockFsViewFromTree,
   mockNetworkViewFromConnectivity,
+  mockPatchApi,
   mockSession,
 } from '../../test/factories/commandEnv.js';
+import { applyPatches, type Patch } from '../filesystem/applyPatches.js';
+import { createFsView } from '../filesystem/fsView.js';
+import { defaultFilePermissions } from '../filesystem/defaultPermissions.js';
 import { HOME_DIR, ROOT_DIR } from '../generation/baseFs.js';
 import { assignHomeNetwork } from '../network/homeNetwork.js';
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces.js';
@@ -24,6 +28,7 @@ import type {
 import type { Directory } from '../filesystem/types.js';
 
 const NO_FLAGS = new Map<string, string | true>();
+const USAGE = 'mail: usage: mail [read <n>] | login | logout';
 const PLAYER_KEY = 'a'.repeat(64);
 const ESSID = 'BEAN-THERE-WIFI';
 
@@ -96,9 +101,14 @@ const opened = (overrides: Partial<MailMessage> = {}): MailMessage => ({
   ...overrides,
 });
 
+type Prompted = { readonly message: string; readonly masked: boolean };
+
 /** A shell on `tree` as alice (or `userType`), online unless told otherwise, and an
  *  emailit.io that answers every inbox with `answers` and every message with `opens`,
- *  and keeps every login it was asked with and every message asked for. */
+ *  and keeps every login it was asked with and every message asked for. The player
+ *  answers prompts with `typed`, in order. What the box was told to write or remove is
+ *  journalled in the shape the real seam sends it, so `treeAfter` reads the box back
+ *  through the walker, as a player would. */
 const mailEnv = (
   options: {
     readonly tree?: Directory;
@@ -106,22 +116,55 @@ const mailEnv = (
     readonly connectivity?: ConnectivityState;
     readonly answers?: InboxResult;
     readonly opens?: MessageResult;
+    readonly typed?: readonly string[];
+    /** The one patch the box refuses, as a round trip that never completed. */
+    readonly refuses?: 'write' | 'remove';
   } = {},
 ): {
   readonly env: CommandEnv;
   readonly asked: readonly MailLogin[];
   readonly opensAsked: readonly { readonly login: MailLogin; readonly number: number }[];
+  readonly prompted: readonly Prompted[];
+  /** Whether each write told the box the file was new. */
+  readonly writtenAsNew: readonly boolean[];
+  readonly treeAfter: () => Directory;
 } => {
   const asked: MailLogin[] = [];
   const opensAsked: { readonly login: MailLogin; readonly number: number }[] = [];
+  const prompted: Prompted[] = [];
+  const writtenAsNew: boolean[] = [];
+  const journal: Patch[] = [];
+  const answers = [...(options.typed ?? [])];
   const userType = options.userType ?? 'user';
+  const username = userType === 'root' ? 'root' : 'alice';
+  const tree = options.tree ?? boxWith({ aliceRc: NEO_MAILRC });
+  const REFUSED = { ok: false, error: 'network_error' } as const;
   const env = mockCommandEnv({
-    fs: mockFsViewFromTree(options.tree ?? boxWith({ aliceRc: NEO_MAILRC }), {
-      userType,
-      cwd: asAbsPath('/'),
-    }),
-    session: mockSession({ username: userType === 'root' ? 'root' : 'alice', userType }),
+    fs: mockFsViewFromTree(tree, { userType, cwd: asAbsPath('/') }),
+    session: mockSession({ username, userType }),
     network: mockNetworkViewFromConnectivity(options.connectivity ?? joinedConnectivity()),
+    prompt: async (asking) => {
+      prompted.push(asking);
+      return answers.shift() ?? '';
+    },
+    patches: mockPatchApi({
+      write: async (path, content, patchOptions) => {
+        if (options.refuses === 'write') return REFUSED;
+        writtenAsNew.push(patchOptions?.isNew ?? false);
+        journal.push({
+          path,
+          content,
+          owner: patchOptions?.owner ?? username,
+          permissions: patchOptions?.permissions ?? defaultFilePermissions(userType),
+        });
+        return { ok: true };
+      },
+      remove: async (path) => {
+        if (options.refuses === 'remove') return REFUSED;
+        journal.push({ path, content: null, owner: username });
+        return { ok: true };
+      },
+    }),
     mail: {
       inbox: async (login) => {
         asked.push(login);
@@ -133,8 +176,18 @@ const mailEnv = (
       },
     },
   });
-  return { env, asked, opensAsked };
+  return {
+    env,
+    asked,
+    opensAsked,
+    prompted,
+    writtenAsNew,
+    treeAfter: () => applyPatches(tree, journal),
+  };
 };
+
+const readAs = (tree: Directory, userType: UserType, path: string) =>
+  createFsView(tree, { userType }).read(asAbsPath(path));
 
 describe('mail — the inbox of whoever ~/.mailrc names', () => {
   it('lists the inbox one message to a line: unread mark, number, sender, date, subject', async () => {
@@ -359,7 +412,7 @@ describe('mail — when there is no inbox to list', () => {
 
     const result = await mail.execute(env, ['fetch'], NO_FLAGS);
 
-    expect(linesOf(result, 'error')).toEqual(['mail: usage: mail [read <n>]']);
+    expect(linesOf(result, 'error')).toEqual([USAGE]);
     expect(asked).toEqual([]);
   });
 });
@@ -443,7 +496,7 @@ describe('mail read — one message, which emailit.io then marks read', () => {
 
     const result = await mail.execute(env, args, NO_FLAGS);
 
-    expect(linesOf(result, 'error')).toEqual(['mail: usage: mail [read <n>]']);
+    expect(linesOf(result, 'error')).toEqual([USAGE]);
     expect(opensAsked).toEqual([]);
   });
 
@@ -477,5 +530,264 @@ describe('mail read — one message, which emailit.io then marks read', () => {
       'mail: not logged in — run mail login',
     ]);
     expect([...offline.opensAsked, ...loggedOut.opensAsked]).toEqual([]);
+  });
+});
+
+const ALICE_RC = '/home/alice/.mailrc';
+
+describe('mail login — the login written to ~/.mailrc', () => {
+  it('asks for the address, then the password unseen', async () => {
+    const { env, prompted } = mailEnv({ tree: boxWith({}), typed: ['neo@emailit.io', 's3cret'] });
+
+    await mail.execute(env, ['login'], NO_FLAGS);
+
+    expect(prompted).toEqual([
+      { message: 'Address: ', masked: false },
+      { message: 'Password: ', masked: true },
+    ]);
+  });
+
+  it('saves the address and password as set lines, and counts the new mail', async () => {
+    const { env, treeAfter } = mailEnv({
+      tree: boxWith({}),
+      typed: ['neo@emailit.io', 's3cret'],
+    });
+
+    const result = await mail.execute(env, ['login'], NO_FLAGS);
+
+    expect(linesOf(result, 'text')).toEqual(['You have 1 new message.']);
+    expect(exitCodeOf(result)).toBe(0);
+    expect(readAs(treeAfter(), 'user', ALICE_RC)).toEqual({ ok: true, content: NEO_MAILRC });
+  });
+
+  it('asks emailit.io before it writes anything, with what was typed', async () => {
+    const { env, asked } = mailEnv({ tree: boxWith({}), typed: ['neo@emailit.io', 'a b=c'] });
+
+    await mail.execute(env, ['login'], NO_FLAGS);
+
+    expect(asked).toEqual([{ handle: 'neo', password: 'a b=c' }]);
+  });
+
+  it('leaves the file to its user and root, so a guest on the box cannot read it', async () => {
+    const { env, treeAfter } = mailEnv({ tree: boxWith({}), typed: ['neo', 's3cret'] });
+
+    await mail.execute(env, ['login'], NO_FLAGS);
+
+    expect(readAs(treeAfter(), 'root', ALICE_RC).ok).toBe(true);
+    expect(readAs(treeAfter(), 'guest', ALICE_RC)).toEqual({
+      ok: false,
+      error: 'permission_denied',
+    });
+    expect(createFsView(treeAfter(), { userType: 'root' }).stat(asAbsPath(ALICE_RC))?.owner).toBe(
+      'alice',
+    );
+  });
+
+  it("writes root's login to root's home, for root alone", async () => {
+    const { env, treeAfter } = mailEnv({
+      userType: 'root',
+      tree: boxWith({}),
+      typed: ['trin', 'follow'],
+    });
+
+    await mail.execute(env, ['login'], NO_FLAGS);
+
+    expect(readAs(treeAfter(), 'root', '/root/.mailrc')).toEqual({
+      ok: true,
+      content: mailrc('set from=trin@emailit.io', 'set password=follow'),
+    });
+    expect(readAs(treeAfter(), 'user', '/root/.mailrc').ok).toBe(false);
+  });
+
+  it('takes a bare handle, in any case, as the lowercase address at emailit.io', async () => {
+    const { env, asked, treeAfter } = mailEnv({ tree: boxWith({}), typed: [' Neo ', 's3cret'] });
+
+    await mail.execute(env, ['login'], NO_FLAGS);
+
+    expect(asked).toEqual([{ handle: 'neo', password: 's3cret' }]);
+    expect(readAs(treeAfter(), 'user', ALICE_RC)).toEqual({ ok: true, content: NEO_MAILRC });
+  });
+
+  it.each([
+    [[message(), message({ number: 2 })], 'You have 2 new messages.'],
+    [[message({ read: true }), message({ number: 2, read: true })], 'You have no new messages.'],
+    [[], 'You have no new messages.'],
+  ])('counts only unread mail as new', async (messages, said) => {
+    const { env } = mailEnv({
+      tree: boxWith({}),
+      typed: ['neo', 's3cret'],
+      answers: { ok: true, messages },
+    });
+
+    expect(linesOf(await mail.execute(env, ['login'], NO_FLAGS), 'text')).toEqual([said]);
+  });
+
+  it('replaces a ~/.mailrc already there, telling the box the file is not new', async () => {
+    const { env, treeAfter, writtenAsNew } = mailEnv({ typed: ['trin', 'follow'] });
+
+    await mail.execute(env, ['login'], NO_FLAGS);
+
+    expect(readAs(treeAfter(), 'user', ALICE_RC)).toEqual({
+      ok: true,
+      content: mailrc('set from=trin@emailit.io', 'set password=follow'),
+    });
+    expect(writtenAsNew).toEqual([false]);
+  });
+
+  it('tells the box a first ~/.mailrc is new', async () => {
+    const { env, writtenAsNew } = mailEnv({ tree: boxWith({}), typed: ['neo', 's3cret'] });
+
+    await mail.execute(env, ['login'], NO_FLAGS);
+
+    expect(writtenAsNew).toEqual([true]);
+  });
+
+  it('refuses an address at another domain before asking for the password', async () => {
+    const { env, prompted, asked, treeAfter } = mailEnv({
+      tree: boxWith({}),
+      typed: ['neo@gmail.com', 's3cret'],
+    });
+
+    const result = await mail.execute(env, ['login'], NO_FLAGS);
+
+    expect(linesOf(result, 'error')).toEqual(['mail: neo@gmail.com: unknown domain']);
+    expect(exitCodeOf(result)).toBe(1);
+    expect(prompted).toHaveLength(1);
+    expect(asked).toEqual([]);
+    expect(readAs(treeAfter(), 'user', ALICE_RC).ok).toBe(false);
+  });
+
+  it('refuses an empty address before asking for the password', async () => {
+    const { env, prompted, asked } = mailEnv({ tree: boxWith({}), typed: ['  ', 's3cret'] });
+
+    const result = await mail.execute(env, ['login'], NO_FLAGS);
+
+    expect(linesOf(result, 'error')).toEqual(['mail: no address given']);
+    expect(prompted).toHaveLength(1);
+    expect(asked).toEqual([]);
+  });
+
+  it('writes nothing, and leaves a saved login as it was, when the login fails', async () => {
+    const { env, treeAfter } = mailEnv({
+      typed: ['trin', 'wrong'],
+      answers: { ok: false, error: 'login_failed' },
+    });
+
+    const result = await mail.execute(env, ['login'], NO_FLAGS);
+
+    expect(linesOf(result, 'error')).toEqual(['mail: login failed for trin@emailit.io']);
+    expect(exitCodeOf(result)).toBe(1);
+    expect(readAs(treeAfter(), 'user', ALICE_RC)).toEqual({ ok: true, content: NEO_MAILRC });
+  });
+
+  it.each(['host_unreachable', 'network_error'] as const)(
+    'writes nothing when the inbox comes back %s',
+    async (error) => {
+      const { env, treeAfter } = mailEnv({
+        tree: boxWith({}),
+        typed: ['neo', 's3cret'],
+        answers: { ok: false, error },
+      });
+
+      const result = await mail.execute(env, ['login'], NO_FLAGS);
+
+      expect(linesOf(result, 'error')).toEqual(['mail: cannot reach emailit.io']);
+      expect(readAs(treeAfter(), 'user', ALICE_RC).ok).toBe(false);
+    },
+  );
+
+  it('asks nobody, and writes nothing, from a box with no network', async () => {
+    const { env, asked, treeAfter } = mailEnv({
+      tree: boxWith({}),
+      typed: ['neo', 's3cret'],
+      connectivity: buildColdStartConnectivity(PLAYER_KEY),
+    });
+
+    const result = await mail.execute(env, ['login'], NO_FLAGS);
+
+    expect(linesOf(result, 'error')).toEqual(['mail: cannot reach emailit.io']);
+    expect(asked).toEqual([]);
+    expect(readAs(treeAfter(), 'user', ALICE_RC).ok).toBe(false);
+  });
+
+  it('asks nobody when the home cannot take the file, and leaves no login', async () => {
+    const shutHome = buildDirectory({
+      home: buildDirectory({
+        alice: buildDirectory({}, { owner: 'root', perms: ROOT_DIR }),
+      }),
+    });
+    const { env, asked } = mailEnv({ tree: shutHome, typed: ['neo', 's3cret'] });
+
+    const result = await mail.execute(env, ['login'], NO_FLAGS);
+
+    expect(linesOf(result, 'error')).toEqual([
+      `mail: can't create '${ALICE_RC}': Permission denied`,
+    ]);
+    expect(exitCodeOf(result)).toBe(1);
+    expect(asked).toEqual([]);
+  });
+
+  it('says what the box said when it turns the write down, and claims no login', async () => {
+    const { env } = mailEnv({ tree: boxWith({}), typed: ['neo', 's3cret'], refuses: 'write' });
+
+    const result = await mail.execute(env, ['login'], NO_FLAGS);
+
+    expect(linesOf(result, 'error')).toEqual([`mail: can't create '${ALICE_RC}': I/O error`]);
+    expect(linesOf(result, 'text')).toEqual([]);
+  });
+
+  it('prints its usage when given anything more', async () => {
+    const { env, prompted } = mailEnv({ typed: ['neo', 's3cret'] });
+
+    const result = await mail.execute(env, ['login', 'neo'], NO_FLAGS);
+
+    expect(linesOf(result, 'error')).toEqual([USAGE]);
+    expect(prompted).toEqual([]);
+  });
+});
+
+describe('mail logout — the login taken off the box', () => {
+  it('deletes ~/.mailrc and says nothing', async () => {
+    const { env, treeAfter } = mailEnv();
+
+    const result = await mail.execute(env, ['logout'], NO_FLAGS);
+
+    expect(result).toEqual({ kind: 'sync', lines: [], exitCode: 0 });
+    expect(readAs(treeAfter(), 'user', ALICE_RC)).toEqual({ ok: false, error: 'not_found' });
+  });
+
+  it('asks emailit.io nothing: there is no session there to end', async () => {
+    const { env, asked } = mailEnv();
+
+    await mail.execute(env, ['logout'], NO_FLAGS);
+
+    expect(asked).toEqual([]);
+  });
+
+  it('says so when the user has no ~/.mailrc', async () => {
+    const { env } = mailEnv({ tree: boxWith({}) });
+
+    const result = await mail.execute(env, ['logout'], NO_FLAGS);
+
+    expect(linesOf(result, 'error')).toEqual(['mail: not logged in']);
+    expect(exitCodeOf(result)).toBe(1);
+  });
+
+  it('says what the box said when it turns the removal down', async () => {
+    const { env, treeAfter } = mailEnv({ refuses: 'remove' });
+
+    const result = await mail.execute(env, ['logout'], NO_FLAGS);
+
+    expect(linesOf(result, 'error')).toEqual([`mail: can't remove '${ALICE_RC}': I/O error`]);
+    expect(readAs(treeAfter(), 'user', ALICE_RC).ok).toBe(true);
+  });
+
+  it('prints its usage when given anything more', async () => {
+    const { env, treeAfter } = mailEnv();
+
+    const result = await mail.execute(env, ['logout', 'now'], NO_FLAGS);
+
+    expect(linesOf(result, 'error')).toEqual([USAGE]);
+    expect(readAs(treeAfter(), 'user', ALICE_RC).ok).toBe(true);
   });
 });

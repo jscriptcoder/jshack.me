@@ -15,21 +15,22 @@
  * the shell's box stands on, exactly as `curl` there would.
  */
 
-import type {
-  Command,
-  CommandEnv,
-  CommandResult,
-  InboxMessage,
-  InboxResult,
-  MailLogin,
-  MailMessage,
+import {
+  PATCH_ERROR_REASON,
+  type Command,
+  type CommandEnv,
+  type CommandResult,
+  type InboxMessage,
+  type InboxResult,
+  type MailLogin,
+  type MailMessage,
 } from './types.js';
 import { vantageOf } from '../network/vantage.js';
 import { homeDirectory } from '../sessions/homeDirectory.js';
 import { EMAILIT_DOMAIN } from '../generation/fixedSites.js';
-import { asAbsPath } from '../types.js';
+import { asAbsPath, type AbsPath } from '../types.js';
 
-const USAGE = 'mail: usage: mail [read <n>]';
+const USAGE = 'mail: usage: mail [read <n>] | login | logout';
 
 /** No network to ask from, emailit.io not answering, or our own side failing to ask:
  *  to the player they are one thing, the mail is not there to be had. */
@@ -65,11 +66,26 @@ const loginIn = (
   return address === undefined || password === undefined ? null : { address, password };
 };
 
+/** The file that is the login: the current user's `~/.mailrc` on the current box. */
+const mailrcPath = (env: CommandEnv): AbsPath => asAbsPath(`${homeDirectory(env.session)}/.mailrc`);
+
+/** A login as `~/.mailrc` keeps it. */
+const formatMailrc = (address: string, password: string): string =>
+  `set from=${address}\nset password=${password}\n`;
+
+/** The handle of an address at emailit.io, or null for an address anywhere else. Callers
+ *  fold the address to lowercase first: one address whatever case it was written in, as
+ *  a sign-up folds a handle. */
+const handleOf = (address: string): string | null => {
+  const at = address.lastIndexOf('@');
+  return at === -1 || address.slice(at + 1) !== EMAILIT_DOMAIN ? null : address.slice(0, at);
+};
+
 /** The login saved in the current user's `~/.mailrc`, or what stops it being used. */
 const savedLogin = (
   env: CommandEnv,
 ): { readonly address: string; readonly login: MailLogin } | { readonly refused: string } => {
-  const path = asAbsPath(`${homeDirectory(env.session)}/.mailrc`);
+  const path = mailrcPath(env);
   const stored = env.fs.read(path);
   if (!stored.ok && stored.error === 'not_found') {
     return { refused: 'mail: not logged in — run mail login' };
@@ -80,13 +96,10 @@ const savedLogin = (
   const saved = stored.ok ? loginIn(stored.content) : null;
   if (saved === null) return { refused: 'mail: ~/.mailrc has no login' };
 
-  // One address whatever case it was saved in, as a sign-up folds a handle.
   const address = saved.address.toLowerCase();
-  const at = address.lastIndexOf('@');
-  if (at === -1 || address.slice(at + 1) !== EMAILIT_DOMAIN) {
-    return { refused: `mail: ${address}: unknown domain` };
-  }
-  return { address, login: { handle: address.slice(0, at), password: saved.password } };
+  const handle = handleOf(address);
+  if (handle === null) return { refused: `mail: ${address}: unknown domain` };
+  return { address, login: { handle, password: saved.password } };
 };
 
 /** When a message was delivered, as the list shows it: `Oct 15 09:12`, in UTC like
@@ -157,11 +170,71 @@ const read = async (env: CommandEnv, saved: Saved, number: number): Promise<Comm
   return said(messageLines(saved.address, opened.message));
 };
 
+/** How many messages of an inbox nobody has read yet, as login announces them. */
+const newMail = (messages: readonly InboxMessage[]): string => {
+  const unread = messages.filter((message) => !message.read).length;
+  if (unread === 0) return 'You have no new messages.';
+  return unread === 1 ? 'You have 1 new message.' : `You have ${unread} new messages.`;
+};
+
+/**
+ * Log in by writing the login to `~/.mailrc`, the only place a login lives.
+ *
+ * emailit.io is asked first, so a login that fails writes nothing and leaves a file
+ * already there as it was. A home that cannot take the file is found out before anybody
+ * is asked, so a doomed login spends no password check.
+ */
+const login = async (env: CommandEnv): Promise<CommandResult> => {
+  const typed = (await env.prompt({ message: 'Address: ', masked: false })).trim().toLowerCase();
+  if (typed === '') return refusal('mail: no address given');
+  const address = typed.includes('@') ? typed : `${typed}@${EMAILIT_DOMAIN}`;
+  const handle = handleOf(address);
+  if (handle === null) return refusal(`mail: ${address}: unknown domain`);
+  const password = await env.prompt({ message: 'Password: ', masked: true });
+
+  // Asked of the machine rather than of what this terminal last pulled: a file written a
+  // moment ago in another terminal is one this replaces, not one it creates.
+  const fs = await env.fs.reload();
+  const path = mailrcPath(env);
+  if (!fs.canWrite(path).allowed) return refusal(`mail: can't create '${path}': Permission denied`);
+  if (vantageOf(env.session, env.network) === null) return refusal(UNREACHABLE);
+
+  const saved = { address, login: { handle, password } };
+  const inbox = await env.mail.inbox(saved.login);
+  if (!inbox.ok) return unanswered(saved, inbox.error);
+
+  // Readable and writable by the user who saved it and by root, as a mail client leaves
+  // its rc file: whoever else can read it holds the mail.
+  const reach = [...new Set(['root', env.session.userType] as const)];
+  const written = await env.patches.write(path, formatMailrc(address, password), {
+    isNew: fs.stat(path) === null,
+    permissions: { read: reach, write: reach, execute: [] },
+  });
+  if (!written.ok) {
+    return refusal(`mail: can't create '${path}': ${PATCH_ERROR_REASON[written.error]}`);
+  }
+  return said([newMail(inbox.messages)]);
+};
+
+/** Log out by deleting `~/.mailrc`. emailit.io is not asked: it keeps no session to end. */
+const logout = async (env: CommandEnv): Promise<CommandResult> => {
+  const path = mailrcPath(env);
+  const fs = await env.fs.reload();
+  if (fs.stat(path) === null) return refusal('mail: not logged in');
+  const removed = await env.patches.remove(path);
+  if (!removed.ok) {
+    return refusal(`mail: can't remove '${path}': ${PATCH_ERROR_REASON[removed.error]}`);
+  }
+  return said([]);
+};
+
 /** A message number as typed: a whole number from 1, written the way the list writes it. */
 const MESSAGE_NUMBER = /^[1-9][0-9]*$/;
 
 const execute: Command['execute'] = async (env, args) => {
   const [subcommand, ...rest] = args;
+  if (args.length === 1 && subcommand === 'login') return login(env);
+  if (args.length === 1 && subcommand === 'logout') return logout(env);
   const reading = subcommand === 'read' && rest.length === 1;
   if (args.length > 0 && !reading) return refusal(USAGE);
 
