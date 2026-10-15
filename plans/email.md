@@ -2,9 +2,10 @@
 
 **Status**: Grilled, sliced and gap-reviewed. Decisions 1–27 confirmed by the owner 2026-10-14,
 28–41 from a find-gaps review the same day, 42–45 while planning slice 3, 46–51 while planning
-slice 4 and 52–54 while planning slice 5 (2026-10-15). Slice 1 shipped at v0.384.0 (#681,
-2026-10-15), slice 2 at v0.385.0 (#682), slice 3 at v0.386.0 (#683), slice 4 at v0.387.0 (#684)
-and slice 5 at v0.388.0 (#685, all 2026-10-15); slice 6 is next and needs its plan.
+slice 4, 52–54 while planning slice 5 and 55–58 while planning slice 6 (2026-10-15). Slice 1
+shipped at v0.384.0 (#681, 2026-10-15), slice 2 at v0.385.0 (#682), slice 3 at v0.386.0 (#683),
+slice 4 at v0.387.0 (#684) and slice 5 at v0.388.0 (#685, all 2026-10-15); slice 6 is next and
+needs its plan.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 
@@ -155,7 +156,8 @@ Read in the code on this date.
     attackable the same ways. Its view of the mail is root-only, at real Debian paths:
     `/var/mail/<handle>`, one mbox per account (`0660 root:mail`), and `/etc/emailit/passwd`, one
     `handle:hash` line per account (`0600 root:root`). A guest does not see them (decision 31).
-    Writing to them is refused; the tables are the truth.
+    Writing to them is refused; the tables are the truth. *(Replaced by decision 57: a write lands
+    in the box's journal over the view, and the tables still never change.)*
 
 ## Decisions from find-gaps (owner-confirmed 2026-10-14)
 
@@ -182,7 +184,8 @@ Read in the code on this date.
     `/etc/emailit/passwd`, built from the tables, to the materialized box and then prunes it the
     way every remote box is pruned (`patches/readFilter.ts`). Below root it is not built at all —
     no table read, nothing on the wire. A guest therefore does not see these files exist, like
-    every other root-only file in the world.
+    every other root-only file in the world. *(Decision 57 moves the view under the journal: it is
+    laid down before the journal is replayed, not added after.)*
 32. **A saved `~/.mailrc` is `0600`, owned by the user who saved it.** Only that user and root can
     read it, as with a real mail client. A guest who lands on the box must climb to the user or to
     root before the saved login is theirs; `chmod` can loosen it, and that mistake is the player's
@@ -245,7 +248,8 @@ Read in the code on this date.
     itself.
 41. **Small rules.** The 80- and 4,000-character limits count Unicode characters, not bytes. A
     write to the view of decision 31, even by root, is refused with the shell's usual
-    `Permission denied`, as any other refused write is. The close-out moves this plan's as-built
+    `Permission denied`, as any other refused write is. *(Replaced by decision 57.)* The close-out
+    moves this plan's as-built
     content into a new `docs/email-architecture.md`, beside `wallet-architecture.md`.
 
 ## Decisions from slice 3 planning (owner-confirmed 2026-10-15)
@@ -336,6 +340,46 @@ new-mail check.
     reading. Rejected: checking wherever the file is, which would tell a player about mail on a box
     where `mail` is `command not found`.
 
+## Decisions from slice 6 planning (owner-confirmed 2026-10-15)
+
+These settle what decisions 27, 31 and 41 left open about emailit.io's view of the mail, and
+replace the view's read-only rule.
+
+55. **`/var/mail/<handle>` is a real mbox,** shaped like the NPC mailboxes of
+    `generation/mailbox.ts`: a `From <sender> <asctime>` separator, then `Date:`, `From:`, `To:`
+    and `Subject:`, a blank line and the body, oldest message first. A body line that starts
+    `From ` is written `>From `. A read message carries `Status: RO` and an unread one no `Status:`
+    line, so a root can see what the owner has not opened yet. There are no `Received:` lines,
+    because the tables record no route and an invented hop would name a box that never sent
+    anything, and no message numbers, which real mbox does not have. Rejected: leaving the read
+    marks out.
+56. **Every account has a file**, empty (0 bytes) when its inbox is, so `ls /var/mail` and
+    `/etc/emailit/passwd` always name the same accounts. Every account gets the welcome mail, so an
+    empty inbox only ever means everything was deleted. Rejected: listing only the accounts that
+    hold mail.
+57. **The view is attackable like the rest of the box.** A root's write, `rm`, `mv` or `chmod` in
+    the view lands in emailit.io's journal like any other file's, and every later root reader sees
+    it: `rm -r /var/mail` shows an empty spool, a rewritten `/etc/emailit/passwd` is a honeypot
+    whose cracked hashes fail at login, and a written `/var/mail/trin` stops showing trin's new
+    mail. The tables never change, so no player's real mail, login or password is touched, and
+    `scripts/restoreSite.ts emailit.io` wipes the journal and brings the true view back. The view
+    is therefore laid down before the journal is replayed, so the journal lands on top of it. Its
+    two directories are part of emailit.io's generated box (`/var/mail` with the spool's root-only
+    permissions, `/etc/emailit` root-only), so a guest's prune drops them like any root-only
+    directory and the write gate finds the parents a root's write lands in; only the files are
+    built from the tables, and only for a root caller. A mailbox's time is its newest message's
+    delivery, or the sign-up when it is empty; the passwd file's is the newest sign-up (the tables
+    keep no time for a password change). Rejected: a read-only view, the one place on the box root
+    could not touch; and files that are the mail, where one root could take every account by
+    writing a hash and no restore could undo it.
+58. **The view is built whole on every read.** A root shell on emailit.io re-reads its tree before
+    every line, and every inbox comes with it: at most 100 messages of 4,000 characters, about
+    400 KB, though most hold a few KB. A response is capped at 4.5 MB, so the view breaks the read
+    at about 11 full inboxes or a few thousand ordinary ones; with sends held to 20 an hour, nobody
+    reaches that before launch. The ceiling is recorded in `docs/backlog.md` with its fix: serve
+    the spool's listing and fetch a mailbox only when it is read. Rejected: capping each file at the
+    newest messages, a rule real mbox does not have that only moves the ceiling.
+
 ## Out of scope
 
 - The job site, the private per-player mission address, and missions themselves. The job site
@@ -364,7 +408,7 @@ wire-check. One browser run at the end covers them all.
 5. ✅ **Changing the password, and new-mail notices** (v0.388.0, #685). `mail passwd` and the
    background check of decisions 25, 26, 43, 44 and 52–54.
 6. **emailit.io's root view.** `/var/mail/<handle>` and `/etc/emailit/passwd`, built from the
-   tables, read-only, and built only for a root caller (decision 31).
+   tables only for a root caller, under the box's journal (decisions 31, 55–58).
 
 ## Slice 1 plan: emailit.io and sign-up
 
