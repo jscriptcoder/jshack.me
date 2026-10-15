@@ -1970,6 +1970,7 @@ describe('mail — what the manual promises', () => {
       'send',
       'reply',
       'delete',
+      'passwd',
       'login',
       'logout',
     ]);
@@ -2006,7 +2007,28 @@ describe('mail — what the manual promises', () => {
     expect(description).toContain(
       "send and reply take the body as their last argument: mail('send', 'trin', 'hi', 'body')",
     );
-    expect(description).toContain('login and logout do not work from a script');
+    expect(description).toContain('login, passwd and logout do not work from a script');
+  });
+
+  it('says passwd takes the account from every other holder of the old password', () => {
+    const description = mail.manual?.description ?? '';
+
+    expect(description).toContain(
+      'passwd asks for the old password and the new one twice, changes it at emailit.io and ' +
+        'saves the new one to ~/.mailrc',
+    );
+    expect(description).toContain('every other copy of the old password stops working at once');
+  });
+
+  it('says how new mail is announced, and when a saved login has stopped working', () => {
+    const description = mail.manual?.description ?? '';
+
+    expect(description).toContain(
+      'While the terminal is on screen it checks for new mail every minute',
+    );
+    expect(description).toContain('"You have new mail."');
+    expect(description).toContain('only where mail itself would work');
+    expect(description).toContain('says once that the login failed, and stops asking with it');
   });
 
   it('shows examples that each run as a mail with a saved login runs them', async () => {
@@ -2020,11 +2042,12 @@ describe('mail — what the manual promises', () => {
       'send',
       'reply',
       'delete',
+      'passwd',
       'logout',
     ]);
 
     for (const [, ...args] of shown) {
-      const { env } = mailEnv({ typed: ['neo', 's3cret'] });
+      const { env } = mailEnv({ typed: ['neo', 's3cret', 's3cret'] });
 
       const result = await mail.execute(env, args, NO_FLAGS);
 

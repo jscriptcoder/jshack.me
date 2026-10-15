@@ -892,7 +892,12 @@ agreed order:
     `email_send` delivers or bounces (no such mailbox, a full inbox of 100) and holds each
     player to 20 sends an hour (`email_sends`), `email_read` can leave a quoted message unread,
     and `email_delete` never reuses a number. Scripts send with the body as the last argument.
-    **Pick up here:** the plan's slice 5, `mail passwd` and new-mail notices.
+    Slice 5 (v0.388.0): `mail passwd` changes the password through `email_passwd` (the old one
+    checked and throttled as any login) and rewrites the `~/.mailrc` it ran from, so every other
+    copy fails; a visible terminal checks for new mail every minute (`checkMail`, run as `mail`
+    would be where the player stands) and prints `You have new mail.` at an idle prompt, or
+    once that a saved login failed, then skips that file until it changes. **Pick up here:**
+    the plan's slice 6, emailit.io's root view.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

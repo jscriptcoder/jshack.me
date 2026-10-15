@@ -625,20 +625,28 @@ export const mail: Command = {
       'characters, a body 4,000, and you may send 20 messages an hour, bounces included. ' +
       'delete removes a message for everyone who holds the password; its number is never ' +
       'used again. logout deletes ~/.mailrc. The password is checked every time, so once it ' +
-      'is changed a saved login fails until it is saved again. Too many wrong passwords in ' +
-      'a minute and every login is refused until the minute is up. emailit.io is reached ' +
-      'over the network the box is on, as curl would reach it. From a script the list, read ' +
-      'and delete work as typed, and send and reply take the body as their last argument: ' +
-      "mail('send', 'trin', 'hi', 'body'). login and logout do not work from a script.",
+      'is changed a saved login fails until it is saved again. passwd asks for the old ' +
+      'password and the new one twice, changes it at emailit.io and saves the new one to ' +
+      '~/.mailrc, so every other copy of the old password stops working at once, wherever ' +
+      'it was saved. Too many wrong passwords in a minute and every login is refused until ' +
+      'the minute is up. While the terminal is on screen it checks for new mail every ' +
+      'minute, as the user you are on the box you are on, and only where mail itself would ' +
+      'work; when a message has arrived it says "You have new mail." at the prompt. If the ' +
+      'saved login no longer works, it says once that the login failed, and stops asking ' +
+      'with it until ~/.mailrc changes. emailit.io is reached over the network the box is ' +
+      'on, as curl would reach it. From a script the list, read and delete work as typed, ' +
+      'and send and reply take the body as their last argument: ' +
+      "mail('send', 'trin', 'hi', 'body'). login, passwd and logout do not work from a script.",
     arguments: [
       {
         name: 'command',
         description:
           '"read", to print one message, "send", to write one, "reply", to answer one, ' +
-          '"delete", to remove one, "login", to save an address and its password, or ' +
-          '"logout", to delete the saved login (default: list the inbox)',
+          '"delete", to remove one, "passwd", to change the password, "login", to save an ' +
+          'address and its password, or "logout", to delete the saved login (default: list ' +
+          'the inbox)',
         required: false,
-        values: ['read', 'send', 'reply', 'delete', 'login', 'logout'],
+        values: ['read', 'send', 'reply', 'delete', 'passwd', 'login', 'logout'],
       },
       {
         name: 'n',
@@ -669,6 +677,10 @@ export const mail: Command = {
       },
       { command: 'mail reply 1', description: 'Answer message 1, with it quoted below' },
       { command: 'mail delete 1', description: 'Delete message 1' },
+      {
+        command: 'mail passwd',
+        description: 'Change the password, and save the new one to ~/.mailrc',
+      },
       { command: 'mail logout', description: 'Delete the saved login' },
       {
         command: 'cat ~/.mailrc',
