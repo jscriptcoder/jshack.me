@@ -174,7 +174,21 @@ describe('emailit.io opens an inbox to whoever holds its password', () => {
     const { deps, openInbox } = makeDeps();
     const passwordless = signRequest(BOB, 'resolveMail', { handle: 'neo' });
 
-    expect((await handleResolveMail(passwordless, deps)).status).toBe(400);
+    expect(await handleResolveMail(passwordless, deps)).toEqual({
+      status: 400,
+      body: { error: 'payload_invalid' },
+    });
+    expect(openInbox).not.toHaveBeenCalled();
+  });
+
+  // The guesser is the key that signed, never a key the request names: a client naming
+  // another player's key would spend that player's failures instead of its own.
+  it('turns away a request that names a player key of its own, asking nobody', async () => {
+    const { deps, openInbox } = makeDeps();
+
+    const claiming = inboxRequest({ player_key: 'b'.repeat(64) });
+
+    expect((await handleResolveMail(claiming, deps)).status).toBe(400);
     expect(openInbox).not.toHaveBeenCalled();
   });
 });

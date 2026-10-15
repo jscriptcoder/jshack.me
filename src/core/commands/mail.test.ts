@@ -227,6 +227,29 @@ describe('mail — the inbox of whoever ~/.mailrc names', () => {
     ]);
   });
 
+  it.each([
+    ['01', 'Jan'],
+    ['02', 'Feb'],
+    ['03', 'Mar'],
+    ['04', 'Apr'],
+    ['05', 'May'],
+    ['06', 'Jun'],
+    ['07', 'Jul'],
+    ['08', 'Aug'],
+    ['09', 'Sep'],
+    ['10', 'Oct'],
+    ['11', 'Nov'],
+    ['12', 'Dec'],
+  ])('names month %s %s', async (month, name) => {
+    const { env } = mailEnv({
+      answers: { ok: true, messages: [message({ deliveredAt: `2026-${month}-15T09:12:00Z` })] },
+    });
+
+    const [line] = linesOf(await mail.execute(env, [], NO_FLAGS), 'text');
+
+    expect(line).toContain(`  ${name} 15 09:12  `);
+  });
+
   it('dates a message in UTC, whatever offset the server wrote it with', async () => {
     const { env } = mailEnv({
       answers: { ok: true, messages: [message({ deliveredAt: '2026-10-16T01:05:00+02:00' })] },
@@ -317,6 +340,34 @@ describe('mail — ~/.mailrc as the player may write it', () => {
     expect(asked).toEqual([]);
   });
 
+  it('ignores a set line that has been commented out', async () => {
+    const { env, asked } = mailEnv({
+      tree: boxWith({
+        aliceRc: mailrc(
+          '#set password=old',
+          'set from=neo@emailit.io',
+          '#set from=trin@emailit.io',
+        ),
+      }),
+    });
+
+    const result = await mail.execute(env, [], NO_FLAGS);
+
+    expect(linesOf(result, 'error')).toEqual(['mail: ~/.mailrc has no login']);
+    expect(asked).toEqual([]);
+  });
+
+  it('takes the domain alone for no address at all', async () => {
+    const { env, asked } = mailEnv({
+      tree: boxWith({ aliceRc: mailrc('set from=emailit.io', 'set password=s3cret') }),
+    });
+
+    const result = await mail.execute(env, [], NO_FLAGS);
+
+    expect(linesOf(result, 'error')).toEqual(['mail: emailit.io: unknown domain']);
+    expect(asked).toEqual([]);
+  });
+
   it('refuses an address at any other domain, asking nobody', async () => {
     const { env, asked } = mailEnv({
       tree: boxWith({ aliceRc: mailrc('set from=neo@gmail.com', 'set password=s3cret') }),
@@ -352,6 +403,23 @@ describe('mail — when there is no inbox to list', () => {
     await mail.execute(env, [], NO_FLAGS);
 
     expect(asked).toEqual([{ handle: 'trin', password: 'follow' }]);
+  });
+
+  it('finds no login in a ~/.mailrc that is a directory', async () => {
+    const withDirectory = buildDirectory({
+      home: buildDirectory({
+        alice: buildDirectory(
+          { '.mailrc': buildDirectory({}, { owner: 'alice' }) },
+          { owner: 'alice', perms: HOME_DIR },
+        ),
+      }),
+    });
+    const { env, asked } = mailEnv({ tree: withDirectory });
+
+    const result = await mail.execute(env, [], NO_FLAGS);
+
+    expect(linesOf(result, 'error')).toEqual(['mail: ~/.mailrc has no login']);
+    expect(asked).toEqual([]);
   });
 
   it('says it cannot read a ~/.mailrc the user has been shut out of', async () => {
@@ -596,9 +664,9 @@ describe('mail login — the login written to ~/.mailrc', () => {
       ok: false,
       error: 'permission_denied',
     });
-    expect(createFsView(treeAfter(), { userType: 'root' }).stat(asAbsPath(ALICE_RC))?.owner).toBe(
-      'alice',
-    );
+    const saved = createFsView(treeAfter(), { userType: 'root' }).stat(asAbsPath(ALICE_RC));
+    expect(saved?.owner).toBe('alice');
+    expect(saved?.perms).toEqual({ read: ['root', 'user'], write: ['root', 'user'], execute: [] });
   });
 
   it("writes root's login to root's home, for root alone", async () => {
