@@ -12,7 +12,7 @@ const PAGE_URL = 'http://192.168.1.5/index.html';
  *  that carries link targets flattened away. */
 const asLines = (html: string): readonly string[] =>
   renderPage({ html, url: PAGE_URL }).map((line) =>
-    line.map((segment) => segment.text).join(''),
+    line.segments.map((segment) => segment.text).join(''),
   );
 
 /** The rendered page as one string, for assertions about what a reader can and
@@ -41,6 +41,45 @@ describe('rendering a page as text', () => {
     const lines = asLines(`<body>before<h${level}>Heading</h${level}>after</body>`);
 
     expect(lines).toEqual(['before', '', 'Heading', '', 'after']);
+  });
+
+  // A terminal has one font size, so a heading can only stand out if the browser
+  // knows which lines are headings — the blank lines around one say a block ended,
+  // not what kind of block it was.
+  it.each([1, 2, 3, 4, 5, 6])('marks an h%i line as a heading and nothing around it', (level) => {
+    const lines = renderPage({
+      html: `<body>before<h${level}>Heading</h${level}><p>after</p></body>`,
+      url: PAGE_URL,
+    });
+
+    expect(lines.map((line) => line.heading)).toEqual([false, false, true, false, false]);
+  });
+
+  // A search result's title is both: a heading to read and a link to follow.
+  it('keeps a link inside a heading followable', () => {
+    const [line] = renderPage({
+      html: '<body><h2><a href="/beans.html">Bean There</a></h2></body>',
+      url: PAGE_URL,
+    });
+
+    expect(line).toEqual({
+      heading: true,
+      segments: [{ kind: 'link', text: '[1]Bean There', url: 'http://192.168.1.5/beans.html' }],
+    });
+  });
+
+  it('leaves no gap behind for a heading with nothing in it', () => {
+    expect(asLines('<body><p>before</p><h2></h2><p>after</p></body>')).toEqual([
+      'before',
+      '',
+      'after',
+    ]);
+  });
+
+  it('marks every line of a heading broken with <br> as a heading', () => {
+    const lines = renderPage({ html: '<body><h1>one<br>two</h1></body>', url: PAGE_URL });
+
+    expect(lines.map((line) => line.heading)).toEqual([true, true]);
   });
 
   it('keeps an inline element inside the line it belongs to', () => {
@@ -167,7 +206,9 @@ describe('rendering a page as text', () => {
 describe('the links a page offers', () => {
   /** Every link on the page, in the order a reader meets them. */
   const linksOn = (html: string, url: string = PAGE_URL) =>
-    renderPage({ html, url }).flatMap((line) => line.filter((segment) => segment.kind === 'link'));
+    renderPage({ html, url }).flatMap((line) =>
+      line.segments.filter((segment) => segment.kind === 'link'),
+    );
 
   it('numbers a link and remembers where it goes', () => {
     expect(linksOn('<body><p><a href="/notes.html">the notes</a></p></body>')).toEqual([
@@ -189,7 +230,7 @@ describe('the links a page offers', () => {
       url: PAGE_URL,
     });
 
-    expect(line).toEqual([
+    expect(line?.segments).toEqual([
       { kind: 'text', text: 'See ' },
       { kind: 'link', text: '[1]the notes', url: 'http://192.168.1.5/notes.html' },
       { kind: 'text', text: ' for more.' },
@@ -324,16 +365,22 @@ describe('a table on a page', () => {
       '<tr><td>Opening</td><td>8-18</td></tr></table></body>';
 
     expect(renderPage({ html, url: PAGE_URL })).toEqual([
-      [
-        { kind: 'text', text: 'Menu' },
-        { kind: 'text', text: '     ' },
-        { kind: 'link', text: '[1]see', url: 'http://192.168.1.5/menu.html' },
-      ],
-      [
-        { kind: 'text', text: 'Opening' },
-        { kind: 'text', text: '  ' },
-        { kind: 'text', text: '8-18' },
-      ],
+      {
+        heading: false,
+        segments: [
+          { kind: 'text', text: 'Menu' },
+          { kind: 'text', text: '     ' },
+          { kind: 'link', text: '[1]see', url: 'http://192.168.1.5/menu.html' },
+        ],
+      },
+      {
+        heading: false,
+        segments: [
+          { kind: 'text', text: 'Opening' },
+          { kind: 'text', text: '  ' },
+          { kind: 'text', text: '8-18' },
+        ],
+      },
     ]);
   });
 
@@ -367,7 +414,9 @@ describe('a table on a page', () => {
     const lines = renderPage({ html, url: PAGE_URL });
 
     expect(asLines(html)).toEqual(['[1]Menu  food', 'Hours    [2]when']);
-    expect(lines.flat().filter((segment) => segment.kind === 'link')).toEqual([
+    expect(
+      lines.flatMap((line) => line.segments).filter((segment) => segment.kind === 'link'),
+    ).toEqual([
       { kind: 'link', text: '[1]Menu', url: 'http://192.168.1.5/menu.html' },
       { kind: 'link', text: '[2]when', url: 'http://192.168.1.5/hours.html' },
     ]);
@@ -420,7 +469,9 @@ describe('preformatted text on a page', () => {
     const lines = renderPage({ html, url: PAGE_URL });
 
     expect(asLines(html)).toEqual(['see  [1]old/   2026-07-01']);
-    expect(lines.flat().filter((segment) => segment.kind === 'link')).toEqual([
+    expect(
+      lines.flatMap((line) => line.segments).filter((segment) => segment.kind === 'link'),
+    ).toEqual([
       { kind: 'link', text: '[1]old/', url: 'http://192.168.1.5/old/' },
     ]);
   });
@@ -483,7 +534,9 @@ describe('a form a reader can fill in', () => {
   /** What a reader can select on the page, in the order they meet it: links, fields
    *  and the buttons that send a form. */
   const selectablesOn = (html: string, url: string = PAGE_URL) =>
-    renderPage({ html, url }).flatMap((line) => line.filter((segment) => segment.kind !== 'text'));
+    renderPage({ html, url }).flatMap((line) =>
+      line.segments.filter((segment) => segment.kind !== 'text'),
+    );
 
   const FINDIT_FORM =
     '<body><form action="/" method="GET"><input type="text" name="q" value="coffee" placeholder="Search the public web"><button type="submit">Search</button></form></body>';
@@ -627,7 +680,7 @@ describe('a form a reader can fill in', () => {
 describe('what a form offers, at its edges', () => {
   const selectablesOn = (html: string) =>
     renderPage({ html, url: PAGE_URL }).flatMap((line) =>
-      line.filter((segment) => segment.kind !== 'text'),
+      line.segments.filter((segment) => segment.kind !== 'text'),
     );
 
   // An action of nothing but spaces names no address, so the form goes where one with
@@ -674,7 +727,7 @@ describe("emailit.io's front page, as a reader of it sees it", () => {
   it('offers a handle to type, a password to type unseen and a button, all sent to /signup', () => {
     const form = { id: 0, action: 'http://emailit.io/signup', method: 'post' };
     const selectables = renderPage({ html: EMAILIT_FRONT_PAGE, url: 'http://emailit.io/' }).flatMap(
-      (line) => line.filter((segment) => segment.kind !== 'text'),
+      (line) => line.segments.filter((segment) => segment.kind !== 'text'),
     );
 
     expect(selectables).toEqual([
