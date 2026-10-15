@@ -99,6 +99,16 @@ describe('Lynx browser screen', () => {
     expect(screen.getByText('Server operational. Build 4.2.1')).toBeInTheDocument();
   });
 
+  it('shows a heading as a heading, set apart from the text under it', () => {
+    renderLynx();
+
+    const heading = screen.getByRole('heading', { name: 'db-01' });
+    const body = screen.getByText('Server operational. Build 4.2.1');
+
+    expect(screen.getAllByRole('heading')).toEqual([heading]);
+    expect(heading.className).not.toBe(body.className);
+  });
+
   it('leaves the comment behind — reading a page is not reading its source', () => {
     renderLynx();
 

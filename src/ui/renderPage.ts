@@ -14,7 +14,8 @@
  *
  * **A line is segments, not a string**, because a reader has to see which run of
  * characters is the link they are about to follow. Text a page never linked is one
- * plain segment and reads exactly as it did before.
+ * plain segment and reads exactly as it did before. A line also says whether it is a
+ * heading: a terminal has one font size, so the browser is what has to set one apart.
  *
  * **No width, no wrapping.** Long lines wrap in CSS exactly as terminal output
  * does, so this returns logical lines and the viewport decides where they break.
@@ -66,7 +67,7 @@ export type Segment =
   | Control;
 
 /** One rendered line, as the runs of text it is made of. */
-export type RenderedLine = readonly Segment[];
+export type RenderedLine = { readonly heading: boolean; readonly segments: readonly Segment[] };
 
 /** A segment before the page has been walked far enough to number its links: the
  *  same shape, with a link's `[n]` not yet written in front of it. */
@@ -78,8 +79,14 @@ type Piece = Segment;
  *  last, against the text a reader actually sees. */
 type CellStart = { readonly kind: 'cell'; readonly table: Element };
 
+/** Where a heading's line starts. The blank lines around a heading only say that a
+ *  block ended, so the line carries what kind of block it was. */
+type HeadingStart = { readonly kind: 'heading' };
+
+const HEADING_START: HeadingStart = { kind: 'heading' };
+
 /** What a line holds before its table columns are measured. */
-type LinePiece = Piece | CellStart;
+type LinePiece = Piece | CellStart | HeadingStart;
 
 type Line = readonly LinePiece[];
 
@@ -397,7 +404,16 @@ const renderContainer = (container: Element, depth: number, base: string): reado
       lines.push([], ...renderList(child, depth, base), []);
       continue;
     }
-    if (HEADING_TAGS.has(tag) || tag === 'p') {
+    if (HEADING_TAGS.has(tag)) {
+      flush();
+      // A line left empty stays empty: it is the gap between blocks, not a heading.
+      const heading = toLines(inlinePieces(child, base)).map((line): Line =>
+        line.length === 0 ? line : [HEADING_START, ...line],
+      );
+      lines.push([], ...heading, []);
+      continue;
+    }
+    if (tag === 'p') {
       flush();
       lines.push([], ...toLines(inlinePieces(child, base)), []);
       continue;
@@ -442,7 +458,9 @@ const normalize = (lines: readonly Line[]): readonly Line[] => {
  * are numbered: a field or a button is something to select, not somewhere to go, so a
  * form above the results leaves the first result `[1]`.
  */
-const numbered = (lines: readonly Line[]): readonly (readonly (Segment | CellStart)[])[] => {
+const numbered = (
+  lines: readonly Line[],
+): readonly (readonly (Segment | CellStart | HeadingStart)[])[] => {
   let count = 0;
   return lines.map((line) =>
     line.map((piece) => {
@@ -452,6 +470,14 @@ const numbered = (lines: readonly Line[]): readonly (readonly (Segment | CellSta
     }),
   );
 };
+
+/** A numbered line, told as a heading or not, its table columns not yet measured. */
+type MarkedLine = { readonly heading: boolean; readonly pieces: readonly (Segment | CellStart)[] };
+
+const marked = (line: readonly (Segment | CellStart | HeadingStart)[]): MarkedLine => ({
+  heading: line.some((piece) => piece.kind === 'heading'),
+  pieces: line.filter((piece): piece is Segment | CellStart => piece.kind !== 'heading'),
+});
 
 /** A numbered row: what sits before its first cell (a list's indent), and its cells
  *  in column order. */
@@ -486,27 +512,27 @@ const tableOf = (line: readonly (Segment | CellStart)[]): Element | null =>
  * A line that is not a row needs no case of its own: it has no cells, so it measures
  * nothing and lays out as its prefix — which is the whole line.
  */
-const aligned = (lines: readonly (readonly (Segment | CellStart)[])[]): readonly RenderedLine[] => {
-  const widths = lines.reduce((found, line) => {
-    const table = tableOf(line);
+const aligned = (lines: readonly MarkedLine[]): readonly RenderedLine[] => {
+  const widths = lines.reduce((found, { pieces }) => {
+    const table = tableOf(pieces);
     const known = found.get(table) ?? [];
-    const cells = rowOf(line).cells.map(widthOf);
+    const cells = rowOf(pieces).cells.map(widthOf);
     const longest = Array.from({ length: Math.max(known.length, cells.length) }, (_, column) =>
       Math.max(known[column] ?? 0, cells[column] ?? 0),
     );
     return new Map(found).set(table, longest);
   }, new Map<Element | null, readonly number[]>());
 
-  return lines.map((line) => {
-    const columns = widths.get(tableOf(line)) ?? [];
-    const { prefix, cells } = rowOf(line);
+  return lines.map(({ heading, pieces }) => {
+    const columns = widths.get(tableOf(pieces)) ?? [];
+    const { prefix, cells } = rowOf(pieces);
     const laidOut = cells.flatMap((cell, column): readonly Segment[] => {
       const isLast = column === cells.length - 1;
       if (isLast) return cell;
       const padding = ' '.repeat((columns[column] ?? 0) - widthOf(cell)) + COLUMN_GAP;
       return [...cell, { kind: 'text', text: padding }];
     });
-    return [...prefix, ...laidOut];
+    return { heading, segments: [...prefix, ...laidOut] };
   });
 };
 
@@ -522,5 +548,5 @@ export const renderPage = ({
   aligned(
     numbered(
       normalize(renderContainer(new DOMParser().parseFromString(html, 'text/html').body, 0, url)),
-    ),
+    ).map(marked),
   );

@@ -107,7 +107,7 @@ export const Lynx = (props: LynxProps) => {
   const lines = createMemo(() => renderPage({ html: props.content, url: props.url }));
   const selectables = createMemo(() =>
     lines().flatMap((line) =>
-      line.filter((segment): segment is Selectable => segment.kind !== 'text'),
+      line.segments.filter((segment): segment is Selectable => segment.kind !== 'text'),
     ),
   );
   const current = () => selectables()[selected() - 1];
@@ -317,10 +317,17 @@ export const Lynx = (props: LynxProps) => {
       <div class="flex-1 overflow-y-auto p-2">
         <For each={lines()}>
           {/* `min-h-[1lh]` keeps the blank line between blocks: an empty div has no
-              height of its own, and the spacing IS the rendering. */}
+              height of its own, and the spacing IS the rendering. A heading is set
+              in bold and the brighter colour, the way a terminal lynx sets one
+              apart: there is no larger font to give it. */}
           {(line) => (
-            <div class="min-h-[1lh] whitespace-pre-wrap break-words">
-              <For each={line}>
+            <div
+              role={line.heading ? 'heading' : undefined}
+              class={`min-h-[1lh] whitespace-pre-wrap break-words${
+                line.heading ? ' font-bold text-[var(--theme-text-bright)]' : ''
+              }`}
+            >
+              <For each={line.segments}>
                 {(segment) => {
                   if (segment.kind === 'text') return segment.text;
                   // Asked ONCE and spent twice: what a reader sees highlighted and
