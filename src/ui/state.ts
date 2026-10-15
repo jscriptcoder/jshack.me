@@ -41,6 +41,7 @@ import type {
   OccupantSweepResult,
   PublicFetchParams,
   PublicFetchResult,
+  MailApi,
   PublicSweepParams,
   PublicSweepResult,
   ScanApi,
@@ -176,6 +177,7 @@ import {
   sweepPublicPaths,
   joinHomeNetwork,
   leaveHomeNetwork,
+  openMailInbox,
   resolveCrossPlayerFs,
   resolveOccupants,
   resolveOccupant,
@@ -1046,6 +1048,14 @@ const fetchPublicPageFn = (params: PublicFetchParams): Promise<PublicFetchResult
   networkClientDeps === undefined
     ? Promise.resolve({ ok: false, error: 'network_error' })
     : fetchPublicPage(networkClientDeps, params);
+
+/** Open an emailit.io inbox (backs `env.mail.inbox`). Before `startGame` wires the
+ *  network client there is nobody to ask, which is our failure and says nothing about
+ *  the login. */
+const openMailInboxFn: MailApi['inbox'] = (login) =>
+  networkClientDeps === undefined
+    ? Promise.resolve({ ok: false, error: 'network_error' })
+    : openMailInbox(networkClientDeps, login);
 
 /** Fetch a page from a fellow occupant's box on the network the shell stands on (backs
  *  `env.remote.fetchOccupant`). Before `startGame` wires the network client there is
@@ -2005,6 +2015,7 @@ const executeLine = async (line: string): Promise<void> => {
     // Signed by the key in the order, which is the wallet's. The player's identity is
     // not handed over, so it cannot sign or ride along.
     onWalletTransfer: (order) => sendTransfer({}, order),
+    onMailInbox: openMailInboxFn,
     onMysqlConnect: mysqlConnect,
     onMysqlStatement: mysqlStatement,
     onMysqlEnter: enterMysqlSession,

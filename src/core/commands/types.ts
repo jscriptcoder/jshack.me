@@ -1618,6 +1618,12 @@ export type InboxResult =
       readonly error: 'host_unreachable' | 'login_failed' | 'network_error';
     };
 
+/** The emailit.io seam. Every request carries the login, because the server keeps no
+ *  mail session; where it comes from is the command's business, not this seam's. */
+export type MailApi = {
+  readonly inbox: (login: MailLogin) => Promise<InboxResult>;
+};
+
 // ---- The boundary ----
 
 export type CommandEnv = {
@@ -1666,6 +1672,7 @@ export type CommandEnv = {
   readonly hydra: HydraApi;
   readonly exploit: ExploitApi;
   readonly wallet: WalletApi;
+  readonly mail: MailApi;
 
   /** Mutate the shell's cwd. UI layer owns the underlying signal; commands
    *  call this when they need to move (`cd`). FsView's `cwd()` reflects

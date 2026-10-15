@@ -153,6 +153,7 @@ describe('every IP tool runs from a hop, and only box-local tools stay home', ()
     'apt',
     'dig',
     'nslookup',
+    'mail',
   ]);
 
   // Acts on the box itself, so where the shell stands does not move it.

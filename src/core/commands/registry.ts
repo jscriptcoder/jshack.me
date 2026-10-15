@@ -40,6 +40,7 @@ import { john } from './john.js';
 import { kill } from './kill.js';
 import { ldd } from './ldd.js';
 import { ls } from './ls.js';
+import { mail } from './mail.js';
 import { man } from './man.js';
 import { mkdir } from './mkdir.js';
 import { nano } from './nano.js';
@@ -107,6 +108,7 @@ const builtins: readonly Command[] = [
   ldd,
   ls,
   lynx,
+  mail,
   man,
   mkdir,
   nano,
