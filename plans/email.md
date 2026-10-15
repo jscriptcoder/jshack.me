@@ -4,8 +4,9 @@
 28–41 from a find-gaps review the same day, 42–45 while planning slice 3, 46–51 while planning
 slice 4, 52–54 while planning slice 5 and 55–58 while planning slice 6 (2026-10-15). Slice 1
 shipped at v0.384.0 (#681, 2026-10-15), slice 2 at v0.385.0 (#682), slice 3 at v0.386.0 (#683),
-slice 4 at v0.387.0 (#684) and slice 5 at v0.388.0 (#685, all 2026-10-15); slice 6 is planned
-below.
+slice 4 at v0.387.0 (#684), slice 5 at v0.388.0 (#685) and slice 6 at v0.389.0 (#686, all
+2026-10-15). Every slice has shipped; the epic's one browser run and the close-out into
+`docs/email-architecture.md` remain.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 
@@ -405,8 +406,9 @@ wire-check. One browser run at the end covers them all.
    `reply` (decisions 34, 46–51). Two players exchange mail.
 5. ✅ **Changing the password, and new-mail notices** (v0.388.0, #685). `mail passwd` and the
    background check of decisions 25, 26, 43, 44 and 52–54.
-6. **emailit.io's root view.** `/var/mail/<handle>` and `/etc/emailit/passwd`, built from the
-   tables only for a root caller, under the box's journal (decisions 31, 55–58).
+6. ✅ **emailit.io's root view** (v0.389.0, #686). `/var/mail/<handle>` and
+   `/etc/emailit/passwd`, built from the tables only for a root caller, under the box's journal
+   (decisions 31, 55–58).
 
 ## Slice 1 plan: emailit.io and sign-up
 
@@ -1137,6 +1139,21 @@ prompt is idle, then appended to the scrollback.
 
 **Branch**: `feat/emailit-root-view` · **Version**: 0.388.0 → 0.389.0 · **Class**: behaviour
 change · **Delivery**: one PR against `main`, no migration.
+
+**As built (2026-10-15, #686, merged as `e482c160`).** Shipped as planned, with these changes:
+
+- **The adapter came in with the handler** (increment 3), because the new dep would not typecheck
+  without it; increment 4 was the wire-check alone.
+- **`withMailSpool` has no guard for a box without the two directories.** Only emailit.io's box
+  is ever given the view, and it always has them, so no caller could reach one.
+- **An empty answer from the store lays an empty spool**, found by the mutation gate: the
+  `?? []` had no test.
+- **`scripts/testMailSpool.ts` has 8 checks**: root, guest and no session, a root's write over a
+  mailbox with the real inbox untouched, and a wiped journal. The `user` tier, an `rm`, and a
+  planted hash failing at login are proven by the unit tests.
+- **The tier-read audit got footnote ⁶** rather than a longer cell, and the codebase map's
+  `emailit/` row was shortened to fit its column.
+- Mutation 73/73 on the changed lines. No migration.
 
 **Value.** Whoever roots emailit.io sees every account's mail and every account's password hash, at
 real Debian paths: `cat /etc/emailit/passwd` hands them hashes to crack at home, and
