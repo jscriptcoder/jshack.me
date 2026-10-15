@@ -1,10 +1,10 @@
 # Plan: email, at emailit.io
 
 **Status**: Grilled, sliced and gap-reviewed. Decisions 1–27 confirmed by the owner 2026-10-14,
-28–41 from a find-gaps review the same day, 42–45 while planning slice 3 and 46–51 while
-planning slice 4 (2026-10-15). Slice 1 shipped at v0.384.0 (#681, 2026-10-15), slice 2 at
-v0.385.0 (#682), slice 3 at v0.386.0 (#683) and slice 4 at v0.387.0 (#684, all 2026-10-15);
-slice 5 is next and needs its plan.
+28–41 from a find-gaps review the same day, 42–45 while planning slice 3, 46–51 while planning
+slice 4 and 52–54 while planning slice 5 (2026-10-15). Slice 1 shipped at v0.384.0 (#681,
+2026-10-15), slice 2 at v0.385.0 (#682), slice 3 at v0.386.0 (#683) and slice 4 at v0.387.0
+(#684, all 2026-10-15); slice 5 is planned below.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 
@@ -362,7 +362,7 @@ wire-check. One browser run at the end covers them all.
    rate limits, and the inbox cap with system mail always delivered, and scripted `send` and
    `reply` (decisions 34, 46–51). Two players exchange mail.
 5. **Changing the password, and new-mail notices.** `mail passwd` and the background check of
-   decisions 25, 26, 43 and 44.
+   decisions 25, 26, 43, 44 and 52–54.
 6. **emailit.io's root view.** `/var/mail/<handle>` and `/etc/emailit/passwd`, built from the
    tables, read-only, and built only for a root caller (decision 31).
 
@@ -930,6 +930,148 @@ nothing, or the refusal.
 - Pre-PR: Stryker on the changed lines of `core/emailit/`, `mail.ts`, the adapter and the
   `Nano` screen; typecheck; lint; the full test run.
 - No browser run; the epic's one run at the end adds two players trading mail and a reply.
+
+## Slice 5 plan: changing the password, and new-mail notices
+
+**Branch**: `feat/mail-passwd-and-notices` · **Version**: 0.387.0 → 0.388.0 · **Class**:
+behaviour change · **Delivery**: one PR against `main`, with a migration.
+
+**Value.** Whoever holds an address's password can take it: `mail passwd` changes it, cutting off
+every other copy of the old one, a victim's saved login included. The victim finds out because
+their terminal checks for new mail every minute and tells them, once, that the saved login no
+longer works. Players hear about new mail without typing `mail`.
+
+**Path.** `mail passwd` (`core/commands/mail.ts`) reads `~/.mailrc` as the list does, checks the
+home can take the file again, prompts three times through `env.prompt` → `env.mail` → the adapter
+posts a signed `resolveMail` with `op: 'passwd'` → the handler reaches emailit.io as before → one
+RPC checks the throttle and the old password and stores the new hash → the command rewrites
+`~/.mailrc`. The check: a timer in `ui/state.ts` → a core `checkMail` in `mail.ts`, run against an
+env built as `runInput` builds one → the existing `list` request → a notice held until the shell
+prompt is idle, then appended to the scrollback.
+
+### Choices made while planning (owner to confirm with the plan)
+
+- **`mail passwd`'s order**: extra arguments (usage); in a script `mail: passwd is interactive`,
+  with no terminal `mail: passwd needs a terminal`; `~/.mailrc` (slice 3's not-logged-in,
+  unreadable and no-login answers, and `unknown domain`); a home that cannot take the file
+  (`mail: can't write '/home/neo/.mailrc': Permission denied`); a network to ask from
+  (`cannot reach`); then `Old password: `, `New password: `, `Retype new password: `, all masked.
+  A retype that differs prints `mail: passwords do not match`, and a new password under the
+  Intro minimum `mail: password must be at least 4 characters`; neither asks the server or
+  counts. Everything before the prompts costs no password check.
+- **One request after all three prompts.** The old password typed, not the one in the file, is
+  the one checked, so knowing the file is not enough to change a password from a terminal left
+  open. A wrong one prints `mail: login failed for neo@emailit.io` and counts toward the guess
+  throttle (decision 28); real `passwd` checks the current password before asking for the new
+  one, which here would cost a second request for the same answer.
+- **Success prints nothing**, as decision 48 has it for send, reply and delete.
+- **The file is rewritten as `mail login` writes it**: the two `set` lines, `0600` for its user
+  and root. Comments and anything a hand-written file held are gone, as they would be after a
+  fresh `mail login`. If the server changed the password but the file then cannot be written,
+  the command says so plainly — `mail: password changed, but can't write '/home/neo/.mailrc':
+  <reason>` — since the new password was just typed and can be saved with `mail login`.
+- **One action, `op: 'passwd'`**, carrying `password` (old) and `newPassword`. The handler turns
+  away a new password under 4 characters as `payload_invalid` without asking the store, and hands
+  the store only md5s. `email_passwd(handle, md5, key, new_md5)` runs slice 3's password check
+  (throttle included), then updates the account's hash, answering `changed` or the check's word.
+  Messages, numbers and read marks are untouched.
+- **The check is one core function**, `checkMail(env, watch)`, beside the command it imitates. It
+  returns the lines to print and the next `watch`: the mark per address (decision 53) and the
+  `~/.mailrc` contents that failed (decision 44). It asks only where `mail` would answer: the
+  `mail` binary present (decision 54), a readable `~/.mailrc` with a login at emailit.io, and a
+  network to ask from. Anything else, a throttled answer and `cannot reach` included, is skipped
+  silently and leaves `watch` as it was.
+- **What it announces.** No mark yet for the address: `You have new mail.` when any message is
+  unread, then the mark is the highest number. A mark already: `You have new mail.` when a number
+  is above it, then the mark moves up. `login failed`: `mail: login failed for neo@emailit.io`,
+  once, and that file's contents are skipped until they change, so `mail login`, `mail passwd`
+  or an edit starts the checks again.
+- **A typed list and `mail login` raise the mark.** A new `env.mailSeen(address, highest)` seam
+  tells the terminal what it has shown, so a message already listed is never announced. `read`
+  does not raise it.
+- **The schedule lives in `ui/state.ts`**: a first check as the terminal opens, then every 60
+  seconds while the tab is visible, and one at once when it becomes visible again. A check never
+  starts while another is in flight. Every tab keeps its own `watch`, in memory only.
+- **The notice waits for an idle shell prompt**: no command running, no overlay (nano, lynx, the
+  compose screen), no pending password prompt, and no `ftp>`, `mysql>` or `redis>` sub-shell.
+  Until then the lines are held, and print when the prompt comes back. The scrollback is separate
+  from the input line, so whatever is half-typed stays as it was. The "nothing is polled" note in
+  `ui/state.ts` is reworded to say mail is the one deliberate timed pull, and why.
+- **The usage** becomes
+  `mail: usage: mail [read <n>] | send <to> <subject> | reply <n> | delete <n> | passwd | login | logout`.
+
+### Acceptance criteria
+
+1. `mail passwd` asks `Old password: `, `New password: ` and `Retype new password: ` (masked). With
+   the right old password it prints nothing, `cat ~/.mailrc` shows the new password, and `mail`
+   lists the inbox as before, numbers and read marks unchanged.
+2. Afterwards, any other `~/.mailrc` holding the old password — another box, another user — gets
+   `mail: login failed for neo@emailit.io`; `mail login` with the new password works there.
+3. A wrong old password prints `mail: login failed for neo@emailit.io`, leaves the password and
+   the file as they were, and counts toward the guess throttle; with 5 failures in the minute,
+   `passwd` prints `mail: too many failed logins, wait a minute`.
+4. A retype that differs prints `mail: passwords do not match`; a 3-character new password prints
+   `mail: password must be at least 4 characters`; a 4-character one is accepted. Neither refusal
+   asks the server.
+5. With no `~/.mailrc`, an unreadable one or one with no login, `passwd` prints slice 3's answers
+   before any prompt. A home that cannot take the file prints `mail: can't write …: Permission
+   denied`, and an offline box `mail: cannot reach emailit.io`, both before any prompt.
+6. In a script `mail('passwd')` returns `mail: passwd is interactive`; in a pty-less shell
+   `mail passwd` prints `mail: passwd needs a terminal`; `mail passwd x` prints the usage.
+7. At an idle prompt, logged in at home, a message arriving prints `You have new mail.` above the
+   prompt within a minute, keeping anything half-typed. Two arrivals between checks print it
+   once; no arrival prints nothing.
+8. After a reload, the first check prints `You have new mail.` when the inbox holds an unread
+   message, and nothing when every message is read.
+9. While a command runs, inside nano, lynx, a password prompt or `ftp>`, `mysql>` or `redis>`,
+   the notice waits and prints when the shell prompt returns.
+10. Standing as a victim on their box with `mailutils` and their `~/.mailrc`, arrivals in the
+    victim's inbox are announced; the first check there follows criterion 8. With no `mailutils`,
+    no file, no network or emailit.io down, nothing prints. Back home, mail already announced
+    there is not announced again.
+11. After someone else's `mail passwd`, the check prints `mail: login failed for neo@emailit.io`
+    once and then nothing, spending one failed guess, not one a minute; a typed `mail` still
+    prints it every time. After `mail login` with the new password, notices resume.
+12. A message seen in a typed `mail` list, or counted by `mail login`, is never announced
+    afterwards.
+13. A hidden tab checks nothing; showing it again checks at once.
+14. `man mail` describes `passwd` and the notices; the handbook and `docs/project-status.md`
+    follow.
+
+### Increments (each RED → GREEN → REFACTOR; commit on approval)
+
+1. **The server changes a password.** Migration `email_passwd`; the handler's `passwd` op and
+   its length check; the adapter's `changeMailPassword`. Unit tests with a fake store.
+2. **`mail passwd`.** The order of checks, the three prompts, the rewrite and its failure.
+   Criteria 1–6.
+3. **`checkMail` in core.** The first-check rule, the mark, the stale file, `mailutils`, the
+   silent skips. Criteria 8, 10, 11 at the core.
+4. **The mark follows what was shown.** `env.mailSeen`, raised by the list and by `mail login`.
+   Criterion 12.
+5. **The schedule and the notice.** The timer, visibility, the in-flight guard, holding until the
+   prompt is idle, the scrollback append, the reworded note; jsdom with fake timers.
+   Criteria 7, 9, 13.
+6. **`man mail`, handbook, version 0.388.0.** Criterion 14; the handbook's command table and
+   `resolveMail` row; `docs/project-status.md`.
+
+### Evidence
+
+- Unit: the handler and the adapter for `passwd`; the command through a test env with a fake
+  `prompt`; `checkMail` through a fake env and `watch`. jsdom for the schedule: a check on open,
+  every 60 s while visible, none while hidden, one on becoming visible, a notice held through
+  nano and a running command, and half-typed input kept.
+- Wire-check: a new `scripts/testMailPasswd.ts` against `vercel dev` + supabase. A signs up and
+  changes the password: the old one fails and counts, the new one lists the same inbox with its
+  marks. A wrong old password changes nothing and counts; the sixth in a minute is throttled. A
+  3-character new password is turned away without a failure counted. `testMailRead.ts` and
+  `testMailSend.ts` re-run unchanged. The check uses the existing `list` request, so it adds no
+  wire-check of its own.
+- Migration: applied locally for the wire-check, then pushed to jshack-dev and jshack-prod before
+  the merge, on the owner's go.
+- Pre-PR: Stryker on the changed lines of `core/emailit/`, `mail.ts`, the adapter and the
+  schedule in `ui/state.ts`; typecheck; lint; the full test run.
+- No browser run; the epic's one run at the end adds a password taken over and the victim's
+  notice.
 
 ## Backlog from this grill
 
