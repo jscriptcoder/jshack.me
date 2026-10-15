@@ -1635,6 +1635,29 @@ export type MessageResult =
         | 'network_error';
     };
 
+/** A message on its way out. `to` is the recipient's handle; the domain is always
+ *  emailit.io's, and the sender is whoever the login names. */
+export type OutgoingMail = {
+  readonly to: string;
+  readonly subject: string;
+  readonly body: string;
+};
+
+export type SendResult =
+  | { readonly ok: true }
+  /** As an inbox's, and the two bounces: `no_mailbox`, nobody holds the recipient's handle
+   *  (a system sender included); `mailbox_full`, the recipient's inbox is at its cap. */
+  | {
+      readonly ok: false;
+      readonly error:
+        | 'host_unreachable'
+        | 'login_failed'
+        | 'throttled'
+        | 'no_mailbox'
+        | 'mailbox_full'
+        | 'network_error';
+    };
+
 /** The emailit.io seam. Every request carries the login, because the server keeps no
  *  mail session; where it comes from is the command's business, not this seam's. */
 export type MailApi = {

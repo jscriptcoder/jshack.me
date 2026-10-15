@@ -8,6 +8,7 @@ import {
   leaveHomeNetwork,
   openMailInbox,
   readMailMessage,
+  sendMail,
   resolveCrossPlayerFs,
   resolveOccupant,
   resolveOccupants,
@@ -918,6 +919,7 @@ describe('openMailInbox', () => {
     if (!verified.ok) throw new Error('expected verified envelope');
     expect(verified.payload).toMatchObject({
       action: 'resolveMail',
+      op: 'list',
       handle: 'neo',
       password: 's3cret',
     });
@@ -983,6 +985,7 @@ describe('readMailMessage', () => {
     if (!verified.ok) throw new Error('expected verified envelope');
     expect(verified.payload).toMatchObject({
       action: 'resolveMail',
+      op: 'read',
       handle: 'neo',
       password: 's3cret',
       number: 1,
@@ -1018,6 +1021,60 @@ describe('readMailMessage', () => {
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
 
     expect(await readMailMessage(deps, LOGIN, 1)).toEqual({ ok: false, error: 'network_error' });
+  });
+});
+
+describe('sendMail', () => {
+  const LOGIN = { handle: 'neo', password: 's3cret' };
+  const MESSAGE = { to: 'trin', subject: 'hello there', body: 'hi trin' };
+
+  it('signs a resolveMail request carrying the message, and says it went', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await sendMail(deps, LOGIN, MESSAGE)).toEqual({ ok: true });
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected verified envelope');
+    expect(verified.payload).toMatchObject({
+      action: 'resolveMail',
+      op: 'send',
+      handle: 'neo',
+      password: 's3cret',
+      to: 'trin',
+      subject: 'hello there',
+      body: 'hi trin',
+    });
+  });
+
+  it.each([
+    [404, { error: 'no_mailbox' }, 'no_mailbox'],
+    [409, { error: 'mailbox_full' }, 'mailbox_full'],
+    [401, { error: 'login_failed' }, 'login_failed'],
+    [429, { error: 'throttled' }, 'throttled'],
+    [404, { error: 'host_unreachable' }, 'host_unreachable'],
+    [500, { error: 'mail_failed' }, 'network_error'],
+    [400, { error: 'payload_invalid' }, 'network_error'],
+  ])('reads a %i %o as %s', async (status, body, error) => {
+    const fetchSpy = vi.fn(async () => jsonResponse(status, body));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await sendMail(deps, LOGIN, MESSAGE)).toEqual({ ok: false, error });
+  });
+
+  it('reads a 200 that does not say it went as the request failing', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: false }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await sendMail(deps, LOGIN, MESSAGE)).toEqual({ ok: false, error: 'network_error' });
+  });
+
+  it('reads a request that never came back as the request failing', async () => {
+    const fetchSpy = vi.fn(async () => {
+      throw new TypeError('Failed to fetch');
+    });
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await sendMail(deps, LOGIN, MESSAGE)).toEqual({ ok: false, error: 'network_error' });
   });
 });
 

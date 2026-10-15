@@ -86,8 +86,9 @@ const signUp = (player: Identity, handle: string, password: string) =>
     }),
   );
 
+/** The list, or with a `number` that one message. */
 const mail = (player: Identity, fields: Record<string, unknown>) =>
-  post(signRequest(player, 'resolveMail', fields));
+  post(signRequest(player, 'resolveMail', { op: 'number' in fields ? 'read' : 'list', ...fields }));
 
 const failuresOf = async (player: Identity): Promise<number> => {
   const { count, error } = await sr

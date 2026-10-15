@@ -32,6 +32,8 @@ import type {
   InboxResult,
   MailLogin,
   MessageResult,
+  OutgoingMail,
+  SendResult,
   OccupantFetchParams,
   OccupantFetchResult,
   OccupantSweepParams,
@@ -293,6 +295,7 @@ export const openMailInbox = async (
 ): Promise<InboxResult> => {
   try {
     const response = await post(deps, 'resolveMail', {
+      op: 'list',
       handle: login.handle,
       password: login.password,
     });
@@ -332,6 +335,7 @@ export const readMailMessage = async (
 ): Promise<MessageResult> => {
   try {
     const response = await post(deps, 'resolveMail', {
+      op: 'read',
       handle: login.handle,
       password: login.password,
       number,
@@ -346,6 +350,47 @@ export const readMailMessage = async (
     if (!opened.success) return { ok: false, error: 'network_error' };
     const { delivered_at, ...message } = opened.data.message;
     return { ok: true, message: { ...message, deliveredAt: delivered_at } };
+  } catch {
+    return { ok: false, error: 'network_error' };
+  }
+};
+
+/** The refusals emailit.io gives for a message on its way out: an inbox's, and the two
+ *  bounces. */
+const SEND_REFUSALS = [
+  'host_unreachable',
+  'login_failed',
+  'throttled',
+  'no_mailbox',
+  'mailbox_full',
+] as const;
+
+/**
+ * Send a message from an emailit.io login (backs `env.mail.send`). The server delivers it
+ * into the recipient's inbox, or bounces it.
+ */
+export const sendMail = async (
+  deps: NetworkClientDeps,
+  login: MailLogin,
+  mail: OutgoingMail,
+): Promise<SendResult> => {
+  try {
+    const response = await post(deps, 'resolveMail', {
+      op: 'send',
+      handle: login.handle,
+      password: login.password,
+      to: mail.to,
+      subject: mail.subject,
+      body: mail.body,
+    });
+    const body: unknown = await response.json();
+    if (!response.ok) {
+      const failed = body as { readonly error?: string } | null;
+      const refusal = SEND_REFUSALS.find((error) => error === failed?.error);
+      return { ok: false, error: refusal ?? 'network_error' };
+    }
+    const sent = z.object({ ok: z.literal(true) }).safeParse(body);
+    return sent.success ? { ok: true } : { ok: false, error: 'network_error' };
   } catch {
     return { ok: false, error: 'network_error' };
   }
