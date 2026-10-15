@@ -1172,6 +1172,17 @@ describe('mail reply — an answer to a message, its history quoted below', () =
     expect(sent).toEqual([]);
   });
 
+  it('refuses to answer a sender at another domain, opening nothing', async () => {
+    const { env, composed } = mailEnv({
+      opens: { ok: true, message: { ...ORIGINAL, sender: 'bob@gmail.com' } },
+    });
+
+    const result = await mail.execute(env, ['reply', '2'], NO_FLAGS);
+
+    expect(linesOf(result, 'error')).toEqual(['mail: bob@gmail.com: unknown domain']);
+    expect(composed).toEqual([]);
+  });
+
   it('says there is no such message without opening the editor', async () => {
     const { env, composed } = mailEnv({ opens: { ok: false, error: 'no_message' } });
 
@@ -1339,12 +1350,18 @@ describe('mail from a script', () => {
     [['reply', '2']],
     [['reply', '2', 'thanks', 'more']],
   ])('fails %o, which leaves out the body or adds to it, with the usage', async (args) => {
-    const { env, sent } = mailEnv();
+    const { env, sent, opensAsked } = mailEnv();
+    const emitted: string[] = [];
+    const script = buildCommandContext(env, new Map([[mail.name, mail]]), (line) => {
+      emitted.push(line.content);
+    });
 
-    const result = await scriptOn(env).mail(...args);
+    const result = await script.mail(...args);
 
     expect(result.exitCode).toBe(1);
+    expect(emitted).toEqual([USAGE]);
     expect(sent).toEqual([]);
+    expect(opensAsked).toEqual([]);
   });
 
   it('cancels a script whose body is empty, as a typed one is', async () => {
