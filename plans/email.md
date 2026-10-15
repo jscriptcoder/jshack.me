@@ -2,8 +2,8 @@
 
 **Status**: Grilled, sliced and gap-reviewed. Decisions 1–27 confirmed by the owner 2026-10-14,
 28–41 from a find-gaps review the same day, 42–45 while planning slice 3 (2026-10-15). Slice 1
-shipped at v0.384.0 (#681, 2026-10-15) and slice 2 at v0.385.0 (#682, 2026-10-15); slice 3 is
-next and needs its plan.
+shipped at v0.384.0 (#681, 2026-10-15), slice 2 at v0.385.0 (#682, 2026-10-15) and slice 3 at
+v0.386.0 (#683, 2026-10-15); slice 4 is next and needs its plan.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 
@@ -292,7 +292,7 @@ wire-check. One browser run at the end covers them all.
    sign-up for the same handle is refused.
 2. ✅ **lynx sends POST forms** (v0.385.0, #682), and Back never resends one. A lynx player signs up from the front
    page.
-3. **Reading mail.** `mailutils`, `mail login` writing `~/.mailrc` and `logout` deleting it, the
+3. ✅ **Reading mail** (v0.386.0, #683). `mailutils`, `mail login` writing `~/.mailrc` and `logout` deleting it, the
    list and `read`, and the offline and emailit.io-down answers; the guess throttle, stable
    numbers, scripted reads and read marks, and a stale login's error (decisions 28, 29, 32, 34,
    35, 37, 42, 44, 45). A player reads their welcome mail.
@@ -567,6 +567,21 @@ No `api/` or database change.
 
 **Branch**: `feat/mail-reading` · **Version**: 0.385.0 → 0.386.0 · **Class**: behaviour change ·
 **Delivery**: one PR against `main`, with a migration.
+
+**As built (2026-10-15, #683, merged as `3d59703e`).** Shipped as planned, with these changes:
+
+- **The server does not ask where the caller stands.** `resolveMail` carries no
+  `caller_machine_id`: with no log line to trace, only reachability matters, and the client
+  refuses a box with no network itself, as `wallet` does.
+- **`email_login_failures` landed with the throttle** (increment 5), not with the inbox, and
+  brought `email_check_password`, the one password check `email_inbox` and `email_read` share.
+- **The wire shapes of a listed and an opened message live in `core/emailit/inbox.ts`**, read by
+  the handler and the client alike, so the browser takes none of the server's code.
+- **`mail login` checks the home can take the file before asking emailit.io**, so a doomed login
+  spends no password check. An empty address prints `mail: no address given`.
+- **The usage grew with each increment**, and is now built from the manual's synopsis.
+- `scripts/testMailRead.ts` has 15 checks. The migration went to jshack-dev and jshack-prod
+  before the merge, so the preview could read mail.
 
 **Value.** A player who signed up installs `mailutils`, runs `mail login`, and reads their welcome
 mail with `mail` and `mail read 1`. Whoever can read a `~/.mailrc` reads that inbox.
