@@ -1635,12 +1635,59 @@ export type MessageResult =
         | 'network_error';
     };
 
+export type DeleteResult =
+  | { readonly ok: true }
+  /** As a message's: the inbox holds nothing by that number, or the login was refused. */
+  | { readonly ok: false; readonly error: Exclude<MessageResult, { ok: true }>['error'] };
+
+/** A message on its way out. `to` is the recipient's handle; the domain is always
+ *  emailit.io's, and the sender is whoever the login names. */
+export type OutgoingMail = {
+  readonly to: string;
+  readonly subject: string;
+  readonly body: string;
+};
+
+export type SendResult =
+  | { readonly ok: true }
+  /** As an inbox's, and the two bounces: `no_mailbox`, nobody holds the recipient's handle
+   *  (a system sender included); `mailbox_full`, the recipient's inbox is at its cap. And
+   *  `send_limited`: this player has sent 20 in the last hour, and nothing went. */
+  | {
+      readonly ok: false;
+      readonly error:
+        | 'host_unreachable'
+        | 'login_failed'
+        | 'throttled'
+        | 'no_mailbox'
+        | 'mailbox_full'
+        | 'send_limited'
+        | 'network_error';
+    };
+
 /** The emailit.io seam. Every request carries the login, because the server keeps no
  *  mail session; where it comes from is the command's business, not this seam's. */
 export type MailApi = {
   readonly inbox: (login: MailLogin) => Promise<InboxResult>;
-  /** Open one message by its number. emailit.io marks it read. */
-  readonly read: (login: MailLogin, number: number) => Promise<MessageResult>;
+  /** Open one message by its number. emailit.io marks it read when `mark` says to: `read`
+   *  does, and a reply that only quotes it does not. */
+  readonly read: (
+    login: MailLogin,
+    number: number,
+    options: { readonly mark: boolean },
+  ) => Promise<MessageResult>;
+  /** Send a message from the login's address. */
+  readonly send: (login: MailLogin, mail: OutgoingMail) => Promise<SendResult>;
+  /** Delete one message by its number, for everyone who holds the password. */
+  readonly delete: (login: MailLogin, number: number) => Promise<DeleteResult>;
+};
+
+/** A message about to be written: who it is to, in full, its subject, and what the
+ *  editor opens on. */
+export type MailDraft = {
+  readonly to: string;
+  readonly subject: string;
+  readonly content: string;
 };
 
 // ---- The boundary ----
@@ -1715,6 +1762,12 @@ export type CommandEnv = {
     readonly message: string;
     readonly masked: boolean;
   }) => Promise<string>;
+
+  /** Open the editor on a message being written, and wait for it to close. Resolves with
+   *  the draft as it was last written out (nano's Ctrl-O), or null when it never was:
+   *  what was typed after the last write-out is lost, as an unsaved buffer is under a
+   *  real `mail`. The command decides what then happens to it; the editor only edits. */
+  readonly compose: (draft: MailDraft) => Promise<string | null>;
 
   /** Elevate/switch the active session by pushing a new one onto the hop chain
    *  (sibling to `setCwd`/`setInterface`). The UI owns the session stack and

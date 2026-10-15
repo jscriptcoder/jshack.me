@@ -298,6 +298,8 @@ export const mockWalletApi = (overrides: Partial<WalletApi> = {}): WalletApi => 
 export const mockMailApi = (overrides: Partial<MailApi> = {}): MailApi => ({
   inbox: NOT_IMPLEMENTED('mail.inbox'),
   read: NOT_IMPLEMENTED('mail.read'),
+  send: NOT_IMPLEMENTED('mail.send'),
+  delete: NOT_IMPLEMENTED('mail.delete'),
   ...overrides,
 });
 
@@ -368,6 +370,7 @@ export const mockCommandEnv = (overrides: Partial<CommandEnv> = {}): CommandEnv 
   setCwd: () => undefined,
   setInterface: () => undefined,
   prompt: NOT_IMPLEMENTED('prompt'),
+  compose: NOT_IMPLEMENTED('compose'),
   pushSession: () => undefined,
   popSession: () => undefined,
   resetGame: () => undefined,

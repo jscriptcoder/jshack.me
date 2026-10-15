@@ -86,8 +86,15 @@ const signUp = (player: Identity, handle: string, password: string) =>
     }),
   );
 
+/** The list, or with a `number` that one message, marked read as `mail read` asks. */
 const mail = (player: Identity, fields: Record<string, unknown>) =>
-  post(signRequest(player, 'resolveMail', fields));
+  post(
+    signRequest(
+      player,
+      'resolveMail',
+      'number' in fields ? { op: 'read', mark: true, ...fields } : { op: 'list', ...fields },
+    ),
+  );
 
 const failuresOf = async (player: Identity): Promise<number> => {
   const { count, error } = await sr

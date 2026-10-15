@@ -453,10 +453,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (actionOf(req.body) === 'resolveMail') {
-    // `mail`: an inbox, or one message in it, opened to whoever holds its password. Reached through emailit.io's
-    // web server like a fetch, so a dark emailit.io has no mail; the password check and
-    // the inbox are one call into the function, and its answer is handed over as it came
-    // off the wire for the handler to read.
+    // `mail`: an inbox, or one message in it, opened to whoever holds its password, a
+    // message sent from it, or one deleted from it. Reached through emailit.io's web server like a fetch, so a
+    // dark emailit.io has no mail; the password check and the work are one call into the
+    // function, and its answer is handed over as it came off the wire for the handler to
+    // read.
     const { status, body } = await handleResolveMail(req.body, {
       nonceStore: noopNonceStore,
       ...webTargetDepsVia({ supabase, label: 'mail' }),
@@ -471,15 +472,39 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         logFailure('mail inbox', error);
         return { data: data as unknown, error };
       },
-      // Opening a message marks it read in the same call.
-      openMessage: async ({ handle, passwordMd5, playerKey, number }) => {
+      // Opening a message marks it read in the same call, unless a reply is only quoting it.
+      openMessage: async ({ handle, passwordMd5, playerKey, number, mark }) => {
         const { data, error } = await supabase.rpc('email_read', {
           read_handle: handle,
           read_password_md5: passwordMd5,
           read_player_key: playerKey,
           read_number: number,
+          read_mark: mark,
         });
         logFailure('mail read', error);
+        return { data: data as unknown, error };
+      },
+      // The sender's password is checked in the same call that delivers.
+      sendMessage: async ({ handle, passwordMd5, playerKey, to, subject, body }) => {
+        const { data, error } = await supabase.rpc('email_send', {
+          send_handle: handle,
+          send_password_md5: passwordMd5,
+          send_player_key: playerKey,
+          send_to: to,
+          send_subject: subject,
+          send_body: body,
+        });
+        logFailure('mail send', error);
+        return { data: data as unknown, error };
+      },
+      deleteMessage: async ({ handle, passwordMd5, playerKey, number }) => {
+        const { data, error } = await supabase.rpc('email_delete', {
+          delete_handle: handle,
+          delete_password_md5: passwordMd5,
+          delete_player_key: playerKey,
+          delete_number: number,
+        });
+        logFailure('mail delete', error);
         return { data: data as unknown, error };
       },
     });

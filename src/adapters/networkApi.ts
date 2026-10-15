@@ -32,6 +32,9 @@ import type {
   InboxResult,
   MailLogin,
   MessageResult,
+  OutgoingMail,
+  SendResult,
+  DeleteResult,
   OccupantFetchParams,
   OccupantFetchResult,
   OccupantSweepParams,
@@ -293,6 +296,7 @@ export const openMailInbox = async (
 ): Promise<InboxResult> => {
   try {
     const response = await post(deps, 'resolveMail', {
+      op: 'list',
       handle: login.handle,
       password: login.password,
     });
@@ -323,18 +327,22 @@ const MESSAGE_REFUSALS = ['host_unreachable', 'login_failed', 'throttled', 'no_m
 
 /**
  * Open one message of an emailit.io inbox by its number (backs `env.mail.read`). The
- * server marks it read. Refusals read as an inbox's do, plus `no_message`.
+ * server marks it read when `mark` says to. Refusals read as an inbox's do, plus
+ * `no_message`.
  */
 export const readMailMessage = async (
   deps: NetworkClientDeps,
   login: MailLogin,
   number: number,
+  options: { readonly mark: boolean },
 ): Promise<MessageResult> => {
   try {
     const response = await post(deps, 'resolveMail', {
+      op: 'read',
       handle: login.handle,
       password: login.password,
       number,
+      mark: options.mark,
     });
     const body: unknown = await response.json();
     if (!response.ok) {
@@ -346,6 +354,77 @@ export const readMailMessage = async (
     if (!opened.success) return { ok: false, error: 'network_error' };
     const { delivered_at, ...message } = opened.data.message;
     return { ok: true, message: { ...message, deliveredAt: delivered_at } };
+  } catch {
+    return { ok: false, error: 'network_error' };
+  }
+};
+
+/** The refusals emailit.io gives for a message on its way out: an inbox's, the two
+ *  bounces, and the hour's limit. */
+const SEND_REFUSALS = [
+  'host_unreachable',
+  'login_failed',
+  'throttled',
+  'no_mailbox',
+  'mailbox_full',
+  'send_limited',
+] as const;
+
+/**
+ * Send a message from an emailit.io login (backs `env.mail.send`). The server delivers it
+ * into the recipient's inbox, or bounces it.
+ */
+export const sendMail = async (
+  deps: NetworkClientDeps,
+  login: MailLogin,
+  mail: OutgoingMail,
+): Promise<SendResult> => {
+  try {
+    const response = await post(deps, 'resolveMail', {
+      op: 'send',
+      handle: login.handle,
+      password: login.password,
+      to: mail.to,
+      subject: mail.subject,
+      body: mail.body,
+    });
+    const body: unknown = await response.json();
+    if (!response.ok) {
+      const failed = body as { readonly error?: string } | null;
+      const refusal = SEND_REFUSALS.find((error) => error === failed?.error);
+      return { ok: false, error: refusal ?? 'network_error' };
+    }
+    const sent = z.object({ ok: z.literal(true) }).safeParse(body);
+    return sent.success ? { ok: true } : { ok: false, error: 'network_error' };
+  } catch {
+    return { ok: false, error: 'network_error' };
+  }
+};
+
+/**
+ * Delete one message of an emailit.io inbox by its number (backs `env.mail.delete`).
+ * Refusals read as one message's do.
+ */
+export const deleteMailMessage = async (
+  deps: NetworkClientDeps,
+  login: MailLogin,
+  number: number,
+): Promise<DeleteResult> => {
+  try {
+    const response = await post(deps, 'resolveMail', {
+      op: 'delete',
+      handle: login.handle,
+      password: login.password,
+      number,
+    });
+    const body: unknown = await response.json();
+    if (!response.ok) {
+      const failed = body as { readonly error?: string } | null;
+      const refusal = MESSAGE_REFUSALS.find((error) => error === failed?.error);
+      return { ok: false, error: refusal ?? 'network_error' };
+    }
+    const deleted = z.object({ ok: z.literal(true) }).safeParse(body);
+    return deleted.success ? { ok: true } : { ok: false, error: 'network_error' };
   } catch {
     return { ok: false, error: 'network_error' };
   }

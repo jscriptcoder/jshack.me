@@ -886,7 +886,13 @@ agreed order:
     login` writes it, `logout` deletes it); it lists the inbox and `read <n>` opens a message
     and marks it read, through the new `resolveMail` action and the `email_inbox`/`email_read`
     functions; wrong passwords are held back per guesser (`email_login_failures`, 5 a minute),
-    and scripts may read but never log in. **Pick up here:** the plan's slice 4, sending mail.
+    and scripts may read but never log in. Slice 4 (v0.387.0): `mail send <to> <subject>` and
+    `mail reply <n>` write in nano (Ctrl-O keeps the draft, Ctrl-X sends it) through the new
+    `env.compose`, and `mail delete <n>` removes a message; `resolveMail` names its `op`, and
+    `email_send` delivers or bounces (no such mailbox, a full inbox of 100) and holds each
+    player to 20 sends an hour (`email_sends`), `email_read` can leave a quoted message unread,
+    and `email_delete` never reuses a number. Scripts send with the body as the last argument.
+    **Pick up here:** the plan's slice 5, `mail passwd` and new-mail notices.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
