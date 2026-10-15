@@ -28,6 +28,7 @@ import {
   type SendResult,
 } from './types.js';
 import { vantageOf } from '../network/vantage.js';
+import { hasTty } from '../sessions/hasTty.js';
 import { homeDirectory } from '../sessions/homeDirectory.js';
 import { EMAILIT_DOMAIN } from '../generation/fixedSites.js';
 import { asAbsPath, type AbsPath } from '../types.js';
@@ -284,15 +285,26 @@ const unsent = (saved: Saved, to: string, error: Exclude<SendResult, { ok: true 
  * cost the player a draft is left but what only emailit.io knows: a mailbox nobody holds
  * or one that is full is found when the message goes, and the draft goes with it, since
  * there is no Sent folder.
+ *
+ * A script opens no editor. What it `wrote` stands where the player would have typed: on
+ * the draft's empty first line, so a scripted reply's text sits above the quote exactly
+ * as nano would have left it.
  */
 const composeAndSend = async (
   env: CommandEnv,
   saved: Saved,
   message: { readonly to: string; readonly handle: string; readonly subject: string },
-  draft: { readonly content: string; readonly cancelled: string },
+  draft: {
+    readonly content: string;
+    readonly cancelled: string;
+    readonly wrote?: string | undefined;
+  },
 ): Promise<CommandResult> => {
   const { to, handle, subject } = message;
-  const body = await env.compose({ to, subject, content: draft.content });
+  const body =
+    draft.wrote === undefined
+      ? await env.compose({ to, subject, content: draft.content })
+      : `${draft.wrote}${draft.content}`;
   if (body === null || body.trim() === '') return refusal(draft.cancelled);
   if (charactersIn(body) > BODY_LIMIT) return refusal('mail: message too long');
 
@@ -301,11 +313,16 @@ const composeAndSend = async (
 };
 
 /**
- * Write a message in nano and send it from the saved login. A bad address, a subject too
- * long, a login that cannot be used and no network to send from are all found before the
- * editor opens, so none of them costs the player a draft.
+ * Write a message in nano, or take a script's, and send it from the saved login. A bad
+ * address, a subject too long, a login that cannot be used and no network to send from
+ * are all found before the editor opens, so none of them costs the player a draft.
  */
-const send = async (env: CommandEnv, typedTo: string, subject: string): Promise<CommandResult> => {
+const send = async (
+  env: CommandEnv,
+  typedTo: string,
+  subject: string,
+  wrote?: string,
+): Promise<CommandResult> => {
   const to = typedAddress(typedTo);
   const handle = handleOf(to);
   if (handle === null) return refusal(`mail: ${to}: unknown domain`);
@@ -318,7 +335,7 @@ const send = async (env: CommandEnv, typedTo: string, subject: string): Promise<
     env,
     saved,
     { to, handle, subject },
-    { content: '', cancelled: 'mail: send cancelled' },
+    { content: '', cancelled: 'mail: send cancelled', wrote },
   );
 };
 
@@ -340,7 +357,11 @@ const quoted = (body: string): string =>
  * reply leaves the inbox's marks as it found them. A reply to a system sender bounces,
  * since nobody holds its handle.
  */
-const reply = async (env: CommandEnv, typedNumber: string): Promise<CommandResult> => {
+const reply = async (
+  env: CommandEnv,
+  typedNumber: string,
+  wrote?: string,
+): Promise<CommandResult> => {
   const saved = savedLogin(env);
   if ('refused' in saved) return refusal(saved.refused);
   if (!MESSAGE_NUMBER.test(typedNumber)) return refusal(`mail: no message ${typedNumber}`);
@@ -357,8 +378,56 @@ const reply = async (env: CommandEnv, typedNumber: string): Promise<CommandResul
     env,
     saved,
     { to, handle, subject: replySubject(original.message.subject) },
-    { content: `\n${quoted(original.message.body)}`, cancelled: 'mail: reply cancelled' },
+    {
+      content: `\n${quoted(original.message.body)}`,
+      cancelled: 'mail: reply cancelled',
+      wrote,
+    },
   );
+};
+
+/**
+ * `send` and `reply`, typed or scripted. Typed, the body is written in nano, so the shell
+ * needs a terminal for it to draw on, and a subject is every word after the address,
+ * needing no quotes. A script writes the body as its last argument instead and opens no
+ * editor, so it needs no terminal; each of its arguments is one value, the subject
+ * included.
+ *
+ * The terminal is asked about here rather than in `withoutTty`, which sees only the
+ * arguments: `mail send trin hello there` typed and a script's `mail('send', 'trin',
+ * 'hello', 'there')` are the same four words, and only one of them needs nano.
+ */
+const write = (
+  env: CommandEnv,
+  subcommand: 'send' | 'reply',
+  rest: readonly string[],
+): Promise<CommandResult> | CommandResult => {
+  if (env.scripted === true) {
+    const [first, second, third] = rest;
+    // An empty address is no address; an empty body is a message cancelled, as typed.
+    if (
+      subcommand === 'send' &&
+      rest.length === 3 &&
+      first &&
+      second !== undefined &&
+      third !== undefined
+    ) {
+      return send(env, first, second, third);
+    }
+    if (subcommand === 'reply' && rest.length === 2 && first && second !== undefined) {
+      return reply(env, first, second);
+    }
+    return refusal(USAGE);
+  }
+  const [target, ...words] = rest;
+  if (!hasTty(env.session)) return refusal(`mail: ${subcommand} needs a terminal`);
+  if (subcommand === 'send' && target !== undefined && words.length > 0) {
+    return send(env, target, words.join(' '));
+  }
+  if (subcommand === 'reply' && target !== undefined && words.length === 0) {
+    return reply(env, target);
+  }
+  return refusal(USAGE);
 };
 
 /** A message number as typed: a whole number from 1, written the way the list writes it. */
@@ -368,14 +437,7 @@ const execute: Command['execute'] = async (env, args) => {
   const [subcommand, ...rest] = args;
   if (args.length === 1 && subcommand === 'login') return login(env);
   if (args.length === 1 && subcommand === 'logout') return logout(env);
-  const [target, ...words] = rest;
-  // A subject is every word after the address, so it needs no quotes.
-  if (subcommand === 'send' && target !== undefined && words.length > 0) {
-    return send(env, target, words.join(' '));
-  }
-  if (subcommand === 'reply' && target !== undefined && words.length === 0) {
-    return reply(env, target);
-  }
+  if (subcommand === 'send' || subcommand === 'reply') return write(env, subcommand, rest);
   const numbered = (subcommand === 'read' || subcommand === 'delete') && rest.length === 1;
   if (args.length > 0 && !numbered) return refusal(USAGE);
 
@@ -397,11 +459,12 @@ const execute: Command['execute'] = async (env, args) => {
 
 export const mail: Command = {
   name: 'mail',
-  description: 'Read your emailit.io mail',
+  description: 'Read and send emailit.io mail',
   category: 'network',
   tier: 'guest',
   availability: { kind: 'installed-package', packageName: 'mailutils' },
-  // The password prompt needs somebody to ask. Reading and logging out ask nothing.
+  // The password prompt needs somebody to ask. Reading and logging out ask nothing; send
+  // and reply need nano only when typed, which `write` asks about itself.
   withoutTty: (args) => (args[0] === 'login' ? 'mail: login needs a terminal' : undefined),
   // A script reads mail with a login already saved, and never makes or ends one: a
   // script that could log in could guess passwords as fast as it could loop.
@@ -410,7 +473,7 @@ export const mail: Command = {
   manual: {
     synopsis: SYNOPSIS,
     description:
-      'Read the mail at an emailit.io address. Sign up for one at emailit.io first. ' +
+      'Read and send the mail at an emailit.io address. Sign up for one at emailit.io first. ' +
       'login asks for an address and a password and saves them, in plain text, to ~/.mailrc ' +
       'in the home of the user running it, readable by that user and root: two lines, ' +
       '"set from=" and the address, and "set password=" and the password. The file is the ' +
@@ -420,21 +483,46 @@ export const mail: Command = {
       'while it is unread, its number, the sender, when it was delivered (UTC) and the ' +
       'subject. A message keeps its number until it is deleted. read prints one message, ' +
       'its headers and then its body, and marks it read for everyone who holds the ' +
-      'password. logout deletes ~/.mailrc. The password is checked every time, so once it ' +
+      'password. send writes a message in nano to an address at emailit.io (a handle alone ' +
+      'will do), under the subject that follows it: Ctrl-O writes the draft out, and Ctrl-X ' +
+      'sends it as it was last written out. Nothing written out, or nothing but blank space, ' +
+      'sends nothing. reply answers a message the same way, to its sender under Re: and its ' +
+      'subject, with the message quoted below the line you write on; replying does not mark ' +
+      'it read. A message sent to a mailbox nobody holds, or to one that is full, bounces ' +
+      'when it is sent, and the draft is lost: there is no Sent folder. A subject may be 80 ' +
+      'characters, a body 4,000, and you may send 20 messages an hour, bounces included. ' +
+      'delete removes a message for everyone who holds the password; its number is never ' +
+      'used again. logout deletes ~/.mailrc. The password is checked every time, so once it ' +
       'is changed a saved login fails until it is saved again. Too many wrong passwords in ' +
       'a minute and every login is refused until the minute is up. emailit.io is reached ' +
-      'over the network the box is on, as curl would reach it. read and the list work from ' +
-      'a script; login and logout do not.',
+      'over the network the box is on, as curl would reach it. From a script the list, read ' +
+      'and delete work as typed, and send and reply take the body as their last argument: ' +
+      "mail('send', 'trin', 'hi', 'body'). login and logout do not work from a script.",
     arguments: [
       {
         name: 'command',
         description:
-          '"read", to print one message, "login", to save an address and its password, or ' +
+          '"read", to print one message, "send", to write one, "reply", to answer one, ' +
+          '"delete", to remove one, "login", to save an address and its password, or ' +
           '"logout", to delete the saved login (default: list the inbox)',
         required: false,
-        values: ['read', 'login', 'logout'],
+        values: ['read', 'send', 'reply', 'delete', 'login', 'logout'],
       },
-      { name: 'n', description: 'For "read": the number of the message', required: false },
+      {
+        name: 'n',
+        description: 'For "read", "reply" and "delete": the number of the message',
+        required: false,
+      },
+      {
+        name: 'to',
+        description: 'For "send": the address, or the handle alone',
+        required: false,
+      },
+      {
+        name: 'subject',
+        description: 'For "send": the subject, every word after the address',
+        required: false,
+      },
     ],
     examples: [
       {
@@ -443,6 +531,12 @@ export const mail: Command = {
       },
       { command: 'mail', description: 'List the inbox' },
       { command: 'mail read 1', description: 'Print message 1, and mark it read' },
+      {
+        command: 'mail send trin hello there',
+        description: 'Write a message to trin@emailit.io in nano, and send it',
+      },
+      { command: 'mail reply 1', description: 'Answer message 1, with it quoted below' },
+      { command: 'mail delete 1', description: 'Delete message 1' },
       { command: 'mail logout', description: 'Delete the saved login' },
       {
         command: 'cat ~/.mailrc',

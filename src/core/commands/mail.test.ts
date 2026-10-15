@@ -29,6 +29,7 @@ import type {
   MessageResult,
   OutgoingMail,
   SendResult,
+  SessionKind,
 } from './types.js';
 import type { Directory } from '../filesystem/types.js';
 
@@ -122,6 +123,8 @@ const mailEnv = (
   options: {
     readonly tree?: Directory;
     readonly userType?: UserType;
+    /** The kind of shell the player stands in: `nc` has no terminal behind it. */
+    readonly sessionKind?: SessionKind;
     readonly connectivity?: ConnectivityState;
     readonly answers?: InboxResult;
     readonly opens?: MessageResult;
@@ -159,7 +162,7 @@ const mailEnv = (
   const REFUSED = { ok: false, error: 'network_error' } as const;
   const env = mockCommandEnv({
     fs: mockFsViewFromTree(tree, { userType, cwd: asAbsPath('/') }),
-    session: mockSession({ username, userType }),
+    session: mockSession({ username, userType, kind: options.sessionKind ?? 'su' }),
     network: mockNetworkViewFromConnectivity(options.connectivity ?? joinedConnectivity()),
     prompt: async (asking) => {
       prompted.push(asking);
@@ -1299,6 +1302,78 @@ describe('mail from a script', () => {
     ]);
   });
 
+  it('sends with the body as the last argument, never opening the editor', async () => {
+    const { env, sent, composed } = mailEnv();
+
+    const result = await scriptOn(env).mail('send', 'trin', 'hello there', 'meet me\n');
+
+    expect(sent).toEqual([
+      {
+        login: { handle: 'neo', password: 's3cret' },
+        mail: { to: 'trin', subject: 'hello there', body: 'meet me\n' },
+      },
+    ]);
+    expect(composed).toEqual([]);
+    expect([...result]).toEqual([]);
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('replies with the given text above the quoted original', async () => {
+    const { env, sent, opensAsked } = mailEnv({
+      opens: { ok: true, message: opened({ number: 2, sender: 'trin@emailit.io', body: 'hi\n' }) },
+    });
+
+    await scriptOn(env).mail('reply', 2, 'thanks');
+
+    expect(sent[0]?.mail).toEqual({
+      to: 'trin',
+      subject: 'Re: Welcome to emailit.io',
+      body: 'thanks\n> hi\n',
+    });
+    expect(opensAsked[0]?.mark).toBe(false);
+  });
+
+  it.each([
+    [['send', 'trin', 'hi']],
+    [['send', 'trin', 'hi', 'body', 'more']],
+    [['reply', '2']],
+    [['reply', '2', 'thanks', 'more']],
+  ])('fails %o, which leaves out the body or adds to it, with the usage', async (args) => {
+    const { env, sent } = mailEnv();
+
+    const result = await scriptOn(env).mail(...args);
+
+    expect(result.exitCode).toBe(1);
+    expect(sent).toEqual([]);
+  });
+
+  it('cancels a script whose body is empty, as a typed one is', async () => {
+    const { env, sent } = mailEnv();
+
+    const result = await scriptOn(env).mail('send', 'trin', 'hi', '');
+
+    expect(result.exitCode).toBe(1);
+    expect(sent).toEqual([]);
+  });
+
+  it('holds a script to the limits a typed send is held to', async () => {
+    const { env, sent } = mailEnv();
+
+    const subject = await scriptOn(env).mail('send', 'trin', 'x'.repeat(81), 'body');
+    const body = await scriptOn(env).mail('send', 'trin', 'hi', 'x'.repeat(4001));
+
+    expect([subject.exitCode, body.exitCode]).toEqual([1, 1]);
+    expect(sent).toEqual([]);
+  });
+
+  it('sends from a script on a shell with no terminal, since it asks nobody', async () => {
+    const { env, sent } = mailEnv({ sessionKind: 'nc' });
+
+    await scriptOn(env).mail('send', 'trin', 'hi', 'body');
+
+    expect(sent).toHaveLength(1);
+  });
+
   it('never logs in from a script, so a script can never guess a password', async () => {
     const { env, prompted, asked } = mailEnv({ tree: boxWith({}), typed: ['neo', 's3cret'] });
 
@@ -1323,6 +1398,27 @@ describe('mail on a shell with no terminal behind it', () => {
     expect(needsTerminal(['login'], NO_FLAGS)).toBe('mail: login needs a terminal');
   });
 
+  it.each([[['send', 'trin', 'hi']], [['reply', '1']]])(
+    'cannot %o typed at the prompt, because nano needs a terminal to draw on',
+    async (args) => {
+      const { env, composed, sent } = mailEnv({ sessionKind: 'nc' });
+
+      const result = await mail.execute(env, args, NO_FLAGS);
+
+      expect(linesOf(result, 'error')).toEqual([`mail: ${args[0]} needs a terminal`]);
+      expect(composed).toEqual([]);
+      expect(sent).toEqual([]);
+    },
+  );
+
+  it('deletes typed at the prompt, which asks nothing', async () => {
+    const { env, deleted } = mailEnv({ sessionKind: 'nc' });
+
+    await mail.execute(env, ['delete', '2'], NO_FLAGS);
+
+    expect(deleted).toHaveLength(1);
+  });
+
   it.each([[[]], [['read', '1']], [['logout']]])('still runs %o, which asks nothing', (args) => {
     const needsTerminal = mail.withoutTty as Exclude<typeof mail.withoutTty, string | undefined>;
 
@@ -1338,7 +1434,14 @@ describe('mail — what the manual promises', () => {
   });
 
   it('offers the subcommands mail has, for completion after `mail `', () => {
-    expect(mail.manual?.arguments?.[0]?.values).toEqual(['read', 'login', 'logout']);
+    expect(mail.manual?.arguments?.[0]?.values).toEqual([
+      'read',
+      'send',
+      'reply',
+      'delete',
+      'login',
+      'logout',
+    ]);
   });
 
   it('says the login is the file, kept in plain text, and readable by whoever can read it', () => {
@@ -1349,7 +1452,30 @@ describe('mail — what the manual promises', () => {
     );
     expect(description).toContain('whoever can read that file can read the mail');
     expect(description).toContain('logout deletes ~/.mailrc');
-    expect(description).toContain('read and the list work from a script; login and logout do not');
+  });
+
+  it('says how a message is written and sent, and what it costs to get wrong', () => {
+    const description = mail.manual?.description ?? '';
+
+    expect(description).toContain(
+      'Ctrl-O writes the draft out, and Ctrl-X sends it as it was last written out',
+    );
+    expect(description).toContain('the draft is lost: there is no Sent folder');
+    expect(description).toContain(
+      'A subject may be 80 characters, a body 4,000, and you may send 20 messages an hour, ' +
+        'bounces included',
+    );
+    expect(description).toContain('replying does not mark it read');
+    expect(description).toContain('its number is never used again');
+  });
+
+  it('says what works from a script, and how a script sends', () => {
+    const description = mail.manual?.description ?? '';
+
+    expect(description).toContain(
+      "send and reply take the body as their last argument: mail('send', 'trin', 'hi', 'body')",
+    );
+    expect(description).toContain('login and logout do not work from a script');
   });
 
   it('shows examples that each run as a mail with a saved login runs them', async () => {
@@ -1360,6 +1486,9 @@ describe('mail — what the manual promises', () => {
       'login',
       '',
       'read',
+      'send',
+      'reply',
+      'delete',
       'logout',
     ]);
 
