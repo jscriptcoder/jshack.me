@@ -23,6 +23,12 @@
  *     this takes a row the caller once held there, which is what tells a shell whose
  *     session a reboot closed that the box went down under it.
  *
+ * emailit.io keeps everybody's mail in the server's tables, not in its files, and a root
+ * session there is shown it at the real paths (`core/emailit/spool.ts`). The view is laid
+ * into the box before the journal is replayed, so what a root wrote or removed there is
+ * what the next root sees. Below root it is never built, so no table is read and nothing
+ * of it reaches the wire.
+ *
  * The journal is replayed whole, every writer's rows in the order the server stamped them.
  */
 
@@ -35,6 +41,9 @@ import {
   type FindOccupantWorkstationByMachineId,
 } from '../patches/remoteWritePermission.js';
 import { networkBaseFsForMachineId } from '../generation/lanHostIdentity.js';
+import { computeApGatewayId } from '../identity/router.js';
+import { EMAILIT_NETWORK } from '../generation/fixedSites.js';
+import { withMailSpool, type SpoolAccount } from '../emailit/spool.js';
 import { filterTreeForSession, filterTreeToAllowlist } from '../patches/readFilter.js';
 import { serializeTree } from '../filesystem/treeCodec.js';
 import type { Directory } from '../filesystem/types.js';
@@ -73,7 +82,12 @@ export type ResolveCrossPlayerFsDeps = {
   readonly findPatches: (query: {
     readonly machine_id: string;
   }) => Promise<Lookup<readonly OwnerPatchRow[]>>;
+  /** Every emailit.io account with everything in its inbox. Asked only for a root
+   *  session on emailit.io's box. */
+  readonly findMailSpool: () => Promise<Lookup<readonly SpoolAccount[]>>;
 };
+
+const EMAILIT_MACHINE = computeApGatewayId(EMAILIT_NETWORK);
 
 export type HandlerResponse = {
   readonly status: number;
@@ -149,6 +163,14 @@ export const handleResolveCrossPlayerFs = async (
     return { status: 404, body: { error: 'host_unreachable' } };
   }
 
+  // A failed read is an error, never an empty spool: a root would take that for the truth.
+  const showsMail = payload.machine_id === EMAILIT_MACHINE && activeSession?.userType === 'root';
+  const spool = showsMail ? await deps.findMailSpool() : null;
+  if (spool !== null && spool.error) {
+    return { status: 500, body: { error: 'mail_spool_lookup_failed' } };
+  }
+  const box = spool === null ? base.data : withMailSpool(base.data, spool.data ?? []);
+
   const patches = await deps.findPatches({
     machine_id: payload.machine_id,
   });
@@ -156,7 +178,7 @@ export const handleResolveCrossPlayerFs = async (
     return { status: 500, body: { error: 'patches_lookup_failed' } };
   }
 
-  const tree = materializeMachineFs(base.data, patches.data);
+  const tree = materializeMachineFs(box, patches.data);
   // Tier dispatch: owner → full tree; active session → walker at the session tier plus
   // the externally-observable allowlist; no session → that allowlist only.
   const filtered = isOwner
