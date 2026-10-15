@@ -35,6 +35,7 @@ import type {
   ExploitApi,
   AptApi,
   WalletApi,
+  MailApi,
 } from '../../core/commands/types.js';
 import { basename, dirname } from '../../core/filesystem/path.js';
 import { canWrite } from '../../core/filesystem/walker.js';
@@ -292,6 +293,14 @@ export const mockWalletApi = (overrides: Partial<WalletApi> = {}): WalletApi => 
   ...overrides,
 });
 
+/** The emailit.io seam. Load-bearing: its answer IS the inbox, so an unstubbed one
+ *  must be loud rather than list an empty inbox or a failed login. */
+export const mockMailApi = (overrides: Partial<MailApi> = {}): MailApi => ({
+  inbox: NOT_IMPLEMENTED('mail.inbox'),
+  read: NOT_IMPLEMENTED('mail.read'),
+  ...overrides,
+});
+
 /** A scan seam whose `record` no-ops by default (logging is best-effort and
  *  fire-and-forget, so it must not throw the way a load-bearing seam does) and
  *  whose `resolvePublic` throws unless overridden (it is load-bearing — its result
@@ -354,6 +363,7 @@ export const mockCommandEnv = (overrides: Partial<CommandEnv> = {}): CommandEnv 
   hydra: mockHydraApi(),
   exploit: mockExploitApi(),
   wallet: mockWalletApi(),
+  mail: mockMailApi(),
   scan: mockScanApi(),
   setCwd: () => undefined,
   setInterface: () => undefined,

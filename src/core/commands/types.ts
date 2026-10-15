@@ -1591,6 +1591,58 @@ export type WalletApi = {
   readonly transfer: (order: WalletTransferOrder) => Promise<WalletTransferResult>;
 };
 
+/** An emailit.io login: a handle and its password, sent with every request because
+ *  the server keeps no mail session. */
+export type MailLogin = {
+  readonly handle: string;
+  readonly password: string;
+};
+
+/** One message as `mail`'s list shows it. `number` is its place in the inbox, kept
+ *  until it is deleted. `deliveredAt` is the server's moment of delivery, ISO 8601. */
+export type InboxMessage = {
+  readonly number: number;
+  readonly sender: string;
+  readonly subject: string;
+  readonly deliveredAt: string;
+  readonly read: boolean;
+};
+
+export type InboxResult =
+  | { readonly ok: true; readonly messages: readonly InboxMessage[] }
+  /** `host_unreachable`: emailit.io did not answer. `login_failed`: a wrong password, or
+   *  a handle nobody holds, which the server does not tell apart. `throttled`: this player
+   *  has guessed wrong too often in the last minute, and nothing was checked.
+   *  `network_error`: OUR side failing to ask, or an answer that was not one. */
+  | {
+      readonly ok: false;
+      readonly error: 'host_unreachable' | 'login_failed' | 'throttled' | 'network_error';
+    };
+
+/** One message opened to be read: what the list shows of it, and its body as written. */
+export type MailMessage = Omit<InboxMessage, 'read'> & { readonly body: string };
+
+export type MessageResult =
+  | { readonly ok: true; readonly message: MailMessage }
+  /** As an inbox's, and `no_message`: the inbox holds nothing by that number. */
+  | {
+      readonly ok: false;
+      readonly error:
+        | 'host_unreachable'
+        | 'login_failed'
+        | 'throttled'
+        | 'no_message'
+        | 'network_error';
+    };
+
+/** The emailit.io seam. Every request carries the login, because the server keeps no
+ *  mail session; where it comes from is the command's business, not this seam's. */
+export type MailApi = {
+  readonly inbox: (login: MailLogin) => Promise<InboxResult>;
+  /** Open one message by its number. emailit.io marks it read. */
+  readonly read: (login: MailLogin, number: number) => Promise<MessageResult>;
+};
+
 // ---- The boundary ----
 
 export type CommandEnv = {
@@ -1639,6 +1691,7 @@ export type CommandEnv = {
   readonly hydra: HydraApi;
   readonly exploit: ExploitApi;
   readonly wallet: WalletApi;
+  readonly mail: MailApi;
 
   /** Mutate the shell's cwd. UI layer owns the underlying signal; commands
    *  call this when they need to move (`cd`). FsView's `cwd()` reflects

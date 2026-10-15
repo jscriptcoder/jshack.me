@@ -6,6 +6,8 @@ import {
   fetchPublicPage,
   joinHomeNetwork,
   leaveHomeNetwork,
+  openMailInbox,
+  readMailMessage,
   resolveCrossPlayerFs,
   resolveOccupant,
   resolveOccupants,
@@ -883,6 +885,139 @@ describe('fetchPublicPage', () => {
     );
 
     expect(await fetchPublicPage(deps, PARAMS)).toEqual({ ok: false, error: 'network_error' });
+  });
+});
+
+describe('openMailInbox', () => {
+  const LOGIN = { handle: 'neo', password: 's3cret' };
+  const WELCOME = {
+    number: 1,
+    sender: 'noreply@emailit.io',
+    subject: 'Welcome to emailit.io',
+    delivered_at: '2026-10-15T09:12:03.123456+00:00',
+    read: false,
+  };
+
+  it('signs a resolveMail request carrying the handle and password, and returns the inbox', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, messages: [WELCOME] }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await openMailInbox(deps, LOGIN)).toEqual({
+      ok: true,
+      messages: [
+        {
+          number: 1,
+          sender: 'noreply@emailit.io',
+          subject: 'Welcome to emailit.io',
+          deliveredAt: '2026-10-15T09:12:03.123456+00:00',
+          read: false,
+        },
+      ],
+    });
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected verified envelope');
+    expect(verified.payload).toMatchObject({
+      action: 'resolveMail',
+      handle: 'neo',
+      password: 's3cret',
+    });
+  });
+
+  it.each([
+    [401, { error: 'login_failed' }, 'login_failed'],
+    [429, { error: 'throttled' }, 'throttled'],
+    [404, { error: 'host_unreachable' }, 'host_unreachable'],
+    [500, { error: 'mail_failed' }, 'network_error'],
+    [401, { error: 'signature_invalid' }, 'network_error'],
+  ])('reads a %i %o as %s', async (status, body, error) => {
+    const fetchSpy = vi.fn(async () => jsonResponse(status, body));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await openMailInbox(deps, LOGIN)).toEqual({ ok: false, error });
+  });
+
+  it('reads an inbox it cannot parse as the request failing, not as an empty inbox', async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, { ok: true, messages: [{ ...WELCOME, number: 'one' }] }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await openMailInbox(deps, LOGIN)).toEqual({ ok: false, error: 'network_error' });
+  });
+
+  it('reads a request that never came back as the request failing', async () => {
+    const fetchSpy = vi.fn(async () => {
+      throw new TypeError('Failed to fetch');
+    });
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await openMailInbox(deps, LOGIN)).toEqual({ ok: false, error: 'network_error' });
+  });
+});
+
+describe('readMailMessage', () => {
+  const LOGIN = { handle: 'neo', password: 's3cret' };
+  const OPENED = {
+    number: 1,
+    sender: 'noreply@emailit.io',
+    subject: 'Welcome to emailit.io',
+    delivered_at: '2026-10-15T09:12:03.123456+00:00',
+    body: 'Welcome to emailit.io, neo.\n',
+  };
+
+  it('signs a resolveMail request naming the message, and returns it', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, message: OPENED }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await readMailMessage(deps, LOGIN, 1)).toEqual({
+      ok: true,
+      message: {
+        number: 1,
+        sender: 'noreply@emailit.io',
+        subject: 'Welcome to emailit.io',
+        deliveredAt: '2026-10-15T09:12:03.123456+00:00',
+        body: 'Welcome to emailit.io, neo.\n',
+      },
+    });
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected verified envelope');
+    expect(verified.payload).toMatchObject({
+      action: 'resolveMail',
+      handle: 'neo',
+      password: 's3cret',
+      number: 1,
+    });
+  });
+
+  it.each([
+    [404, { error: 'no_message' }, 'no_message'],
+    [401, { error: 'login_failed' }, 'login_failed'],
+    [429, { error: 'throttled' }, 'throttled'],
+    [404, { error: 'host_unreachable' }, 'host_unreachable'],
+    [500, { error: 'mail_failed' }, 'network_error'],
+  ])('reads a %i %o as %s', async (status, body, error) => {
+    const fetchSpy = vi.fn(async () => jsonResponse(status, body));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await readMailMessage(deps, LOGIN, 1)).toEqual({ ok: false, error });
+  });
+
+  it('reads a message it cannot parse as the request failing', async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, { ok: true, message: { ...OPENED, body: undefined } }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await readMailMessage(deps, LOGIN, 1)).toEqual({ ok: false, error: 'network_error' });
+  });
+
+  it('reads a request that never came back as the request failing', async () => {
+    const fetchSpy = vi.fn(async () => {
+      throw new TypeError('Failed to fetch');
+    });
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await readMailMessage(deps, LOGIN, 1)).toEqual({ ok: false, error: 'network_error' });
   });
 });
 

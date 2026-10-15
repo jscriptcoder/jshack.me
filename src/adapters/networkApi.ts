@@ -23,11 +23,15 @@ import { assignHomeNetwork } from '../core/network/homeNetwork.js';
 import { workstationIdentityFields } from '../core/network/workstationIdentity.js';
 import { noLanLeaseCache, type LanLeaseCache } from '../core/network/lanLeaseCache.js';
 import { deserializeTree, type SerializedDirectory } from '../core/filesystem/treeCodec.js';
+import { listedMessageSchema, openedMessageSchema } from '../core/emailit/inbox.js';
 import type { HomeNetworkAssignment } from '../core/network/homeNetwork.js';
 import type { GameConfig } from '../core/gameConfig/gameConfig.js';
 import type { Directory } from '../core/filesystem/types.js';
 import type {
   Identity,
+  InboxResult,
+  MailLogin,
+  MessageResult,
   OccupantFetchParams,
   OccupantFetchResult,
   OccupantSweepParams,
@@ -260,6 +264,88 @@ export const fetchPublicPage = async (
       return { ok: false, error: 'network_error' };
     }
     return { ok: true, content: resolved.content, server: resolved.server };
+  } catch {
+    return { ok: false, error: 'network_error' };
+  }
+};
+
+/** An inbox as the server sends it. Parsed rather than trusted: a list that does not
+ *  read is not an empty inbox. */
+const inboxResponseSchema = z.object({
+  ok: z.literal(true),
+  messages: z.array(listedMessageSchema),
+});
+
+/** The refusals emailit.io gives for an inbox. Anything else that is not one is our own
+ *  side failing to ask. */
+const INBOX_REFUSALS = ['host_unreachable', 'login_failed', 'throttled'] as const;
+
+/**
+ * Open an emailit.io inbox with a handle and its password (backs `env.mail.inbox`).
+ *
+ * emailit.io not answering, a failed login and a player held back for guessing wrong too
+ * often are the refusals a player is told apart. Everything else — a 500, an unverifiable envelope, a malformed body, a thrown
+ * request — is `network_error`.
+ */
+export const openMailInbox = async (
+  deps: NetworkClientDeps,
+  login: MailLogin,
+): Promise<InboxResult> => {
+  try {
+    const response = await post(deps, 'resolveMail', {
+      handle: login.handle,
+      password: login.password,
+    });
+    const body: unknown = await response.json();
+    if (!response.ok) {
+      const failed = body as { readonly error?: string } | null;
+      const refusal = INBOX_REFUSALS.find((error) => error === failed?.error);
+      return { ok: false, error: refusal ?? 'network_error' };
+    }
+    const inbox = inboxResponseSchema.safeParse(body);
+    if (!inbox.success) return { ok: false, error: 'network_error' };
+    return {
+      ok: true,
+      messages: inbox.data.messages.map(({ delivered_at, ...message }) => ({
+        ...message,
+        deliveredAt: delivered_at,
+      })),
+    };
+  } catch {
+    return { ok: false, error: 'network_error' };
+  }
+};
+
+const messageResponseSchema = z.object({ ok: z.literal(true), message: openedMessageSchema });
+
+/** The refusals emailit.io gives for one message. */
+const MESSAGE_REFUSALS = ['host_unreachable', 'login_failed', 'throttled', 'no_message'] as const;
+
+/**
+ * Open one message of an emailit.io inbox by its number (backs `env.mail.read`). The
+ * server marks it read. Refusals read as an inbox's do, plus `no_message`.
+ */
+export const readMailMessage = async (
+  deps: NetworkClientDeps,
+  login: MailLogin,
+  number: number,
+): Promise<MessageResult> => {
+  try {
+    const response = await post(deps, 'resolveMail', {
+      handle: login.handle,
+      password: login.password,
+      number,
+    });
+    const body: unknown = await response.json();
+    if (!response.ok) {
+      const failed = body as { readonly error?: string } | null;
+      const refusal = MESSAGE_REFUSALS.find((error) => error === failed?.error);
+      return { ok: false, error: refusal ?? 'network_error' };
+    }
+    const opened = messageResponseSchema.safeParse(body);
+    if (!opened.success) return { ok: false, error: 'network_error' };
+    const { delivered_at, ...message } = opened.data.message;
+    return { ok: true, message: { ...message, deliveredAt: delivered_at } };
   } catch {
     return { ok: false, error: 'network_error' };
   }

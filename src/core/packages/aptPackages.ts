@@ -152,6 +152,9 @@ export const APT_PACKAGES: readonly AptPackage[] = [
   // Bought, not shipped: holding money is a choice, and the key file it leaves on
   // the box is one more thing there for a visitor to find.
   { name: 'wallet' },
+  // Preinstalled nowhere: reading mail is something a player sets up, and the ~/.mailrc
+  // it leaves on the box is one more thing there for a visitor to find.
+  { name: 'mailutils', binaries: ['mail'] },
   { name: 'node' },
   {
     name: 'hydra',

@@ -881,8 +881,12 @@ agreed order:
     with 405 and logs it as one, `md5` hashes UTF-8 bytes, and the Intro form warns off real
     passwords. Slice 2 (v0.385.0): lynx sends POST forms and types into password fields
     without showing them, Back never re-sends a form, and emailit.io's front page carries the
-    sign-up form (also served at `GET /signup`). **Pick up here:** the plan's slice 3, reading
-    mail.
+    sign-up form (also served at `GET /signup`). Slice 3 (v0.386.0): `apt install mailutils`
+    brings `mail`, whose login is the current user's `~/.mailrc` on the current box (`mail
+    login` writes it, `logout` deletes it); it lists the inbox and `read <n>` opens a message
+    and marks it read, through the new `resolveMail` action and the `email_inbox`/`email_read`
+    functions; wrong passwords are held back per guesser (`email_login_failures`, 5 a minute),
+    and scripts may read but never log in. **Pick up here:** the plan's slice 4, sending mail.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

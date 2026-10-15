@@ -280,6 +280,34 @@ describe('commandRegistry gating (registry wiring)', () => {
     },
   );
 
+  // mail is bought the same way, and whoever is on a box with it installed reads the
+  // mail their own ~/.mailrc saves: a guest who lands on a box included.
+  it.each(['guest', 'user', 'root'] as const)(
+    'gates mail behind an apt install of mailutils, then runs it for a %s shell',
+    async (userType) => {
+      const command = commandRegistry.get('mail');
+      if (command === undefined) throw new Error('mail not registered');
+
+      const fresh = mockCommandEnv({
+        fs: mockFsViewFromTree(buildDirectory({ tmp: buildDirectory({}) }), {
+          userType,
+          cwd: asAbsPath('/tmp'),
+        }),
+      });
+      const before = await command.execute(fresh, ['fetch'], NO_FLAGS);
+      expect(errorLines(before)).toEqual([
+        'bash: mail: command not found. Install with: apt install mailutils',
+      ]);
+
+      const installed = mockCommandEnv({
+        fs: mockFsViewFromTree(treeWithUsrBinary('mail'), { userType, cwd: asAbsPath('/') }),
+      });
+      const after = await command.execute(installed, ['fetch'], NO_FLAGS);
+
+      expect(errorLines(after)).toEqual([expect.stringMatching(/^mail: usage: mail /)]);
+    },
+  );
+
   // The DNS tools are the second family bought rather than shipped, and the pair
   // that changes what the OTHER commands accept — so the gate is worth showing on
   // the real registry entry rather than on a stand-in. Both directions, as gpg's.
