@@ -61,10 +61,11 @@ export type OpenInbox = (
   login: InboxLogin,
 ) => Promise<{ readonly data: unknown; readonly error: unknown }>;
 
-/** Open one message by its number and mark it read, or say the login failed or the
- *  inbox holds no such message: the store's reply as it came off the wire, read here. */
+/** Open one message by its number, marking it read when `mark` says to, or say the login
+ *  failed or the inbox holds no such message: the store's reply as it came off the wire,
+ *  read here. */
 export type OpenMessage = (
-  request: InboxLogin & { readonly number: number },
+  request: InboxLogin & { readonly number: number; readonly mark: boolean },
 ) => Promise<{ readonly data: unknown; readonly error: unknown }>;
 
 /** Deliver a message into the recipient's inbox, or say why not: the store's reply as it
@@ -124,7 +125,13 @@ const login = {
 const resolveMailSchema = z
   .discriminatedUnion('op', [
     z.looseObject({ ...login, op: z.literal('list') }),
-    z.looseObject({ ...login, op: z.literal('read'), number: z.number().int().positive() }),
+    z.looseObject({
+      ...login,
+      op: z.literal('read'),
+      number: z.number().int().positive(),
+      /** Whether the message is marked read: `read` marks it, a reply quoting it does not. */
+      mark: z.boolean(),
+    }),
     z.looseObject({
       ...login,
       op: z.literal('send'),
@@ -191,7 +198,7 @@ export const handleResolveMail = async (
   }
 
   if (payload.op === 'read') {
-    const reply = await deps.openMessage({ ...asked, number: payload.number });
+    const reply = await deps.openMessage({ ...asked, number: payload.number, mark: payload.mark });
     const answer = messageAnswerSchema.safeParse(reply.data);
     if (reply.error || !answer.success) return MAIL_FAILED;
     if (answer.data.outcome !== 'opened') return refused(answer.data.outcome);

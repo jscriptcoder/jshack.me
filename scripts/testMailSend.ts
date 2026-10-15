@@ -5,6 +5,8 @@
 //   - A MESSAGE ARRIVES IN ANOTHER INBOX. One player's send lands in the other's inbox at
 //     its next number, unread, from the sender's address, with its subject and body; the
 //     next one takes the number after.
+//   - A REPLY QUOTES WITHOUT READING. A message opened with `mark: false` answers its body
+//     and stays unread; one opened with `mark: true` is marked read.
 //   - A BOUNCE SAYS WHY. A handle nobody holds and a system sender (`noreply`) answer
 //     `no_mailbox`; an inbox holding 100 messages answers `mailbox_full`.
 //   - THE SENDER PROVES THE ADDRESS. A wrong password answers `login_failed`, delivers
@@ -169,11 +171,28 @@ const main = async () => {
       arrived.read === false,
     JSON.stringify(arrived),
   );
-  const opened = await post(
-    signRequest(trin, 'resolveMail', { op: 'read', handle: to, password: 's3cret', number: 2 }),
-  );
-  const body = (opened.body as { message?: { body?: string } } | null)?.message?.body;
+  const open = (mark: boolean) =>
+    post(
+      signRequest(trin, 'resolveMail', {
+        op: 'read',
+        handle: to,
+        password: 's3cret',
+        number: 2,
+        mark,
+      }),
+    );
+  const quotedFor = await open(false);
+  const body = (quotedFor.body as { message?: { body?: string } } | null)?.message?.body;
   check('its body arrives as written', body === 'meet me at the docks\n', JSON.stringify(body));
+  const [, stillUnread] = await inboxOf(trin, to);
+  check(
+    'opened for a reply to quote, it stays unread',
+    stillUnread?.read === false,
+    JSON.stringify(stillUnread),
+  );
+  await open(true);
+  const [, nowRead] = await inboxOf(trin, to);
+  check('opened to be read, it is marked read', nowRead?.read === true, JSON.stringify(nowRead));
   await send(neo, { handle: from, to, subject: 'again' });
   const numbers = (await inboxOf(trin, to)).map((message) => message.number);
   check('the next message takes the next number', numbers.join() === '1,2,3', numbers.join());

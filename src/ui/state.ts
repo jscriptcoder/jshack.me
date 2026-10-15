@@ -1076,12 +1076,12 @@ const openMailInboxFn: MailApi['inbox'] = (login) =>
     ? Promise.resolve({ ok: false, error: 'network_error' })
     : openMailInbox(networkClientDeps, login);
 
-/** Open one message, which emailit.io marks read (backs `env.mail.read`). Unwired, the
+/** Open one message, which emailit.io marks read if asked to (backs `env.mail.read`). Unwired, the
  *  failure is ours, as for an inbox. */
-const readMailMessageFn: MailApi['read'] = (login, number) =>
+const readMailMessageFn: MailApi['read'] = (login, number, options) =>
   networkClientDeps === undefined
     ? Promise.resolve({ ok: false, error: 'network_error' })
-    : readMailMessage(networkClientDeps, login, number);
+    : readMailMessage(networkClientDeps, login, number, options);
 
 /** Send a message from an emailit.io login (backs `env.mail.send`). Unwired, the failure
  *  is ours, as for an inbox. */

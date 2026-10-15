@@ -1664,8 +1664,13 @@ export type SendResult =
  *  mail session; where it comes from is the command's business, not this seam's. */
 export type MailApi = {
   readonly inbox: (login: MailLogin) => Promise<InboxResult>;
-  /** Open one message by its number. emailit.io marks it read. */
-  readonly read: (login: MailLogin, number: number) => Promise<MessageResult>;
+  /** Open one message by its number. emailit.io marks it read when `mark` says to: `read`
+   *  does, and a reply that only quotes it does not. */
+  readonly read: (
+    login: MailLogin,
+    number: number,
+    options: { readonly mark: boolean },
+  ) => Promise<MessageResult>;
   /** Send a message from the login's address. */
   readonly send: (login: MailLogin, mail: OutgoingMail) => Promise<SendResult>;
 };

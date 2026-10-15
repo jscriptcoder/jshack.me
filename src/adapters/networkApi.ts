@@ -326,12 +326,14 @@ const MESSAGE_REFUSALS = ['host_unreachable', 'login_failed', 'throttled', 'no_m
 
 /**
  * Open one message of an emailit.io inbox by its number (backs `env.mail.read`). The
- * server marks it read. Refusals read as an inbox's do, plus `no_message`.
+ * server marks it read when `mark` says to. Refusals read as an inbox's do, plus
+ * `no_message`.
  */
 export const readMailMessage = async (
   deps: NetworkClientDeps,
   login: MailLogin,
   number: number,
+  options: { readonly mark: boolean },
 ): Promise<MessageResult> => {
   try {
     const response = await post(deps, 'resolveMail', {
@@ -339,6 +341,7 @@ export const readMailMessage = async (
       handle: login.handle,
       password: login.password,
       number,
+      mark: options.mark,
     });
     const body: unknown = await response.json();
     if (!response.ok) {

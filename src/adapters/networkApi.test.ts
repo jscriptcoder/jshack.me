@@ -971,7 +971,7 @@ describe('readMailMessage', () => {
     const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, message: OPENED }));
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
 
-    expect(await readMailMessage(deps, LOGIN, 1)).toEqual({
+    expect(await readMailMessage(deps, LOGIN, 1, { mark: true })).toEqual({
       ok: true,
       message: {
         number: 1,
@@ -989,7 +989,19 @@ describe('readMailMessage', () => {
       handle: 'neo',
       password: 's3cret',
       number: 1,
+      mark: true,
     });
+  });
+
+  it('asks for the message to be left unread when told to', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, message: OPENED }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    await readMailMessage(deps, LOGIN, 1, { mark: false });
+
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected verified envelope');
+    expect(verified.payload).toMatchObject({ op: 'read', number: 1, mark: false });
   });
 
   it.each([
@@ -1002,7 +1014,7 @@ describe('readMailMessage', () => {
     const fetchSpy = vi.fn(async () => jsonResponse(status, body));
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
 
-    expect(await readMailMessage(deps, LOGIN, 1)).toEqual({ ok: false, error });
+    expect(await readMailMessage(deps, LOGIN, 1, { mark: true })).toEqual({ ok: false, error });
   });
 
   it('reads a message it cannot parse as the request failing', async () => {
@@ -1011,7 +1023,10 @@ describe('readMailMessage', () => {
     );
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
 
-    expect(await readMailMessage(deps, LOGIN, 1)).toEqual({ ok: false, error: 'network_error' });
+    expect(await readMailMessage(deps, LOGIN, 1, { mark: true })).toEqual({
+      ok: false,
+      error: 'network_error',
+    });
   });
 
   it('reads a request that never came back as the request failing', async () => {
@@ -1020,7 +1035,10 @@ describe('readMailMessage', () => {
     });
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
 
-    expect(await readMailMessage(deps, LOGIN, 1)).toEqual({ ok: false, error: 'network_error' });
+    expect(await readMailMessage(deps, LOGIN, 1, { mark: true })).toEqual({
+      ok: false,
+      error: 'network_error',
+    });
   });
 });
 

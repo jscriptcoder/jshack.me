@@ -1,5 +1,6 @@
 -- email_sends and email_send: a message from whoever holds a password, delivered into
--- another inbox, and no more than 20 an hour from any one player.
+-- another inbox, and no more than 20 an hour from any one player. And email_read, which
+-- learns to open a message without marking it read, for a reply to quote.
 --
 -- The sender proves the address by its password, checked as email_inbox checks it
 -- (email_check_password, the guess throttle included), so a send is one more thing a
@@ -107,3 +108,64 @@ $$;
 REVOKE EXECUTE ON FUNCTION email_send(TEXT, TEXT, TEXT, TEXT, TEXT, TEXT)
   FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION email_send(TEXT, TEXT, TEXT, TEXT, TEXT, TEXT) TO service_role;
+
+-- email_read, again, with read_mark: whether opening the message marks it read. `mail
+-- read` marks it; a reply that only quotes the message it answers does not, so replying
+-- leaves the inbox's marks as it found them. Otherwise as before: the password is
+-- checked first, and a number the inbox does not hold answers no_message.
+
+DROP FUNCTION email_read(TEXT, TEXT, TEXT, INTEGER);
+
+CREATE FUNCTION email_read(
+  read_handle        TEXT,
+  read_password_md5  TEXT,
+  read_player_key    TEXT,
+  read_number        INTEGER,
+  read_mark          BOOLEAN
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+STRICT
+SET search_path = public
+AS $$
+DECLARE
+  checked TEXT;
+  opened email_messages;
+BEGIN
+  checked := email_check_password(read_handle, read_password_md5, read_player_key);
+  IF checked <> 'ok' THEN
+    RETURN jsonb_build_object('outcome', checked);
+  END IF;
+
+  IF read_mark THEN
+    UPDATE email_messages
+       SET read = true
+     WHERE handle = read_handle
+       AND number = read_number
+    RETURNING * INTO opened;
+  ELSE
+    SELECT * INTO opened
+      FROM email_messages
+     WHERE handle = read_handle
+       AND number = read_number;
+  END IF;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('outcome', 'no_message');
+  END IF;
+
+  RETURN jsonb_build_object(
+    'outcome', 'opened',
+    'message', jsonb_build_object(
+      'number', opened.number,
+      'sender', opened.sender,
+      'subject', opened.subject,
+      'delivered_at', opened.delivered_at,
+      'body', opened.body
+    )
+  );
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION email_read(TEXT, TEXT, TEXT, INTEGER, BOOLEAN)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION email_read(TEXT, TEXT, TEXT, INTEGER, BOOLEAN) TO service_role;

@@ -32,7 +32,7 @@ import type {
 import type { Directory } from '../filesystem/types.js';
 
 const NO_FLAGS = new Map<string, string | true>();
-const USAGE = 'mail: usage: mail [read <n>] | send <to> <subject> | login | logout';
+const USAGE = 'mail: usage: mail [read <n>] | send <to> <subject> | reply <n> | login | logout';
 const PLAYER_KEY = 'a'.repeat(64);
 const ESSID = 'BEAN-THERE-WIFI';
 
@@ -107,6 +107,8 @@ const opened = (overrides: Partial<MailMessage> = {}): MailMessage => ({
 
 type Prompted = { readonly message: string; readonly masked: boolean };
 
+type OpenAsked = { readonly login: MailLogin; readonly number: number; readonly mark: boolean };
+
 /** A shell on `tree` as alice (or `userType`), online unless told otherwise, and an
  *  emailit.io that answers every inbox with `answers`, every message with `opens` and
  *  every send with `sends`, and keeps every login it was asked with, every message asked
@@ -130,7 +132,7 @@ const mailEnv = (
 ): {
   readonly env: CommandEnv;
   readonly asked: readonly MailLogin[];
-  readonly opensAsked: readonly { readonly login: MailLogin; readonly number: number }[];
+  readonly opensAsked: readonly OpenAsked[];
   readonly prompted: readonly Prompted[];
   readonly composed: readonly MailDraft[];
   readonly sent: readonly { readonly login: MailLogin; readonly mail: OutgoingMail }[];
@@ -139,7 +141,7 @@ const mailEnv = (
   readonly treeAfter: () => Directory;
 } => {
   const asked: MailLogin[] = [];
-  const opensAsked: { readonly login: MailLogin; readonly number: number }[] = [];
+  const opensAsked: OpenAsked[] = [];
   const prompted: Prompted[] = [];
   const composed: MailDraft[] = [];
   const sent: { readonly login: MailLogin; readonly mail: OutgoingMail }[] = [];
@@ -185,8 +187,8 @@ const mailEnv = (
         asked.push(login);
         return options.answers ?? { ok: true, messages: [message()] };
       },
-      read: async (login, number) => {
-        opensAsked.push({ login, number });
+      read: async (login, number, { mark }) => {
+        opensAsked.push({ login, number, mark });
         return options.opens ?? { ok: true, message: opened() };
       },
       send: async (login, outgoing) => {
@@ -546,7 +548,9 @@ describe('mail read — one message, which emailit.io then marks read', () => {
 
     await mail.execute(env, ['read', '12'], NO_FLAGS);
 
-    expect(opensAsked).toEqual([{ login: { handle: 'neo', password: 's3cret' }, number: 12 }]);
+    expect(opensAsked).toEqual([
+      { login: { handle: 'neo', password: 's3cret' }, number: 12, mark: true },
+    ]);
     expect(asked).toEqual([]);
   });
 
@@ -1063,6 +1067,144 @@ describe('mail send — a message written in nano, delivered to another inbox', 
   });
 });
 
+describe('mail reply — an answer to a message, its history quoted below', () => {
+  const ORIGINAL = opened({
+    number: 2,
+    sender: 'trin@emailit.io',
+    subject: 'hello there',
+    body: 'meet me at the docks\n\n> are you in?\n',
+  });
+
+  it('opens the editor on an empty line above the original, every line of it quoted', async () => {
+    const { env, composed } = mailEnv({ opens: { ok: true, message: ORIGINAL } });
+
+    await mail.execute(env, ['reply', '2'], NO_FLAGS);
+
+    expect(composed).toEqual([
+      {
+        to: 'trin@emailit.io',
+        subject: 'Re: hello there',
+        content: '\n> meet me at the docks\n> \n> > are you in?\n',
+      },
+    ]);
+  });
+
+  it('reads the original without marking it read', async () => {
+    const { env, opensAsked } = mailEnv({ opens: { ok: true, message: ORIGINAL } });
+
+    await mail.execute(env, ['reply', '2'], NO_FLAGS);
+
+    expect(opensAsked).toEqual([
+      { login: { handle: 'neo', password: 's3cret' }, number: 2, mark: false },
+    ]);
+  });
+
+  it('sends the draft as last written to the sender, and prints nothing', async () => {
+    const { env, sent } = mailEnv({ opens: { ok: true, message: ORIGINAL }, drafted: 'yes\n' });
+
+    const result = await mail.execute(env, ['reply', '2'], NO_FLAGS);
+
+    expect(sent).toEqual([
+      {
+        login: { handle: 'neo', password: 's3cret' },
+        mail: { to: 'trin', subject: 'Re: hello there', body: 'yes\n' },
+      },
+    ]);
+    expect(result).toEqual({ kind: 'sync', lines: [], exitCode: 0 });
+  });
+
+  it('answers a reply under the same subject, never Re: Re:', async () => {
+    const { env, composed } = mailEnv({
+      opens: { ok: true, message: { ...ORIGINAL, subject: 'Re: hello there' } },
+    });
+
+    await mail.execute(env, ['reply', '2'], NO_FLAGS);
+
+    expect(composed[0]?.subject).toBe('Re: hello there');
+  });
+
+  it('cuts the subject to 80 characters once Re: is in front of it', async () => {
+    const { env, composed } = mailEnv({
+      opens: { ok: true, message: { ...ORIGINAL, subject: 'x'.repeat(79) } },
+    });
+
+    await mail.execute(env, ['reply', '2'], NO_FLAGS);
+
+    expect(composed[0]?.subject).toBe(`Re: ${'x'.repeat(76)}`);
+  });
+
+  it('cancels a draft never written, sending nothing', async () => {
+    const { env, sent } = mailEnv({ opens: { ok: true, message: ORIGINAL }, drafted: null });
+
+    const result = await mail.execute(env, ['reply', '2'], NO_FLAGS);
+
+    expect(linesOf(result, 'error')).toEqual(['mail: reply cancelled']);
+    expect(sent).toEqual([]);
+  });
+
+  it('bounces a reply to a system sender, naming it', async () => {
+    const { env } = mailEnv({ sends: { ok: false, error: 'no_mailbox' } });
+
+    const result = await mail.execute(env, ['reply', '1'], NO_FLAGS);
+
+    expect(linesOf(result, 'error')).toEqual(['mail: noreply@emailit.io: no such mailbox']);
+  });
+
+  it('refuses a reply over 4,000 characters, sending nothing', async () => {
+    const { env, sent } = mailEnv({ drafted: 'x'.repeat(4001) });
+
+    const result = await mail.execute(env, ['reply', '1'], NO_FLAGS);
+
+    expect(linesOf(result, 'error')).toEqual(['mail: message too long']);
+    expect(sent).toEqual([]);
+  });
+
+  it('says there is no such message without opening the editor', async () => {
+    const { env, composed } = mailEnv({ opens: { ok: false, error: 'no_message' } });
+
+    const result = await mail.execute(env, ['reply', '9'], NO_FLAGS);
+
+    expect(linesOf(result, 'error')).toEqual(['mail: no message 9']);
+    expect(composed).toEqual([]);
+  });
+
+  it('says a number that is no message number is no message, asking nobody', async () => {
+    const { env, opensAsked } = mailEnv();
+
+    const result = await mail.execute(env, ['reply', 'x'], NO_FLAGS);
+
+    expect(linesOf(result, 'error')).toEqual(['mail: no message x']);
+    expect(opensAsked).toEqual([]);
+  });
+
+  it.each([[['reply']], [['reply', '1', '2']]])('prints the usage for %o', async (args) => {
+    const { env } = mailEnv();
+
+    expect(linesOf(await mail.execute(env, args, NO_FLAGS), 'error')).toEqual([USAGE]);
+  });
+
+  it('with no login file, says so before asking for the original', async () => {
+    const { env, opensAsked } = mailEnv({ tree: boxWith({}) });
+
+    const result = await mail.execute(env, ['reply', '1'], NO_FLAGS);
+
+    expect(linesOf(result, 'error')).toEqual(['mail: not logged in — run mail login']);
+    expect(opensAsked).toEqual([]);
+  });
+
+  it.each([
+    ['no network to ask from', { connectivity: buildColdStartConnectivity(PLAYER_KEY) }],
+    ['emailit.io not answering', { opens: { ok: false, error: 'host_unreachable' } as const }],
+  ])('with %s, says so before the editor opens', async (_label, options) => {
+    const { env, composed } = mailEnv(options);
+
+    const result = await mail.execute(env, ['reply', '1'], NO_FLAGS);
+
+    expect(linesOf(result, 'error')).toEqual(['mail: cannot reach emailit.io']);
+    expect(composed).toEqual([]);
+  });
+});
+
 describe('mail from a script', () => {
   const scriptOn = (env: CommandEnv) =>
     buildCommandContext(env, new Map([[mail.name, mail]]), () => undefined);
@@ -1084,7 +1226,9 @@ describe('mail from a script', () => {
     const read = await scriptOn(env).mail('read', 1);
 
     expect([...read].slice(0, 1)).toEqual(['From: noreply@emailit.io']);
-    expect(opensAsked).toEqual([{ login: { handle: 'neo', password: 's3cret' }, number: 1 }]);
+    expect(opensAsked).toEqual([
+      { login: { handle: 'neo', password: 's3cret' }, number: 1, mark: true },
+    ]);
   });
 
   it('never logs in from a script, so a script can never guess a password', async () => {
@@ -1120,7 +1264,9 @@ describe('mail on a shell with no terminal behind it', () => {
 
 describe('mail — what the manual promises', () => {
   it('names the forms the usage line names', () => {
-    expect(mail.manual?.synopsis).toBe('mail [read <n>] | send <to> <subject> | login | logout');
+    expect(mail.manual?.synopsis).toBe(
+      'mail [read <n>] | send <to> <subject> | reply <n> | login | logout',
+    );
   });
 
   it('offers the subcommands mail has, for completion after `mail `', () => {

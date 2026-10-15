@@ -472,13 +472,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         logFailure('mail inbox', error);
         return { data: data as unknown, error };
       },
-      // Opening a message marks it read in the same call.
-      openMessage: async ({ handle, passwordMd5, playerKey, number }) => {
+      // Opening a message marks it read in the same call, unless a reply is only quoting it.
+      openMessage: async ({ handle, passwordMd5, playerKey, number, mark }) => {
         const { data, error } = await supabase.rpc('email_read', {
           read_handle: handle,
           read_password_md5: passwordMd5,
           read_player_key: playerKey,
           read_number: number,
+          read_mark: mark,
         });
         logFailure('mail read', error);
         return { data: data as unknown, error };

@@ -201,7 +201,7 @@ describe('emailit.io opens an inbox to whoever holds its password', () => {
 
 describe('emailit.io opens one message, and marks it read', () => {
   const messageRequest = (fields: Record<string, unknown> = {}) =>
-    inboxRequest({ op: 'read', number: 1, ...fields });
+    inboxRequest({ op: 'read', number: 1, mark: true, ...fields });
 
   it('answers the message the number names', async () => {
     const { deps } = makeDeps();
@@ -222,8 +222,25 @@ describe('emailit.io opens one message, and marks it read', () => {
       passwordMd5: md5('s3cret'),
       playerKey: BOB.publicKeyHex,
       number: 12,
+      mark: true,
     });
     expect(openInbox).not.toHaveBeenCalled();
+  });
+
+  // A reply quotes the message it answers without reading it: only `read` marks.
+  it('asks the store to leave the message unread when the request says so', async () => {
+    const { deps, openMessage } = makeDeps();
+
+    await handleResolveMail(messageRequest({ mark: false }), deps);
+
+    expect(openMessage).toHaveBeenCalledWith(expect.objectContaining({ mark: false }));
+  });
+
+  it('turns away a request that does not say whether to mark the message read', async () => {
+    const { deps, openMessage } = makeDeps();
+
+    expect((await handleResolveMail(messageRequest({ mark: undefined }), deps)).status).toBe(400);
+    expect(openMessage).not.toHaveBeenCalled();
   });
 
   it('says there is no such message when the inbox holds none by that number', async () => {

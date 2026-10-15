@@ -31,7 +31,7 @@ import { homeDirectory } from '../sessions/homeDirectory.js';
 import { EMAILIT_DOMAIN } from '../generation/fixedSites.js';
 import { asAbsPath, type AbsPath } from '../types.js';
 
-const SYNOPSIS = 'mail [read <n>] | send <to> <subject> | login | logout';
+const SYNOPSIS = 'mail [read <n>] | send <to> <subject> | reply <n> | login | logout';
 const USAGE = `mail: usage: ${SYNOPSIS}`;
 
 /** No network to ask from, emailit.io not answering, or our own side failing to ask:
@@ -153,6 +153,11 @@ const unanswered = (saved: Saved, error: Exclude<InboxResult, { ok: true }>['err
 const headerDate = (deliveredAt: string): string =>
   new Date(deliveredAt).toUTCString().replace(/GMT$/, '+0000');
 
+/** The lines of a body as written. A body ends with its last line's newline, which is no
+ *  line of its own. */
+const bodyLines = (body: string): readonly string[] =>
+  (body.endsWith('\n') ? body.slice(0, -1) : body).split('\n');
+
 /** A message as `read` prints it: its headers, a blank line, then the body as written. */
 const messageLines = (address: string, message: MailMessage): readonly string[] => [
   `From: ${message.sender}`,
@@ -160,8 +165,7 @@ const messageLines = (address: string, message: MailMessage): readonly string[] 
   `Date: ${headerDate(message.deliveredAt)}`,
   `Subject: ${message.subject}`,
   '',
-  // A body ends with its last line's newline, which is no line of its own.
-  ...(message.body.endsWith('\n') ? message.body.slice(0, -1) : message.body).split('\n'),
+  ...bodyLines(message.body),
 ];
 
 const said = (lines: readonly string[]): CommandResult => ({
@@ -179,7 +183,7 @@ const list = async (env: CommandEnv, saved: Saved): Promise<CommandResult> => {
 };
 
 const read = async (env: CommandEnv, saved: Saved, number: number): Promise<CommandResult> => {
-  const opened = await env.mail.read(saved.login, number);
+  const opened = await env.mail.read(saved.login, number, { mark: true });
   if (!opened.ok) {
     return opened.error === 'no_message'
       ? refusal(`mail: no message ${number}`)
@@ -261,12 +265,32 @@ const unsent = (saved: Saved, to: string, error: Exclude<SendResult, { ok: true 
 };
 
 /**
- * Write a message in nano and send it from the saved login.
+ * Open the editor on a message and send what was written out.
  *
- * Everything that can be found out before the editor opens is: a bad address, a subject
- * too long, a login that cannot be used, no network to send from. None of them costs the
- * player a draft. What only emailit.io knows, a mailbox nobody holds or one that is full,
- * is found when the message goes, and the draft goes with it: there is no Sent folder.
+ * Whatever could be found out before the editor opened already was, so nothing that
+ * cost the player a draft is left but what only emailit.io knows: a mailbox nobody holds
+ * or one that is full is found when the message goes, and the draft goes with it, since
+ * there is no Sent folder.
+ */
+const composeAndSend = async (
+  env: CommandEnv,
+  saved: Saved,
+  message: { readonly to: string; readonly handle: string; readonly subject: string },
+  draft: { readonly content: string; readonly cancelled: string },
+): Promise<CommandResult> => {
+  const { to, handle, subject } = message;
+  const body = await env.compose({ to, subject, content: draft.content });
+  if (body === null || body.trim() === '') return refusal(draft.cancelled);
+  if (charactersIn(body) > BODY_LIMIT) return refusal('mail: message too long');
+
+  const sent = await env.mail.send(saved.login, { to: handle, subject, body });
+  return sent.ok ? said([]) : unsent(saved, to, sent.error);
+};
+
+/**
+ * Write a message in nano and send it from the saved login. A bad address, a subject too
+ * long, a login that cannot be used and no network to send from are all found before the
+ * editor opens, so none of them costs the player a draft.
  */
 const send = async (env: CommandEnv, typedTo: string, subject: string): Promise<CommandResult> => {
   const to = typedAddress(typedTo);
@@ -277,12 +301,54 @@ const send = async (env: CommandEnv, typedTo: string, subject: string): Promise<
   if ('refused' in saved) return refusal(saved.refused);
   if (vantageOf(env.session, env.network) === null) return refusal(UNREACHABLE);
 
-  const body = await env.compose({ to, subject, content: '' });
-  if (body === null || body.trim() === '') return refusal('mail: send cancelled');
-  if (charactersIn(body) > BODY_LIMIT) return refusal('mail: message too long');
+  return composeAndSend(
+    env,
+    saved,
+    { to, handle, subject },
+    { content: '', cancelled: 'mail: send cancelled' },
+  );
+};
 
-  const sent = await env.mail.send(saved.login, { to: handle, subject, body });
-  return sent.ok ? said([]) : unsent(saved, to, sent.error);
+/** A reply's subject: `Re:` in front of the original's, unless it already wears one, cut
+ *  to the longest a subject may be. */
+const replySubject = (subject: string): string =>
+  [...(subject.startsWith('Re: ') ? subject : `Re: ${subject}`)].slice(0, SUBJECT_LIMIT).join('');
+
+/** A message quoted for a reply: every line of it behind `> `, so its own quotes go one
+ *  deeper and the whole history comes along. */
+const quoted = (body: string): string =>
+  `${bodyLines(body)
+    .map((line) => `> ${line}`)
+    .join('\n')}\n`;
+
+/**
+ * Answer a message: write in nano, on an empty line above the original quoted, and send
+ * it to whoever sent the original. The original is read without being marked read, so a
+ * reply leaves the inbox's marks as it found them. A reply to a system sender bounces,
+ * since nobody holds its handle.
+ */
+const reply = async (env: CommandEnv, typedNumber: string): Promise<CommandResult> => {
+  const saved = savedLogin(env);
+  if ('refused' in saved) return refusal(saved.refused);
+  if (!MESSAGE_NUMBER.test(typedNumber)) return refusal(`mail: no message ${typedNumber}`);
+  if (vantageOf(env.session, env.network) === null) return refusal(UNREACHABLE);
+
+  const original = await env.mail.read(saved.login, Number(typedNumber), { mark: false });
+  if (!original.ok) {
+    return original.error === 'no_message'
+      ? refusal(`mail: no message ${typedNumber}`)
+      : unanswered(saved, original.error);
+  }
+  const to = original.message.sender;
+  const handle = handleOf(to);
+  if (handle === null) return refusal(`mail: ${to}: unknown domain`);
+
+  return composeAndSend(
+    env,
+    saved,
+    { to, handle, subject: replySubject(original.message.subject) },
+    { content: `\n${quoted(original.message.body)}`, cancelled: 'mail: reply cancelled' },
+  );
 };
 
 /** A message number as typed: a whole number from 1, written the way the list writes it. */
@@ -292,10 +358,13 @@ const execute: Command['execute'] = async (env, args) => {
   const [subcommand, ...rest] = args;
   if (args.length === 1 && subcommand === 'login') return login(env);
   if (args.length === 1 && subcommand === 'logout') return logout(env);
-  // The subject is every word after the address, so it needs no quotes.
-  const [to, ...subject] = rest;
-  if (subcommand === 'send' && to !== undefined && subject.length > 0) {
-    return send(env, to, subject.join(' '));
+  const [target, ...words] = rest;
+  // A subject is every word after the address, so it needs no quotes.
+  if (subcommand === 'send' && target !== undefined && words.length > 0) {
+    return send(env, target, words.join(' '));
+  }
+  if (subcommand === 'reply' && target !== undefined && words.length === 0) {
+    return reply(env, target);
   }
   const reading = subcommand === 'read' && rest.length === 1;
   if (args.length > 0 && !reading) return refusal(USAGE);
