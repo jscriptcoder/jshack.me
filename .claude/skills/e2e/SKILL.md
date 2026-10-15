@@ -703,6 +703,23 @@ site makes the link count meaningless.
 - **The crawl writes nothing on A's box.** Only real visits (B's `lynx` follow, a direct `curl`)
   land in A's `/var/log/access.log`; a search never does. Check the row, not the screen.
 
+**Rooting any fixed site (emailit.io, findit.io, mapit.io, hackademy.io) is CVE-only, by
+design.** A fixed site's root password is drawn from the UNCRACKABLE pool — `fixedSiteFs.ts`
+sets `CRACKABLE_ROOT_CHANCE = 0` with the comment "the way in is the software it runs … never a
+guess" — so §6 cannot recover it and `ssh root@<domain>` with a guessed password never lands.
+The ONLY in-game root is a **root-tier** CVE on `:80`/`:22`, and an exploit session's `userType`
+is the CVE's tier, not the account it lands on (`sessions/exploitCreateSession.ts`): a fixed site
+holds only `root`, so a user/guest-tier hole gives you a shell *as the root account at user/guest
+tier*, which is not a root session (a root-only file like `/etc/emailit/passwd` stays hidden). So
+when the day's holes are only user/guest tier, the box simply cannot be rooted that day — prove
+any root-only behaviour with the feature's wire-check seeded session instead (e.g.
+`testMailSpool.ts`), and say in the evidence that the UI run stood the root session up directly.
+**Trap:** matching a fixed site's `/etc/passwd` root hash against `ALL_GENERATED_PASSWORDS` WILL
+"find" it, because that array concatenates the uncrackable pool — it is NOT a route a player has,
+and must never be presented as an in-game crack. (The crackable hashes decision 3 means are the
+player-chosen *account* hashes in `/etc/emailit/passwd`, recovered with a real external wordlist
+tool once you are already root — not root's own password.)
+
 **Rooting findit, reading the prize, and restoring it** (slice 4). findit's root does not crack
 (§6 won't help), so the only way in is a live CVE on its `:80` or `:22` — `nmap -sV findit.io`
 names it. **Rooting it to DEFACE the front page needs a ROOT-tier full-shell hole, and that window

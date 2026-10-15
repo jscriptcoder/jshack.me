@@ -904,9 +904,11 @@ agreed order:
     six slices with no defect — `curl` and lynx sign-up (lynx Back never re-posting), reading and
     the plaintext `~/.mailrc`, two players trading mail and a reply, the live new-mail notice, a
     root on emailit.io reading the spool, a forged mailbox over the untouched real inbox and the
-    restore, and a full takeover (crack a handle's hash, log into the victim's mail, change the
-    password, the victim's one `login failed` notice); root was reached by cracking root's
-    `/etc/passwd` hash and `ssh`, the day's network holes being only user/guest tier. As built:
+    restore, and a full takeover (recover a handle's password, log into the victim's mail, change
+    the password, the victim's one `login failed` notice). That game day emailit.io's network holes
+    were only user/guest tier, so an in-game root was not available — a fixed site's root password
+    is uncrackable by design and the only way in is a root-tier CVE — so the root-view behaviour was
+    exercised against a root `ssh` session stood up directly, as `testMailSpool.ts` seeds one. As built:
     [`email-architecture.md`](./email-architecture.md); follow-ups in `backlog.md` under "Email —
     follow-ups deferred". **Pick up here (2026-10-15):** item 8's list and item 6, the agreed work
     until the owner reopens missions.

@@ -206,10 +206,14 @@ one; bad luck is the lesson, and the game gives no warning or nudge. Two ways in
 designed:
 
 1. **A saved login** in `~/.mailrc` on a box the attacker reaches (section 3).
-2. **Root on emailit.io and its crackable hashes**: crack root's `/etc/passwd` hash, `ssh` in,
-   read `/etc/emailit/passwd`, and crack a handle's md5 with a real external wordlist tool.
-   (The coming CVE arc is a second way onto the box when the day's holes allow it; md5 is
-   weak on purpose and is never to be "fixed".)
+2. **Root on emailit.io and its crackable hashes**: once root on the box, read
+   `/etc/emailit/passwd` and crack a handle's md5 with a real external wordlist tool — the
+   account passwords are player-chosen, so a weak one falls. **Getting root is CVE-only**: a
+   fixed site's own root password is drawn from the uncrackable pool by design
+   (`CRACKABLE_ROOT_CHANCE = 0` in `generation/fixedSiteFs.ts`), so it is never guessed and `ssh`
+   with a password never lands; the way in is a live **root-tier** hole on emailit.io's `:80` or
+   `:22`, the same fixed-site model as findit.io. When the day's holes are only user/guest tier,
+   root is not reachable that day. (md5 is weak on purpose and is never to be "fixed".)
 
 Either way, `mail passwd` finishes the takeover and the victim's next check tells them.
 
@@ -227,10 +231,13 @@ Either way, `mail passwd` finishes the takeover and the victim's next check tell
   slices with two players: `curl` and lynx sign-up (and lynx Back never resending the POST),
   reading and the plaintext `~/.mailrc`, two players trading mail and a reply, the live
   new-mail notice, a root on emailit.io reading the spool, a forged mailbox over the untouched
-  real inbox, the restore, and a full takeover — cracking a handle's hash, logging into the
-  victim's mail, changing the password, and the victim's one `login failed` notice. Root on
-  emailit.io was reached by cracking root's `/etc/passwd` hash and `ssh`, because on that
-  game day its network holes were only user/guest tier.
+  real inbox, the restore, and a full takeover — recovering a handle's password, logging into the
+  victim's mail, changing the password, and the victim's one `login failed` notice. On that game
+  day emailit.io's network holes were only user/guest tier, so a legitimate in-game root was not
+  available: the root-view, forge, restore and spool reads were exercised against a root `ssh`
+  session stood up directly — the same root view `testMailSpool.ts` seeds — not via a CVE, and
+  the handle password was one chosen at sign-up standing in for a real external md5 crack. The
+  behaviours themselves are genuine.
 
 ## Key files
 
