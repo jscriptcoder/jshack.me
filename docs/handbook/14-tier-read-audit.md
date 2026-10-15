@@ -47,7 +47,7 @@ The verdicts:
   (v0.372.0) and `chmod` (v0.375.0). One of the 65 is `su`, which read
   `/etc/passwd` on a generated machine until v0.370.0 moved it to the server. The places `ui/state.ts` and `webHost.ts` hand a whole tree on to a helper are listed
   beside the reader they feed.
-- **Server:** 44 response bodies over four endpoints (`network` 13, `patches` 10, `sessions` 18,
+- **Server:** 45 response bodies over four endpoints (`network` 14, `patches` 10, `sessions` 18,
   `wallet` 3). Earlier counts of 39 left out each endpoint's fallthrough action and two of the
   wallet's three requests. One body carried files above the caller's tier (`listPatches`, closed in
   v0.374.0). One handler read the wrong file (`suElevate`, fixed in v0.370.0). The rest are fine.
@@ -232,6 +232,7 @@ caller gets can still tell them a file or an account exists.
 | `resolveInnerGatewayScan`, `resolveSameLanScan`, `resolveOccupantScan` | `found`, `ports`                                             | The same three. Only for a caller standing on that network.                                                                                                                          | list    |
 | `resolveHttpFetch`, `resolveOccupantFetch`                             | `content`, `server`                                          | One file under `/var/www`, read as the web server. A search on findit is built from what sites serve.                                                                                | list    |
 | `resolveHttpSweep`, `resolveOccupantSweep`                             | `dirlistFound`, and a path, status and size for each word    | `/var/www` on the target; the word list from the journal of the box the caller stands on.                                                                                            | list ⁴  |
+| `resolveMail`                                                          | `messages`, or one `message`                                 | An inbox in the email tables, for whoever gives its password. Of emailit.io itself, only what its fetch reads: boot and web server.                                                  | fine    |
 
 ### `POST /api/patches`
 

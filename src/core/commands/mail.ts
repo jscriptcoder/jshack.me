@@ -30,7 +30,8 @@ import { homeDirectory } from '../sessions/homeDirectory.js';
 import { EMAILIT_DOMAIN } from '../generation/fixedSites.js';
 import { asAbsPath, type AbsPath } from '../types.js';
 
-const USAGE = 'mail: usage: mail [read <n>] | login | logout';
+const SYNOPSIS = 'mail [read <n>] | login | logout';
+const USAGE = `mail: usage: ${SYNOPSIS}`;
 
 /** No network to ask from, emailit.io not answering, or our own side failing to ask:
  *  to the player they are one thing, the mail is not there to be had. */
@@ -262,17 +263,54 @@ export const mail: Command = {
   category: 'network',
   tier: 'guest',
   availability: { kind: 'installed-package', packageName: 'mailutils' },
+  // The password prompt needs somebody to ask. Reading and logging out ask nothing.
+  withoutTty: (args) => (args[0] === 'login' ? 'mail: login needs a terminal' : undefined),
+  // A script reads mail with a login already saved, and never makes or ends one: a
+  // script that could log in could guess passwords as fast as it could loop.
+  withoutScript: (args) =>
+    args[0] === 'login' || args[0] === 'logout' ? `mail: ${args[0]} is interactive` : undefined,
   manual: {
-    synopsis: 'mail',
+    synopsis: SYNOPSIS,
     description:
-      'List the mail at the emailit.io address saved in ~/.mailrc, oldest first, one message ' +
-      'to a line: N while it is unread, its number, the sender, when it was delivered (UTC) ' +
-      'and the subject. The file is the login: mail uses the ~/.mailrc of the user you are ' +
-      'on the box you are on, and whoever can read that file can read the mail. It holds ' +
-      'two lines, "set from=" and the address, and "set password=" and the password, in ' +
-      'plain text. emailit.io is reached over the network the box is on, as curl would ' +
-      'reach it.',
-    arguments: [],
+      'Read the mail at an emailit.io address. Sign up for one at emailit.io first. ' +
+      'login asks for an address and a password and saves them, in plain text, to ~/.mailrc ' +
+      'in the home of the user running it, readable by that user and root: two lines, ' +
+      '"set from=" and the address, and "set password=" and the password. The file is the ' +
+      'login. mail uses the ~/.mailrc of the user you are, on the box you are on, so ' +
+      'another box or another user has its own, and whoever can read that file can read the ' +
+      'mail. With no command, mail lists the inbox oldest first, one message to a line: N ' +
+      'while it is unread, its number, the sender, when it was delivered (UTC) and the ' +
+      'subject. A message keeps its number until it is deleted. read prints one message, ' +
+      'its headers and then its body, and marks it read for everyone who holds the ' +
+      'password. logout deletes ~/.mailrc. The password is checked every time, so once it ' +
+      'is changed a saved login fails until it is saved again. Too many wrong passwords in ' +
+      'a minute and every login is refused until the minute is up. emailit.io is reached ' +
+      'over the network the box is on, as curl would reach it. read and the list work from ' +
+      'a script; login and logout do not.',
+    arguments: [
+      {
+        name: 'command',
+        description:
+          '"read", to print one message, "login", to save an address and its password, or ' +
+          '"logout", to delete the saved login (default: list the inbox)',
+        required: false,
+        values: ['read', 'login', 'logout'],
+      },
+      { name: 'n', description: 'For "read": the number of the message', required: false },
+    ],
+    examples: [
+      {
+        command: 'mail login',
+        description: 'Save an address and its password to ~/.mailrc',
+      },
+      { command: 'mail', description: 'List the inbox' },
+      { command: 'mail read 1', description: 'Print message 1, and mark it read' },
+      { command: 'mail logout', description: 'Delete the saved login' },
+      {
+        command: 'cat ~/.mailrc',
+        description: 'See the login mail is using, password and all',
+      },
+    ],
   },
   execute,
 };

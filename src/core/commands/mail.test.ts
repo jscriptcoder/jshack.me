@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { mail } from './mail.js';
+import { buildCommandContext } from '../scripting/commandContext.js';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
 import {
   mockCommandEnv,
@@ -819,5 +820,101 @@ describe('mail logout — the login taken off the box', () => {
 
     expect(linesOf(result, 'error')).toEqual([USAGE]);
     expect(readAs(treeAfter(), 'user', ALICE_RC).ok).toBe(true);
+  });
+});
+
+describe('mail from a script', () => {
+  const scriptOn = (env: CommandEnv) =>
+    buildCommandContext(env, new Map([[mail.name, mail]]), () => undefined);
+
+  it('hands the list back to the script', async () => {
+    const { env } = mailEnv();
+
+    const listed = await scriptOn(env).mail();
+
+    expect([...listed]).toEqual([
+      'N    1  noreply@emailit.io      Oct 15 09:12  Welcome to emailit.io',
+    ]);
+    expect(listed.exitCode).toBe(0);
+  });
+
+  it('hands a message back to the script, and has it marked read like a typed one', async () => {
+    const { env, opensAsked } = mailEnv();
+
+    const read = await scriptOn(env).mail('read', 1);
+
+    expect([...read].slice(0, 1)).toEqual(['From: noreply@emailit.io']);
+    expect(opensAsked).toEqual([{ login: { handle: 'neo', password: 's3cret' }, number: 1 }]);
+  });
+
+  it('never logs in from a script, so a script can never guess a password', async () => {
+    const { env, prompted, asked } = mailEnv({ tree: boxWith({}), typed: ['neo', 's3cret'] });
+
+    await expect(scriptOn(env).mail('login')).rejects.toThrow('mail: login is interactive');
+    expect(prompted).toEqual([]);
+    expect(asked).toEqual([]);
+  });
+
+  it('never logs out from a script', async () => {
+    const { env, treeAfter } = mailEnv();
+
+    await expect(scriptOn(env).mail('logout')).rejects.toThrow('mail: logout is interactive');
+    expect(readAs(treeAfter(), 'user', ALICE_RC).ok).toBe(true);
+  });
+});
+
+describe('mail on a shell with no terminal behind it', () => {
+  it('cannot log in, because the password prompt has nobody to ask', () => {
+    expect(mail.withoutTty).toBeTypeOf('function');
+    const needsTerminal = mail.withoutTty as Exclude<typeof mail.withoutTty, string | undefined>;
+
+    expect(needsTerminal(['login'], NO_FLAGS)).toBe('mail: login needs a terminal');
+  });
+
+  it.each([[[]], [['read', '1']], [['logout']]])('still runs %o, which asks nothing', (args) => {
+    const needsTerminal = mail.withoutTty as Exclude<typeof mail.withoutTty, string | undefined>;
+
+    expect(needsTerminal(args, NO_FLAGS)).toBeUndefined();
+  });
+});
+
+describe('mail — what the manual promises', () => {
+  it('names the forms the usage line names', () => {
+    expect(mail.manual?.synopsis).toBe('mail [read <n>] | login | logout');
+  });
+
+  it('offers the subcommands mail has, for completion after `mail `', () => {
+    expect(mail.manual?.arguments?.[0]?.values).toEqual(['read', 'login', 'logout']);
+  });
+
+  it('says the login is the file, kept in plain text, and readable by whoever can read it', () => {
+    const description = mail.manual?.description ?? '';
+
+    expect(description).toContain(
+      'login asks for an address and a password and saves them, in plain text, to ~/.mailrc',
+    );
+    expect(description).toContain('whoever can read that file can read the mail');
+    expect(description).toContain('logout deletes ~/.mailrc');
+    expect(description).toContain('read and the list work from a script; login and logout do not');
+  });
+
+  it('shows examples that each run as a mail with a saved login runs them', async () => {
+    const shown = (mail.manual?.examples ?? [])
+      .map((example) => example.command.split(' '))
+      .filter(([command]) => command === 'mail');
+    expect(shown.map(([, subcommand]) => subcommand ?? '')).toEqual([
+      'login',
+      '',
+      'read',
+      'logout',
+    ]);
+
+    for (const [, ...args] of shown) {
+      const { env } = mailEnv({ typed: ['neo', 's3cret'] });
+
+      const result = await mail.execute(env, args, NO_FLAGS);
+
+      expect(exitCodeOf(result), args.join(' ')).toBe(0);
+    }
   });
 });
