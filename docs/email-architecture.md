@@ -67,10 +67,11 @@ front page (`core/emailit/pages.ts`) carries a sign-up form and the `curl -d` re
   route. `-d` is a flag that sends a form-encoded POST body (`&` separates fields, `+` is a
   space, `%XX` a byte); the body is **never** written to the access log, so the line reads
   `POST /signup`, and cracking the stored hash stays the real prize.
-- **lynx sends the same POST** from the form. The password field renders `[_]` — no value,
-  no length. Back after a submit re-fetches `/signup` as a **GET** (a POSTed page enters
-  lynx's trail as a GET of its address), so it never resends and never spends a second
-  sign-up.
+- **lynx sends the same POST** from the form. The password field renders a star per character
+  (`[******_]` while typed into), never the characters, as lynx itself draws one. The
+  terminal's masked prompts (`su`, `mail login`) still show nothing. Back after a submit
+  re-fetches `/signup` as a **GET** (a POSTed page enters lynx's trail as a GET of its
+  address), so it never resends and never spends a second sign-up.
 - **Every other web server answers a POST with `405`** and logs `"POST <path> HTTP/1.1" 405`.
   The access log now records the real method (`core/logging/accessLog.ts`, `GET` when
   unnamed); only emailit.io's `/signup` takes a POST.

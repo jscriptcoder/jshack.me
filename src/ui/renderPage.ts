@@ -163,10 +163,12 @@ const formTargetOf = (control: Element, base: string): FormTarget | null => {
  * What a form field looks like to a reader: a box, holding what has been typed into it
  * or the hint the page offers when nothing has.
  *
- * A password box shows NOTHING — not the value, not its length — though it can be typed
- * into like any other. A page must render the same over somebody's shoulder as it does
- * alone, and a browser that drew a password because it could read one would be the
- * single place in this world where reading a page gave away a credential.
+ * A password box shows a star for each character and never the characters, though it
+ * can be typed into like any other — as lynx draws one. A page must render the same over
+ * somebody's shoulder as it does alone, and a browser that drew a password because it
+ * could read one would be the single place in this world where reading a page gave away
+ * a credential. The count is no secret: it is what lets a reader see a slip of the
+ * finger before they send it.
  */
 const fieldPieces = (field: Element, base: string): readonly Piece[] => {
   const kind = (field.getAttribute('type') ?? 'text').toLowerCase();
@@ -183,7 +185,7 @@ const fieldPieces = (field: Element, base: string): readonly Piece[] => {
   return [
     {
       kind: 'field',
-      text: masked ? '[]' : fieldBox({ value, placeholder }),
+      text: masked ? `[${'*'.repeat(value.length)}]` : fieldBox({ value, placeholder }),
       name: field.getAttribute('name') ?? '',
       value,
       placeholder,
