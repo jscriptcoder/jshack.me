@@ -1664,6 +1664,16 @@ export type MailApi = {
   readonly inbox: (login: MailLogin) => Promise<InboxResult>;
   /** Open one message by its number. emailit.io marks it read. */
   readonly read: (login: MailLogin, number: number) => Promise<MessageResult>;
+  /** Send a message from the login's address. */
+  readonly send: (login: MailLogin, mail: OutgoingMail) => Promise<SendResult>;
+};
+
+/** A message about to be written: who it is to, in full, its subject, and what the
+ *  editor opens on. */
+export type MailDraft = {
+  readonly to: string;
+  readonly subject: string;
+  readonly content: string;
 };
 
 // ---- The boundary ----
@@ -1738,6 +1748,12 @@ export type CommandEnv = {
     readonly message: string;
     readonly masked: boolean;
   }) => Promise<string>;
+
+  /** Open the editor on a message being written, and wait for it to close. Resolves with
+   *  the draft as it was last written out (nano's Ctrl-O), or null when it never was:
+   *  what was typed after the last write-out is lost, as an unsaved buffer is under a
+   *  real `mail`. The command decides what then happens to it; the editor only edits. */
+  readonly compose: (draft: MailDraft) => Promise<string | null>;
 
   /** Elevate/switch the active session by pushing a new one onto the hop chain
    *  (sibling to `setCwd`/`setInterface`). The UI owns the session stack and

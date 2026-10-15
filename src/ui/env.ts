@@ -108,6 +108,9 @@ export type BuildCommandEnvArgs = {
     readonly message: string;
     readonly masked: boolean;
   }) => Promise<string>;
+  /** The editor a message is written in — backs `env.compose`. The UI opens nano on the
+   *  draft and resolves with what was last written out when it closes. */
+  readonly compose?: CommandEnv['compose'];
   /** Writer — `su` (and later ssh/nc) call this (via `env.pushSession`) to push
    *  a new active session onto the stack. The UI owns the session signal. */
   readonly onPushSession: (session: Session) => void;
@@ -256,6 +259,8 @@ export type BuildCommandEnvArgs = {
   readonly onMailInbox?: MailApi['inbox'];
   /** Backs `env.mail.read` — one message opened, and marked read, signed. */
   readonly onMailRead?: MailApi['read'];
+  /** Backs `env.mail.send` — a message sent from a login, signed. */
+  readonly onMailSend?: MailApi['send'];
   /** The scan-logging seam — backs `env.scan.record`. The UI wires it to the
    *  `recordScan` adapter (signed `nmapScan` round-trip). Optional here for terse
    *  test setups; the UI always passes the real one. */
@@ -548,6 +553,8 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
     inbox: args.onMailInbox ?? notWired('mail.inbox'),
     // Loud as well: a message that answered on its own was never delivered.
     read: args.onMailRead ?? notWired('mail.read'),
+    // Loud: a send that answered on its own would tell the player mail went that never did.
+    send: args.onMailSend ?? notWired('mail.send'),
   },
   exploit: {
     // Loud when unwired: an exploit that answered on its own would either open a
@@ -573,6 +580,8 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   setCwd: args.onCwdChange,
   setInterface: args.onInterfaceChange,
   prompt: args.prompt,
+  // Loud when unwired: an editor that closed on its own would cancel every message.
+  compose: args.compose ?? notWired('compose'),
   pushSession: args.onPushSession,
   popSession: args.onPopSession,
   resetGame: args.onResetGame ?? notWired('resetGame'),

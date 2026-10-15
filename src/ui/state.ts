@@ -42,6 +42,7 @@ import type {
   PublicFetchParams,
   PublicFetchResult,
   MailApi,
+  MailDraft,
   PublicSweepParams,
   PublicSweepResult,
   ScanApi,
@@ -179,6 +180,7 @@ import {
   leaveHomeNetwork,
   openMailInbox,
   readMailMessage,
+  sendMail,
   resolveCrossPlayerFs,
   resolveOccupants,
   resolveOccupant,
@@ -332,7 +334,23 @@ const [historyNav, setHistoryNav] = createSignal<HistoryNav>(idleNav());
 // and two apps open at once is a state nothing should be able to represent. The
 // `Extract` keeps it honest about which apps have a screen — a `mode_change`
 // kind with no overlay yet cannot be assigned here.
-type OverlayMode = Extract<ModeChange, { readonly kind: 'nano' | 'lynx' | 'author' }>;
+//
+// A message being written for `mail` is the one overlay no `mode_change` opens: the
+// command that opened it is still running, waiting on `resolve`, so it is no app the
+// terminal hands the screen to and forgets. It edits in the same nano, with no file
+// behind it.
+type ComposeOverlay = {
+  readonly kind: 'compose';
+  readonly title: string;
+  readonly content: string;
+  /** The draft as last written out, or null while it never has been. */
+  readonly written: string | null;
+  readonly resolve: (draft: string | null) => void;
+};
+
+export type OverlayMode =
+  | Extract<ModeChange, { readonly kind: 'nano' | 'lynx' | 'author' }>
+  | ComposeOverlay;
 
 const [overlayMode, setOverlayMode] = createSignal<OverlayMode | null>(null);
 
@@ -1065,6 +1083,13 @@ const readMailMessageFn: MailApi['read'] = (login, number) =>
     ? Promise.resolve({ ok: false, error: 'network_error' })
     : readMailMessage(networkClientDeps, login, number);
 
+/** Send a message from an emailit.io login (backs `env.mail.send`). Unwired, the failure
+ *  is ours, as for an inbox. */
+const sendMailFn: MailApi['send'] = (login, mail) =>
+  networkClientDeps === undefined
+    ? Promise.resolve({ ok: false, error: 'network_error' })
+    : sendMail(networkClientDeps, login, mail);
+
 /** Fetch a page from a fellow occupant's box on the network the shell stands on (backs
  *  `env.remote.fetchOccupant`). Before `startGame` wires the network client there is
  *  nobody to ask, which is our failure and says nothing about the address. */
@@ -1510,6 +1535,12 @@ export const saveEditor = async (
   options?: { readonly overwriteUnseen?: boolean },
 ): Promise<PatchResult> => {
   const mode = overlayMode();
+  // A message has no file to write: writing it out keeps the draft for the command
+  // waiting on it, and the latest write-out is the one it is handed.
+  if (mode?.kind === 'compose') {
+    setOverlayMode({ ...mode, written: content });
+    return { ok: true };
+  }
   const activePatchApi = patchApi;
   // Saving belongs to the editor: any other app on screen (or none) has no open
   // file to write, which is the same nothing-to-save answer as no session.
@@ -1530,6 +1561,28 @@ export const saveEditor = async (
   // the pre-save content and be refused against the row this one just created.
   if (result.ok) setOverlayMode({ kind: 'nano', path: mode.path, content });
   return result;
+};
+
+/** Open the editor on a message being written, and wait for it to close (backs
+ *  `env.compose`). Resolves with the draft as last written out, or null when it never
+ *  was. */
+export const openCompose = (draft: MailDraft): Promise<string | null> =>
+  new Promise((resolve) => {
+    setOverlayMode({
+      kind: 'compose',
+      title: `To: ${draft.to} · Subject: ${draft.subject}`,
+      content: draft.content,
+      written: null,
+      resolve,
+    });
+  });
+
+/** Every full-screen app leaves the same way: hand the screen back. A message being
+ *  written goes back to the command waiting on it, as it was last written out. */
+export const closeOverlay = (): void => {
+  const mode = overlayMode();
+  setOverlayMode(null);
+  if (mode?.kind === 'compose') mode.resolve(mode.written);
 };
 
 /** What a server sends when it was asked for something it does not have. The
@@ -1992,6 +2045,7 @@ const executeLine = async (line: string): Promise<void> => {
     rescanWifi,
     signal: controller.signal,
     prompt: requestPrompt,
+    compose: openCompose,
     onPushSession: pushSession,
     onSshAuthenticate: sshAuthenticate,
     onFtpAuthenticate: ftpAuthenticate,
@@ -2025,6 +2079,7 @@ const executeLine = async (line: string): Promise<void> => {
     onWalletTransfer: (order) => sendTransfer({}, order),
     onMailInbox: openMailInboxFn,
     onMailRead: readMailMessageFn,
+    onMailSend: sendMailFn,
     onMysqlConnect: mysqlConnect,
     onMysqlStatement: mysqlStatement,
     onMysqlEnter: enterMysqlSession,

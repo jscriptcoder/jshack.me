@@ -27,8 +27,8 @@ import { binaryStub } from '../core/generation/binaries.js';
 import { md5 } from '../core/generation/md5.js';
 import { serializeTree } from '../core/filesystem/treeCodec.js';
 import { buildDirectory, buildFile } from '../test/factories/filesystem.js';
+import type { OverlayMode } from './state.js';
 import type {
-  ModeChange,
   OccupantFetchResult,
   OccupantSweepResult,
   PublicFetchResult,
@@ -38,7 +38,7 @@ import type {
  *  content of its own, so reading `.content` straight off the open overlay stopped
  *  type-checking the moment that variant existed — this narrows to the apps that
  *  actually carry one, instead of the assertions quietly widening to `unknown`. */
-const overlayContent = (mode: ModeChange | null): string | undefined =>
+const overlayContent = (mode: OverlayMode | null): string | undefined =>
   mode !== null && 'content' in mode ? mode.content : undefined;
 
 /**
@@ -4531,5 +4531,52 @@ describe('a wallet at the terminal asks the ledger', () => {
       'to',
       'ts',
     ]);
+  });
+});
+
+/**
+ * `mail send` waits on the editor the way `su` waits on its password prompt: the command
+ * opens it on a draft and is handed back what the player wrote out. The editor sends
+ * nothing itself, so whatever happens to the draft next stays with the command.
+ */
+describe('a message written in the editor', () => {
+  const freshState = async () => {
+    vi.resetModules();
+    return import('./state.js');
+  };
+
+  const DRAFT = { to: 'trin@emailit.io', subject: 'hello there', content: '' };
+
+  it('opens the editor on the draft, titled with who it is to and its subject', async () => {
+    const state = await freshState();
+
+    void state.openCompose(DRAFT);
+
+    expect(state.overlayMode()).toMatchObject({
+      kind: 'compose',
+      title: 'To: trin@emailit.io · Subject: hello there',
+      content: '',
+    });
+  });
+
+  it('hands back the draft as last written out, once the editor closes', async () => {
+    const state = await freshState();
+    const drafted = state.openCompose(DRAFT);
+
+    expect(await state.saveEditor('first go\n')).toEqual({ ok: true });
+    await state.saveEditor('second go\n');
+    state.closeOverlay();
+
+    expect(await drafted).toBe('second go\n');
+    expect(state.overlayMode()).toBeNull();
+  });
+
+  it('hands back nothing when the editor closes with nothing written out', async () => {
+    const state = await freshState();
+    const drafted = state.openCompose(DRAFT);
+
+    state.closeOverlay();
+
+    expect(await drafted).toBeNull();
   });
 });

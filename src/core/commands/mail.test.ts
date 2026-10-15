@@ -22,14 +22,17 @@ import type {
   CommandResult,
   InboxMessage,
   InboxResult,
+  MailDraft,
   MailLogin,
   MailMessage,
   MessageResult,
+  OutgoingMail,
+  SendResult,
 } from './types.js';
 import type { Directory } from '../filesystem/types.js';
 
 const NO_FLAGS = new Map<string, string | true>();
-const USAGE = 'mail: usage: mail [read <n>] | login | logout';
+const USAGE = 'mail: usage: mail [read <n>] | send <to> <subject> | login | logout';
 const PLAYER_KEY = 'a'.repeat(64);
 const ESSID = 'BEAN-THERE-WIFI';
 
@@ -105,9 +108,10 @@ const opened = (overrides: Partial<MailMessage> = {}): MailMessage => ({
 type Prompted = { readonly message: string; readonly masked: boolean };
 
 /** A shell on `tree` as alice (or `userType`), online unless told otherwise, and an
- *  emailit.io that answers every inbox with `answers` and every message with `opens`,
- *  and keeps every login it was asked with and every message asked for. The player
- *  answers prompts with `typed`, in order. What the box was told to write or remove is
+ *  emailit.io that answers every inbox with `answers`, every message with `opens` and
+ *  every send with `sends`, and keeps every login it was asked with, every message asked
+ *  for and every message sent. The player answers prompts with `typed`, in order, and
+ *  leaves the editor having last written `drafted` (null: never written). What the box was told to write or remove is
  *  journalled in the shape the real seam sends it, so `treeAfter` reads the box back
  *  through the walker, as a player would. */
 const mailEnv = (
@@ -117,6 +121,8 @@ const mailEnv = (
     readonly connectivity?: ConnectivityState;
     readonly answers?: InboxResult;
     readonly opens?: MessageResult;
+    readonly sends?: SendResult;
+    readonly drafted?: string | null;
     readonly typed?: readonly string[];
     /** The one patch the box refuses, as a round trip that never completed. */
     readonly refuses?: 'write' | 'remove';
@@ -126,6 +132,8 @@ const mailEnv = (
   readonly asked: readonly MailLogin[];
   readonly opensAsked: readonly { readonly login: MailLogin; readonly number: number }[];
   readonly prompted: readonly Prompted[];
+  readonly composed: readonly MailDraft[];
+  readonly sent: readonly { readonly login: MailLogin; readonly mail: OutgoingMail }[];
   /** Whether each write told the box the file was new. */
   readonly writtenAsNew: readonly boolean[];
   readonly treeAfter: () => Directory;
@@ -133,6 +141,8 @@ const mailEnv = (
   const asked: MailLogin[] = [];
   const opensAsked: { readonly login: MailLogin; readonly number: number }[] = [];
   const prompted: Prompted[] = [];
+  const composed: MailDraft[] = [];
+  const sent: { readonly login: MailLogin; readonly mail: OutgoingMail }[] = [];
   const writtenAsNew: boolean[] = [];
   const journal: Patch[] = [];
   const answers = [...(options.typed ?? [])];
@@ -147,6 +157,10 @@ const mailEnv = (
     prompt: async (asking) => {
       prompted.push(asking);
       return answers.shift() ?? '';
+    },
+    compose: async (draft) => {
+      composed.push(draft);
+      return options.drafted === undefined ? 'meet me at the docks\n' : options.drafted;
     },
     patches: mockPatchApi({
       write: async (path, content, patchOptions) => {
@@ -175,6 +189,10 @@ const mailEnv = (
         opensAsked.push({ login, number });
         return options.opens ?? { ok: true, message: opened() };
       },
+      send: async (login, outgoing) => {
+        sent.push({ login, mail: outgoing });
+        return options.sends ?? { ok: true };
+      },
     },
   });
   return {
@@ -182,6 +200,8 @@ const mailEnv = (
     asked,
     opensAsked,
     prompted,
+    composed,
+    sent,
     writtenAsNew,
     treeAfter: () => applyPatches(tree, journal),
   };
@@ -891,6 +911,157 @@ describe('mail logout — the login taken off the box', () => {
   });
 });
 
+describe('mail send — a message written in nano, delivered to another inbox', () => {
+  /** One character as a reader sees it, two UTF-16 units as JavaScript counts. */
+  const EMOJI = String.fromCodePoint(0x1f600);
+
+  it('opens the editor on an empty draft to the address, under the subject', async () => {
+    const { env, composed } = mailEnv();
+
+    await mail.execute(env, ['send', 'trin', 'hello', 'there'], NO_FLAGS);
+
+    expect(composed).toEqual([{ to: 'trin@emailit.io', subject: 'hello there', content: '' }]);
+  });
+
+  it('sends the draft as last written, from the saved login, and prints nothing', async () => {
+    const { env, sent } = mailEnv();
+
+    const result = await mail.execute(env, ['send', 'trin', 'hello', 'there'], NO_FLAGS);
+
+    expect(sent).toEqual([
+      {
+        login: { handle: 'neo', password: 's3cret' },
+        mail: { to: 'trin', subject: 'hello there', body: 'meet me at the docks\n' },
+      },
+    ]);
+    expect(result).toEqual({ kind: 'sync', lines: [], exitCode: 0 });
+  });
+
+  it('takes a full address in any case as the same one', async () => {
+    const { env, sent, composed } = mailEnv();
+
+    await mail.execute(env, ['send', 'TRIN@emailit.io', 'hi'], NO_FLAGS);
+
+    expect(composed[0]?.to).toBe('trin@emailit.io');
+    expect(sent[0]?.mail.to).toBe('trin');
+  });
+
+  it.each([[['send']], [['send', 'trin']]])('prints the usage for %o', async (args) => {
+    const { env, composed } = mailEnv();
+
+    const result = await mail.execute(env, args, NO_FLAGS);
+
+    expect(linesOf(result, 'error')).toEqual([USAGE]);
+    expect(composed).toEqual([]);
+  });
+
+  it.each([
+    ['never written', null],
+    ['written empty', ''],
+    ['written blank', '  \n\n'],
+  ])('cancels a draft %s, sending nothing', async (_label, drafted) => {
+    const { env, sent } = mailEnv({ drafted });
+
+    const result = await mail.execute(env, ['send', 'trin', 'hi'], NO_FLAGS);
+
+    expect(linesOf(result, 'error')).toEqual(['mail: send cancelled']);
+    expect(exitCodeOf(result)).toBe(1);
+    expect(sent).toEqual([]);
+  });
+
+  it('refuses an address at another domain before the editor opens', async () => {
+    const { env, composed, sent } = mailEnv();
+
+    const result = await mail.execute(env, ['send', 'Bob@Gmail.com', 'hi'], NO_FLAGS);
+
+    expect(linesOf(result, 'error')).toEqual(['mail: bob@gmail.com: unknown domain']);
+    expect(composed).toEqual([]);
+    expect(sent).toEqual([]);
+  });
+
+  it.each([
+    [{ ok: false, error: 'no_mailbox' } as const, 'mail: trin@emailit.io: no such mailbox'],
+    [{ ok: false, error: 'mailbox_full' } as const, 'mail: trin@emailit.io: mailbox full'],
+    [{ ok: false, error: 'login_failed' } as const, 'mail: login failed for neo@emailit.io'],
+    [{ ok: false, error: 'throttled' } as const, 'mail: too many failed logins, wait a minute'],
+    [{ ok: false, error: 'host_unreachable' } as const, 'mail: cannot reach emailit.io'],
+    [{ ok: false, error: 'network_error' } as const, 'mail: cannot reach emailit.io'],
+  ])('says why a message did not go: %o', async (sends, said) => {
+    const { env } = mailEnv({ sends });
+
+    const result = await mail.execute(env, ['send', 'trin', 'hi'], NO_FLAGS);
+
+    expect(linesOf(result, 'error')).toEqual([said]);
+    expect(exitCodeOf(result)).toBe(1);
+  });
+
+  it('refuses an 81-character subject before the editor opens', async () => {
+    const { env, composed } = mailEnv();
+
+    const result = await mail.execute(env, ['send', 'trin', 'x'.repeat(81)], NO_FLAGS);
+
+    expect(linesOf(result, 'error')).toEqual(['mail: subject too long']);
+    expect(composed).toEqual([]);
+  });
+
+  it('counts the subject in characters, the space between its words included', async () => {
+    const { env, composed } = mailEnv();
+    const eighty = ['x'.repeat(39), EMOJI.repeat(40)];
+
+    await mail.execute(env, ['send', 'trin', ...eighty], NO_FLAGS);
+
+    expect(composed).toHaveLength(1);
+  });
+
+  it('refuses a body over 4,000 characters, sending nothing', async () => {
+    const { env, sent } = mailEnv({ drafted: 'x'.repeat(4001) });
+
+    const result = await mail.execute(env, ['send', 'trin', 'hi'], NO_FLAGS);
+
+    expect(linesOf(result, 'error')).toEqual(['mail: message too long']);
+    expect(sent).toEqual([]);
+  });
+
+  it('sends a body of 4,000 characters, an emoji counted as one', async () => {
+    const { env, sent } = mailEnv({ drafted: EMOJI.repeat(4000) });
+
+    await mail.execute(env, ['send', 'trin', 'hi'], NO_FLAGS);
+
+    expect(sent).toHaveLength(1);
+  });
+
+  it.each([
+    ['no login file', boxWith({}), 'mail: not logged in — run mail login'],
+    ['a file with no login', boxWith({ aliceRc: '# nothing\n' }), 'mail: ~/.mailrc has no login'],
+  ])('with %s, says so before the editor opens', async (_label, tree, said) => {
+    const { env, composed } = mailEnv({ tree });
+
+    const result = await mail.execute(env, ['send', 'trin', 'hi'], NO_FLAGS);
+
+    expect(linesOf(result, 'error')).toEqual([said]);
+    expect(composed).toEqual([]);
+  });
+
+  it('with no network to ask from, says so before the editor opens', async () => {
+    const { env, composed } = mailEnv({
+      connectivity: buildColdStartConnectivity(PLAYER_KEY),
+    });
+
+    const result = await mail.execute(env, ['send', 'trin', 'hi'], NO_FLAGS);
+
+    expect(linesOf(result, 'error')).toEqual(['mail: cannot reach emailit.io']);
+    expect(composed).toEqual([]);
+  });
+
+  it('finds a bad address before a missing login, so neither costs a draft', async () => {
+    const { env } = mailEnv({ tree: boxWith({}) });
+
+    const result = await mail.execute(env, ['send', 'bob@gmail.com', 'hi'], NO_FLAGS);
+
+    expect(linesOf(result, 'error')).toEqual(['mail: bob@gmail.com: unknown domain']);
+  });
+});
+
 describe('mail from a script', () => {
   const scriptOn = (env: CommandEnv) =>
     buildCommandContext(env, new Map([[mail.name, mail]]), () => undefined);
@@ -948,7 +1119,7 @@ describe('mail on a shell with no terminal behind it', () => {
 
 describe('mail — what the manual promises', () => {
   it('names the forms the usage line names', () => {
-    expect(mail.manual?.synopsis).toBe('mail [read <n>] | login | logout');
+    expect(mail.manual?.synopsis).toBe('mail [read <n>] | send <to> <subject> | login | logout');
   });
 
   it('offers the subcommands mail has, for completion after `mail `', () => {

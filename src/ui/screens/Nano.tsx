@@ -11,11 +11,11 @@
  */
 
 import { createSignal, onMount, Show } from 'solid-js';
-import type { AbsPath } from '../../core/types.js';
 import type { PatchResult } from '../../core/commands/types.js';
 
 export type NanoProps = {
-  readonly path: AbsPath;
+  /** What the title bar names: the file's path, or who a message is to. */
+  readonly title: string;
   readonly content: string;
   readonly onSave: (
     content: string,
@@ -83,7 +83,7 @@ export const Nano = (props: NanoProps) => {
     setStatus(
       result.ok
         ? `[ Wrote ${lineCount(buffer())} lines ]`
-        : `[ Error writing ${props.path}: ${SAVE_ERROR_REASON[result.error]} ]`,
+        : `[ Error writing ${props.title}: ${SAVE_ERROR_REASON[result.error]} ]`,
     );
   };
 
@@ -120,7 +120,7 @@ export const Nano = (props: NanoProps) => {
   return (
     <main class="flex h-full flex-col font-mono text-sm leading-relaxed">
       <div class="bg-[var(--theme-text-bright)] px-2 py-1 text-center text-[var(--theme-bg)]">
-        GNU nano · {props.path}
+        GNU nano · {props.title}
       </div>
       <textarea
         ref={textarea}

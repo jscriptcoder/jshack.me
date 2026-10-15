@@ -1,5 +1,5 @@
 import { createEffect, createSignal, For, Match, onCleanup, onMount, Show, Switch } from 'solid-js';
-import type { ModeChange, TerminalLine } from '../../core/commands/types.js';
+import type { TerminalLine } from '../../core/commands/types.js';
 import { formatPrompt } from '../../core/shell/prompt.js';
 import { BANNER } from '../banner.js';
 import {
@@ -7,6 +7,7 @@ import {
   bannerVisible,
   cancelPrompt,
   clearScreen,
+  closeOverlay,
   cwd,
   effectShown,
   historyDown,
@@ -25,9 +26,9 @@ import {
   saveEditor,
   scrollback,
   setInput,
-  setOverlayMode,
   submitPrompt,
   tabComplete,
+  type OverlayMode,
 } from '../state.js';
 import { Author } from './Author.js';
 import { Hud } from './Hud.js';
@@ -40,12 +41,10 @@ const LINE_BASE = 'whitespace-pre-wrap break-words';
 /** Narrow the open overlay to one app, or null when a different one holds the
  *  screen. Written as functions rather than inline comparisons because it is the
  *  RETURN type that carries the narrowing into each screen's props. */
-const asNano = (mode: ModeChange) => (mode.kind === 'nano' ? mode : null);
-const asLynx = (mode: ModeChange) => (mode.kind === 'lynx' ? mode : null);
-const asAuthor = (mode: ModeChange) => (mode.kind === 'author' ? mode : null);
-
-/** Every full-screen app leaves the same way: hand the screen back. */
-const closeOverlay = () => setOverlayMode(null);
+const asNano = (mode: OverlayMode) => (mode.kind === 'nano' ? mode : null);
+const asCompose = (mode: OverlayMode) => (mode.kind === 'compose' ? mode : null);
+const asLynx = (mode: OverlayMode) => (mode.kind === 'lynx' ? mode : null);
+const asAuthor = (mode: OverlayMode) => (mode.kind === 'author' ? mode : null);
 
 /** Per-kind colour — normal text inherits the theme's body colour. */
 const LINE_COLOR: Record<TerminalLine['kind'], string> = {
@@ -298,8 +297,18 @@ export const Terminal = () => {
             <Match when={asNano(mode())}>
               {(nano) => (
                 <Nano
-                  path={nano().path}
+                  title={nano().path}
                   content={nano().content}
+                  onSave={saveEditor}
+                  onExit={closeOverlay}
+                />
+              )}
+            </Match>
+            <Match when={asCompose(mode())}>
+              {(message) => (
+                <Nano
+                  title={message().title}
+                  content={message().content}
                   onSave={saveEditor}
                   onExit={closeOverlay}
                 />

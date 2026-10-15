@@ -24,13 +24,14 @@ import {
   type InboxResult,
   type MailLogin,
   type MailMessage,
+  type SendResult,
 } from './types.js';
 import { vantageOf } from '../network/vantage.js';
 import { homeDirectory } from '../sessions/homeDirectory.js';
 import { EMAILIT_DOMAIN } from '../generation/fixedSites.js';
 import { asAbsPath, type AbsPath } from '../types.js';
 
-const SYNOPSIS = 'mail [read <n>] | login | logout';
+const SYNOPSIS = 'mail [read <n>] | send <to> <subject> | login | logout';
 const USAGE = `mail: usage: ${SYNOPSIS}`;
 
 /** No network to ask from, emailit.io not answering, or our own side failing to ask:
@@ -42,6 +43,10 @@ const LIST_WIDTH = 80;
 
 /** How wide the sender's column is. A longer address pushes the date along. */
 const SENDER_WIDTH = 22;
+
+/** The longest subject and body a message may have, counted as a reader counts them. */
+const SUBJECT_LIMIT = 80;
+const BODY_LIMIT = 4000;
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -80,6 +85,13 @@ const formatMailrc = (address: string, password: string): string =>
 const handleOf = (address: string): string | null => {
   const at = address.lastIndexOf('@');
   return at === -1 || address.slice(at + 1) !== EMAILIT_DOMAIN ? null : address.slice(0, at);
+};
+
+/** An address as the player typed it, in full: lowercased, and a bare handle taken to
+ *  be at emailit.io. */
+const typedAddress = (typed: string): string => {
+  const lowered = typed.trim().toLowerCase();
+  return lowered.includes('@') ? lowered : `${lowered}@${EMAILIT_DOMAIN}`;
 };
 
 /** The login saved in the current user's `~/.mailrc`, or what stops it being used. */
@@ -191,9 +203,9 @@ const newMail = (messages: readonly InboxMessage[]): string => {
  * is asked, so a doomed login spends no password check.
  */
 const login = async (env: CommandEnv): Promise<CommandResult> => {
-  const typed = (await env.prompt({ message: 'Address: ', masked: false })).trim().toLowerCase();
-  if (typed === '') return refusal('mail: no address given');
-  const address = typed.includes('@') ? typed : `${typed}@${EMAILIT_DOMAIN}`;
+  const typed = await env.prompt({ message: 'Address: ', masked: false });
+  if (typed.trim() === '') return refusal('mail: no address given');
+  const address = typedAddress(typed);
   const handle = handleOf(address);
   if (handle === null) return refusal(`mail: ${address}: unknown domain`);
   const password = await env.prompt({ message: 'Password: ', masked: true });
@@ -234,6 +246,43 @@ const logout = async (env: CommandEnv): Promise<CommandResult> => {
   return said([]);
 };
 
+/** How long a text is as a reader counts it: an emoji is one character, where
+ *  JavaScript's `length` would count two. emailit.io counts the same way. */
+const charactersIn = (text: string): number => [...text].length;
+
+/** What a send emailit.io refused, or that never got there, says. A bounce names the
+ *  address it bounced from. */
+const unsent = (saved: Saved, to: string, error: Exclude<SendResult, { ok: true }>['error']) => {
+  if (error === 'no_mailbox') return refusal(`mail: ${to}: no such mailbox`);
+  if (error === 'mailbox_full') return refusal(`mail: ${to}: mailbox full`);
+  return unanswered(saved, error);
+};
+
+/**
+ * Write a message in nano and send it from the saved login.
+ *
+ * Everything that can be found out before the editor opens is: a bad address, a subject
+ * too long, a login that cannot be used, no network to send from. None of them costs the
+ * player a draft. What only emailit.io knows, a mailbox nobody holds or one that is full,
+ * is found when the message goes, and the draft goes with it: there is no Sent folder.
+ */
+const send = async (env: CommandEnv, typedTo: string, subject: string): Promise<CommandResult> => {
+  const to = typedAddress(typedTo);
+  const handle = handleOf(to);
+  if (handle === null) return refusal(`mail: ${to}: unknown domain`);
+  if (charactersIn(subject) > SUBJECT_LIMIT) return refusal('mail: subject too long');
+  const saved = savedLogin(env);
+  if ('refused' in saved) return refusal(saved.refused);
+  if (vantageOf(env.session, env.network) === null) return refusal(UNREACHABLE);
+
+  const body = await env.compose({ to, subject, content: '' });
+  if (body === null || body.trim() === '') return refusal('mail: send cancelled');
+  if (charactersIn(body) > BODY_LIMIT) return refusal('mail: message too long');
+
+  const sent = await env.mail.send(saved.login, { to: handle, subject, body });
+  return sent.ok ? said([]) : unsent(saved, to, sent.error);
+};
+
 /** A message number as typed: a whole number from 1, written the way the list writes it. */
 const MESSAGE_NUMBER = /^[1-9][0-9]*$/;
 
@@ -241,6 +290,11 @@ const execute: Command['execute'] = async (env, args) => {
   const [subcommand, ...rest] = args;
   if (args.length === 1 && subcommand === 'login') return login(env);
   if (args.length === 1 && subcommand === 'logout') return logout(env);
+  // The subject is every word after the address, so it needs no quotes.
+  const [to, ...subject] = rest;
+  if (subcommand === 'send' && to !== undefined && subject.length > 0) {
+    return send(env, to, subject.join(' '));
+  }
   const reading = subcommand === 'read' && rest.length === 1;
   if (args.length > 0 && !reading) return refusal(USAGE);
 
