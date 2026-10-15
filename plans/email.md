@@ -3,8 +3,7 @@
 **Status**: Grilled, sliced and gap-reviewed. Decisions 1–27 confirmed by the owner 2026-10-14,
 28–41 from a find-gaps review the same day, 42–45 while planning slice 3 and 46–51 while
 planning slice 4 (2026-10-15). Slice 1 shipped at v0.384.0 (#681, 2026-10-15), slice 2 at
-v0.385.0 (#682, 2026-10-15) and slice 3 at v0.386.0 (#683, 2026-10-15); slice 4 is next and
-needs its plan.
+v0.385.0 (#682, 2026-10-15) and slice 3 at v0.386.0 (#683, 2026-10-15); slice 4 is planned below.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 
@@ -332,8 +331,8 @@ wire-check. One browser run at the end covers them all.
    numbers, scripted reads and read marks, and a stale login's error (decisions 28, 29, 32, 34,
    35, 37, 42, 44, 45). A player reads their welcome mail.
 4. **Sending mail.** `send`, `reply`, `delete`, the bounces, the size and rate limits, and the
-   inbox cap with system mail always delivered, and scripted `send` and `reply` (decision 34).
-   Two players exchange mail.
+   inbox cap with system mail always delivered, and scripted `send` and `reply` (decisions 34,
+   46–51). Two players exchange mail.
 5. **Changing the password, and new-mail notices.** `mail passwd` and the background check of
    decisions 25, 26, 43 and 44.
 6. **emailit.io's root view.** `/var/mail/<handle>` and `/etc/emailit/passwd`, built from the
@@ -744,6 +743,141 @@ message → the command prints it. `mail login` asks the same RPC first, then wr
   lint; the full test run.
 - No browser run; the epic's one run at the end walks login, the list, `read`, a stolen
   `~/.mailrc` on a second player's box, and logout.
+
+## Slice 4 plan: sending mail
+
+**Branch**: `feat/mail-sending` · **Version**: 0.386.0 → 0.387.0 · **Class**: behaviour change ·
+**Delivery**: one PR against `main`, with a migration.
+
+**Value.** Two players mail each other: `mail send` writes a message in nano and it arrives in
+the other inbox, `mail reply` answers it with the history quoted, and `mail delete` clears it.
+Whoever holds the password can send as that address, so a stolen `~/.mailrc` now speaks as well
+as reads.
+
+**Path.** `mail send|reply|delete` (`core/commands/mail.ts`) reads `~/.mailrc` as the list does →
+for `send` and `reply`, `env.compose` opens nano on a draft and resolves with what was written →
+`env.mail` → the adapter posts a signed `resolveMail` naming its `op` → the handler reaches
+emailit.io through `resolveWebTarget` as before → one RPC checks the throttle and the password,
+then the send limit, the recipient and its inbox, and delivers (or deletes) → the command prints
+nothing, or the refusal.
+
+### Choices made while planning (owner to confirm with the plan)
+
+- **The editor is a seam the command waits on**, as `su` waits on `env.prompt`.
+  `env.compose({ to, subject, draft })` opens the nano screen and resolves with the draft as last
+  written by Ctrl-O, or `null` when nothing was. The command, not the screen, decides what
+  happens next, so every rule of sending stays in `mail.ts` under unit test and the screen only
+  edits. Rejected: a new `ModeChange` that sends from the UI when nano closes, which would put
+  the bounces and limits in `ui/state.ts`. The screen is the existing `Nano` with a different
+  save: Ctrl-O keeps the draft in memory and reports `[ Wrote N lines ]`, Ctrl-X resolves. Its
+  title bar reads `GNU nano · To: trin@emailit.io · Subject: hello there`.
+- **A draft of nothing but blank space is empty**, and cancels.
+- **The order of the checks** for `send`: the arguments (usage), the domain, the subject's
+  length, `~/.mailrc` (slice 3's not-logged-in, unreadable and no-login answers), a network to
+  ask from (`cannot reach`), then nano, then empty (`cancelled`), then the body's length, then the
+  server. Everything before nano costs the player nothing; everything after it loses the draft.
+- **`reply` reads the original first, without marking it read** (decision 35). `email_read`
+  takes a `mark` flag; `reply` asks with it off, so `mail: no message <n>`, a failed login and
+  `cannot reach` all come before nano. The reply goes to the original's sender, `Re:`-prefixed,
+  through the same send as `mail send`; the server cannot tell a reply from a send. A scripted
+  reply's body is the given text, a newline, then the quote, the layout nano would have left.
+- **One action, with an `op`.** `resolveMail` carries `op`: `list`, `read` (with `mark`), `send`
+  (`to` as a bare handle, `subject`, `body`) or `delete` (`number`). The handler checks the subject
+  (≤ 80) and body (≤ 4,000) in Unicode characters, not UTF-16 units, and turns a longer one away
+  as `payload_invalid` without asking the store. New answers: 404 `no_mailbox`, 409
+  `mailbox_full`, 429 `send_limited` beside 429 `throttled`, and 404 `no_message` for `delete`.
+- **`email_send(handle, md5, key, to_handle, subject, body)`, one transaction.** The password
+  check of slice 3 (throttle included) → under a lock on the player's key, refuse with
+  `send_limited` when 20 sends sit in the last 60 minutes, else record one in a new
+  `email_sends (player_key, sent_at)` → lock the recipient's account row; no row is
+  `no_mailbox` (system senders and reserved handles hold none) → 100 messages already in it is
+  `mailbox_full` → insert at the account's `next_number` and bump it. The sender is stored as
+  `neo@emailit.io`. A failed or throttled login is not a send and records none; a bounce is and
+  does (decision 38).
+- **The inbox cap lives only in `email_send`.** System mail is written by other functions
+  (`email_signup`'s welcome today, the job site later) that never look at it, so it is always
+  delivered by construction.
+- **`email_delete(handle, md5, key, number)`** answers `deleted`, `no_message`, or the check's
+  word. Deleting marks nothing read, and the number is never reused (`next_number` is untouched).
+- **Bounce wording**: `mail: trin@emailit.io: no such mailbox` and
+  `mail: trin@emailit.io: mailbox full`, the recipient named in full as decision 18 has it.
+- **Terminals and scripts.** At the prompt in a pty-less shell, `send` and `reply` refuse with
+  `mail: send needs a terminal` (`reply`'s likewise); `delete` works anywhere. In a script,
+  `mail('send', to, subject, body)` and `mail('reply', n, body)` never open the editor; a missing
+  or extra argument prints the usage. The usage becomes
+  `mail: usage: mail [read <n>] | send <to> <subject> | reply <n> | delete <n> | login | logout`.
+
+### Acceptance criteria
+
+1. `mail send trin hello there` opens nano titled with `trin@emailit.io` and `hello there`. A body
+   written with Ctrl-O, then Ctrl-X, prints nothing, and trin's `mail` lists
+   `N    2  neo@emailit.io        Oct 15 10:04  hello there`; `mail read 2` shows `From:
+   neo@emailit.io`, `To: trin@emailit.io` and the body. `mail send TRIN@emailit.io hi` reaches the
+   same inbox.
+2. Ctrl-X with nothing written, or with an empty or blank draft, prints `mail: send cancelled` and
+   delivers nothing. Text typed after the last Ctrl-O is not sent.
+3. `mail reply 2` opens nano on an empty line above the original quoted with `> `, its own quotes
+   as `> > `. The reply goes to the original's sender as `Re: hello there`, and a reply to that
+   is `Re: hello there` again, never `Re: Re:`. An unread message 2 stays unread. `mail reply 9`
+   prints `mail: no message 9` without opening nano. Cancelling prints `mail: reply cancelled`.
+4. `mail send bob@gmail.com hi` prints `mail: bob@gmail.com: unknown domain` before nano opens,
+   and counts nothing. A send to a handle nobody holds prints
+   `mail: ghost@emailit.io: no such mailbox` after Ctrl-X, and a reply to the welcome mail prints
+   `mail: noreply@emailit.io: no such mailbox`. A send to an inbox of 100 prints
+   `mail: trin@emailit.io: mailbox full`.
+5. An 81-character subject prints `mail: subject too long` before nano opens; an 80-character one,
+   emoji counted as one each, is accepted. A 4,001-character body prints `mail: message too long`
+   after Ctrl-X and delivers nothing; a 4,000-character one is delivered. Neither refusal counts
+   toward the hour's 20.
+6. After 20 sends in the last 60 minutes, bounces included, the 21st prints
+   `mail: too many messages sent, wait an hour` and delivers nothing. A send whose login failed
+   does not count. Another player is not held back. The 21st goes through once the oldest of the
+   20 is an hour old.
+7. `mail delete 2` prints nothing, and message 2 is gone from the list for everyone holding the
+   password. The next message to arrive takes a new number, never 2. `mail delete 9` and
+   `mail delete x` print `mail: no message 9` and `mail: no message x`. Deleting marks nothing read.
+8. With no `~/.mailrc`, an unreadable one, or one with no login, `send`, `reply` and `delete` print
+   slice 3's answers before nano opens. A wrong password prints
+   `mail: login failed for neo@emailit.io` and counts toward the guess throttle.
+9. With the box offline, `send` and `reply` print `mail: cannot reach emailit.io` before nano
+   opens. With emailit.io down, `reply` prints it before nano, and `send` after Ctrl-X.
+10. In a script, `mail('send', 'trin', 'hi', 'body')` delivers and returns nothing, and
+    `mail('reply', '2', 'thanks')` delivers `thanks` above the quoted original. `mail('send',
+    'trin', 'hi')` returns the usage. The limits apply as typed. Typed in a pty-less shell,
+    `mail send trin hi` prints `mail: send needs a terminal` and `mail delete 2` works.
+11. `man mail` describes `send`, `reply` and `delete`, Ctrl-O and Ctrl-X, and the limits.
+
+### Increments (each RED → GREEN → REFACTOR; commit on approval)
+
+1. **The server delivers a message.** Migration: `email_sends`, `email_send` (password check,
+   recipient, cap, delivery; the send limit comes in increment 3). The handler's `op` and `send`;
+   the adapter's `sendMail`. Unit tests with a fake store, as slice 3's.
+2. **`mail send` through nano.** `env.compose` (core seam, `ui/env.ts`, `ui/state.ts`, the
+   `Nano` screen's compose save, jsdom test), the arguments, the domain and size checks, cancel,
+   the bounces. Criteria 1, 2, 4, 5, 8, 9.
+3. **The send limit.** `email_send` refuses the 21st in an hour; the command prints the wait.
+   Criterion 6.
+4. **`mail reply`.** `email_read`'s `mark` flag, the quoted draft, `Re:`. Criterion 3.
+5. **`mail delete`.** `email_delete`, the handler's `delete`, the command. Criterion 7.
+6. **Scripts and terminals, `man mail`, handbook, version 0.387.0.** Criteria 10, 11; the
+   handbook's command table and `resolveMail` row; `docs/project-status.md`.
+
+### Evidence
+
+- Unit: the handler, the command through a test env with a fake `compose`, the adapter. jsdom for
+  the `Nano` screen's compose save (Ctrl-O keeps, Ctrl-X resolves, nothing written resolves
+  `null`).
+- Wire-check: a new `scripts/testMailSend.ts` against `vercel dev` + supabase. Two sign-ups; A
+  mails B and B's inbox shows it unread from A. B replies and A sees `Re:`. A reading for a reply
+  leaves the original unread. An unknown handle and `noreply` bounce, an inbox seeded to 100 is
+  full, and the 21st send in an hour is refused while another key is not. A delete removes the
+  message and the next arrival skips its number. `testMailRead.ts` and `testEmailitSignup.ts`
+  re-run unchanged.
+- Migration: applied locally for the wire-check, then pushed to jshack-dev and jshack-prod before
+  the merge, on the owner's go.
+- Pre-PR: Stryker on the changed lines of `core/emailit/`, `mail.ts`, the adapter and the
+  `Nano` screen; typecheck; lint; the full test run.
+- No browser run; the epic's one run at the end adds two players trading mail and a reply.
 
 ## Backlog from this grill
 
