@@ -4,8 +4,8 @@
 28–41 from a find-gaps review the same day, 42–45 while planning slice 3, 46–51 while planning
 slice 4, 52–54 while planning slice 5 and 55–58 while planning slice 6 (2026-10-15). Slice 1
 shipped at v0.384.0 (#681, 2026-10-15), slice 2 at v0.385.0 (#682), slice 3 at v0.386.0 (#683),
-slice 4 at v0.387.0 (#684) and slice 5 at v0.388.0 (#685, all 2026-10-15); slice 6 is next and
-needs its plan.
+slice 4 at v0.387.0 (#684) and slice 5 at v0.388.0 (#685, all 2026-10-15); slice 6 is planned
+below.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 
@@ -367,11 +367,9 @@ replace the view's read-only rule.
     two directories are part of emailit.io's generated box (`/var/mail` with the spool's root-only
     permissions, `/etc/emailit` root-only), so a guest's prune drops them like any root-only
     directory and the write gate finds the parents a root's write lands in; only the files are
-    built from the tables, and only for a root caller. A mailbox's time is its newest message's
-    delivery, or the sign-up when it is empty; the passwd file's is the newest sign-up (the tables
-    keep no time for a password change). Rejected: a read-only view, the one place on the box root
-    could not touch; and files that are the mail, where one root could take every account by
-    writing a hash and no restore could undo it.
+    built from the tables, and only for a root caller. Rejected: a read-only view, the one place on
+    the box root could not touch; and files that are the mail, where one root could take every
+    account by writing a hash and no restore could undo it.
 58. **The view is built whole on every read.** A root shell on emailit.io re-reads its tree before
     every line, and every inbox comes with it: at most 100 messages of 4,000 characters, about
     400 KB, though most hold a few KB. A response is capped at 4.5 MB, so the view breaks the read
@@ -1134,6 +1132,133 @@ prompt is idle, then appended to the scrollback.
   schedule in `ui/state.ts`; typecheck; lint; the full test run.
 - No browser run; the epic's one run at the end adds a password taken over and the victim's
   notice.
+
+## Slice 6 plan: emailit.io's root view
+
+**Branch**: `feat/emailit-root-view` · **Version**: 0.388.0 → 0.389.0 · **Class**: behaviour
+change · **Delivery**: one PR against `main`, no migration.
+
+**Value.** Whoever roots emailit.io sees every account's mail and every account's password hash, at
+real Debian paths: `cat /etc/emailit/passwd` hands them hashes to crack at home, and
+`/var/mail/<handle>` shows what each player was sent and what they have not read yet. A root can
+also wreck or forge that view for the next intruder, and the operator's restore puts it back. No
+player's real mail changes either way.
+
+**Path.** A root shell on emailit.io re-reads its tree before every line → the signed
+`resolveCrossPlayerFs` → `handleResolveCrossPlayerFs` builds the fixed site's box, which now holds
+the two directories → for a root session on emailit.io's machine only, one read of the accounts
+with their messages → the spool's files laid into the box → the journal replayed on top → the
+root prune (which keeps everything) → the tree on the wire. A write, `rm`, `mv` or `chmod` there
+takes the existing patch path and gates; nothing on the client changes.
+
+### Facts read while planning (2026-10-15)
+
+- **emailit.io is a box its own network makes.** `buildApGatewayBaseFs(EMAILIT_NETWORK)` returns
+  `buildFixedSiteFs` (`generation/fixedSiteFs.ts`); its `/etc` holds `hostname`, `hosts` and
+  `passwd`, and there is no `/var/mail`. `handleResolveCrossPlayerFs` builds it from the caller's
+  session network and replays the journal with `materializeMachineFs(base, patches)`.
+- **A served box is re-read before every line**, so a root sees mail as of their last command.
+- **The write and remove gates** (`enforceRemoteWriteL2`) rebuild the generated box, replay the
+  journal and ask `canWrite`. Root passes the walker everywhere, but a create needs its containing
+  directory to exist (`fsView.ts`), which is why decision 57 puts the directories in the box.
+- **Nothing shows a file's time.** `FileMetadata.mtime` exists, but `ls -l` has no time column and
+  no code reads it; decision 57's sentence on times is dropped, since no test could fail on it.
+- **The tables** (`20261014000000_email.sql`): `email_accounts(handle, password_md5,
+  signed_up_at, …)` and `email_messages(handle, number, sender, subject, body, delivered_at,
+  read)`, with `UNIQUE (handle, number)`.
+- **The NPC mbox** (`generation/mailbox.ts`) writes the separator date with a private `asctime`
+  and the header date with a private `rfcDate`.
+
+### Choices made while planning (owner to confirm with the plan)
+
+- **No migration.** The adapter reads the accounts with their messages in one embedded select
+  (`email_accounts` → `email_messages`), sign-up order then number. One request is one snapshot,
+  so a message never arrives without its account.
+- **Only emailit.io's machine, only a root session.** The handler asks for the spool when the
+  machine is emailit.io's and the session's tier is root; any other box, tier or no session never
+  calls the lookup, so nothing is read and nothing reaches the wire (decision 31).
+- **A failed spool read fails the read** with `500 mail_spool_lookup_failed`, as every other
+  lookup in the handler does. Serving the box without the view would show an empty spool, a lie a
+  root would act on.
+- **The file text.** Each message is:
+
+  ```
+  From noreply@emailit.io Wed Oct 14 09:12:03 2026
+  Date: Wed, 14 Oct 2026 09:12:03 +0000
+  From: <noreply@emailit.io>
+  To: <neo@emailit.io>
+  Subject: Welcome to emailit.io
+  Status: RO
+
+  <the body as written, a line starting `From ` written `>From `>
+
+  ```
+
+  An unread message has no `Status:` line. Each message ends with a blank line, so the next
+  separator follows one, as real mbox needs. `/etc/emailit/passwd` is one `handle:md5` line per
+  account in sign-up order, with a final newline; an account with an empty inbox has an empty
+  `/var/mail/<handle>`. The two date helpers in `generation/mailbox.ts` are exported and shared,
+  so one box's mbox and another's cannot disagree on a date.
+- **Permissions**: `/var/mail` and every mailbox use `MAIL_SPOOL_DIR` and `MAIL_SPOOL_FILE`;
+  `/etc/emailit` is a root-only directory and its `passwd` a root-only file. All owned by `root`.
+- **The view lives in core** as `withMailSpool(base, accounts)` in `core/emailit/spool.ts`, a pure
+  function from the tree and the rows to the tree with the files laid in. If the base lacks
+  `/var/mail` or `/etc/emailit` (another box), it is returned as it was.
+
+### Acceptance criteria
+
+1. As root on emailit.io, `ls /var/mail` lists one file per account and `cat /etc/emailit/passwd`
+   prints `handle:md5` per account in sign-up order — `neo:5f4dcc3b5aa765d61d8327deb882cf99` for
+   the password `password`.
+2. `cat /var/mail/neo` prints neo's inbox oldest first in the shape above: a read message carries
+   `Status: RO`, an unread one none, a deleted one is gone, and a body line starting `From ` reads
+   `>From `.
+3. An account whose inbox is empty has a 0-byte `/var/mail/<handle>` (`ls -l` shows size 0).
+4. Mail arriving, a read mark changing or a sign-up shows in the view by the root's next line.
+5. As `user` or `guest` on emailit.io, or with no session, `/var/mail` and `/etc/emailit` are not
+   there; the server reads no table and sends nothing of them.
+6. As root, writing `/var/mail/trin` (with `nano` or `>`), `rm /etc/emailit/passwd`,
+   `rm -r /var/mail`, `mv` and `chmod` there all work, and another root on emailit.io sees the
+   result. The written file stops showing trin's new mail.
+7. Through all of criterion 6, `mail` for every account lists, reads, sends and logs in exactly as
+   before; a hash planted in `/etc/emailit/passwd` and then cracked does not log in.
+8. `scripts/restoreSite.ts emailit.io` brings the true view back.
+9. With emailit.io's view unreadable on the server, a root on emailit.io gets the read's error, not
+   a box with an empty spool.
+10. Every other box, other fixed sites included, reads exactly as before.
+11. `docs/backlog.md` records decision 58's ceiling and its fix; the handbook and
+    `docs/project-status.md` follow.
+
+### Increments (each RED → GREEN → REFACTOR; commit on approval)
+
+1. **The spool in core.** `core/emailit/spool.ts`, the shared date helpers, unit tests on the
+   text and permissions. Criteria 1–3 at the core.
+2. **emailit.io's box has the two directories.** `buildFixedSiteFs` for emailit.io only; a guest's
+   prune drops them, and the write gate lets root create in them. Criterion 10 for the other
+   sites.
+3. **The handler lays the view under the journal.** A `findMailSpool` dep, root and emailit.io
+   only, before `materializeMachineFs`; the 500. Criteria 4–6, 9 at the handler.
+4. **The adapter.** The embedded select in `api/network.ts`, and the wire-check. Criteria 1–8
+   live.
+5. **Backlog, handbook, version 0.389.0.** Criterion 11; `docs/project-status.md`.
+
+### Evidence
+
+- Unit: `withMailSpool` on fixed rows (order, `Status:`, `>From `, empty inbox, permissions, a base
+  without the directories); `buildFixedSiteFs` for each site; the handler with fake deps (root
+  gets the files, `user`, `guest` and no session never call the lookup, a journal `rm` and write
+  land over the view, a failed lookup is a 500); the write gate creating `/var/mail/x` as root.
+- Wire-check: a new `scripts/testMailSpool.ts` against `vercel dev` + supabase. Two players sign
+  up; one mails the other and one message is read. With no session and with seeded `user` and
+  `guest` rows, the tree has neither directory. With a seeded root row it has both, and the
+  run's accounts read as criteria 1–3 say. A root write and `rm` through `/api/patches` show in
+  the next read while `resolveMail` lists the real inbox and logs in with the real password; a
+  planted hash does not log in. Wiping the journal as the restore does brings the view back.
+  `testMailRead.ts`, `testMailSend.ts` and `testCrossPlayerRead.ts` re-run unchanged.
+- Pre-PR: Stryker on the changed lines of `core/emailit/spool.ts`, `fixedSiteFs.ts`,
+  `resolveCrossPlayerFs.ts` and the shared date helpers; typecheck; lint; the full test run.
+- No browser run here; the epic's one run at the end roots emailit.io, cracks a hash from
+  `/etc/emailit/passwd` and reads the victim's mail with it.
 
 ## Backlog from this grill
 
