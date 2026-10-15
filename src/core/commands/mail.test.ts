@@ -20,6 +20,7 @@ import { asAbsPath, type UserType } from '../types.js';
 import type {
   CommandEnv,
   CommandResult,
+  DeleteResult,
   InboxMessage,
   InboxResult,
   MailDraft,
@@ -32,7 +33,8 @@ import type {
 import type { Directory } from '../filesystem/types.js';
 
 const NO_FLAGS = new Map<string, string | true>();
-const USAGE = 'mail: usage: mail [read <n>] | send <to> <subject> | reply <n> | login | logout';
+const USAGE =
+  'mail: usage: mail [read <n>] | send <to> <subject> | reply <n> | delete <n> | login | logout';
 const PLAYER_KEY = 'a'.repeat(64);
 const ESSID = 'BEAN-THERE-WIFI';
 
@@ -124,6 +126,7 @@ const mailEnv = (
     readonly answers?: InboxResult;
     readonly opens?: MessageResult;
     readonly sends?: SendResult;
+    readonly deletes?: DeleteResult;
     readonly drafted?: string | null;
     readonly typed?: readonly string[];
     /** The one patch the box refuses, as a round trip that never completed. */
@@ -136,6 +139,7 @@ const mailEnv = (
   readonly prompted: readonly Prompted[];
   readonly composed: readonly MailDraft[];
   readonly sent: readonly { readonly login: MailLogin; readonly mail: OutgoingMail }[];
+  readonly deleted: readonly { readonly login: MailLogin; readonly number: number }[];
   /** Whether each write told the box the file was new. */
   readonly writtenAsNew: readonly boolean[];
   readonly treeAfter: () => Directory;
@@ -145,6 +149,7 @@ const mailEnv = (
   const prompted: Prompted[] = [];
   const composed: MailDraft[] = [];
   const sent: { readonly login: MailLogin; readonly mail: OutgoingMail }[] = [];
+  const deleted: { readonly login: MailLogin; readonly number: number }[] = [];
   const writtenAsNew: boolean[] = [];
   const journal: Patch[] = [];
   const answers = [...(options.typed ?? [])];
@@ -195,6 +200,10 @@ const mailEnv = (
         sent.push({ login, mail: outgoing });
         return options.sends ?? { ok: true };
       },
+      delete: async (login, number) => {
+        deleted.push({ login, number });
+        return options.deletes ?? { ok: true };
+      },
     },
   });
   return {
@@ -204,6 +213,7 @@ const mailEnv = (
     prompted,
     composed,
     sent,
+    deleted,
     writtenAsNew,
     treeAfter: () => applyPatches(tree, journal),
   };
@@ -1205,6 +1215,64 @@ describe('mail reply — an answer to a message, its history quoted below', () =
   });
 });
 
+describe('mail delete — a message taken out of the inbox', () => {
+  it('asks emailit.io to delete the message by its number, and prints nothing', async () => {
+    const { env, deleted, opensAsked } = mailEnv();
+
+    const result = await mail.execute(env, ['delete', '2'], NO_FLAGS);
+
+    expect(deleted).toEqual([{ login: { handle: 'neo', password: 's3cret' }, number: 2 }]);
+    expect(opensAsked).toEqual([]);
+    expect(result).toEqual({ kind: 'sync', lines: [], exitCode: 0 });
+  });
+
+  it('says there is no such message when the inbox holds none by that number', async () => {
+    const { env } = mailEnv({ deletes: { ok: false, error: 'no_message' } });
+
+    const result = await mail.execute(env, ['delete', '9'], NO_FLAGS);
+
+    expect(linesOf(result, 'error')).toEqual(['mail: no message 9']);
+    expect(exitCodeOf(result)).toBe(1);
+  });
+
+  it('says a number that is no message number is no message, asking nobody', async () => {
+    const { env, deleted } = mailEnv();
+
+    const result = await mail.execute(env, ['delete', 'x'], NO_FLAGS);
+
+    expect(linesOf(result, 'error')).toEqual(['mail: no message x']);
+    expect(deleted).toEqual([]);
+  });
+
+  it.each([
+    [{ ok: false, error: 'login_failed' } as const, 'mail: login failed for neo@emailit.io'],
+    [{ ok: false, error: 'throttled' } as const, 'mail: too many failed logins, wait a minute'],
+    [{ ok: false, error: 'host_unreachable' } as const, 'mail: cannot reach emailit.io'],
+  ])('says why nothing was deleted: %o', async (deletes, said) => {
+    const { env } = mailEnv({ deletes });
+
+    expect(linesOf(await mail.execute(env, ['delete', '2'], NO_FLAGS), 'error')).toEqual([said]);
+  });
+
+  it('with no login file or no network, asks nobody', async () => {
+    const loggedOut = mailEnv({ tree: boxWith({}) });
+    const offline = mailEnv({ connectivity: buildColdStartConnectivity(PLAYER_KEY) });
+
+    const notLoggedIn = await mail.execute(loggedOut.env, ['delete', '2'], NO_FLAGS);
+    const unreachable = await mail.execute(offline.env, ['delete', '2'], NO_FLAGS);
+
+    expect(linesOf(notLoggedIn, 'error')).toEqual(['mail: not logged in — run mail login']);
+    expect(linesOf(unreachable, 'error')).toEqual(['mail: cannot reach emailit.io']);
+    expect([...loggedOut.deleted, ...offline.deleted]).toEqual([]);
+  });
+
+  it.each([[['delete']], [['delete', '1', '2']]])('prints the usage for %o', async (args) => {
+    const { env } = mailEnv();
+
+    expect(linesOf(await mail.execute(env, args, NO_FLAGS), 'error')).toEqual([USAGE]);
+  });
+});
+
 describe('mail from a script', () => {
   const scriptOn = (env: CommandEnv) =>
     buildCommandContext(env, new Map([[mail.name, mail]]), () => undefined);
@@ -1265,7 +1333,7 @@ describe('mail on a shell with no terminal behind it', () => {
 describe('mail — what the manual promises', () => {
   it('names the forms the usage line names', () => {
     expect(mail.manual?.synopsis).toBe(
-      'mail [read <n>] | send <to> <subject> | reply <n> | login | logout',
+      'mail [read <n>] | send <to> <subject> | reply <n> | delete <n> | login | logout',
     );
   });
 

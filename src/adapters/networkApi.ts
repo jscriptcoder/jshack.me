@@ -34,6 +34,7 @@ import type {
   MessageResult,
   OutgoingMail,
   SendResult,
+  DeleteResult,
   OccupantFetchParams,
   OccupantFetchResult,
   OccupantSweepParams,
@@ -395,6 +396,35 @@ export const sendMail = async (
     }
     const sent = z.object({ ok: z.literal(true) }).safeParse(body);
     return sent.success ? { ok: true } : { ok: false, error: 'network_error' };
+  } catch {
+    return { ok: false, error: 'network_error' };
+  }
+};
+
+/**
+ * Delete one message of an emailit.io inbox by its number (backs `env.mail.delete`).
+ * Refusals read as one message's do.
+ */
+export const deleteMailMessage = async (
+  deps: NetworkClientDeps,
+  login: MailLogin,
+  number: number,
+): Promise<DeleteResult> => {
+  try {
+    const response = await post(deps, 'resolveMail', {
+      op: 'delete',
+      handle: login.handle,
+      password: login.password,
+      number,
+    });
+    const body: unknown = await response.json();
+    if (!response.ok) {
+      const failed = body as { readonly error?: string } | null;
+      const refusal = MESSAGE_REFUSALS.find((error) => error === failed?.error);
+      return { ok: false, error: refusal ?? 'network_error' };
+    }
+    const deleted = z.object({ ok: z.literal(true) }).safeParse(body);
+    return deleted.success ? { ok: true } : { ok: false, error: 'network_error' };
   } catch {
     return { ok: false, error: 'network_error' };
   }

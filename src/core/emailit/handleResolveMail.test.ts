@@ -8,6 +8,7 @@ import { md5 } from '../generation/md5.js';
 import type { OwnerPatchRow } from '../network/materializeWorkstationFs.js';
 import {
   handleResolveMail,
+  type DeleteMessage,
   type OpenInbox,
   type OpenMessage,
   type ResolveMailDeps,
@@ -41,6 +42,7 @@ const makeDeps = (
     readonly openInbox?: OpenInbox;
     readonly openMessage?: OpenMessage;
     readonly sendMessage?: SendMessage;
+    readonly deleteMessage?: DeleteMessage;
     readonly journal?: readonly OwnerPatchRow[];
   } = {},
 ) => {
@@ -54,6 +56,9 @@ const makeDeps = (
   );
   const sendMessage = vi.fn(
     over.sendMessage ?? (async () => ({ data: { outcome: 'sent' }, error: null })),
+  );
+  const deleteMessage = vi.fn(
+    over.deleteMessage ?? (async () => ({ data: { outcome: 'deleted' }, error: null })),
   );
   const findNetworkByPublicIp = vi.fn(async (publicIp: string) => ({
     data:
@@ -72,8 +77,9 @@ const makeDeps = (
     openInbox,
     openMessage,
     sendMessage,
+    deleteMessage,
   };
-  return { deps, openInbox, openMessage, sendMessage, findNetworkByPublicIp };
+  return { deps, openInbox, openMessage, sendMessage, deleteMessage, findNetworkByPublicIp };
 };
 
 const inboxRequest = (fields: Record<string, unknown> = {}) =>
@@ -424,6 +430,72 @@ describe('emailit.io delivers a message from whoever holds the password', () => 
       body: { error: 'payload_invalid' },
     });
     expect(sendMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe('emailit.io deletes a message for whoever holds the password', () => {
+  const deleteRequest = (fields: Record<string, unknown> = {}) =>
+    inboxRequest({ op: 'delete', number: 2, ...fields });
+
+  it('answers that the message is gone', async () => {
+    const { deps } = makeDeps();
+
+    expect(await handleResolveMail(deleteRequest(), deps)).toEqual({
+      status: 200,
+      body: { ok: true },
+    });
+  });
+
+  it('asks the store for that number with the md5 of the password', async () => {
+    const { deps, deleteMessage, openMessage } = makeDeps();
+
+    await handleResolveMail(deleteRequest(), deps);
+
+    expect(deleteMessage).toHaveBeenCalledWith({
+      handle: 'neo',
+      passwordMd5: md5('s3cret'),
+      playerKey: BOB.publicKeyHex,
+      number: 2,
+    });
+    expect(openMessage).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['no_message', 404],
+    ['login_failed', 401],
+    ['throttled', 429],
+  ])('passes on a refusal of %s as %i', async (outcome, status) => {
+    const { deps } = makeDeps({
+      deleteMessage: async () => ({ data: { outcome }, error: null }),
+    });
+
+    expect(await handleResolveMail(deleteRequest(), deps)).toEqual({
+      status,
+      body: { error: outcome },
+    });
+  });
+
+  it('reports an answer it cannot read as a server error', async () => {
+    const { deps } = makeDeps({
+      deleteMessage: async () => ({ data: { outcome: 'opened' }, error: null }),
+    });
+
+    expect((await handleResolveMail(deleteRequest(), deps)).status).toBe(500);
+  });
+
+  it('reports a store it could not ask as a server error', async () => {
+    const { deps } = makeDeps({
+      deleteMessage: async () => ({ data: null, error: { message: 'connection refused' } }),
+    });
+
+    expect((await handleResolveMail(deleteRequest(), deps)).status).toBe(500);
+  });
+
+  it.each([0, 1.5, '2'])('turns away a message number of %o, asking nobody', async (number) => {
+    const { deps, deleteMessage } = makeDeps();
+
+    expect((await handleResolveMail(deleteRequest({ number }), deps)).status).toBe(400);
+    expect(deleteMessage).not.toHaveBeenCalled();
   });
 });
 

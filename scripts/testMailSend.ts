@@ -7,6 +7,9 @@
 //     next one takes the number after.
 //   - A REPLY QUOTES WITHOUT READING. A message opened with `mark: false` answers its body
 //     and stays unread; one opened with `mark: true` is marked read.
+//   - A DELETE TAKES A MESSAGE OUT FOR GOOD. It leaves the rest of the inbox as it was,
+//     marks nothing read, a second delete of the same number answers `no_message`, and
+//     the next message to arrive never takes the deleted number.
 //   - A BOUNCE SAYS WHY. A handle nobody holds and a system sender (`noreply`) answer
 //     `no_mailbox`; an inbox holding 100 messages answers `mailbox_full`.
 //   - THE SENDER PROVES THE ADDRESS. A wrong password answers `login_failed`, delivers
@@ -199,6 +202,33 @@ const main = async () => {
   const own = (await inboxOf(neo, from)).map((message) => message.number);
   check('the sender keeps no copy', own.join() === '1', own.join());
 
+  const remove = () =>
+    post(
+      signRequest(trin, 'resolveMail', { op: 'delete', handle: to, password: 's3cret', number: 2 }),
+    );
+  const removed = await remove();
+  const afterDelete = await inboxOf(trin, to);
+  check(
+    'a delete answers that the message is gone, and the rest stay as they were',
+    removed.status === 200 &&
+      afterDelete.map((message) => message.number).join() === '1,3' &&
+      afterDelete.find((message) => message.number === 3)?.read === false,
+    `status ${removed.status}, ${JSON.stringify(afterDelete)}`,
+  );
+  const again = await remove();
+  check(
+    'deleting the same number again answers no_message',
+    again.status === 404 && errorOf(again.body) === 'no_message',
+    `status ${again.status} ${JSON.stringify(again.body)}`,
+  );
+  await send(neo, { handle: from, to, subject: 'after the delete' });
+  const renumbered = (await inboxOf(trin, to)).map((message) => message.number);
+  check(
+    'the next message takes a new number, never the deleted one',
+    renumbered.join() === '1,3,4',
+    renumbered.join(),
+  );
+
   // 2. A BOUNCE SAYS WHY.
   const ghost = await send(neo, { handle: from, to: `ghost${RUN}` });
   check(
@@ -214,14 +244,14 @@ const main = async () => {
   );
   const filler = Array.from({ length: 97 }, (_unused, index) => ({
     handle: to,
-    number: index + 4,
+    number: index + 5,
     sender: 'noreply@emailit.io',
     subject: 'filler',
     body: '',
   }));
   const { error: fillError } = await sr.from('email_messages').insert(filler);
   if (fillError) throw new Error(`fill failed: ${fillError.message}`);
-  await sr.from('email_accounts').update({ next_number: 101 }).eq('handle', to);
+  await sr.from('email_accounts').update({ next_number: 102 }).eq('handle', to);
   const full = await send(neo, { handle: from, to });
   const held = (await inboxOf(trin, to)).length;
   check(
@@ -263,8 +293,8 @@ const main = async () => {
   const neoSends = (await sendsOf(neo)).length;
   check(
     'bounces count as sends, and sends turned away before the store do not',
-    neoSends === 6,
-    `${neoSends} counted for 3 delivered, 3 bounced and 1 turned away`,
+    neoSends === 7,
+    `${neoSends} counted for 4 delivered, 3 bounced and 1 turned away`,
   );
   const strangerSends = (await sendsOf(stranger)).length;
   check('a failed login counts as no send', strangerSends === 0, `${strangerSends} counted`);

@@ -2,8 +2,8 @@
  * handleResolveMail — the server side of `mail`: an inbox opened to whoever holds its
  * password, and mail sent from it.
  *
- * The request names what it wants in `op`: the `list`, one message to `read`, or a
- * message to `send`. A send names the recipient by handle (mail goes between emailit.io
+ * The request names what it wants in `op`: the `list`, one message to `read`, a message
+ * to `send`, or one to `delete`. A send names the recipient by handle (mail goes between emailit.io
  * addresses only), and its subject and body are held to 80 and 4,000 characters here, as
  * a reader counts them, whatever the client checked first.
  *
@@ -78,11 +78,18 @@ export type SendMessage = (
   },
 ) => Promise<{ readonly data: unknown; readonly error: unknown }>;
 
+/** Delete one message by its number, or say the login failed or the inbox holds no such
+ *  message: the store's reply as it came off the wire, read here. */
+export type DeleteMessage = (
+  request: InboxLogin & { readonly number: number },
+) => Promise<{ readonly data: unknown; readonly error: unknown }>;
+
 export type ResolveMailDeps = WebTargetDeps & {
   readonly nonceStore: NonceStore;
   readonly openInbox: OpenInbox;
   readonly openMessage: OpenMessage;
   readonly sendMessage: SendMessage;
+  readonly deleteMessage: DeleteMessage;
 };
 
 const inboxAnswerSchema = z.discriminatedUnion('outcome', [
@@ -105,6 +112,13 @@ const sendAnswerSchema = z.discriminatedUnion('outcome', [
   z.object({ outcome: z.literal('no_mailbox') }),
   z.object({ outcome: z.literal('mailbox_full') }),
   z.object({ outcome: z.literal('send_limited') }),
+]);
+
+const deleteAnswerSchema = z.discriminatedUnion('outcome', [
+  z.object({ outcome: z.literal('deleted') }),
+  z.object({ outcome: z.literal('login_failed') }),
+  z.object({ outcome: z.literal('throttled') }),
+  z.object({ outcome: z.literal('no_message') }),
 ]);
 
 /** A string of at most `limit` characters as a reader counts them: an emoji is one,
@@ -139,6 +153,7 @@ const resolveMailSchema = z
       subject: textOfAtMost(SUBJECT_LIMIT),
       body: textOfAtMost(BODY_LIMIT),
     }),
+    z.looseObject({ ...login, op: z.literal('delete'), number: z.number().int().positive() }),
   ])
   .refine((payload) => !('player_key' in payload));
 
@@ -194,6 +209,14 @@ export const handleResolveMail = async (
     const answer = sendAnswerSchema.safeParse(reply.data);
     if (reply.error || !answer.success) return MAIL_FAILED;
     if (answer.data.outcome !== 'sent') return refused(answer.data.outcome);
+    return { status: 200, body: { ok: true } };
+  }
+
+  if (payload.op === 'delete') {
+    const reply = await deps.deleteMessage({ ...asked, number: payload.number });
+    const answer = deleteAnswerSchema.safeParse(reply.data);
+    if (reply.error || !answer.success) return MAIL_FAILED;
+    if (answer.data.outcome !== 'deleted') return refused(answer.data.outcome);
     return { status: 200, body: { ok: true } };
   }
 

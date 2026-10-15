@@ -1,6 +1,7 @@
 -- email_sends and email_send: a message from whoever holds a password, delivered into
--- another inbox, and no more than 20 an hour from any one player. And email_read, which
--- learns to open a message without marking it read, for a reply to quote.
+-- another inbox, and no more than 20 an hour from any one player. Below them, email_read
+-- learns to open a message without marking it read, for a reply to quote, and
+-- email_delete takes a message out of an inbox.
 --
 -- The sender proves the address by its password, checked as email_inbox checks it
 -- (email_check_password, the guess throttle included), so a send is one more thing a
@@ -169,3 +170,45 @@ $$;
 REVOKE EXECUTE ON FUNCTION email_read(TEXT, TEXT, TEXT, INTEGER, BOOLEAN)
   FROM PUBLIC, anon, authenticated;
 GRANT EXECUTE ON FUNCTION email_read(TEXT, TEXT, TEXT, INTEGER, BOOLEAN) TO service_role;
+
+-- email_delete: one message taken out of an inbox, for everyone who holds its password.
+-- The password is checked first, as everywhere; a number the inbox does not hold answers
+-- no_message. Deleting marks nothing read, and the account's next_number is left alone,
+-- so the number is never given to another message and a reader's numbers keep meaning
+-- what they meant.
+--
+-- Answers {"outcome": "deleted"}, {"outcome": "no_message"}, or the check's word.
+
+CREATE FUNCTION email_delete(
+  delete_handle        TEXT,
+  delete_password_md5  TEXT,
+  delete_player_key    TEXT,
+  delete_number        INTEGER
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+STRICT
+SET search_path = public
+AS $$
+DECLARE
+  checked TEXT;
+BEGIN
+  checked := email_check_password(delete_handle, delete_password_md5, delete_player_key);
+  IF checked <> 'ok' THEN
+    RETURN jsonb_build_object('outcome', checked);
+  END IF;
+
+  DELETE FROM email_messages
+   WHERE handle = delete_handle
+     AND number = delete_number;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('outcome', 'no_message');
+  END IF;
+
+  RETURN jsonb_build_object('outcome', 'deleted');
+END;
+$$;
+
+REVOKE EXECUTE ON FUNCTION email_delete(TEXT, TEXT, TEXT, INTEGER)
+  FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION email_delete(TEXT, TEXT, TEXT, INTEGER) TO service_role;

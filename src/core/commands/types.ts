@@ -1635,6 +1635,11 @@ export type MessageResult =
         | 'network_error';
     };
 
+export type DeleteResult =
+  | { readonly ok: true }
+  /** As a message's: the inbox holds nothing by that number, or the login was refused. */
+  | { readonly ok: false; readonly error: Exclude<MessageResult, { ok: true }>['error'] };
+
 /** A message on its way out. `to` is the recipient's handle; the domain is always
  *  emailit.io's, and the sender is whoever the login names. */
 export type OutgoingMail = {
@@ -1673,6 +1678,8 @@ export type MailApi = {
   ) => Promise<MessageResult>;
   /** Send a message from the login's address. */
   readonly send: (login: MailLogin, mail: OutgoingMail) => Promise<SendResult>;
+  /** Delete one message by its number, for everyone who holds the password. */
+  readonly delete: (login: MailLogin, number: number) => Promise<DeleteResult>;
 };
 
 /** A message about to be written: who it is to, in full, its subject, and what the

@@ -299,6 +299,7 @@ export const mockMailApi = (overrides: Partial<MailApi> = {}): MailApi => ({
   inbox: NOT_IMPLEMENTED('mail.inbox'),
   read: NOT_IMPLEMENTED('mail.read'),
   send: NOT_IMPLEMENTED('mail.send'),
+  delete: NOT_IMPLEMENTED('mail.delete'),
   ...overrides,
 });
 

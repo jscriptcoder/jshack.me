@@ -24,6 +24,7 @@ import {
   type InboxResult,
   type MailLogin,
   type MailMessage,
+  type MessageResult,
   type SendResult,
 } from './types.js';
 import { vantageOf } from '../network/vantage.js';
@@ -31,7 +32,7 @@ import { homeDirectory } from '../sessions/homeDirectory.js';
 import { EMAILIT_DOMAIN } from '../generation/fixedSites.js';
 import { asAbsPath, type AbsPath } from '../types.js';
 
-const SYNOPSIS = 'mail [read <n>] | send <to> <subject> | reply <n> | login | logout';
+const SYNOPSIS = 'mail [read <n>] | send <to> <subject> | reply <n> | delete <n> | login | logout';
 const USAGE = `mail: usage: ${SYNOPSIS}`;
 
 /** No network to ask from, emailit.io not answering, or our own side failing to ask:
@@ -182,13 +183,25 @@ const list = async (env: CommandEnv, saved: Saved): Promise<CommandResult> => {
   );
 };
 
+/** What a request about one message emailit.io refused, or that never got there, says:
+ *  a number the inbox does not hold is no message, and the rest as for the inbox. */
+const unnumbered = (
+  saved: Saved,
+  number: number,
+  error: Exclude<MessageResult, { ok: true }>['error'],
+) => (error === 'no_message' ? refusal(`mail: no message ${number}`) : unanswered(saved, error));
+
+/** Delete a message, for everyone who holds the password. Nothing is marked read, and its
+ *  number is never given to another message. */
+const remove = async (env: CommandEnv, saved: Saved, number: number): Promise<CommandResult> => {
+  const deleted = await env.mail.delete(saved.login, number);
+  if (!deleted.ok) return unnumbered(saved, number, deleted.error);
+  return said([]);
+};
+
 const read = async (env: CommandEnv, saved: Saved, number: number): Promise<CommandResult> => {
   const opened = await env.mail.read(saved.login, number, { mark: true });
-  if (!opened.ok) {
-    return opened.error === 'no_message'
-      ? refusal(`mail: no message ${number}`)
-      : unanswered(saved, opened.error);
-  }
+  if (!opened.ok) return unnumbered(saved, number, opened.error);
   return said(messageLines(saved.address, opened.message));
 };
 
@@ -333,12 +346,9 @@ const reply = async (env: CommandEnv, typedNumber: string): Promise<CommandResul
   if (!MESSAGE_NUMBER.test(typedNumber)) return refusal(`mail: no message ${typedNumber}`);
   if (vantageOf(env.session, env.network) === null) return refusal(UNREACHABLE);
 
-  const original = await env.mail.read(saved.login, Number(typedNumber), { mark: false });
-  if (!original.ok) {
-    return original.error === 'no_message'
-      ? refusal(`mail: no message ${typedNumber}`)
-      : unanswered(saved, original.error);
-  }
+  const number = Number(typedNumber);
+  const original = await env.mail.read(saved.login, number, { mark: false });
+  if (!original.ok) return unnumbered(saved, number, original.error);
   const to = original.message.sender;
   const handle = handleOf(to);
   if (handle === null) return refusal(`mail: ${to}: unknown domain`);
@@ -366,8 +376,8 @@ const execute: Command['execute'] = async (env, args) => {
   if (subcommand === 'reply' && target !== undefined && words.length === 0) {
     return reply(env, target);
   }
-  const reading = subcommand === 'read' && rest.length === 1;
-  if (args.length > 0 && !reading) return refusal(USAGE);
+  const numbered = (subcommand === 'read' || subcommand === 'delete') && rest.length === 1;
+  if (args.length > 0 && !numbered) return refusal(USAGE);
 
   // What is wrong with the question comes before what is wrong with the network: joining
   // one would mend neither the file nor the number.
@@ -379,7 +389,10 @@ const execute: Command['execute'] = async (env, args) => {
   }
   if (vantageOf(env.session, env.network) === null) return refusal(UNREACHABLE);
 
-  return typed === undefined ? list(env, saved) : read(env, saved, Number(typed));
+  if (typed === undefined) return list(env, saved);
+  return subcommand === 'delete'
+    ? remove(env, saved, Number(typed))
+    : read(env, saved, Number(typed));
 };
 
 export const mail: Command = {

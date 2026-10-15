@@ -181,6 +181,7 @@ import {
   openMailInbox,
   readMailMessage,
   sendMail,
+  deleteMailMessage,
   resolveCrossPlayerFs,
   resolveOccupants,
   resolveOccupant,
@@ -1089,6 +1090,13 @@ const sendMailFn: MailApi['send'] = (login, mail) =>
   networkClientDeps === undefined
     ? Promise.resolve({ ok: false, error: 'network_error' })
     : sendMail(networkClientDeps, login, mail);
+
+/** Delete one message (backs `env.mail.delete`). Unwired, the failure is ours, as for an
+ *  inbox. */
+const deleteMailMessageFn: MailApi['delete'] = (login, number) =>
+  networkClientDeps === undefined
+    ? Promise.resolve({ ok: false, error: 'network_error' })
+    : deleteMailMessage(networkClientDeps, login, number);
 
 /** Fetch a page from a fellow occupant's box on the network the shell stands on (backs
  *  `env.remote.fetchOccupant`). Before `startGame` wires the network client there is
@@ -2080,6 +2088,7 @@ const executeLine = async (line: string): Promise<void> => {
     onMailInbox: openMailInboxFn,
     onMailRead: readMailMessageFn,
     onMailSend: sendMailFn,
+    onMailDelete: deleteMailMessageFn,
     onMysqlConnect: mysqlConnect,
     onMysqlStatement: mysqlStatement,
     onMysqlEnter: enterMysqlSession,

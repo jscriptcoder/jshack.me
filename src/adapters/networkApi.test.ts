@@ -7,6 +7,7 @@ import {
   joinHomeNetwork,
   leaveHomeNetwork,
   openMailInbox,
+  deleteMailMessage,
   readMailMessage,
   sendMail,
   resolveCrossPlayerFs,
@@ -1094,6 +1095,55 @@ describe('sendMail', () => {
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
 
     expect(await sendMail(deps, LOGIN, MESSAGE)).toEqual({ ok: false, error: 'network_error' });
+  });
+});
+
+describe('deleteMailMessage', () => {
+  const LOGIN = { handle: 'neo', password: 's3cret' };
+
+  it('signs a resolveMail request naming the message, and says it is gone', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await deleteMailMessage(deps, LOGIN, 2)).toEqual({ ok: true });
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected verified envelope');
+    expect(verified.payload).toMatchObject({
+      action: 'resolveMail',
+      op: 'delete',
+      handle: 'neo',
+      password: 's3cret',
+      number: 2,
+    });
+  });
+
+  it.each([
+    [404, { error: 'no_message' }, 'no_message'],
+    [401, { error: 'login_failed' }, 'login_failed'],
+    [429, { error: 'throttled' }, 'throttled'],
+    [404, { error: 'host_unreachable' }, 'host_unreachable'],
+    [500, { error: 'mail_failed' }, 'network_error'],
+  ])('reads a %i %o as %s', async (status, body, error) => {
+    const fetchSpy = vi.fn(async () => jsonResponse(status, body));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await deleteMailMessage(deps, LOGIN, 2)).toEqual({ ok: false, error });
+  });
+
+  it('reads a 200 that does not say it is gone as the request failing', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, {}));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await deleteMailMessage(deps, LOGIN, 2)).toEqual({ ok: false, error: 'network_error' });
+  });
+
+  it('reads a request that never came back as the request failing', async () => {
+    const fetchSpy = vi.fn(async () => {
+      throw new TypeError('Failed to fetch');
+    });
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await deleteMailMessage(deps, LOGIN, 2)).toEqual({ ok: false, error: 'network_error' });
   });
 });
 
