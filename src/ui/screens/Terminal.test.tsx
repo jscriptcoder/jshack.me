@@ -895,6 +895,25 @@ describe('Terminal', () => {
     expect(await screen.findByRole('textbox', { name: /terminal input/i })).toBeInTheDocument();
     expect(screen.queryByRole('textbox', { name: /editor/i })).not.toBeInTheDocument();
   });
+
+  it('comes back from nano scrolled to the newest output', async () => {
+    // The scrollback is rebuilt when the editor hands the screen back, and a
+    // rebuilt pane starts at the top — the player would have to scroll down past
+    // everything to find the prompt's last output. jsdom lays nothing out, so the
+    // content height is stood in for.
+    const contentHeight = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get');
+    contentHeight.mockReturnValue(500);
+    onTestFinished(() => contentHeight.mockRestore());
+    renderTerminal();
+    runCommand('nano /etc/passwd');
+    const editorEl = await screen.findByRole('textbox', { name: /editor/i });
+
+    fireEvent.keyDown(editorEl, { key: 'x', ctrlKey: true });
+
+    await awaitPrompt();
+    const pane = screen.getByTestId('terminal-banner').parentElement;
+    expect(pane?.scrollTop).toBe(500);
+  });
 });
 
 describe('Terminal full-screen apps', () => {

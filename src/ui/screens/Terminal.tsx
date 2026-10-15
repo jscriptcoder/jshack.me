@@ -117,10 +117,12 @@ export const Terminal = () => {
     };
   };
 
-  // Keep the newest output in view as the scrollback grows.
+  // Keep the newest output in view as the scrollback grows — and when a
+  // full-screen app hands the screen back, because the pane is rebuilt then and a
+  // rebuilt pane starts at the top.
   createEffect(() => {
     scrollback();
-    if (output) output.scrollTop = output.scrollHeight;
+    if (overlayMode() === null && output) output.scrollTop = output.scrollHeight;
   });
 
   // Keep the prompt focused. Runs on first mount, and again whenever the input
