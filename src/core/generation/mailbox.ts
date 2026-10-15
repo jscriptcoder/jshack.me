@@ -63,10 +63,11 @@ const relayOf = (essid: string): LanHost | undefined =>
   );
 
 /** A date as a mail header writes it: `Thu, 18 Jun 2026 09:12:04 +0000`. */
-const rfcDate = (sentAt: number): string => new Date(sentAt).toUTCString().replace('GMT', '+0000');
+export const rfcDate = (sentAt: number): string =>
+  new Date(sentAt).toUTCString().replace('GMT', '+0000');
 
 /** A date as the mbox separator line writes it: `Thu Jun 18 09:12:04 2026`. */
-const asctime = (sentAt: number): string => {
+export const asctime = (sentAt: number): string => {
   const [day = '', date = '', month = '', year = '', time = ''] = new Date(sentAt)
     .toUTCString()
     .split(' ');
