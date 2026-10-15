@@ -27,9 +27,11 @@ import {
   type MailMessage,
   type MessageResult,
   type SendResult,
+  type TerminalLine,
 } from './types.js';
 import { vantageOf } from '../network/vantage.js';
 import { hasTty } from '../sessions/hasTty.js';
+import { mayExecute, resolveBinary } from './availability.js';
 import { homeDirectory } from '../sessions/homeDirectory.js';
 import { EMAILIT_DOMAIN } from '../generation/fixedSites.js';
 import { MIN_PASSWORD_LENGTH, validatePassword } from '../gameConfig/gameConfig.js';
@@ -113,10 +115,13 @@ const typedAddress = (typed: string): string => {
   return lowered.includes('@') ? lowered : `${lowered}@${EMAILIT_DOMAIN}`;
 };
 
-/** The login saved in the current user's `~/.mailrc`, or what stops it being used. */
+/** The login saved in the current user's `~/.mailrc`, and the file as it was read, or
+ *  what stops it being used. */
 const savedLogin = (
   env: CommandEnv,
-): { readonly address: string; readonly login: MailLogin } | { readonly refused: string } => {
+):
+  | { readonly address: string; readonly login: MailLogin; readonly content: string }
+  | { readonly refused: string } => {
   const path = mailrcPath(env);
   const stored = env.fs.read(path);
   if (!stored.ok && stored.error === 'not_found') {
@@ -126,12 +131,12 @@ const savedLogin = (
     return { refused: `mail: can't read '${path}': Permission denied` };
   }
   const saved = stored.ok ? loginIn(stored.content) : null;
-  if (saved === null) return { refused: 'mail: ~/.mailrc has no login' };
+  if (!stored.ok || saved === null) return { refused: 'mail: ~/.mailrc has no login' };
 
   const address = saved.address.toLowerCase();
   const handle = handleOf(address);
   if (handle === null) return { refused: `mail: ${address}: unknown domain` };
-  return { address, login: { handle, password: saved.password } };
+  return { address, login: { handle, password: saved.password }, content: stored.content };
 };
 
 /** When a message was delivered, as the list shows it: `Oct 15 09:12`, in UTC like
@@ -479,6 +484,67 @@ const write = (
     return reply(env, target);
   }
   return refusal(USAGE);
+};
+
+/**
+ * What a terminal remembers between checks for new mail: for each address, the highest
+ * message number it has announced or shown (`marks`), and every `~/.mailrc`, by its
+ * contents, whose login failed (`stale`). It lives in the terminal's memory and nowhere
+ * else.
+ */
+export type MailWatch = {
+  readonly marks: ReadonlyMap<string, number>;
+  readonly stale: ReadonlySet<string>;
+};
+
+/**
+ * Check for new mail: `mail` run quietly where the shell stands, as whoever it stands as.
+ *
+ * It asks only where a typed `mail` would answer: the `mail` binary there for the current
+ * user to run, their `~/.mailrc` readable and holding a login at emailit.io, and a network
+ * to ask from. Anything that stops it, a throttled or unanswered request included, is
+ * skipped without a word and remembers nothing, since the player did not ask.
+ *
+ * The notice is about arrival, not reading. Numbers only grow, so a message numbered
+ * above the address's mark arrived since the terminal last looked. An address it has not
+ * looked at yet, after a reload or on somebody else's box, has no mark: then any unread
+ * message is news, and the mark starts at the highest number.
+ *
+ * A login that fails is said once and its file skipped until the file changes (a new
+ * `mail login`, a `mail passwd`, an edit), so a stale file does not spend one of the
+ * player's failed guesses every minute.
+ */
+export const checkMail = async (
+  env: CommandEnv,
+  watch: MailWatch,
+): Promise<{ readonly lines: readonly TerminalLine[]; readonly watch: MailWatch }> => {
+  const quiet = { lines: [], watch };
+  const binary = resolveBinary(env, 'mail');
+  if (binary === null || !mayExecute(binary, env.session.userType)) return quiet;
+  const saved = savedLogin(env);
+  if ('refused' in saved || watch.stale.has(saved.content)) return quiet;
+  if (vantageOf(env.session, env.network) === null) return quiet;
+
+  const inbox = await env.mail.inbox(saved.login);
+  if (!inbox.ok && inbox.error === 'login_failed') {
+    return {
+      lines: [{ kind: 'error', content: `mail: login failed for ${saved.address}` }],
+      watch: { ...watch, stale: new Set([...watch.stale, saved.content]) },
+    };
+  }
+  if (!inbox.ok) return quiet;
+
+  const mark = watch.marks.get(saved.address);
+  const highest = Math.max(0, ...inbox.messages.map((message) => message.number));
+  const arrived =
+    mark === undefined ? inbox.messages.some((message) => !message.read) : highest > mark;
+  return {
+    lines: arrived ? [{ kind: 'text', content: 'You have new mail.' }] : [],
+    watch: {
+      ...watch,
+      marks: new Map([...watch.marks, [saved.address, Math.max(mark ?? 0, highest)]]),
+    },
+  };
 };
 
 /** A message number as typed: a whole number from 1, written the way the list writes it. */

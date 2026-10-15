@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mail } from './mail.js';
+import { checkMail, mail, type MailWatch } from './mail.js';
 import { buildCommandContext } from '../scripting/commandContext.js';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
 import {
@@ -66,8 +66,13 @@ const mailrc = (...lines: readonly string[]): string => `${lines.join('\n')}\n`;
 const NEO_MAILRC = mailrc('set from=neo@emailit.io', 'set password=s3cret');
 
 /** A box where alice's home holds `aliceRc` as `.mailrc` and root's holds `rootRc`, each
- *  readable by its owner and root only, as `mail login` leaves it. */
-const boxWith = (rcs: { readonly aliceRc?: string; readonly rootRc?: string }): Directory => {
+ *  readable by its owner and root only, as `mail login` leaves it. With `mailRunBy`,
+ *  `mailutils` is installed, and `/usr/bin/mail` may be run by those tiers. */
+const boxWith = (rcs: {
+  readonly aliceRc?: string;
+  readonly rootRc?: string;
+  readonly mailRunBy?: UserType[];
+}): Directory => {
   const ownerOnly = (owner: UserType) => ({
     read: [owner, 'root'] as UserType[],
     write: [owner, 'root'] as UserType[],
@@ -88,6 +93,15 @@ const boxWith = (rcs: { readonly aliceRc?: string; readonly rootRc?: string }): 
         : { '.mailrc': buildFile(rcs.rootRc, { owner: 'root', perms: ownerOnly('root') }) },
       { owner: 'root', perms: ROOT_DIR },
     ),
+    ...(rcs.mailRunBy === undefined
+      ? {}
+      : {
+          usr: buildDirectory({
+            bin: buildDirectory({
+              mail: buildFile('', { owner: 'root', perms: { execute: rcs.mailRunBy } }),
+            }),
+          }),
+        }),
   });
 };
 
@@ -1493,6 +1507,175 @@ describe('mail passwd — a new password, saved where the old one was', () => {
     expect(linesOf(result, 'error')).toEqual([USAGE]);
     expect(prompted).toEqual([]);
   });
+});
+
+describe('checkMail — mail run quietly, for the new-mail notice', () => {
+  const EVERYONE: UserType[] = ['root', 'user', 'guest'];
+  const NOTHING_WATCHED: MailWatch = { marks: new Map(), stale: new Set() };
+  const NOTICE = { kind: 'text', content: 'You have new mail.' };
+
+  const watchedAt = (mark: number): MailWatch => ({
+    marks: new Map([['neo@emailit.io', mark]]),
+    stale: new Set(),
+  });
+
+  const installed = (aliceRc: string = NEO_MAILRC) => boxWith({ aliceRc, mailRunBy: EVERYONE });
+
+  const inboxOf = (...messages: readonly InboxMessage[]): InboxResult => ({ ok: true, messages });
+
+  it('announces unread mail the first time it watches an address, and marks the highest', async () => {
+    const { env } = mailEnv({
+      tree: installed(),
+      answers: inboxOf(message({ read: true }), message({ number: 2 })),
+    });
+
+    expect(await checkMail(env, NOTHING_WATCHED)).toEqual({
+      lines: [NOTICE],
+      watch: watchedAt(2),
+    });
+  });
+
+  it('says nothing the first time when every message is read, but still marks the highest', async () => {
+    const { env } = mailEnv({
+      tree: installed(),
+      answers: inboxOf(message({ read: true }), message({ number: 3, read: true })),
+    });
+
+    expect(await checkMail(env, NOTHING_WATCHED)).toEqual({ lines: [], watch: watchedAt(3) });
+  });
+
+  it('marks an empty inbox at nothing, so its first message is news', async () => {
+    const { env } = mailEnv({ tree: installed(), answers: inboxOf() });
+
+    expect(await checkMail(env, NOTHING_WATCHED)).toEqual({ lines: [], watch: watchedAt(0) });
+  });
+
+  it('announces a message numbered above the mark once, for however many came', async () => {
+    const { env } = mailEnv({
+      tree: installed(),
+      answers: inboxOf(message({ read: true }), message({ number: 3 }), message({ number: 4 })),
+    });
+
+    expect(await checkMail(env, watchedAt(2))).toEqual({ lines: [NOTICE], watch: watchedAt(4) });
+  });
+
+  it('says nothing of unread mail at or below the mark, which was already announced', async () => {
+    const { env } = mailEnv({
+      tree: installed(),
+      answers: inboxOf(message(), message({ number: 2 })),
+    });
+
+    expect(await checkMail(env, watchedAt(2))).toEqual({ lines: [], watch: watchedAt(2) });
+  });
+
+  it('keeps the mark where it was when deletes leave the inbox lower', async () => {
+    const { env } = mailEnv({ tree: installed(), answers: inboxOf(message({ number: 3 })) });
+
+    expect(await checkMail(env, watchedAt(5))).toEqual({ lines: [], watch: watchedAt(5) });
+  });
+
+  it('keeps one mark per address, so an address not watched yet starts afresh', async () => {
+    const { env } = mailEnv({ tree: installed(), answers: inboxOf(message()) });
+    const elsewhere: MailWatch = {
+      marks: new Map([['trin@emailit.io', 9]]),
+      stale: new Set(),
+    };
+
+    expect(await checkMail(env, elsewhere)).toEqual({
+      lines: [NOTICE],
+      watch: {
+        marks: new Map([
+          ['trin@emailit.io', 9],
+          ['neo@emailit.io', 1],
+        ]),
+        stale: new Set(),
+      },
+    });
+  });
+
+  it('asks with the login the current user saved', async () => {
+    const { env, asked } = mailEnv({ tree: installed() });
+
+    await checkMail(env, NOTHING_WATCHED);
+
+    expect(asked).toEqual([{ handle: 'neo', password: 's3cret' }]);
+  });
+
+  it('says once that a saved login failed, and remembers the file that failed', async () => {
+    const { env } = mailEnv({
+      tree: installed(),
+      answers: { ok: false, error: 'login_failed' },
+    });
+
+    expect(await checkMail(env, watchedAt(2))).toEqual({
+      lines: [{ kind: 'error', content: 'mail: login failed for neo@emailit.io' }],
+      watch: { marks: new Map([['neo@emailit.io', 2]]), stale: new Set([NEO_MAILRC]) },
+    });
+  });
+
+  it('asks nothing with a file that failed, so it never spends another guess', async () => {
+    const { env, asked } = mailEnv({ tree: installed() });
+    const failed: MailWatch = { marks: new Map(), stale: new Set([NEO_MAILRC]) };
+
+    expect(await checkMail(env, failed)).toEqual({ lines: [], watch: failed });
+    expect(asked).toEqual([]);
+  });
+
+  it('asks again once the file that failed has changed', async () => {
+    const mended = mailrc('set from=neo@emailit.io', 'set password=n3wer');
+    const { env, asked } = mailEnv({ tree: installed(mended), answers: inboxOf(message()) });
+    const failed: MailWatch = { marks: new Map(), stale: new Set([NEO_MAILRC]) };
+
+    const checked = await checkMail(env, failed);
+
+    expect(asked).toEqual([{ handle: 'neo', password: 'n3wer' }]);
+    expect(checked.lines).toEqual([NOTICE]);
+  });
+
+  it.each([
+    ['mailutils is not installed', boxWith({ aliceRc: NEO_MAILRC })],
+    ['mail may not be run by the user', boxWith({ aliceRc: NEO_MAILRC, mailRunBy: ['root'] })],
+    ['there is no ~/.mailrc', boxWith({ mailRunBy: EVERYONE })],
+    ['~/.mailrc holds no login', installed(mailrc('set from=neo@emailit.io'))],
+    [
+      '~/.mailrc names another domain',
+      installed(mailrc('set from=neo@gmail.com', 'set password=s3cret')),
+    ],
+  ])('asks nothing and says nothing when %s', async (_label, tree) => {
+    const { env, asked } = mailEnv({ tree });
+
+    expect(await checkMail(env, watchedAt(2))).toEqual({ lines: [], watch: watchedAt(2) });
+    expect(asked).toEqual([]);
+  });
+
+  it('asks nothing for a ~/.mailrc the user cannot read', async () => {
+    const { env, asked } = mailEnv({
+      userType: 'guest',
+      tree: boxWith({ aliceRc: NEO_MAILRC, mailRunBy: EVERYONE }),
+    });
+
+    expect((await checkMail(env, NOTHING_WATCHED)).lines).toEqual([]);
+    expect(asked).toEqual([]);
+  });
+
+  it('asks nothing from a box with no network', async () => {
+    const { env, asked } = mailEnv({
+      tree: installed(),
+      connectivity: buildColdStartConnectivity(PLAYER_KEY),
+    });
+
+    expect(await checkMail(env, watchedAt(2))).toEqual({ lines: [], watch: watchedAt(2) });
+    expect(asked).toEqual([]);
+  });
+
+  it.each(['throttled', 'host_unreachable', 'network_error'] as const)(
+    'says nothing, and forgets nothing, when the inbox comes back %s',
+    async (error) => {
+      const { env } = mailEnv({ tree: installed(), answers: { ok: false, error } });
+
+      expect(await checkMail(env, watchedAt(2))).toEqual({ lines: [], watch: watchedAt(2) });
+    },
+  );
 });
 
 describe('mail from a script', () => {
