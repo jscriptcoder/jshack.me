@@ -858,6 +858,19 @@ describe("handleResolveCrossPlayerFs on emailit.io, whose mail lives in the serv
     expect(findMailSpool).toHaveBeenCalledTimes(1);
   });
 
+  it('lays an empty spool for a root session when the store has no accounts', async () => {
+    const id = generateIdentity();
+    const { deps } = onEmailit({ spool: async () => ({ data: null, error: null }) });
+
+    const result = await handleResolveCrossPlayerFs(envelope(id, EMAILIT_MACHINE), deps);
+    const tree = treeOf(result);
+    const spool = get(tree, 'var', 'mail');
+
+    expect(result.status).toBe(200);
+    expect(contentOf(tree, 'etc', 'emailit', 'passwd')).toBe('');
+    expect(spool?.kind === 'directory' ? spool.entries.size : null).toBe(0);
+  });
+
   it.each(['user', 'guest'] as const)(
     'reads no table for a %s session, and sends none of it',
     async (userType) => {
