@@ -12,6 +12,9 @@
 //     leave exactly one owner. A refused sign-up costs nothing toward the cap.
 //   - EVERY OTHER SERVER REFUSES A FORM. findit.io answers a POST with 405, and both boxes
 //     log the request as the POST it was, never with the form.
+//   - GOING BACK NEVER SIGNS UP. A fetch of `/signup` with no body, which is how a browser
+//     goes back to a page it reached by signing up, serves the form, logs a GET, and
+//     opens no account.
 //   - A DARK BOX SIGNS NOBODY UP. With emailit.io bricked, a sign-up is refused like any
 //     fetch of a dark box, and nothing is stored.
 //
@@ -287,6 +290,23 @@ const main = async () => {
     'emailit.io refuses a form anywhere but /signup',
     atEmailitFront.status === 405,
     `status ${atEmailitFront.status}`,
+  );
+  const visitor = newPlayer();
+  const backToSignup = await post(
+    signRequest(visitor, 'resolveHttpFetch', { target: EMAILIT_IP, port: 80, path: '/signup' }),
+  );
+  check(
+    'a fetch of /signup with no form serves the form and signs nobody up',
+    backToSignup.status === 200 &&
+      contentOf(backToSignup.body).includes('<form action="/signup" method="post">') &&
+      (await accountsOf(visitor)).length === 0,
+    `status ${backToSignup.status}`,
+  );
+  const emailitLogAfterGet = await logOf(EMAILIT_MACHINE, EMAILIT_NETWORK);
+  check(
+    "emailit.io's access log records that fetch as a GET",
+    emailitLogAfterGet.includes('"GET /signup HTTP/1.1" 200'),
+    emailitLogAfterGet.trimEnd().split('\n').slice(-1)[0] ?? '(empty)',
   );
   const finditLog = await logOf(FINDIT_MACHINE, FINDIT_NETWORK);
   check(

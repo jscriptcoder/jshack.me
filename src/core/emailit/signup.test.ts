@@ -214,3 +214,36 @@ describe('a sign-up the store refuses', () => {
     expect(page).toBeNull();
   });
 });
+
+describe('the form a refused sign-up comes back with', () => {
+  /** The sign-up form on the page a sign-up answered with. */
+  const formOn = (page: string | null) => {
+    const document = new DOMParser().parseFromString(page ?? '', 'text/html');
+    return {
+      handle: document.querySelector('input[name="handle"]'),
+      password: document.querySelector('input[name="password"]'),
+      document,
+    };
+  };
+
+  it.each([
+    ['refused before the store is asked', 'handle=Neo&password=abc', answered('created')],
+    ['refused by the store as taken', 'handle=Neo&password=s3cret', answered('taken')],
+    ['refused by the store as over the day', 'handle=Neo&password=s3cret', answered('capped')],
+  ])('keeps the handle as it was typed and clears the password, %s', async (_case, form, reply) => {
+    const { page } = await signUpWith(form, reply);
+    const { handle, password } = formOn(page);
+
+    expect(handle?.getAttribute('value')).toBe('Neo');
+    expect(password?.getAttribute('value') ?? '').toBe('');
+    expect(page).not.toContain('s3cret');
+  });
+
+  it('writes a handle made of markup back as the characters that were typed', async () => {
+    const { page } = await signUpWith('handle=%22%3E%3Cb%3Ex&password=s3cret');
+    const { handle, document } = formOn(page);
+
+    expect(handle?.getAttribute('value')).toBe('"><b>x');
+    expect(document.querySelector('b')).toBeNull();
+  });
+});

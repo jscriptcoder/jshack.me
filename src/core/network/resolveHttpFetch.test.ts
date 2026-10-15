@@ -42,6 +42,7 @@ import {
 } from '../generation/fixedSites.js';
 import type { SignUp } from '../emailit/signup.js';
 import { FINDIT_FRONT_PAGE } from '../findit/page.js';
+import { EMAILIT_FRONT_PAGE } from '../emailit/pages.js';
 import type { MachinePatchRow } from '../findit/webIndex.js';
 import { logRead } from '../../test/factories/logRows.js';
 import { derivedPublicIpByEssid, type FindPublicIpByEssid } from '../logging/crossPlayerSourceIp.js';
@@ -1203,12 +1204,14 @@ describe('emailit.io signs a reader up', () => {
     expect(signUp).not.toHaveBeenCalled();
   });
 
-  it('says a plain fetch of /signup finds nothing there', async () => {
+  // A browser going back to a page it reached by signing up asks for /signup without
+  // the form: that gets the form to fill in afresh, and signs nobody up.
+  it('serves the sign-up form to a plain fetch of /signup, signing nobody up', async () => {
     const { deps, signUp } = makeDeps(onEmailit);
 
     expect(await handleResolveHttpFetch(request({}), deps)).toEqual({
-      status: 404,
-      body: { error: 'not_found' },
+      status: 200,
+      body: { ok: true, content: EMAILIT_FRONT_PAGE, server: 'nginx' },
     });
     expect(signUp).not.toHaveBeenCalled();
   });

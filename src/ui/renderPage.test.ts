@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { renderPage } from './renderPage.js';
 import { pickWebPage } from '../core/generation/pools/webPages.js';
 import { MAPIT_PAGES } from '../core/mapit/pages.js';
+import { EMAILIT_FRONT_PAGE } from '../core/emailit/pages.js';
 
 /** The page a test renders from, when where it came from does not matter. Links
  *  resolve against it, so it has to be a real address. */
@@ -666,6 +667,21 @@ describe('what a form offers, at its edges', () => {
     expect(asText('<body><button type="button">Search <b>now</b></button></body>')).toBe(
       '[ Search now ]',
     );
+  });
+});
+
+describe("emailit.io's front page, as a reader of it sees it", () => {
+  it('offers a handle to type, a password to type unseen and a button, all sent to /signup', () => {
+    const form = { id: 0, action: 'http://emailit.io/signup', method: 'post' };
+    const selectables = renderPage({ html: EMAILIT_FRONT_PAGE, url: 'http://emailit.io/' }).flatMap(
+      (line) => line.filter((segment) => segment.kind !== 'text'),
+    );
+
+    expect(selectables).toEqual([
+      expect.objectContaining({ kind: 'field', name: 'handle', masked: false, form }),
+      expect.objectContaining({ kind: 'field', name: 'password', masked: true, form }),
+      { kind: 'submit', text: '[ Sign up ]', form },
+    ]);
   });
 });
 
