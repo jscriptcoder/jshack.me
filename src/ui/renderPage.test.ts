@@ -497,6 +497,7 @@ describe('a form a reader can fill in', () => {
         name: 'q',
         value: 'coffee',
         placeholder: 'Search the public web',
+        masked: false,
         form,
       },
       { kind: 'submit', text: '[ Search ]', form },
@@ -558,7 +559,15 @@ describe('a form a reader can fill in', () => {
 
   it('knows a field outside any form has nowhere to be sent', () => {
     expect(selectablesOn('<body><input name="q"></body>')).toEqual([
-      { kind: 'field', text: '[]', name: 'q', value: '', placeholder: '', form: null },
+      {
+        kind: 'field',
+        text: '[]',
+        name: 'q',
+        value: '',
+        placeholder: '',
+        masked: false,
+        form: null,
+      },
     ]);
   });
 
@@ -579,10 +588,30 @@ describe('a form a reader can fill in', () => {
     expect(asText(html)).toBe('[ Toggle ]');
   });
 
-  it.each(['password', 'hidden'])('offers no %s field to type into', (type) => {
+  it('offers no hidden field to type into', () => {
     expect(
-      selectablesOn(`<body><form action="/"><input type="${type}" name="pw" value="x"></form></body>`),
+      selectablesOn(
+        '<body><form action="/"><input type="hidden" name="pw" value="x"></form></body>',
+      ),
     ).toEqual([]);
+  });
+
+  it('offers a password field to type into, masked and drawn empty whatever it holds', () => {
+    expect(
+      selectablesOn(
+        '<body><form action="/" method="post"><input type="password" name="pw" value="hunter2"></form></body>',
+      ),
+    ).toEqual([
+      {
+        kind: 'field',
+        text: '[]',
+        name: 'pw',
+        value: 'hunter2',
+        placeholder: '',
+        masked: true,
+        form: { id: 0, action: 'http://192.168.1.5/', method: 'post' },
+      },
+    ]);
   });
 
   it('numbers the links after a form from one, since a field is not a link', () => {
@@ -604,6 +633,14 @@ describe('what a form offers, at its edges', () => {
   // no action at all goes: back to its own page.
   it('sends a form whose action is only spaces back to the page it sits on', () => {
     const [field] = selectablesOn('<body><form action="   "><input name="q"></form></body>');
+
+    expect(field).toMatchObject({ form: { action: PAGE_URL } });
+  });
+
+  // A fragment names a place on the page, not another address, so a browser sends the
+  // form to the page itself.
+  it.each(['#', '#login'])('sends a form whose action is "%s" to the page it sits on', (action) => {
+    const [field] = selectablesOn(`<body><form action="${action}"><input name="q"></form></body>`);
 
     expect(field).toMatchObject({ form: { action: PAGE_URL } });
   });

@@ -269,11 +269,15 @@ export const Lynx = (props: LynxProps) => {
         ]
     ).join('  ');
 
-  /** How a field reads: with a cursor at the end while it is being typed into. */
-  const fieldText = (field: Field): string =>
-    field === fieldBeingEdited()
+  /** How a field reads: with a cursor at the end while it is being typed into. A
+   *  password reads as the cursor alone, or as nothing, however much it holds. */
+  const fieldText = (field: Field): string => {
+    const editing = field === fieldBeingEdited();
+    if (field.masked) return editing ? '[_]' : '[]';
+    return editing
       ? `[${valueOf(field)}_]`
       : fieldBox({ value: valueOf(field), placeholder: field.placeholder });
+  };
 
   const selectedClass = 'bg-[var(--theme-text-bright)] text-[var(--theme-bg)]';
 

@@ -837,3 +837,33 @@ describe('a form, at its edges', () => {
     expect(screen.getByRole('button').className).not.toBe(unselected);
   });
 });
+
+describe('typing a password', () => {
+  /** A sign-in form: a handle to type in the open, and a password the page filled in. */
+  const SIGN_IN =
+    '<body><form action="/signup" method="post"><input name="handle">' +
+    '<input type="password" name="password" value="hunter2"></form></body>';
+
+  const passwordField = () => screen.getAllByRole('textbox')[1];
+
+  it('draws the password field empty while the reader is elsewhere, whatever it holds', () => {
+    renderLynx({ content: SIGN_IN });
+
+    expect(passwordField()?.textContent).toBe('[]');
+    expect(browser().textContent).not.toContain('hunter2');
+  });
+
+  it('shows only a cursor while it is typed into, never what or how much was typed', () => {
+    renderLynx({ content: SIGN_IN });
+
+    fireEvent.keyDown(browser(), { key: 'ArrowDown' });
+    for (const key of 's3cret') fireEvent.keyDown(browser(), { key });
+
+    expect(passwordField()?.textContent).toBe('[_]');
+
+    fireEvent.keyDown(browser(), { key: 'Escape' });
+
+    expect(passwordField()?.textContent).toBe('[]');
+    expect(browser().textContent).not.toContain('s3cret');
+  });
+});
