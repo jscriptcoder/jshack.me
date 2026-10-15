@@ -344,7 +344,8 @@ one `overlayMode` signal, so two overlays at once cannot be represented.
   the web server). A GET form follows its action with the fields in the query; a POST form sends
   them as the body, the way `curl -d` does. The trail keeps only addresses, so Back GETs a page
   reached by POST and never sends a form again, and only one request is out at a time. A password
-  field is drawn `[]` (`[_]` while typed into) whatever it holds.
+  field is drawn as a star per character it holds (`[****]`, `[****_]` while typed into), never
+  the characters.
 - **Author**: a static card with the author's links. It loads the only external asset in the game
   (a GitHub avatar).
 

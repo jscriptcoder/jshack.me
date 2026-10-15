@@ -843,32 +843,36 @@ describe('a form, at its edges', () => {
 });
 
 describe('typing a password', () => {
-  /** A sign-in form: a handle to type in the open, and a password the page filled in. */
-  const SIGN_IN =
+  /** A sign-in form: a handle to type in the open, and a password the page may fill in. */
+  const signIn = (password: string = '') =>
     '<body><form action="/signup" method="post"><input name="handle">' +
-    '<input type="password" name="password" value="hunter2"></form></body>';
+    `<input type="password" name="password" value="${password}"></form></body>`;
 
   const passwordField = () => screen.getAllByRole('textbox')[1];
 
-  it('draws the password field empty while the reader is elsewhere, whatever it holds', () => {
-    renderLynx({ content: SIGN_IN });
+  it('draws a star for each character the password field holds, never the characters', () => {
+    renderLynx({ content: signIn('hunter2') });
 
-    expect(passwordField()?.textContent).toBe('[]');
+    expect(passwordField()?.textContent).toBe('[*******]');
     expect(browser().textContent).not.toContain('hunter2');
   });
 
-  it('shows only a cursor while it is typed into, never what or how much was typed', () => {
-    renderLynx({ content: SIGN_IN });
+  it('shows a star for each character as it is typed, and takes one away on Backspace', () => {
+    renderLynx({ content: signIn() });
 
     fireEvent.keyDown(browser(), { key: 'ArrowDown' });
     for (const key of 's3cret') fireEvent.keyDown(browser(), { key });
 
-    expect(passwordField()?.textContent).toBe('[_]');
+    expect(passwordField()?.textContent).toBe('[******_]');
+
+    fireEvent.keyDown(browser(), { key: 'Backspace' });
+
+    expect(passwordField()?.textContent).toBe('[*****_]');
 
     fireEvent.keyDown(browser(), { key: 'Escape' });
 
-    expect(passwordField()?.textContent).toBe('[]');
-    expect(browser().textContent).not.toContain('s3cret');
+    expect(passwordField()?.textContent).toBe('[*****]');
+    expect(browser().textContent).not.toContain('s3cr');
   });
 });
 
@@ -930,7 +934,7 @@ describe('sending a form that posts', () => {
     expect(onFollow).toHaveBeenCalledWith(SIGNUP, 'handle=neo&password=a%26b+c%3Dd%2B%25');
   });
 
-  it('sends a password the page filled in, though it never showed it', async () => {
+  it('sends a password the page filled in, though it only ever showed stars', async () => {
     const pages = {
       [EMAILIT]:
         '<body><form action="/signup" method="post"><input name="handle" value="neo">' +

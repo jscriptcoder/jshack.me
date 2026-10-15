@@ -650,7 +650,7 @@ describe('a form a reader can fill in', () => {
     ).toEqual([]);
   });
 
-  it('offers a password field to type into, masked and drawn empty whatever it holds', () => {
+  it('offers a password field to type into, masked as one star for each character it holds', () => {
     expect(
       selectablesOn(
         '<body><form action="/" method="post"><input type="password" name="pw" value="hunter2"></form></body>',
@@ -658,7 +658,7 @@ describe('a form a reader can fill in', () => {
     ).toEqual([
       {
         kind: 'field',
-        text: '[]',
+        text: '[*******]',
         name: 'pw',
         value: 'hunter2',
         placeholder: '',
@@ -706,8 +706,14 @@ describe('what a form offers, at its edges', () => {
     expect(asText(html)).toBe('[ Toggle ]');
   });
 
-  it('draws a password field as an empty box', () => {
-    expect(asText('<body><input type="password" name="pw" value="hunter2"></body>')).toBe('[]');
+  it('draws a password field as a star for each character, never the characters', () => {
+    expect(asText('<body><input type="password" name="pw" value="hunter2"></body>')).toBe(
+      '[*******]',
+    );
+  });
+
+  it('draws an empty password field as an empty box', () => {
+    expect(asText('<body><input type="password" name="pw"></body>')).toBe('[]');
   });
 
   it('offers a button with no type as something that sends its form', () => {
