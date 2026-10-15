@@ -182,6 +182,7 @@ import {
   readMailMessage,
   sendMail,
   deleteMailMessage,
+  changeMailPassword,
   resolveCrossPlayerFs,
   resolveOccupants,
   resolveOccupant,
@@ -1097,6 +1098,13 @@ const deleteMailMessageFn: MailApi['delete'] = (login, number) =>
   networkClientDeps === undefined
     ? Promise.resolve({ ok: false, error: 'network_error' })
     : deleteMailMessage(networkClientDeps, login, number);
+
+/** Change an emailit.io password (backs `env.mail.passwd`). Unwired, the failure is ours,
+ *  as for an inbox. */
+const changeMailPasswordFn: MailApi['passwd'] = (login, newPassword) =>
+  networkClientDeps === undefined
+    ? Promise.resolve({ ok: false, error: 'network_error' })
+    : changeMailPassword(networkClientDeps, login, newPassword);
 
 /** Fetch a page from a fellow occupant's box on the network the shell stands on (backs
  *  `env.remote.fetchOccupant`). Before `startGame` wires the network client there is
@@ -2089,6 +2097,7 @@ const executeLine = async (line: string): Promise<void> => {
     onMailRead: readMailMessageFn,
     onMailSend: sendMailFn,
     onMailDelete: deleteMailMessageFn,
+    onMailPasswd: changeMailPasswordFn,
     onMysqlConnect: mysqlConnect,
     onMysqlStatement: mysqlStatement,
     onMysqlEnter: enterMysqlSession,

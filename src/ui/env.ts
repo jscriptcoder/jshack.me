@@ -263,6 +263,8 @@ export type BuildCommandEnvArgs = {
   readonly onMailSend?: MailApi['send'];
   /** Backs `env.mail.delete` — one message deleted, signed. */
   readonly onMailDelete?: MailApi['delete'];
+  /** Backs `env.mail.passwd` — an account's password changed, signed. */
+  readonly onMailPasswd?: MailApi['passwd'];
   /** The scan-logging seam — backs `env.scan.record`. The UI wires it to the
    *  `recordScan` adapter (signed `nmapScan` round-trip). Optional here for terse
    *  test setups; the UI always passes the real one. */
@@ -559,6 +561,8 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
     send: args.onMailSend ?? notWired('mail.send'),
     // Loud: a delete that answered on its own would leave a message the player thinks gone.
     delete: args.onMailDelete ?? notWired('mail.delete'),
+    // Loud: a change that answered on its own would save a password the account never took.
+    passwd: args.onMailPasswd ?? notWired('mail.passwd'),
   },
   exploit: {
     // Loud when unwired: an exploit that answered on its own would either open a

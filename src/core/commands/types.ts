@@ -1685,6 +1685,8 @@ export type MailApi = {
   readonly send: (login: MailLogin, mail: OutgoingMail) => Promise<SendResult>;
   /** Delete one message by its number, for everyone who holds the password. */
   readonly delete: (login: MailLogin, number: number) => Promise<DeleteResult>;
+  /** Give the account a new password, proving the old one, which the login carries. */
+  readonly passwd: (login: MailLogin, newPassword: string) => Promise<PasswdResult>;
 };
 
 /** A message about to be written: who it is to, in full, its subject, and what the

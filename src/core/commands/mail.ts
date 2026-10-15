@@ -9,7 +9,8 @@
  *
  * The server keeps no mail session, so every run sends the login again and the server
  * checks it again: a password changed since the file was saved fails here, every time,
- * until the file is mended.
+ * until the file is mended. `passwd` changes it and mends the file it ran from, so every
+ * other copy of the old password, wherever it was saved, fails from then on.
  *
  * emailit.io is out on the internet, so asking it takes a network to ask from, the one
  * the shell's box stands on, exactly as `curl` there would.
@@ -31,9 +32,11 @@ import { vantageOf } from '../network/vantage.js';
 import { hasTty } from '../sessions/hasTty.js';
 import { homeDirectory } from '../sessions/homeDirectory.js';
 import { EMAILIT_DOMAIN } from '../generation/fixedSites.js';
+import { MIN_PASSWORD_LENGTH, validatePassword } from '../gameConfig/gameConfig.js';
 import { asAbsPath, type AbsPath } from '../types.js';
 
-const SYNOPSIS = 'mail [read <n>] | send <to> <subject> | reply <n> | delete <n> | login | logout';
+const SYNOPSIS =
+  'mail [read <n>] | send <to> <subject> | reply <n> | delete <n> | passwd | login | logout';
 const USAGE = `mail: usage: ${SYNOPSIS}`;
 
 /** No network to ask from, emailit.io not answering, or our own side failing to ask:
@@ -80,6 +83,20 @@ const mailrcPath = (env: CommandEnv): AbsPath => asAbsPath(`${homeDirectory(env.
 /** A login as `~/.mailrc` keeps it. */
 const formatMailrc = (address: string, password: string): string =>
   `set from=${address}\nset password=${password}\n`;
+
+/** Save a login to `~/.mailrc`, readable and writable by the user who saved it and by
+ *  root, as a mail client leaves its rc file: whoever else can read it holds the mail. */
+const saveLogin = (
+  env: CommandEnv,
+  path: AbsPath,
+  login: { readonly address: string; readonly password: string; readonly isNew: boolean },
+) => {
+  const reach = [...new Set(['root', env.session.userType] as const)];
+  return env.patches.write(path, formatMailrc(login.address, login.password), {
+    isNew: login.isNew,
+    permissions: { read: reach, write: reach, execute: [] },
+  });
+};
 
 /** The handle of an address at emailit.io, or null for an address anywhere else. Callers
  *  fold the address to lowercase first: one address whatever case it was written in, as
@@ -239,17 +256,51 @@ const login = async (env: CommandEnv): Promise<CommandResult> => {
   const inbox = await env.mail.inbox(saved.login);
   if (!inbox.ok) return unanswered(saved, inbox.error);
 
-  // Readable and writable by the user who saved it and by root, as a mail client leaves
-  // its rc file: whoever else can read it holds the mail.
-  const reach = [...new Set(['root', env.session.userType] as const)];
-  const written = await env.patches.write(path, formatMailrc(address, password), {
+  const written = await saveLogin(env, path, {
+    address,
+    password,
     isNew: fs.stat(path) === null,
-    permissions: { read: reach, write: reach, execute: [] },
   });
   if (!written.ok) {
     return refusal(`mail: can't create '${path}': ${PATCH_ERROR_REASON[written.error]}`);
   }
   return said([newMail(inbox.messages)]);
+};
+
+/**
+ * Change the password of the login `~/.mailrc` holds, and save the new one there.
+ *
+ * The old password is the one typed, not the one in the file, so a terminal left open on
+ * a saved login is not enough to take the account. Everything that would stop the change
+ * from being saved, or from being asked at all, is found before the first prompt, so a
+ * password is never changed out from under the file that holds it; a new password typed
+ * twice differently, or too short, is refused before emailit.io is asked.
+ */
+const passwd = async (env: CommandEnv): Promise<CommandResult> => {
+  const saved = savedLogin(env);
+  if ('refused' in saved) return refusal(saved.refused);
+  const path = mailrcPath(env);
+  const fs = await env.fs.reload();
+  if (!fs.canWrite(path).allowed) return refusal(`mail: can't write '${path}': Permission denied`);
+  if (vantageOf(env.session, env.network) === null) return refusal(UNREACHABLE);
+
+  const old = await env.prompt({ message: 'Old password: ', masked: true });
+  const password = await env.prompt({ message: 'New password: ', masked: true });
+  const retyped = await env.prompt({ message: 'Retype new password: ', masked: true });
+  if (retyped !== password) return refusal('mail: passwords do not match');
+  if (validatePassword(password) !== null) {
+    return refusal(`mail: password must be at least ${MIN_PASSWORD_LENGTH} characters`);
+  }
+
+  const changed = await env.mail.passwd({ handle: saved.login.handle, password: old }, password);
+  if (!changed.ok) return unanswered(saved, changed.error);
+  const written = await saveLogin(env, path, { address: saved.address, password, isNew: false });
+  if (!written.ok) {
+    return refusal(
+      `mail: password changed, but can't write '${path}': ${PATCH_ERROR_REASON[written.error]}`,
+    );
+  }
+  return said([]);
 };
 
 /** Log out by deleting `~/.mailrc`. emailit.io is not asked: it keeps no session to end. */
@@ -437,6 +488,7 @@ const execute: Command['execute'] = async (env, args) => {
   const [subcommand, ...rest] = args;
   if (args.length === 1 && subcommand === 'login') return login(env);
   if (args.length === 1 && subcommand === 'logout') return logout(env);
+  if (args.length === 1 && subcommand === 'passwd') return passwd(env);
   if (subcommand === 'send' || subcommand === 'reply') return write(env, subcommand, rest);
   const numbered = (subcommand === 'read' || subcommand === 'delete') && rest.length === 1;
   if (args.length > 0 && !numbered) return refusal(USAGE);
@@ -463,13 +515,16 @@ export const mail: Command = {
   category: 'network',
   tier: 'guest',
   availability: { kind: 'installed-package', packageName: 'mailutils' },
-  // The password prompt needs somebody to ask. Reading and logging out ask nothing; send
+  // The password prompts need somebody to ask. Reading and logging out ask nothing; send
   // and reply need nano only when typed, which `write` asks about itself.
-  withoutTty: (args) => (args[0] === 'login' ? 'mail: login needs a terminal' : undefined),
-  // A script reads mail with a login already saved, and never makes or ends one: a
-  // script that could log in could guess passwords as fast as it could loop.
+  withoutTty: (args) =>
+    args[0] === 'login' || args[0] === 'passwd' ? `mail: ${args[0]} needs a terminal` : undefined,
+  // A script reads mail with a login already saved, and never makes, changes or ends one:
+  // a script that could log in could guess passwords as fast as it could loop.
   withoutScript: (args) =>
-    args[0] === 'login' || args[0] === 'logout' ? `mail: ${args[0]} is interactive` : undefined,
+    args[0] === 'login' || args[0] === 'passwd' || args[0] === 'logout'
+      ? `mail: ${args[0]} is interactive`
+      : undefined,
   manual: {
     synopsis: SYNOPSIS,
     description:

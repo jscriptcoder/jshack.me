@@ -19,7 +19,7 @@ export type GameConfig = {
 };
 
 const MAX_NAME_LENGTH = 24;
-const MIN_PASSWORD_LENGTH = 4;
+export const MIN_PASSWORD_LENGTH = 4;
 
 // A hostname is a single char, or starts+ends with [a-z0-9] with hyphens allowed
 // between. Mirrors legacy HOSTNAME_REGEX.
