@@ -308,7 +308,7 @@ registered commands; `registry.ts` is the source of truth.
 | `nslookup`, `dig`                                                       | Resolve names; `dig @server axfr` attempts a zone transfer                         | S      |
 | `whois`                                                                 | Look up the network, organisation, town and region behind an address or a domain   | S      |
 | `curl`                                                                  | Fetch a URL (`-i` for headers, `-d` to POST a form)                                | A      |
-| `lynx`                                                                  | Browse a page full-screen                                                          | M      |
+| `lynx`                                                                  | Browse a page full-screen, and fill in and send its forms                          | M      |
 | `gobuster`                                                              | Probe a web server for paths from a list                                           | A      |
 | `nc`                                                                    | Connect to a port and read its banner; `-l` plants a listener (root)               | A/S    |
 | `ssh`                                                                   | Log into a host (`user@host`, `-p port`); pushes a hop                             | S      |

@@ -22,7 +22,7 @@ import { FIRST_BOOT_MARKER } from '../core/boot/firstBoot.js';
 import { applyPatches, type Patch } from '../core/filesystem/applyPatches.js';
 import { defaultFilePermissions } from '../core/filesystem/defaultPermissions.js';
 import { SERVICE_CATALOG } from '../core/services/serviceCatalog.js';
-import { HTTP_DEFAULT_PORT } from '../core/network/http.js';
+import { HTTP_DEFAULT_PORT, METHOD_NOT_ALLOWED_PAGE } from '../core/network/http.js';
 import { binaryStub } from '../core/generation/binaries.js';
 import { md5 } from '../core/generation/md5.js';
 import { serializeTree } from '../core/filesystem/treeCodec.js';
@@ -2770,7 +2770,7 @@ describe('full-screen apps a command opens', () => {
           };
           return answered.ok
             ? { ok: true, status: 200, json: async () => ({ ok: true, content: answered.content, server: answered.server }) }
-            : { ok: false, status: 502, json: async () => ({ error: answered.error }) };
+            : { ok: false, status: 502, json: async () => answered };
         }
         if ((init?.body ?? '').includes('resolveOccupantFetch')) {
           const answered = options?.neighbour?.(init?.body ?? '') ?? {
@@ -2779,7 +2779,7 @@ describe('full-screen apps a command opens', () => {
           };
           return answered.ok
             ? { ok: true, status: 200, json: async () => ({ ok: true, content: answered.content, server: answered.server }) }
-            : { ok: false, status: 404, json: async () => ({ error: answered.error }) };
+            : { ok: false, status: 404, json: async () => answered };
         }
         if ((init?.body ?? '').includes('resolveOccupantSweep')) {
           const answered = options?.neighbourSwept?.(init?.body ?? '') ?? {
@@ -3092,6 +3092,87 @@ describe('full-screen apps a command opens', () => {
       alert: expect.stringContaining(`lynx: (7) Failed to connect to ${THEIR_PUBLIC_IP} port 80`),
     });
     expect(state.overlayMode()).toMatchObject({ url: `http://${THEIR_PUBLIC_IP}/` });
+  });
+
+  /** A form as lynx encodes it, with characters in it that a form would otherwise split
+   *  or bend, so seeing it whole in a request proves it travelled as written. */
+  const SIGN_UP_FORM = 'handle=neo&password=a%26b+c';
+
+  it('sends a form across the network as the body of the request, and shows the answer', async () => {
+    const asked: string[] = [];
+    const state = await startBrowsingGame({
+      across: (request) => {
+        asked.push(request);
+        return { ok: true, content: THEIR_PAGE, server: 'nginx' };
+      },
+    });
+    state.setInput(`lynx http://${THEIR_PUBLIC_IP}/`);
+    await state.runInput();
+
+    const outcome = await state.followLink(`http://${THEIR_PUBLIC_IP}/signup`, SIGN_UP_FORM);
+
+    expect(outcome).toEqual({ ok: true });
+    expect(asked[0]).not.toContain(SIGN_UP_FORM);
+    expect(asked[1]).toContain(SIGN_UP_FORM);
+    expect(state.overlayMode()).toMatchObject({
+      url: `http://${THEIR_PUBLIC_IP}/signup`,
+      content: THEIR_PAGE,
+    });
+  });
+
+  it('sends a form to a fellow occupant of the WiFi as the body of the request', async () => {
+    const neighbour = unleasedIp();
+    const asked: string[] = [];
+    const state = await startBrowsingGame({
+      published: OWN_SITE,
+      neighbour: (request) => {
+        asked.push(request);
+        return { ok: true, content: NEIGHBOUR_PAGE, server: 'nginx' };
+      },
+    });
+    state.setInput('lynx http://localhost/');
+    await state.runInput();
+
+    await state.followLink(`http://${neighbour}/login`, SIGN_UP_FORM);
+
+    expect(asked).toHaveLength(1);
+    expect(asked[0]).toContain(SIGN_UP_FORM);
+  });
+
+  // A server that takes no form still answered, and logged it: the reader moves to its
+  // refusal as they would to a 404, rather than being told it was a missing page.
+  it('moves the reader to the 405 page of a server that takes no form', async () => {
+    let answered = 0;
+    const state = await startBrowsingGame({
+      across: (): PublicFetchResult => {
+        answered += 1;
+        return answered === 1
+          ? { ok: true, content: THEIR_PAGE, server: 'nginx' }
+          : { ok: false, error: 'method_not_allowed', server: 'nginx' };
+      },
+    });
+    state.setInput(`lynx http://${THEIR_PUBLIC_IP}/`);
+    await state.runInput();
+
+    const outcome = await state.followLink(`http://${THEIR_PUBLIC_IP}/login`, SIGN_UP_FORM);
+
+    expect(outcome).toEqual({ ok: true });
+    expect(state.overlayMode()).toMatchObject({
+      url: `http://${THEIR_PUBLIC_IP}/login`,
+      content: METHOD_NOT_ALLOWED_PAGE,
+    });
+  });
+
+  it("shows the 405 page when a form is sent to the player's own box", async () => {
+    const state = await openBrowserOnOwnSite();
+
+    const outcome = await state.followLink('http://localhost/notes.html', SIGN_UP_FORM);
+
+    expect(outcome).toEqual({ ok: true });
+    expect(state.overlayMode()).toMatchObject({
+      url: 'http://localhost/notes.html',
+      content: METHOD_NOT_ALLOWED_PAGE,
+    });
   });
 });
 

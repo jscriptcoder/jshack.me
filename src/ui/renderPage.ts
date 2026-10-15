@@ -33,9 +33,8 @@
 
 import { resolveHref } from '../core/network/http.js';
 
-/** Where a form sends what was typed into it. `id` tells the forms on one page
- *  apart, so a submit sends its own form's fields and nobody else's. Only a GET form
- *  is ever sent; a POST one is drawn, and nothing here can answer it. */
+/** Where a form sends what was typed into it, and how. `id` tells the forms on one
+ *  page apart, so a submit sends its own form's fields and nobody else's. */
 export type FormTarget = {
   readonly id: number;
   readonly action: string;
@@ -53,6 +52,8 @@ type Control =
       /** What the page filled it with, before the reader typed anything. */
       readonly value: string;
       readonly placeholder: string;
+      /** A password: drawn empty whatever it holds, typed into or not. */
+      readonly masked: boolean;
       readonly form: FormTarget | null;
     }
   | { readonly kind: 'submit'; readonly text: string; readonly form: FormTarget | null };
@@ -133,14 +134,16 @@ export const fieldBox = ({
 /**
  * Where the form around `control` sends it, or null when nowhere will answer.
  *
- * An action is resolved exactly as a link's href is, and a form that names none is sent
- * back to the page it sits on, as a browser sends it.
+ * An action is resolved exactly as a link's href is, and a form that names none, or
+ * only a place on its own page (`#`), is sent back to the page it sits on, as a browser
+ * sends it.
  */
 const formTargetOf = (control: Element, base: string): FormTarget | null => {
   const form = control.closest('form');
   if (form === null) return null;
   const written = form.getAttribute('action')?.trim() ?? '';
-  const action = written === '' ? base : resolveHref({ base, href: written });
+  const action =
+    written === '' || written.startsWith('#') ? base : resolveHref({ base, href: written });
   if (action === null) return null;
   return {
     id: Array.from(form.ownerDocument.forms).indexOf(form),
@@ -153,10 +156,10 @@ const formTargetOf = (control: Element, base: string): FormTarget | null => {
  * What a form field looks like to a reader: a box, holding what has been typed into it
  * or the hint the page offers when nothing has.
  *
- * A password box shows NOTHING — not the value, not its length. A page must render the
- * same over somebody's shoulder as it does alone, and a browser that drew a password
- * because it could read one would be the single place in this world where reading a
- * page gave away a credential.
+ * A password box shows NOTHING — not the value, not its length — though it can be typed
+ * into like any other. A page must render the same over somebody's shoulder as it does
+ * alone, and a browser that drew a password because it could read one would be the
+ * single place in this world where reading a page gave away a credential.
  */
 const fieldPieces = (field: Element, base: string): readonly Piece[] => {
   const kind = (field.getAttribute('type') ?? 'text').toLowerCase();
@@ -168,15 +171,16 @@ const fieldPieces = (field: Element, base: string): readonly Piece[] => {
     return [{ kind: 'submit', text: `[ ${value} ]`, form: formTargetOf(field, base) }];
   }
   if (kind === 'button') return [text(`[ ${value} ]`)];
-  if (kind === 'password') return [text('[]')];
+  const masked = kind === 'password';
   const placeholder = field.getAttribute('placeholder') ?? '';
   return [
     {
       kind: 'field',
-      text: fieldBox({ value, placeholder }),
+      text: masked ? '[]' : fieldBox({ value, placeholder }),
       name: field.getAttribute('name') ?? '',
       value,
       placeholder,
+      masked,
       form: formTargetOf(field, base),
     },
   ];

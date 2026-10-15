@@ -22,9 +22,15 @@
  *
  * Sending a form is a follow too. A GET form's answer is just the page at its action
  * with the fields in the query, so submitting builds that address and follows it —
- * the same fetch, the same log line, the same way back. What was typed lives here,
- * beside the selection, and is forgotten on arrival anywhere, exactly as the
- * selection is.
+ * the same fetch, the same log line, the same way back. A POST form follows its action
+ * with the fields as the request's body, the way `curl -d` sends one, and the page it
+ * answers with is remembered by its address alone: going back asks for that address,
+ * and never sends the form again. What was typed lives here, beside the selection, and
+ * is forgotten on arrival anywhere, exactly as the selection is.
+ *
+ * One request at a time. A key pressed again before the answer comes — a held Enter —
+ * sends nothing, so a form is never sent twice and a late answer never lands over the
+ * page the first one opened.
  *
  * The trail of visited pages lives here, beside the selection it restores, and it
  * starts empty every time the browser opens — a reader who quit and came back has
@@ -40,8 +46,8 @@
  */
 
 import { For, Show, createEffect, createMemo, createSignal, on, onMount } from 'solid-js';
-import { fieldBox, renderPage, type FormTarget, type Segment } from '../renderPage.js';
-import { formSubmissionUrl } from '../../core/network/http.js';
+import { fieldBox, renderPage, type Segment } from '../renderPage.js';
+import { encodeForm, formSubmissionUrl } from '../../core/network/http.js';
 
 /** What became of a follow: the reader moved (and new props are on their way), or
  *  they did not, and this is what to tell them. */
@@ -51,7 +57,8 @@ export type LynxProps = {
   readonly url: string;
   readonly content: string;
   readonly onExit: () => void;
-  readonly onFollow: (url: string) => Promise<FollowOutcome>;
+  /** Go to `url`, sending `body` as a form when there is one. */
+  readonly onFollow: (url: string, body?: string) => Promise<FollowOutcome>;
 };
 
 /** The keys that put the terminal back. Real lynx quits on either case, and a
@@ -76,10 +83,8 @@ type Selectable = Exclude<Segment, { readonly kind: 'text' }>;
 
 type Field = Extract<Selectable, { readonly kind: 'field' }>;
 
-/** The form pressing Enter on `selectable` sends, or null when it sends nothing. Only a
- *  GET form is ever sent, because only a GET form's answer is a page at an address. */
-const sendingForm = (selectable: Selectable): FormTarget | null =>
-  selectable.kind !== 'link' && selectable.form?.method === 'get' ? selectable.form : null;
+/** A field or a form's button: what Enter sends a form from. */
+type Control = Exclude<Selectable, { readonly kind: 'link' }>;
 
 export const Lynx = (props: LynxProps) => {
   let screen: HTMLElement | undefined;
@@ -92,6 +97,8 @@ export const Lynx = (props: LynxProps) => {
   /** Whether the reader has stepped out of the field they are on with Escape, so keys
    *  drive the browser again. Moving onto any field puts them back in. */
   const [steppedOut, setSteppedOut] = createSignal(false);
+  /** Whether a request is out and its answer not yet back. */
+  const [waiting, setWaiting] = createSignal(false);
 
   // The overlay fills the screen the moment it opens, so it takes the keyboard
   // straight away — a reader should be able to quit without clicking first.
@@ -143,14 +150,26 @@ export const Lynx = (props: LynxProps) => {
 
   const move = (step: number) => restOn(selected() + step);
 
+  /** Ask the parent for `url`, with `body` as the form when there is one, and hold every
+   *  other request until it answers. */
+  const ask = async (url: string, body?: string): Promise<FollowOutcome> => {
+    setWaiting(true);
+    try {
+      return await (body === undefined ? props.onFollow(url) : props.onFollow(url, body));
+    } finally {
+      setWaiting(false);
+    }
+  };
+
   /** Ask the parent for `url`, and step there only if it answered. */
-  const go = async (url: string) => {
+  const go = async (url: string, body?: string) => {
+    if (waiting()) return;
     // Whatever the last attempt said is about this one now.
     setAlert(null);
     // Where the reader is standing, read BEFORE the fetch: by the time it answers,
     // the page under them is the new one and this is no longer recoverable.
     const leaving = { url: props.url, selected: selected() };
-    const outcome = await props.onFollow(url);
+    const outcome = await ask(url, body);
     if (!outcome.ok) {
       setAlert(outcome.alert);
       return;
@@ -160,15 +179,17 @@ export const Lynx = (props: LynxProps) => {
 
   /** Send the form `control` belongs to: every field of that form, and no other's. A
    *  field with no name has nothing to be sent as, so a browser leaves it out. */
-  const submit = async (control: Selectable) => {
-    const form = sendingForm(control);
+  const submit = async (control: Control) => {
+    const form = control.form;
     if (form === null) return;
     const fields = selectables().flatMap((segment) =>
       segment.kind === 'field' && segment.form?.id === form.id && segment.name !== ''
         ? [{ name: segment.name, value: valueOf(segment) }]
         : [],
     );
-    await go(formSubmissionUrl({ action: form.action, fields }));
+    await (form.method === 'post'
+      ? go(form.action, encodeForm(fields))
+      : go(formSubmissionUrl({ action: form.action, fields })));
   };
 
   const activate = async () => {
@@ -179,9 +200,9 @@ export const Lynx = (props: LynxProps) => {
 
   const back = async () => {
     const previous = visited().at(-1);
-    if (previous === undefined) return;
+    if (previous === undefined || waiting()) return;
     setAlert(null);
-    const outcome = await props.onFollow(previous.url);
+    const outcome = await ask(previous.url);
     // A reader who could not go back has not gone back, so the step stays ahead of
     // them — dropping it here would strand them one page further along than they are.
     if (!outcome.ok) {
@@ -252,7 +273,7 @@ export const Lynx = (props: LynxProps) => {
     const target = current();
     if (target === undefined) return [];
     if (target.kind === 'link') return ['⏎ Follow'];
-    return sendingForm(target) === null ? [] : ['⏎ Submit'];
+    return target.form === null ? [] : ['⏎ Submit'];
   };
 
   /** Only the keys that lead somewhere from here — a hint for a door that is not
@@ -269,11 +290,15 @@ export const Lynx = (props: LynxProps) => {
         ]
     ).join('  ');
 
-  /** How a field reads: with a cursor at the end while it is being typed into. */
-  const fieldText = (field: Field): string =>
-    field === fieldBeingEdited()
+  /** How a field reads: with a cursor at the end while it is being typed into. A
+   *  password reads as the cursor alone, or as nothing, however much it holds. */
+  const fieldText = (field: Field): string => {
+    const editing = field === fieldBeingEdited();
+    if (field.masked) return editing ? '[_]' : '[]';
+    return editing
       ? `[${valueOf(field)}_]`
       : fieldBox({ value: valueOf(field), placeholder: field.placeholder });
+  };
 
   const selectedClass = 'bg-[var(--theme-text-bright)] text-[var(--theme-bg)]';
 

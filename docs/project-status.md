@@ -879,7 +879,10 @@ agreed order:
     `/signup` opens an account in the new `email_accounts`/`email_messages` tables through
     `email_signup` and leaves the welcome mail waiting, every other web server answers a POST
     with 405 and logs it as one, `md5` hashes UTF-8 bytes, and the Intro form warns off real
-    passwords. **Pick up here:** the plan's slice 2, lynx sending POST forms.
+    passwords. Slice 2 (v0.385.0): lynx sends POST forms and types into password fields
+    without showing them, Back never re-sends a form, and emailit.io's front page carries the
+    sign-up form (also served at `GET /signup`). **Pick up here:** the plan's slice 3, reading
+    mail.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

@@ -95,11 +95,13 @@ export const answerSignup = async ({
   readonly signUp: SignUp;
 }): Promise<string | null> => {
   const fields = new URLSearchParams(form);
-  const handle = (fields.get('handle') ?? '').toLowerCase();
+  // A refusal hands the handle back as it was typed, for the reader to correct.
+  const typedHandle = fields.get('handle') ?? '';
+  const handle = typedHandle.toLowerCase();
   const password = fields.get('password') ?? '';
 
   const refusal = refusedHandle(handle) ?? validatePassword(password);
-  if (refusal !== null) return emailitFrontPage(refusal);
+  if (refusal !== null) return emailitFrontPage({ refusal, handle: typedHandle });
 
   const reply = await signUp({
     handle,
@@ -114,5 +116,5 @@ export const answerSignup = async ({
   const outcome = read.data;
   return outcome === 'created'
     ? welcomePage(`${handle}@${EMAILIT_DOMAIN}`)
-    : emailitFrontPage(REFUSED_BY_STORE[outcome]);
+    : emailitFrontPage({ refusal: REFUSED_BY_STORE[outcome], handle: typedHandle });
 };

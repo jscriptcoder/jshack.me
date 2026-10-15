@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { renderPage } from './renderPage.js';
 import { pickWebPage } from '../core/generation/pools/webPages.js';
 import { MAPIT_PAGES } from '../core/mapit/pages.js';
+import { EMAILIT_FRONT_PAGE } from '../core/emailit/pages.js';
 
 /** The page a test renders from, when where it came from does not matter. Links
  *  resolve against it, so it has to be a real address. */
@@ -497,6 +498,7 @@ describe('a form a reader can fill in', () => {
         name: 'q',
         value: 'coffee',
         placeholder: 'Search the public web',
+        masked: false,
         form,
       },
       { kind: 'submit', text: '[ Search ]', form },
@@ -558,7 +560,15 @@ describe('a form a reader can fill in', () => {
 
   it('knows a field outside any form has nowhere to be sent', () => {
     expect(selectablesOn('<body><input name="q"></body>')).toEqual([
-      { kind: 'field', text: '[]', name: 'q', value: '', placeholder: '', form: null },
+      {
+        kind: 'field',
+        text: '[]',
+        name: 'q',
+        value: '',
+        placeholder: '',
+        masked: false,
+        form: null,
+      },
     ]);
   });
 
@@ -579,10 +589,30 @@ describe('a form a reader can fill in', () => {
     expect(asText(html)).toBe('[ Toggle ]');
   });
 
-  it.each(['password', 'hidden'])('offers no %s field to type into', (type) => {
+  it('offers no hidden field to type into', () => {
     expect(
-      selectablesOn(`<body><form action="/"><input type="${type}" name="pw" value="x"></form></body>`),
+      selectablesOn(
+        '<body><form action="/"><input type="hidden" name="pw" value="x"></form></body>',
+      ),
     ).toEqual([]);
+  });
+
+  it('offers a password field to type into, masked and drawn empty whatever it holds', () => {
+    expect(
+      selectablesOn(
+        '<body><form action="/" method="post"><input type="password" name="pw" value="hunter2"></form></body>',
+      ),
+    ).toEqual([
+      {
+        kind: 'field',
+        text: '[]',
+        name: 'pw',
+        value: 'hunter2',
+        placeholder: '',
+        masked: true,
+        form: { id: 0, action: 'http://192.168.1.5/', method: 'post' },
+      },
+    ]);
   });
 
   it('numbers the links after a form from one, since a field is not a link', () => {
@@ -608,6 +638,14 @@ describe('what a form offers, at its edges', () => {
     expect(field).toMatchObject({ form: { action: PAGE_URL } });
   });
 
+  // A fragment names a place on the page, not another address, so a browser sends the
+  // form to the page itself.
+  it.each(['#', '#login'])('sends a form whose action is "%s" to the page it sits on', (action) => {
+    const [field] = selectablesOn(`<body><form action="${action}"><input name="q"></form></body>`);
+
+    expect(field).toMatchObject({ form: { action: PAGE_URL } });
+  });
+
   it('draws an input button, and offers nothing to press', () => {
     const html = '<body><form action="/"><input type="button" value="Toggle"></form></body>';
 
@@ -629,6 +667,21 @@ describe('what a form offers, at its edges', () => {
     expect(asText('<body><button type="button">Search <b>now</b></button></body>')).toBe(
       '[ Search now ]',
     );
+  });
+});
+
+describe("emailit.io's front page, as a reader of it sees it", () => {
+  it('offers a handle to type, a password to type unseen and a button, all sent to /signup', () => {
+    const form = { id: 0, action: 'http://emailit.io/signup', method: 'post' };
+    const selectables = renderPage({ html: EMAILIT_FRONT_PAGE, url: 'http://emailit.io/' }).flatMap(
+      (line) => line.filter((segment) => segment.kind !== 'text'),
+    );
+
+    expect(selectables).toEqual([
+      expect.objectContaining({ kind: 'field', name: 'handle', masked: false, form }),
+      expect.objectContaining({ kind: 'field', name: 'password', masked: true, form }),
+      { kind: 'submit', text: '[ Sign up ]', form },
+    ]);
   });
 });
 

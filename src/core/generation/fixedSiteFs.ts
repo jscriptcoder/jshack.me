@@ -69,7 +69,7 @@ const WEB_ROOTS: ReadonlyMap<string, Readonly<Record<string, string>>> = new Map
   [FINDIT_NETWORK, { 'index.html': FINDIT_FRONT_PAGE }],
   [HACKADEMY_NETWORK, HACKADEMY_PAGES],
   [MAPIT_NETWORK, MAPIT_PAGES],
-  [EMAILIT_NETWORK, { 'index.html': EMAILIT_FRONT_PAGE }],
+  [EMAILIT_NETWORK, { 'index.html': EMAILIT_FRONT_PAGE, signup: EMAILIT_FRONT_PAGE }],
 ]);
 
 /**

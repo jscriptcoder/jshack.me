@@ -708,18 +708,6 @@ describe('filling in a form', () => {
     expect(onFollow).toHaveBeenCalledWith('http://192.168.1.5/people?name=ada&floor=2');
   });
 
-  // Nothing in this world answers a POST, so pressing Enter on one must not pretend
-  // to have sent anything anywhere.
-  it('does not send a form that posts', async () => {
-    const pages = { [HOME]: '<body><form action="/login" method="POST"><input name="user"></form></body>' };
-    const { onFollow } = renderSite({ pages });
-
-    type('root');
-    await press('Enter');
-
-    expect(onFollow).not.toHaveBeenCalled();
-  });
-
   it('does not send a field that belongs to no form', async () => {
     const pages = { [HOME]: '<body><input name="q"></body>' };
     const { onFollow } = renderSite({ pages });
@@ -743,8 +731,14 @@ describe('filling in a form', () => {
     expect(screen.getByText('↑↓ Select ⏎ Submit q Quit')).toBeInTheDocument();
   });
 
-  it('promises no submit for a form that nothing will answer', () => {
+  it('promises a submit for a form that posts, as for one that asks', () => {
     renderSite({ pages: { [HOME]: '<body><form method="post"><input name="q"></form></body>' } });
+
+    expect(screen.getByText('↑↓ Select ⏎ Submit Esc Leave field')).toBeInTheDocument();
+  });
+
+  it('promises no submit for a field that belongs to no form', () => {
+    renderSite({ pages: { [HOME]: '<body><input name="q"></body>' } });
 
     expect(screen.getByText('↑↓ Select Esc Leave field')).toBeInTheDocument();
   });
@@ -835,5 +829,212 @@ describe('a form, at its edges', () => {
     expect(screen.getByRole('button').textContent).toBe('[ Search ]');
     expect(unselected).not.toBe('');
     expect(screen.getByRole('button').className).not.toBe(unselected);
+  });
+});
+
+describe('typing a password', () => {
+  /** A sign-in form: a handle to type in the open, and a password the page filled in. */
+  const SIGN_IN =
+    '<body><form action="/signup" method="post"><input name="handle">' +
+    '<input type="password" name="password" value="hunter2"></form></body>';
+
+  const passwordField = () => screen.getAllByRole('textbox')[1];
+
+  it('draws the password field empty while the reader is elsewhere, whatever it holds', () => {
+    renderLynx({ content: SIGN_IN });
+
+    expect(passwordField()?.textContent).toBe('[]');
+    expect(browser().textContent).not.toContain('hunter2');
+  });
+
+  it('shows only a cursor while it is typed into, never what or how much was typed', () => {
+    renderLynx({ content: SIGN_IN });
+
+    fireEvent.keyDown(browser(), { key: 'ArrowDown' });
+    for (const key of 's3cret') fireEvent.keyDown(browser(), { key });
+
+    expect(passwordField()?.textContent).toBe('[_]');
+
+    fireEvent.keyDown(browser(), { key: 'Escape' });
+
+    expect(passwordField()?.textContent).toBe('[]');
+    expect(browser().textContent).not.toContain('s3cret');
+  });
+});
+
+describe('sending a form that posts', () => {
+  const EMAILIT = 'http://emailit.io/';
+  const SIGNUP = 'http://emailit.io/signup';
+
+  /** emailit.io as far as a sign-up goes: a form that posts to /signup, and a welcome
+   *  with a way back to the front page. */
+  const signUpForm = (action: string = '/signup') =>
+    `<body><form action="${action}" method="post"><input name="handle">` +
+    '<input type="password" name="password"><input type="submit" value="Sign up"></form></body>';
+
+  const EMAILIT_SITE: Readonly<Record<string, string>> = {
+    [EMAILIT]: signUpForm(),
+    [SIGNUP]:
+      '<body><h1>Welcome, neo@emailit.io</h1><p><a href="/">Back to emailit.io</a></p></body>',
+  };
+
+  const type = (text: string) => {
+    for (const key of text) fireEvent.keyDown(browser(), { key });
+  };
+
+  /** A handle in the first field, and a password in the second. */
+  const fillIn = (handle: string, password: string) => {
+    type(handle);
+    fireEvent.keyDown(browser(), { key: 'ArrowDown' });
+    type(password);
+  };
+
+  const renderEmailit = () => renderSite({ start: EMAILIT, pages: EMAILIT_SITE });
+
+  it('sends what was typed to the action as a form, not in the address', async () => {
+    const { onFollow } = renderEmailit();
+
+    fillIn('neo', 's3cret');
+    await press('Enter');
+
+    expect(onFollow).toHaveBeenCalledWith(SIGNUP, 'handle=neo&password=s3cret');
+    expect(screen.getByText('Welcome, neo@emailit.io')).toBeInTheDocument();
+  });
+
+  it('sends the form from its button just the same', async () => {
+    const { onFollow } = renderEmailit();
+
+    fillIn('neo', 's3cret');
+    fireEvent.keyDown(browser(), { key: 'ArrowDown' });
+    await press('Enter');
+
+    expect(onFollow).toHaveBeenCalledWith(SIGNUP, 'handle=neo&password=s3cret');
+  });
+
+  it('encodes what was typed, so a character that means something in a form arrives as typed', async () => {
+    const { onFollow } = renderEmailit();
+
+    fillIn('neo', 'a&b c=d+%');
+    await press('Enter');
+
+    expect(onFollow).toHaveBeenCalledWith(SIGNUP, 'handle=neo&password=a%26b+c%3Dd%2B%25');
+  });
+
+  it('sends a password the page filled in, though it never showed it', async () => {
+    const pages = {
+      [EMAILIT]:
+        '<body><form action="/signup" method="post"><input name="handle" value="neo">' +
+        '<input type="password" name="password" value="hunter2"></form></body>',
+    };
+    const { onFollow } = renderSite({ start: EMAILIT, pages });
+
+    await press('Enter');
+
+    expect(onFollow).toHaveBeenCalledWith(SIGNUP, 'handle=neo&password=hunter2');
+  });
+
+  // A browser posts to the action as written, query and all: only a GET form's fields
+  // replace the query.
+  it('keeps the query its action carries', async () => {
+    const { onFollow } = renderSite({
+      start: EMAILIT,
+      pages: { [EMAILIT]: signUpForm('/signup?from=front') },
+    });
+
+    fillIn('neo', 's3cret');
+    await press('Enter');
+
+    expect(onFollow).toHaveBeenCalledWith(`${SIGNUP}?from=front`, 'handle=neo&password=s3cret');
+  });
+
+  // Going back asks for the page again, and a page reached by a form is asked for as
+  // an address: sending the form a second time would make a second account.
+  it('goes back to a page it reached by posting without posting again', async () => {
+    const { onFollow } = renderEmailit();
+
+    fillIn('neo', 's3cret');
+    await press('Enter');
+    await press('Enter');
+    // Back on the front page, in its handle field; out of it, keys drive the browser.
+    fireEvent.keyDown(browser(), { key: 'Escape' });
+    await press('ArrowLeft');
+
+    expect(onFollow).toHaveBeenLastCalledWith(SIGNUP);
+  });
+
+  it('goes back from the answer to the form by asking for it, not by posting', async () => {
+    const { onFollow } = renderEmailit();
+
+    fillIn('neo', 's3cret');
+    await press('Enter');
+    await press('ArrowLeft');
+
+    expect(onFollow).toHaveBeenLastCalledWith(EMAILIT);
+  });
+});
+
+describe('one request at a time', () => {
+  /** A browser whose every follow waits until the test lets it answer. */
+  const renderWaiting = () => {
+    const answers: (() => void)[] = [];
+    const onFollow = vi.fn(
+      () =>
+        new Promise<FollowOutcome>((resolve) => {
+          answers.push(() => resolve({ ok: true }));
+        }),
+    );
+    renderLynx({ content: LINKED_PAGE, url: 'http://192.168.1.5/', onFollow });
+    /** Answer every request out, and let the screen take the answers in. */
+    const answerAll = async () => {
+      answers.forEach((answer) => answer());
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    };
+    return { onFollow, answerAll };
+  };
+
+  it('sends nothing more while the last request is still waiting for its answer', async () => {
+    const { onFollow } = renderWaiting();
+
+    await press('Enter');
+    await press('Enter');
+    await press('ArrowRight');
+
+    expect(onFollow).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends again once the answer has come', async () => {
+    const { onFollow, answerAll } = renderWaiting();
+
+    await press('Enter');
+    await answerAll();
+    await press('Enter');
+
+    expect(onFollow).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not go back while a request is waiting', async () => {
+    const { onFollow, answerAll } = renderWaiting();
+    await press('Enter');
+    await answerAll();
+    // A page behind to go back to, and a second request out.
+    await press('Enter');
+
+    await press('ArrowLeft');
+
+    expect(onFollow).toHaveBeenCalledTimes(2);
+  });
+
+  it('still quits while a request is waiting', async () => {
+    const onExit = vi.fn();
+    renderLynx({
+      content: LINKED_PAGE,
+      onExit,
+      onFollow: () => new Promise<FollowOutcome>(() => undefined),
+    });
+
+    await press('Enter');
+    fireEvent.keyDown(browser(), { key: 'q' });
+
+    expect(onExit).toHaveBeenCalledTimes(1);
   });
 });
