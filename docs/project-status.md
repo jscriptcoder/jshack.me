@@ -873,7 +873,7 @@ agreed order:
     what waits are in `backlog.md` under "Procedural world deferred". **Pick up here
     (2026-10-14):** item 8's list and item 6, still the agreed work until the owner reopens
     missions.
-11. **Email at emailit.io (in flight since 2026-10-14; plan [`plans/email.md`](../plans/email.md)).**
+11. ✅ **Email at emailit.io (v0.384.0–v0.389.0, PRs #681–#686, 2026-10-14/15).**
     Groundwork the owner reopened ahead of missions: a job site will later mail each player a
     private address. Slice 1 (v0.384.0): emailit.io is a fixed site, `curl -d` POSTs a form,
     `/signup` opens an account in the new `email_accounts`/`email_messages` tables through
@@ -900,8 +900,16 @@ agreed order:
     a root on emailit.io finds every account's hash in `/etc/emailit/passwd` and its mail in
     `/var/mail/<handle>`, built from the tables each time the box is read and laid under its
     journal, so a root's write or `rm` there fools the next root and the restore undoes it; no
-    player's real mail changes. **Pick up here:** the epic's one browser run, then the close-out
-    into `docs/email-architecture.md`.
+    player's real mail changes. Two-player browser close-out (2026-10-15, v0.389.0) walked all
+    six slices with no defect — `curl` and lynx sign-up (lynx Back never re-posting), reading and
+    the plaintext `~/.mailrc`, two players trading mail and a reply, the live new-mail notice, a
+    root on emailit.io reading the spool, a forged mailbox over the untouched real inbox and the
+    restore, and a full takeover (crack a handle's hash, log into the victim's mail, change the
+    password, the victim's one `login failed` notice); root was reached by cracking root's
+    `/etc/passwd` hash and `ssh`, the day's network holes being only user/guest tier. As built:
+    [`email-architecture.md`](./email-architecture.md); follow-ups in `backlog.md` under "Email —
+    follow-ups deferred". **Pick up here (2026-10-15):** item 8's list and item 6, the agreed work
+    until the owner reopens missions.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

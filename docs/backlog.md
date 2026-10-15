@@ -20,6 +20,17 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   path through the shell, `cat`, `grep` and `scp`. Copying a mailbox home also meets the 8,192
   character patch cap below.
 
+- **Email — follow-ups deferred.** The email epic shipped at v0.389.0 (as-built:
+  [`email-architecture.md`](./email-architecture.md)). Left out on purpose: **reporting and
+  blocking** for player mail, and an **operator tool** to delete an abusive message or close an
+  account (like `restoreSite.ts`), both before multiplayer is announced; a **local-mbox mode for
+  `mail`** that reads `/var/mail/<user>` on the box when not logged in to emailit.io and comes
+  preinstalled on NPC boxes with mail; an **`smtp` service on emailit.io** (port 25 in a scan,
+  its own versions and CVEs); a **`/var/log/mail.log` on emailit.io**, one line per mail login
+  with its source address, so whoever roots the box can see who reads which inbox from where (mail
+  otherwise leaves no log line); and **mission-era NPC mail**, clients mailing players and the
+  reverse.
+
 - **CLOSED (2026-10-07) — three wire-checks that failed for fixture reasons.**
   `testCrossPlayerConnectionTrace` already read the gateway's trace under `ap:<essid>` (fixed in
   #601; this entry outlived it). `testMysqlDeep` now cleans its gateway and deep box at teardown as
