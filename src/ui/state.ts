@@ -1523,18 +1523,18 @@ const NOT_FOUND_PAGE =
 
 /**
  * Follow a link from the page open in the browser, to the absolute `url` the
- * screen resolved it to.
+ * screen resolved it to — or send a form there, when `body` carries one.
  *
  * Goes through the SAME fetch the `lynx` command does, so a followed link reads the
  * tree a typed address would have reached and leaves the same one line behind on the
- * box that answered. A page and a 404 both move the reader (both were answers); a
- * host that never answered leaves them where they are with the reason, because
- * nothing was logged and nowhere was visited.
+ * box that answered; a form goes the way `curl -d` sends one. A page, a 404 and a 405
+ * all move the reader (all were answers); a host that never answered leaves them where
+ * they are with the reason, because nothing was logged and nowhere was visited.
  *
  * Only the browser navigates the browser: with any other app on screen, or none,
  * there is no page to move on from and this opens nothing.
  */
-export const followLink = async (url: string): Promise<FollowOutcome> => {
+export const followLink = async (url: string, body?: string): Promise<FollowOutcome> => {
   const mode = overlayMode();
   if (mode === null || mode.kind !== 'lynx') {
     return { ok: false, alert: 'lynx: no page is open' };
@@ -1575,6 +1575,7 @@ export const followLink = async (url: string): Promise<FollowOutcome> => {
     ? await fetchPageAcrossNetwork({
         program: 'lynx',
         url: target,
+        body,
         callerMachineId: session.machineId,
         fetchPublic: fetchPublicPageFn,
       })
@@ -1583,6 +1584,7 @@ export const followLink = async (url: string): Promise<FollowOutcome> => {
         program: 'lynx',
         url: target,
         vantage,
+        body,
         callerMachineId: session.machineId,
         appendAccessLog: (fetched) => log.appendAccessLog(fetched),
         fetchOccupant: fetchOccupantPageFn,
@@ -1594,7 +1596,7 @@ export const followLink = async (url: string): Promise<FollowOutcome> => {
   setOverlayMode({
     kind: 'lynx',
     url,
-    content: page.kind === 'page' ? page.content : NOT_FOUND_PAGE,
+    content: page.kind === 'not_found' ? NOT_FOUND_PAGE : page.content,
   });
   return { ok: true };
 };
