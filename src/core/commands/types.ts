@@ -1640,6 +1640,11 @@ export type DeleteResult =
   /** As a message's: the inbox holds nothing by that number, or the login was refused. */
   | { readonly ok: false; readonly error: Exclude<MessageResult, { ok: true }>['error'] };
 
+export type PasswdResult =
+  | { readonly ok: true }
+  /** As an inbox's: a wrong old password is a login that failed. */
+  | { readonly ok: false; readonly error: Exclude<InboxResult, { ok: true }>['error'] };
+
 /** A message on its way out. `to` is the recipient's handle; the domain is always
  *  emailit.io's, and the sender is whoever the login names. */
 export type OutgoingMail = {
@@ -1680,6 +1685,8 @@ export type MailApi = {
   readonly send: (login: MailLogin, mail: OutgoingMail) => Promise<SendResult>;
   /** Delete one message by its number, for everyone who holds the password. */
   readonly delete: (login: MailLogin, number: number) => Promise<DeleteResult>;
+  /** Give the account a new password, proving the old one, which the login carries. */
+  readonly passwd: (login: MailLogin, newPassword: string) => Promise<PasswdResult>;
 };
 
 /** A message about to be written: who it is to, in full, its subject, and what the
@@ -1768,6 +1775,10 @@ export type CommandEnv = {
    *  what was typed after the last write-out is lost, as an unsaved buffer is under a
    *  real `mail`. The command decides what then happens to it; the editor only edits. */
   readonly compose: (draft: MailDraft) => Promise<string | null>;
+
+  /** Tell the terminal it has shown an address's mail up to message `highest`, so the
+   *  check for new mail never announces what the player has already seen. */
+  readonly mailSeen: (address: string, highest: number) => void;
 
   /** Elevate/switch the active session by pushing a new one onto the hop chain
    *  (sibling to `setCwd`/`setInterface`). The UI owns the session stack and

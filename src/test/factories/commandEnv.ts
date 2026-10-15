@@ -300,6 +300,7 @@ export const mockMailApi = (overrides: Partial<MailApi> = {}): MailApi => ({
   read: NOT_IMPLEMENTED('mail.read'),
   send: NOT_IMPLEMENTED('mail.send'),
   delete: NOT_IMPLEMENTED('mail.delete'),
+  passwd: NOT_IMPLEMENTED('mail.passwd'),
   ...overrides,
 });
 
@@ -371,6 +372,7 @@ export const mockCommandEnv = (overrides: Partial<CommandEnv> = {}): CommandEnv 
   setInterface: () => undefined,
   prompt: NOT_IMPLEMENTED('prompt'),
   compose: NOT_IMPLEMENTED('compose'),
+  mailSeen: () => undefined,
   pushSession: () => undefined,
   popSession: () => undefined,
   resetGame: () => undefined,

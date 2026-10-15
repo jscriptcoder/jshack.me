@@ -1251,12 +1251,17 @@ describe('the neon HUD', () => {
     onTestFinished(() => {
       vi.useRealTimers();
     });
-    renderTerminalIn('neon');
-    expect(vi.getTimerCount()).toBe(1);
+    // The game's own check for new mail runs on a timer too, so the clock is counted
+    // against whatever else is running.
+    setTheme('amber');
+    renderTerminal();
+    const withoutTheClock = vi.getTimerCount();
+    setTheme('neon');
+    expect(vi.getTimerCount()).toBe(withoutTheClock + 1);
 
     setTheme('amber');
 
-    expect(vi.getTimerCount()).toBe(0);
+    expect(vi.getTimerCount()).toBe(withoutTheClock);
   });
 
   it('takes the frame away when the player switches to a plain theme', async () => {

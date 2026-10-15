@@ -35,6 +35,7 @@ import type {
   OutgoingMail,
   SendResult,
   DeleteResult,
+  PasswdResult,
   OccupantFetchParams,
   OccupantFetchResult,
   OccupantSweepParams,
@@ -425,6 +426,35 @@ export const deleteMailMessage = async (
     }
     const deleted = z.object({ ok: z.literal(true) }).safeParse(body);
     return deleted.success ? { ok: true } : { ok: false, error: 'network_error' };
+  } catch {
+    return { ok: false, error: 'network_error' };
+  }
+};
+
+/**
+ * Give an emailit.io account a new password, proving the old one (backs
+ * `env.mail.passwd`). Refusals read as an inbox's do.
+ */
+export const changeMailPassword = async (
+  deps: NetworkClientDeps,
+  login: MailLogin,
+  newPassword: string,
+): Promise<PasswdResult> => {
+  try {
+    const response = await post(deps, 'resolveMail', {
+      op: 'passwd',
+      handle: login.handle,
+      password: login.password,
+      newPassword,
+    });
+    const body: unknown = await response.json();
+    if (!response.ok) {
+      const failed = body as { readonly error?: string } | null;
+      const refusal = INBOX_REFUSALS.find((error) => error === failed?.error);
+      return { ok: false, error: refusal ?? 'network_error' };
+    }
+    const changed = z.object({ ok: z.literal(true) }).safeParse(body);
+    return changed.success ? { ok: true } : { ok: false, error: 'network_error' };
   } catch {
     return { ok: false, error: 'network_error' };
   }

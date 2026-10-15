@@ -18,7 +18,7 @@
  * line through `runCommandLine`, and mirrors the resulting lines back.
  */
 
-import { createSignal } from 'solid-js';
+import { createEffect, createRoot, createSignal } from 'solid-js';
 import {
   asAbsPath,
   asEpochMs,
@@ -81,6 +81,7 @@ import type {
   ModeChange,
   AptDowngrade,
   TerminalLine,
+  CommandEnv,
 } from '../core/commands/types.js';
 import { ALL_EFFECTS_ON, type EffectName, type Effects } from '../core/theme/effects.js';
 import { DEFAULT_THEME_ID, THEMES, type ThemeId } from '../core/theme/themes.js';
@@ -182,6 +183,7 @@ import {
   readMailMessage,
   sendMail,
   deleteMailMessage,
+  changeMailPassword,
   resolveCrossPlayerFs,
   resolveOccupants,
   resolveOccupant,
@@ -200,6 +202,7 @@ import { homePathFor, seedFs, seedSession } from './seed.js';
 import { rehydrateSessionStack } from './sessionRehydrate.js';
 import { runFtpLine } from '../core/commands/ftpShell.js';
 import { runMysqlLine } from '../core/commands/mysqlShell.js';
+import { checkMail, markSeen, type MailWatch } from '../core/commands/mail.js';
 import { runRedisLine } from '../core/commands/redisShell.js';
 import {
   concernsConnection,
@@ -224,6 +227,10 @@ let patchApi: PatchApi | undefined;
 let syncChannel: SyncChannel | undefined;
 /** Ends the wait for other tabs' WiFi changes, so a restarted game listens once. */
 let otherTabsListener: AbortController | undefined;
+/** Ends the checks for new mail, so a restarted game checks on one timer. */
+let mailChecks: AbortController | undefined;
+/** Ends the watch that prints held mail notices, so a restarted game prints each once. */
+let disposeMailNotices: (() => void) | undefined;
 
 // The session stack: the active session is the top. `su` pushes a root session;
 // `exit` pops. Reactive so the prompt (username + `$`/`#`) reflects the active
@@ -1098,6 +1105,13 @@ const deleteMailMessageFn: MailApi['delete'] = (login, number) =>
     ? Promise.resolve({ ok: false, error: 'network_error' })
     : deleteMailMessage(networkClientDeps, login, number);
 
+/** Change an emailit.io password (backs `env.mail.passwd`). Unwired, the failure is ours,
+ *  as for an inbox. */
+const changeMailPasswordFn: MailApi['passwd'] = (login, newPassword) =>
+  networkClientDeps === undefined
+    ? Promise.resolve({ ok: false, error: 'network_error' })
+    : changeMailPassword(networkClientDeps, login, newPassword);
+
 /** Fetch a page from a fellow occupant's box on the network the shell stands on (backs
  *  `env.remote.fetchOccupant`). Before `startGame` wires the network client there is
  *  nobody to ask, which is our failure and says nothing about the address. */
@@ -1809,8 +1823,9 @@ export const startGame = (gameConfig: GameConfig, options?: StartGameOptions): v
     }
   });
 
-  // Hydrate the journal so reload-durable writes show up immediately.
-  void refetchPatches();
+  // Hydrate the journal so reload-durable writes show up immediately. The first check
+  // for new mail waits on it: the saved login it asks with lives in that journal.
+  startMailChecks(refetchPatches());
 
   // Rebuild the hop chain so a `su` elevation survives a refresh — unless this
   // terminal was opened by `xterm`, which is meant to start at home.
@@ -1973,69 +1988,11 @@ const commandNameOf = (line: string): string | null => {
   return name === undefined || name === '' ? null : name;
 };
 
-const executeLine = async (line: string): Promise<void> => {
-  // Session + patch client are read at EXECUTION time (chain order), so a queued
-  // command sees the state left by the one before it (e.g. an `ssh` hop's session).
-  const currentSession = requireSession();
-  const activePatchApi = patchApi;
-  if (activePatchApi === undefined) throw new Error('startGame must be called before runInput');
-
-  const subShell = subShellPrompt();
-  setScrollback((previous) => [
-    ...previous,
-    subShell !== null
-      ? { kind: 'prompt', content: `${subShell}${line}` }
-      : commandEchoLine(
-          {
-            username: currentSession.username,
-            host: promptHost(),
-            cwd: cwd(),
-            userType: currentSession.userType,
-          },
-          line,
-        ),
-  ]);
-
-  // A backdoor is the one session that can be taken away while it is being held,
-  // and the pidfile that decides it lives on the TARGET — where another player's
-  // `kill` lands, on a machine this client is not watching. Re-pull it before the
-  // line runs, so the shell asks a box that is current instead of the one the
-  // player walked into. This is the whole "pull, not a push": it costs a
-  // round-trip only while standing in a backdoor, and nothing is polled — an
-  // intruder who types nothing learns nothing.
-  //
-  // Re-pull whatever this box's tree is actually built from, which is not the same
-  // answer everywhere: a door on the player's own box rebuilds locally and reads
-  // the journal, while one on any other box reads a SERVED tree the server
-  // materialized. Refreshing only the journal would leave an intruder asking a
-  // stale copy whether their own door is still open, and being told yes for as long
-  // as they cared to keep typing.
-  //
-  // A reboot widened WHICH sessions have to ask. It ends every row on a box in one
-  // stroke, including ones no screen is showing, so the marker it leaves behind is
-  // the only thing that can reach a shell already standing there — and a tree
-  // fetched when the player walked in would never grow one. `needsFreshTree` owns
-  // that rule; your own box still asks nothing, which is the claim that has always
-  // been priced rather than described.
-  if (needsFreshTree(currentSession, ownWorkstationId())) {
-    await (isServedBox(currentSession.machineId) ? refreshServedRoot() : refetchPatches());
-  }
-
-  // Now that the tree is the box's current one, record what it says the boot is —
-  // once per session, the first time it looks. Everything after compares against
-  // this reading, which is why it is taken here rather than at the door: the doors
-  // that reach another player's box get back a machine id and a tier, never a tree,
-  // and a session stamped from a tree it had not yet been handed would be stamped
-  // from the wrong box.
-  const session = observeBootId(currentSession);
-
-  // Fresh abort controller per run — Ctrl-C aborts it, which rejects the
-  // command's `env.sleep` and unwinds a streamed command mid-flight.
-  const controller = new AbortController();
-  activeRun = controller;
-  setRunningCommand(commandNameOf(line));
-
-  const env = buildCommandEnv({
+/** The env a line runs in, as the session it runs as: everything a command can reach,
+ *  wired to this terminal. The check for new mail builds one too, so it asks exactly
+ *  what a typed `mail` would. */
+const shellEnv = (session: Session, patches: PatchApi, signal: AbortSignal): CommandEnv =>
+  buildCommandEnv({
     identity: requireIdentity(),
     session,
     hostname: promptHost(),
@@ -2044,14 +2001,14 @@ const executeLine = async (line: string): Promise<void> => {
     onFsReload: reloadActiveRoot,
     cwd,
     onCwdChange: setCwd,
-    patches: activePatchApi,
+    patches,
     log,
     connectivity,
     onInterfaceChange: setInterface,
     onChildCommand: setChildCommand,
     wifiNetworks,
     rescanWifi,
-    signal: controller.signal,
+    signal,
     prompt: requestPrompt,
     compose: openCompose,
     onPushSession: pushSession,
@@ -2089,6 +2046,10 @@ const executeLine = async (line: string): Promise<void> => {
     onMailRead: readMailMessageFn,
     onMailSend: sendMailFn,
     onMailDelete: deleteMailMessageFn,
+    onMailPasswd: changeMailPasswordFn,
+    onMailSeen: (address, highest) => {
+      mailWatch = markSeen(mailWatch, address, highest);
+    },
     onMysqlConnect: mysqlConnect,
     onMysqlStatement: mysqlStatement,
     onMysqlEnter: enterMysqlSession,
@@ -2131,6 +2092,154 @@ const executeLine = async (line: string): Promise<void> => {
     // confirm prompt — append it straight to scrollback.
     onOutputLine: (line) => setScrollback((previous) => [...previous, line]),
   });
+
+// ---- New mail ----
+
+/** How often a visible terminal checks for new mail. */
+const MAIL_CHECK_MS = 60_000;
+
+/** What this terminal has shown of each address's mail, and the saved logins that
+ *  failed. In memory only: a reload starts afresh, and announces whatever is unread. */
+let mailWatch: MailWatch = { marks: new Map(), stale: new Set() };
+
+/** Whether a check is out at emailit.io; another never starts beside it. */
+let mailCheckOut = false;
+
+/** What a check found that the player has not been shown yet, held until the shell's
+ *  prompt is idle so it never lands inside an editor, a sub-shell or a password prompt. */
+const [heldMail, setHeldMail] = createSignal<readonly TerminalLine[]>([]);
+
+/** Whether the shell sits at its own prompt with nothing in front of it. A password
+ *  prompt is never the only thing: it only ever waits inside a command that is running. */
+const shellIdle = (): boolean =>
+  runningCommand() === null && overlayMode() === null && subShellPrompt() === null;
+
+/**
+ * Check for new mail, as `mail` would answer where the shell stands, and hold whatever
+ * it says until the prompt is idle.
+ *
+ * Mail is the one thing a terminal pulls on a timer. Nothing else in the world is
+ * polled, so an intruder who types nothing learns nothing; but mail arrives from other
+ * players with nobody typing, and a player who had to ask would never hear of it. The
+ * check is a pull with the login `~/.mailrc` already holds, every minute and only while
+ * the tab is on screen, rather than a push channel the server would have to keep open.
+ */
+const checkForMail = async (): Promise<void> => {
+  const activePatchApi = patchApi;
+  const session = activeSession();
+  if (mailCheckOut || document.visibilityState !== 'visible') return;
+  if (activePatchApi === undefined || session === undefined) return;
+  mailCheckOut = true;
+  try {
+    const env = shellEnv(session, activePatchApi, new AbortController().signal);
+    const checked = await checkMail(env, mailWatch);
+    // A list typed while the check was out raised marks of its own: keep the higher.
+    mailWatch = [...checked.watch.marks].reduce<MailWatch>(
+      (watch, [address, highest]) => markSeen(watch, address, highest),
+      { ...mailWatch, stale: new Set([...mailWatch.stale, ...checked.watch.stale]) },
+    );
+    // Held through a long edit, the same notice found twice is still one piece of news.
+    setHeldMail((held) => [
+      ...held,
+      ...checked.lines.filter((line) => !held.some((waiting) => waiting.content === line.content)),
+    ]);
+  } finally {
+    mailCheckOut = false;
+  }
+};
+
+/** Check for mail now, every minute, and whenever the tab comes back on screen; and
+ *  print what a check found once the prompt is idle. Ends whatever a previous game set
+ *  going, so a restarted game checks on one timer. */
+const startMailChecks = (firstCheck: Promise<void>): void => {
+  mailChecks?.abort();
+  disposeMailNotices?.();
+  mailChecks = new AbortController();
+  mailWatch = { marks: new Map(), stale: new Set() };
+  setHeldMail([]);
+
+  const timer = setInterval(() => void checkForMail(), MAIL_CHECK_MS);
+  mailChecks.signal.addEventListener('abort', () => clearInterval(timer));
+  document.addEventListener('visibilitychange', () => void checkForMail(), {
+    signal: mailChecks.signal,
+  });
+  void firstCheck.then(checkForMail);
+
+  createRoot((dispose) => {
+    disposeMailNotices = dispose;
+    createEffect(() => {
+      const held = heldMail();
+      if (held.length === 0 || !shellIdle()) return;
+      setScrollback((previous) => [...previous, ...held]);
+      setHeldMail([]);
+    });
+  });
+};
+
+const executeLine = async (line: string): Promise<void> => {
+  // Session + patch client are read at EXECUTION time (chain order), so a queued
+  // command sees the state left by the one before it (e.g. an `ssh` hop's session).
+  const currentSession = requireSession();
+  const activePatchApi = patchApi;
+  if (activePatchApi === undefined) throw new Error('startGame must be called before runInput');
+
+  const subShell = subShellPrompt();
+  setScrollback((previous) => [
+    ...previous,
+    subShell !== null
+      ? { kind: 'prompt', content: `${subShell}${line}` }
+      : commandEchoLine(
+          {
+            username: currentSession.username,
+            host: promptHost(),
+            cwd: cwd(),
+            userType: currentSession.userType,
+          },
+          line,
+        ),
+  ]);
+
+  // A backdoor is the one session that can be taken away while it is being held,
+  // and the pidfile that decides it lives on the TARGET — where another player's
+  // `kill` lands, on a machine this client is not watching. Re-pull it before the
+  // line runs, so the shell asks a box that is current instead of the one the
+  // player walked into. This is the whole "pull, not a push": it costs a
+  // round-trip only while standing in a backdoor, and no box is polled — an
+  // intruder who types nothing learns nothing. (Mail is the one thing a terminal
+  // pulls on a timer, and `checkForMail` says why.)
+  //
+  // Re-pull whatever this box's tree is actually built from, which is not the same
+  // answer everywhere: a door on the player's own box rebuilds locally and reads
+  // the journal, while one on any other box reads a SERVED tree the server
+  // materialized. Refreshing only the journal would leave an intruder asking a
+  // stale copy whether their own door is still open, and being told yes for as long
+  // as they cared to keep typing.
+  //
+  // A reboot widened WHICH sessions have to ask. It ends every row on a box in one
+  // stroke, including ones no screen is showing, so the marker it leaves behind is
+  // the only thing that can reach a shell already standing there — and a tree
+  // fetched when the player walked in would never grow one. `needsFreshTree` owns
+  // that rule; your own box still asks nothing, which is the claim that has always
+  // been priced rather than described.
+  if (needsFreshTree(currentSession, ownWorkstationId())) {
+    await (isServedBox(currentSession.machineId) ? refreshServedRoot() : refetchPatches());
+  }
+
+  // Now that the tree is the box's current one, record what it says the boot is —
+  // once per session, the first time it looks. Everything after compares against
+  // this reading, which is why it is taken here rather than at the door: the doors
+  // that reach another player's box get back a machine id and a tier, never a tree,
+  // and a session stamped from a tree it had not yet been handed would be stamped
+  // from the wrong box.
+  const session = observeBootId(currentSession);
+
+  // Fresh abort controller per run — Ctrl-C aborts it, which rejects the
+  // command's `env.sleep` and unwinds a streamed command mid-flight.
+  const controller = new AbortController();
+  activeRun = controller;
+  setRunningCommand(commandNameOf(line));
+
+  const env = shellEnv(session, activePatchApi, controller.signal);
 
   try {
     // While an ftp session is held the line is answered by the ftp command map, NOT

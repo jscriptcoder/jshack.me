@@ -3,9 +3,10 @@
  * password, and mail sent from it.
  *
  * The request names what it wants in `op`: the `list`, one message to `read`, a message
- * to `send`, or one to `delete`. A send names the recipient by handle (mail goes between emailit.io
- * addresses only), and its subject and body are held to 80 and 4,000 characters here, as
- * a reader counts them, whatever the client checked first.
+ * to `send`, one to `delete`, or a new password (`passwd`). A send names the recipient by
+ * handle (mail goes between emailit.io addresses only), and its subject and body are held
+ * to 80 and 4,000 characters here, as a reader counts them, whatever the client checked
+ * first. A new password is held to the length a sign-up asks for.
  *
  * Mail is served by emailit.io's web server, so it is reached the way a fetch of
  * emailit.io is reached (`resolveWebTarget`): a bricked emailit.io, a dark gateway or a
@@ -44,6 +45,7 @@ import { HTTP_DEFAULT_PORT } from '../network/http.js';
 import { siteAddress } from '../generation/publisher.js';
 import { EMAILIT_DOMAIN } from '../generation/fixedSites.js';
 import { md5 } from '../generation/md5.js';
+import { validatePassword } from '../gameConfig/gameConfig.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import { listedMessageSchema, openedMessageSchema } from './inbox.js';
 
@@ -84,12 +86,19 @@ export type DeleteMessage = (
   request: InboxLogin & { readonly number: number },
 ) => Promise<{ readonly data: unknown; readonly error: unknown }>;
 
+/** Give the account a new password, or say the login with the old one failed: the
+ *  store's reply as it came off the wire, read here. */
+export type ChangePassword = (
+  request: InboxLogin & { readonly newPasswordMd5: string },
+) => Promise<{ readonly data: unknown; readonly error: unknown }>;
+
 export type ResolveMailDeps = WebTargetDeps & {
   readonly nonceStore: NonceStore;
   readonly openInbox: OpenInbox;
   readonly openMessage: OpenMessage;
   readonly sendMessage: SendMessage;
   readonly deleteMessage: DeleteMessage;
+  readonly changePassword: ChangePassword;
 };
 
 const inboxAnswerSchema = z.discriminatedUnion('outcome', [
@@ -119,6 +128,12 @@ const deleteAnswerSchema = z.discriminatedUnion('outcome', [
   z.object({ outcome: z.literal('login_failed') }),
   z.object({ outcome: z.literal('throttled') }),
   z.object({ outcome: z.literal('no_message') }),
+]);
+
+const passwdAnswerSchema = z.discriminatedUnion('outcome', [
+  z.object({ outcome: z.literal('changed') }),
+  z.object({ outcome: z.literal('login_failed') }),
+  z.object({ outcome: z.literal('throttled') }),
 ]);
 
 /** A string of at most `limit` characters as a reader counts them: an emoji is one,
@@ -154,6 +169,11 @@ const resolveMailSchema = z
       body: textOfAtMost(BODY_LIMIT),
     }),
     z.looseObject({ ...login, op: z.literal('delete'), number: z.number().int().positive() }),
+    z.looseObject({
+      ...login,
+      op: z.literal('passwd'),
+      newPassword: z.string().refine((password) => validatePassword(password) === null),
+    }),
   ])
   .refine((payload) => !('player_key' in payload));
 
@@ -217,6 +237,17 @@ export const handleResolveMail = async (
     const answer = deleteAnswerSchema.safeParse(reply.data);
     if (reply.error || !answer.success) return MAIL_FAILED;
     if (answer.data.outcome !== 'deleted') return refused(answer.data.outcome);
+    return { status: 200, body: { ok: true } };
+  }
+
+  if (payload.op === 'passwd') {
+    const reply = await deps.changePassword({
+      ...asked,
+      newPasswordMd5: md5(payload.newPassword),
+    });
+    const answer = passwdAnswerSchema.safeParse(reply.data);
+    if (reply.error || !answer.success) return MAIL_FAILED;
+    if (answer.data.outcome !== 'changed') return refused(answer.data.outcome);
     return { status: 200, body: { ok: true } };
   }
 
