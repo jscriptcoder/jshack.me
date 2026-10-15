@@ -10,6 +10,16 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   spend JSC on**; **mission payouts**, which will call the operator mint; and **generated wallets
   as loot**, a world-content story that would reopen the rule that generated boxes hold no loot.
 
+- **emailit.io's root view has a size ceiling.** Since v0.389.0 a root shell on emailit.io is
+  served every account's mailbox, built from the email tables, and it re-reads that tree before
+  every line. An inbox holds at most 100 messages of 4,000 characters (about 400 KB; most hold a
+  few KB), and a Vercel response is capped at 4.5 MB, so the read fails at about 11 full inboxes or
+  a few thousand ordinary ones, and the box then reads as unreachable to its root. Sends are held
+  to 20 an hour per player, so nothing reaches it before launch. The fix when it is needed: serve
+  the spool's listing (names and sizes) and fetch one mailbox only when it is read, a second read
+  path through the shell, `cat`, `grep` and `scp`. Copying a mailbox home also meets the 8,192
+  character patch cap below.
+
 - **CLOSED (2026-10-07) — three wire-checks that failed for fixture reasons.**
   `testCrossPlayerConnectionTrace` already read the gateway's trace under `ap:<essid>` (fixed in
   #601; this entry outlived it). `testMysqlDeep` now cleans its gateway and deep box at teardown as

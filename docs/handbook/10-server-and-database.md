@@ -88,7 +88,7 @@ false}})`, per request. The service role bypasses row-level security.
 | `resolveHttpFetch`          | `curl`/`lynx` a public web server (and findit.io search); writes `access.log`.                          | SIG + REACH      |
 | `resolveHttpSweep`          | `gobuster` against a public server; the path list is read from the caller's box.                        | SIG + L1 + REACH |
 | `resolveMail`               | `mail`: an inbox, a message to read or quote, a send, a delete or a new password, for its password.     | SIG + REACH      |
-| `resolveCrossPlayerFs`      | The tree of a box that is not yours to rebuild, pruned to what you may read there.                      | SIG, tiered      |
+| `resolveCrossPlayerFs`      | A box that is not yours to rebuild, pruned to your tier; root on emailit.io also gets its mail.         | SIG, tiered      |
 
 ### `POST /api/patches`
 

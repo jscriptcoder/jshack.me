@@ -896,8 +896,12 @@ agreed order:
     checked and throttled as any login) and rewrites the `~/.mailrc` it ran from, so every other
     copy fails; a visible terminal checks for new mail every minute (`checkMail`, run as `mail`
     would be where the player stands) and prints `You have new mail.` at an idle prompt, or
-    once that a saved login failed, then skips that file until it changes. **Pick up here:**
-    the plan's slice 6, emailit.io's root view.
+    once that a saved login failed, then skips that file until it changes. Slice 6 (v0.389.0):
+    a root on emailit.io finds every account's hash in `/etc/emailit/passwd` and its mail in
+    `/var/mail/<handle>`, built from the tables each time the box is read and laid under its
+    journal, so a root's write or `rm` there fools the next root and the restore undoes it; no
+    player's real mail changes. **Pick up here:** the epic's one browser run, then the close-out
+    into `docs/email-architecture.md`.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
