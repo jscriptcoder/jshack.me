@@ -1,8 +1,9 @@
 # Plan: email, at emailit.io
 
 **Status**: Grilled, sliced and gap-reviewed. Decisions 1–27 confirmed by the owner 2026-10-14,
-28–41 from a find-gaps review the same day. Slice 1 shipped at v0.384.0 (#681, 2026-10-15) and
-slice 2 at v0.385.0 (#682, 2026-10-15); slice 3 is next and needs its plan.
+28–41 from a find-gaps review the same day, 42–45 while planning slice 3 (2026-10-15). Slice 1
+shipped at v0.384.0 (#681, 2026-10-15) and slice 2 at v0.385.0 (#682, 2026-10-15); slice 3 is
+next and needs its plan.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 
@@ -97,7 +98,8 @@ Read in the code on this date.
     `Save login to ~/.mailrc? [y/N]`. Unsaved, the login lasts for that terminal session. Saved, the
     address and password sit in plain text in `~/.mailrc` on **the box the player is standing
     on**, and `mail` on that box logs in from it. `mail logout` forgets the session only; removing
-    `~/.mailrc` is the player's job, and nothing warns them.
+    `~/.mailrc` is the player's job, and nothing warns them. *(Replaced by decision 42: no save
+    question, the file is the login, and `logout` deletes it.)*
 17. **The server keeps no mail sessions.** Every request carries the address and password and is
     checked each time. `mail passwd` (old password, new twice) therefore cuts off every holder of
     the old one at once, a stolen `~/.mailrc` and a thief's open terminal included. Whoever changes
@@ -142,7 +144,8 @@ Read in the code on this date.
     was half-typed. Inside `nano`, `lynx`, `ftp` or a password prompt it waits for the next prompt.
     It prints once per batch of new mail. A check that gets `login failed` prints
     `mail: login failed — logged out` once, ends the session and stops: that is how a victim learns
-    their password was changed. Every logged-in tab checks on its own. The "nothing is polled" note
+    their password was changed. *(Replaced by decision 44: the file stays and the check stops
+    retrying it.)* Every logged-in tab checks on its own. The "nothing is polled" note
     in `ui/state.ts` is reworded to say mail is the one deliberate timed pull, and why.
 
 ### emailit.io's box
@@ -190,7 +193,9 @@ Read in the code on this date.
     With no login yet, the first `mail` on a box where the current user has a readable `~/.mailrc`
     logs in from it, and on terminal start the player's own box logs in from its `~/.mailrc`
     silently, so notices begin after a reload without typing anything. A login made from a stolen
-    `~/.mailrc` travels the same way.
+    `~/.mailrc` travels the same way. *(Replaced by decisions 42 and 43: nothing travels, and
+    `mail` and the check use the `~/.mailrc` of whoever the player stands as. That `mail` needs
+    `mailutils` on the box and reaches emailit.io from that box's network still holds.)*
 34. **Scripts may read and send mail, but never log in.** In a script, the list, `read <n>` and
     `delete <n>` work as typed, returning their output to the script, and a script can use an
     automatic `~/.mailrc` login. `send` and `reply` take the body as a final argument instead of
@@ -242,6 +247,33 @@ Read in the code on this date.
     `Permission denied`, as any other refused write is. The close-out moves this plan's as-built
     content into a new `docs/email-architecture.md`, beside `wallet-architecture.md`.
 
+## Decisions from slice 3 planning (owner-confirmed 2026-10-15)
+
+These replace decision 16's save question and decision 33's travelling login.
+
+42. **The file is the login.** `mail` is logged in as whatever the current user's `~/.mailrc` on
+    the current box holds, and as nothing when there is none. No login lives in the terminal, so
+    nothing travels: `ssh` to another box uses that box's file, `exit` home uses yours again, and
+    `su` to another user uses theirs. `mail login` always writes `~/.mailrc` (`0600`), asking
+    nothing, and `mail logout` deletes it. Every box a player logs in from therefore keeps their
+    password in plain text, readable by root there. A thief who wants a victim's mail at home
+    copies the file's address and password into their own `mail login`.
+43. **The new-mail check watches whoever the player stands as.** It is `mail` run quietly where
+    they stand: the current user's `~/.mailrc` on the current box, skipped when there is no file or
+    the box cannot reach emailit.io. At home it is the player's own mail, on a victim's box as the
+    victim it is the victim's, and on a box with no file there are no notices. Notices resume after
+    a reload because the home `~/.mailrc` is still there, so no auto-login on terminal start is
+    needed.
+44. **A saved login that stops working is left alone.** When the password in a `~/.mailrc` is
+    wrong (someone ran `mail passwd`), the check prints `mail: login failed for neo@emailit.io`
+    once and then skips that file until its contents change; a typed `mail` prints the same line
+    every time, until `mail login` or `mail logout`. Nothing deletes the file. Skipping it keeps a
+    stale file from spending one of decision 28's five failures every minute.
+45. **`~/.mailrc` holds `set` lines, as a real one does:** `set from=neo@emailit.io` and
+    `set password=s3cret`, each value running to the end of its line. Blank lines and lines
+    starting with `#` are ignored, and a hand-written or copied file works exactly like one
+    `mail login` wrote. A file missing either line makes `mail` print `mail: ~/.mailrc has no login`.
+
 ## Out of scope
 
 - The job site, the private per-player mission address, and missions themselves. The job site
@@ -260,15 +292,15 @@ wire-check. One browser run at the end covers them all.
    sign-up for the same handle is refused.
 2. ✅ **lynx sends POST forms** (v0.385.0, #682), and Back never resends one. A lynx player signs up from the front
    page.
-3. **Reading mail.** `mailutils`, `mail login` with `~/.mailrc`, auto-login, `logout`, the list and
-   `read`, and the offline and emailit.io-down answers; the guess throttle, stable numbers, the
-   login that travels with the terminal, scripted reads and read marks (decisions 28, 29, 32–35,
-   37). A player reads their welcome mail.
+3. **Reading mail.** `mailutils`, `mail login` writing `~/.mailrc` and `logout` deleting it, the
+   list and `read`, and the offline and emailit.io-down answers; the guess throttle, stable
+   numbers, scripted reads and read marks, and a stale login's error (decisions 28, 29, 32, 34,
+   35, 37, 42, 44, 45). A player reads their welcome mail.
 4. **Sending mail.** `send`, `reply`, `delete`, the bounces, the size and rate limits, and the
    inbox cap with system mail always delivered, and scripted `send` and `reply` (decision 34).
    Two players exchange mail.
 5. **Changing the password, and new-mail notices.** `mail passwd` and the background check of
-   decisions 25 and 26.
+   decisions 25, 26, 43 and 44.
 6. **emailit.io's root view.** `/var/mail/<handle>` and `/etc/emailit/passwd`, built from the
    tables, read-only, and built only for a root caller (decision 31).
 
