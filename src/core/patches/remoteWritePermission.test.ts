@@ -12,6 +12,7 @@ import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepL
 import { chainLinks } from '../generation/lanTopology.js';
 import { hostMachineId } from '../generation/remoteHostId.js';
 import { md5 } from '../generation/md5.js';
+import { EMAILIT_NETWORK } from '../generation/fixedSites.js';
 import type { Directory, FileNode } from '../filesystem/types.js';
 
 /**
@@ -88,6 +89,34 @@ describe('enforceRemoteWriteL2 — AP gateway', () => {
     });
 
     expect(denial).toEqual({ status: 403, error: 'permission_denied' });
+  });
+});
+
+/**
+ * emailit.io's mail view is built only when a root reads the box, so the files are never
+ * in the tree this gate walks. Its two directories are: a root writing or removing a
+ * mailbox, or the passwd file, creates in a directory the box really has, and the write
+ * lands in the journal over the view like any other.
+ */
+describe("enforceRemoteWriteL2 — emailit.io's mail view", () => {
+  const noPriorPatches = () => Promise.resolve({ data: [], error: null });
+  const noOccupant = () => Promise.resolve({ data: null, error: null });
+  const writeAs = (userType: 'root' | 'guest', path: string) =>
+    enforceRemoteWriteL2({
+      machineId: computeApGatewayId(EMAILIT_NETWORK),
+      path,
+      session: { userType, essid: EMAILIT_NETWORK },
+      listMachinePatches: noPriorPatches,
+      findOccupantWorkstationByMachineId: noOccupant,
+    });
+  const VIEW_PATHS = ['/var/mail/trin', '/etc/emailit/passwd'];
+
+  it.each(VIEW_PATHS)('lets root write %s', async (path) => {
+    expect(await writeAs('root', path)).toBeNull();
+  });
+
+  it.each(VIEW_PATHS)("denies a guest's write to %s", async (path) => {
+    expect(await writeAs('guest', path)).toEqual({ status: 403, error: 'permission_denied' });
   });
 });
 

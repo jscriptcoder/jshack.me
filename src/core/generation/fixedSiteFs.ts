@@ -26,7 +26,9 @@ import {
   dir,
   file,
   generatePasswd,
+  MAIL_SPOOL_DIR,
   PASSWD_FILE,
+  ROOT_DIR,
   SERVICE_CONFIG_FILE,
   SHELL,
   TMP_DIR,
@@ -72,6 +74,11 @@ const WEB_ROOTS: ReadonlyMap<string, Readonly<Record<string, string>>> = new Map
   [EMAILIT_NETWORK, { 'index.html': EMAILIT_FRONT_PAGE, signup: EMAILIT_FRONT_PAGE }],
 ]);
 
+/** The site whose box keeps everybody's mail. Its files are not generated: the server lays
+ *  them in from the mail tables when a root reads the box. The two directories they sit in
+ *  are, so a root's write or `rm` there lands in a directory the box really has. */
+const keepsMail = (site: FixedSite): boolean => site.key === EMAILIT_NETWORK;
+
 /**
  * The machine a fixed site runs on, as generated: a web host with one account, the web
  * server that publishes its pages and the sshd its operators log in by. Built from the
@@ -106,6 +113,7 @@ export const buildFixedSiteFs = (site: FixedSite): Directory => {
             `127.0.0.1\tlocalhost\n127.0.1.1\t${site.hostname}.${site.domain} ${site.hostname}\n`,
           ),
           passwd: file(passwd, PASSWD_FILE),
+          ...(keepsMail(site) ? { emailit: dir({}, ROOT_DIR) } : {}),
         },
         TRAVERSABLE_DIR,
       ),
@@ -142,6 +150,7 @@ export const buildFixedSiteFs = (site: FixedSite): Directory => {
             },
             TRAVERSABLE_DIR,
           ),
+          ...(keepsMail(site) ? { mail: dir({}, MAIL_SPOOL_DIR) } : {}),
           run: dir(
             Object.fromEntries(
               SERVICES.map((spec) => [

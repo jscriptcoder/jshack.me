@@ -18,6 +18,9 @@ import { chainLinks, isInnerGateway, machineIdForLanHost } from '../generation/l
 import { networkBaseFsForMachineId } from '../generation/lanHostIdentity.js';
 import { BOOT_ID_OWNER, BOOT_ID_PATH, BOOT_ID_PERMISSIONS, readBootId } from '../boot/bootId.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
+import type { SpoolAccount } from '../emailit/spool.js';
+import { EMAILIT_NETWORK } from '../generation/fixedSites.js';
+import { MAIL_SPOOL_FILE } from '../generation/baseFs.js';
 
 /**
  * `handleResolveCrossPlayerFs` is the cross-player READ (Story 2, slices 2c+2d):
@@ -78,6 +81,28 @@ type OccupantResult = { data: OccupantWorkstation | null; error: unknown };
 type SessionResult = { data: ActiveSession | null; error: unknown };
 type PatchesResult = { data: readonly OwnerPatchRow[] | null; error: unknown };
 type LastEssidResult = { data: string | null; error: unknown };
+type SpoolResult = { data: readonly SpoolAccount[] | null; error: unknown };
+
+const NEO_HASH = '5f4dcc3b5aa765d61d8327deb882cf99';
+
+/** One account at emailit.io, with its welcome mail unread. */
+const SPOOL: readonly SpoolAccount[] = [
+  {
+    handle: 'neo',
+    password_md5: NEO_HASH,
+    signed_up_at: '2026-10-14T09:12:03.000+00:00',
+    messages: [
+      {
+        number: 1,
+        sender: 'noreply@emailit.io',
+        subject: 'Welcome to emailit.io',
+        body: 'Welcome aboard.',
+        delivered_at: '2026-10-14T09:12:03.000+00:00',
+        read: false,
+      },
+    ],
+  },
+];
 
 const makeDeps = (
   over: {
@@ -85,6 +110,7 @@ const makeDeps = (
     session?: () => Promise<SessionResult>;
     patches?: () => Promise<PatchesResult>;
     lastEssid?: () => Promise<LastEssidResult>;
+    spool?: () => Promise<SpoolResult>;
   } = {},
 ) => {
   // Whose box this is — and, by saying it is on a WiFi at all, whether it is reachable.
@@ -100,12 +126,16 @@ const makeDeps = (
   const findLastSessionEssid = vi.fn<
     (query: { player_key: string; machine_id: string }) => Promise<LastEssidResult>
   >(over.lastEssid ?? (async () => ({ data: null, error: null })));
+  const findMailSpool = vi.fn<() => Promise<SpoolResult>>(
+    over.spool ?? (async () => ({ data: SPOOL, error: null })),
+  );
   const deps: ResolveCrossPlayerFsDeps = {
     nonceStore: freshStore,
     findOccupantWorkstationByMachineId,
     findActiveSession,
     findLastSessionEssid,
     findPatches,
+    findMailSpool,
   };
   return {
     deps,
@@ -113,6 +143,7 @@ const makeDeps = (
     findActiveSession,
     findLastSessionEssid,
     findPatches,
+    findMailSpool,
   };
 };
 
@@ -794,5 +825,139 @@ describe('handleResolveCrossPlayerFs for a caller whose session on the box has e
 
     expect(result.status).toBe(200);
     expect(findLastSessionEssid).not.toHaveBeenCalled();
+  });
+});
+
+const EMAILIT_MACHINE = computeApGatewayId(EMAILIT_NETWORK);
+
+/** emailit.io's box, with the caller's session on it opened from emailit.io's network. */
+const onEmailit = (over: Parameters<typeof makeDeps>[0] = {}) =>
+  makeDeps({
+    occupant: async () => ({ data: null, error: null }),
+    session: async () => ({ data: { userType: 'root', essid: EMAILIT_NETWORK }, error: null }),
+    patches: async () => ({ data: [], error: null }),
+    ...over,
+  });
+
+const contentOf = (tree: Directory, ...segments: readonly string[]): string | null => {
+  const node = get(tree, ...segments);
+  return node?.kind === 'file' ? node.content : null;
+};
+
+describe("handleResolveCrossPlayerFs on emailit.io, whose mail lives in the server's tables", () => {
+  it('lays every account into the box for a root session', async () => {
+    const id = generateIdentity();
+    const { deps, findMailSpool } = onEmailit();
+
+    const result = await handleResolveCrossPlayerFs(envelope(id, EMAILIT_MACHINE), deps);
+    const tree = treeOf(result);
+
+    expect(result.status).toBe(200);
+    expect(contentOf(tree, 'etc', 'emailit', 'passwd')).toBe(`neo:${NEO_HASH}\n`);
+    expect(contentOf(tree, 'var', 'mail', 'neo')).toContain('\nSubject: Welcome to emailit.io\n');
+    expect(findMailSpool).toHaveBeenCalledTimes(1);
+  });
+
+  it('lays an empty spool for a root session when the store has no accounts', async () => {
+    const id = generateIdentity();
+    const { deps } = onEmailit({ spool: async () => ({ data: null, error: null }) });
+
+    const result = await handleResolveCrossPlayerFs(envelope(id, EMAILIT_MACHINE), deps);
+    const tree = treeOf(result);
+    const spool = get(tree, 'var', 'mail');
+
+    expect(result.status).toBe(200);
+    expect(contentOf(tree, 'etc', 'emailit', 'passwd')).toBe('');
+    expect(spool?.kind === 'directory' ? spool.entries.size : null).toBe(0);
+  });
+
+  it.each(['user', 'guest'] as const)(
+    'reads no table for a %s session, and sends none of it',
+    async (userType) => {
+      const id = generateIdentity();
+      const { deps, findMailSpool } = onEmailit({
+        session: async () => ({ data: { userType, essid: EMAILIT_NETWORK }, error: null }),
+      });
+
+      const result = await handleResolveCrossPlayerFs(envelope(id, EMAILIT_MACHINE), deps);
+      const tree = treeOf(result);
+
+      expect(result.status).toBe(200);
+      expect(get(tree, 'var', 'mail')).toBeUndefined();
+      expect(get(tree, 'etc', 'emailit')).toBeUndefined();
+      expect(findMailSpool).not.toHaveBeenCalled();
+    },
+  );
+
+  it('reads no table for a caller whose session on the box has ended', async () => {
+    const id = generateIdentity();
+    const { deps, findMailSpool } = onEmailit({
+      session: async () => ({ data: null, error: null }),
+      lastEssid: async () => ({ data: EMAILIT_NETWORK, error: null }),
+    });
+
+    const result = await handleResolveCrossPlayerFs(envelope(id, EMAILIT_MACHINE), deps);
+
+    expect(result.status).toBe(200);
+    expect(JSON.stringify(result.body)).not.toContain(NEO_HASH);
+    expect(findMailSpool).not.toHaveBeenCalled();
+  });
+
+  it("reads no table for a root session on any other network's box", async () => {
+    const id = generateIdentity();
+    const { deps, findMailSpool } = onNetworkBox({
+      session: async () => ({ data: { userType: 'root', essid: ROUTER_ESSID }, error: null }),
+    });
+
+    const result = await handleResolveCrossPlayerFs(envelope(id, AP_GATEWAY_ID), deps);
+
+    expect(result.status).toBe(200);
+    expect(findMailSpool).not.toHaveBeenCalled();
+  });
+
+  it("shows a root's write to a mailbox in place of the mailbox", async () => {
+    const id = generateIdentity();
+    const forged = ownerRow({
+      path: '/var/mail/neo',
+      content: 'FORGED',
+      permissions: MAIL_SPOOL_FILE,
+    });
+    const { deps } = onEmailit({ patches: async () => ({ data: [forged], error: null }) });
+
+    const result = await handleResolveCrossPlayerFs(envelope(id, EMAILIT_MACHINE), deps);
+
+    expect(contentOf(treeOf(result), 'var', 'mail', 'neo')).toBe('FORGED');
+  });
+
+  it("shows a root's rm of the passwd file, and of the whole spool", async () => {
+    const id = generateIdentity();
+    const { deps } = onEmailit({
+      patches: async () => ({
+        data: [
+          ownerRow({ path: '/etc/emailit/passwd', content: null, permissions: null }),
+          ownerRow({ path: '/var/mail', content: null, permissions: null }),
+        ],
+        error: null,
+      }),
+    });
+
+    const result = await handleResolveCrossPlayerFs(envelope(id, EMAILIT_MACHINE), deps);
+    const tree = treeOf(result);
+
+    expect(result.status).toBe(200);
+    expect(get(tree, 'etc', 'emailit', 'passwd')).toBeUndefined();
+    expect(get(tree, 'var', 'mail')).toBeUndefined();
+    expect(JSON.stringify(result.body)).not.toContain(NEO_HASH);
+  });
+
+  it('reports a server error, not an empty spool, when the tables cannot be read', async () => {
+    const id = generateIdentity();
+    const { deps } = onEmailit({
+      spool: async () => ({ data: null, error: new Error('db down') }),
+    });
+
+    const result = await handleResolveCrossPlayerFs(envelope(id, EMAILIT_MACHINE), deps);
+
+    expect(result).toEqual({ status: 500, body: { error: 'mail_spool_lookup_failed' } });
   });
 });

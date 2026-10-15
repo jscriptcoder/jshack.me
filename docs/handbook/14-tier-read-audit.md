@@ -227,7 +227,7 @@ caller gets can still tell them a file or an account exists.
 | `unregisterOccupant`                                                   | `ok`                                                         |                                                                                                                                                                                      | fine    |
 | `resolveOccupants`                                                     | Each fellow occupant's machine id, LAN address, machine name | Occupancy and leases. Only for a caller standing on that LAN.                                                                                                                        | fine    |
 | `resolveOccupiedEssids`                                                | `essids`                                                     | Occupancy.                                                                                                                                                                           | fine    |
-| `resolveCrossPlayerFs`                                                 | `tree`                                                       | The whole box. Full for its owner, tier view plus the list for a session, the list for anyone else on a workstation and for a caller whose row on a box the network makes has ended. | fine    |
+| `resolveCrossPlayerFs`                                                 | `tree`                                                       | The whole box. Full for its owner, tier view plus the list for a session, the list for anyone else on a workstation and for a caller whose row on a box the network makes has ended. | fine ⁶  |
 | `resolvePublicScan`                                                    | `found`, `ports`                                             | Pidfiles, the manifest, `rules.v4`.                                                                                                                                                  | list    |
 | `resolveInnerGatewayScan`, `resolveSameLanScan`, `resolveOccupantScan` | `found`, `ports`                                             | The same three. Only for a caller standing on that network.                                                                                                                          | list    |
 | `resolveHttpFetch`, `resolveOccupantFetch`                             | `content`, `server`                                          | One file under `/var/www`, read as the web server. A search on findit is built from what sites serve.                                                                                | list    |
@@ -267,6 +267,10 @@ grants, recomputed on the server, and the read is walked by the same permission 
 that tier would get. Since v0.372.0 `exploitLocalElevate` finds the box from the network on the
 caller's own session row, so it answers on the access point's gateway and on a generated machine
 as well as on a player's workstation.
+
+⁶ Since v0.389.0 a root session on emailit.io is also served every account's mailbox under
+`/var/mail` and every account's hash in `/etc/emailit/passwd`, built from the email tables. Below
+root the tables are not read at all, so nothing of them reaches the wire.
 
 ### `POST /api/wallet`
 

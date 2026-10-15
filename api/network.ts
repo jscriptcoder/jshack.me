@@ -28,6 +28,7 @@ import {
 } from '../src/core/network/resolveHttpFetch.js';
 import { handleResolveHttpSweep } from '../src/core/network/resolveHttpSweep.js';
 import { handleResolveMail } from '../src/core/emailit/handleResolveMail.js';
+import type { SpoolAccount } from '../src/core/emailit/spool.js';
 import { handleResolveOccupantFetch } from '../src/core/network/resolveOccupantFetch.js';
 import { handleResolveOccupantSweep } from '../src/core/network/resolveOccupantSweep.js';
 import type {
@@ -743,12 +744,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (error) console.error('[network] owner patches lookup error:', error);
       return { data: data as readonly OwnerPatchRow[] | null, error };
     };
+    // Every account with its inbox, in one request so the two tables are read as one
+    // moment: a message never comes back without its account. The order is the core's.
+    const findMailSpool = async () => {
+      const { data, error } = await supabase
+        .from('email_accounts')
+        .select(
+          'handle, password_md5, signed_up_at, messages:email_messages(number, sender, subject, body, delivered_at, read)',
+        );
+      if (error) console.error('[network] mail spool lookup error:', error);
+      return { data: data as readonly SpoolAccount[] | null, error };
+    };
     const { status, body } = await handleResolveCrossPlayerFs(req.body, {
       nonceStore: noopNonceStore,
       findOccupantWorkstationByMachineId,
       findActiveSession,
       findLastSessionEssid,
       findPatches,
+      findMailSpool,
     });
     res.status(status).json(body);
     return;
