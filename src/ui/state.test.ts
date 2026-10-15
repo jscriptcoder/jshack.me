@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { generateHomeLan } from '../core/generation/generateHomeLan.js';
 import { machineIdForLanHost } from '../core/generation/lanHostIdentity.js';
 import { lanLeaseCacheIn } from '../core/network/lanLeaseCache.js';
+import { getOrCreateIdentity } from '../core/identity/identity.js';
 import { contentHash } from '../core/patches/contentHash.js';
 import { CONNECTED_ESSID_KEY } from './connectionPersistence.js';
 import { buildRemoteHostFs } from '../core/generation/remoteHostFs.js';
@@ -4578,5 +4579,230 @@ describe('a message written in the editor', () => {
     state.closeOverlay();
 
     expect(await drafted).toBeNull();
+  });
+});
+
+describe('new mail while the terminal waits at its prompt', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  const ESSID = 'ferro-cafe';
+  const LAN = generateHomeLan(ESSID);
+  const MINUTE = 60_000;
+  const NOTICE = 'You have new mail.';
+
+  const listed = (number: number, read: boolean) => ({
+    number,
+    sender: 'trin@emailit.io',
+    subject: `message ${number}`,
+    delivered_at: '2026-10-15T09:12:03.123456+00:00',
+    read,
+  });
+
+  /**
+   * A terminal on the player's own box, online, with `mailutils` installed and a saved
+   * login in `~/.mailrc`, and an emailit.io that answers with whatever `inbox` holds at
+   * the moment it is asked (a 401 when it is `'login_failed'`). Only `setInterval` is
+   * faked, so the check's own requests still resolve; `visible` says whether the tab is
+   * on screen. Each earlier test left a terminal of its own listening on the same
+   * `document`, so only requests this test's player signed are answered and counted.
+   */
+  const mailTerminal = async () => {
+    vi.resetModules();
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+    let visible: DocumentVisibilityState = 'visible';
+    vi.spyOn(document, 'visibilityState', 'get').mockImplementation(() => visible);
+    const store = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => store.set(key, value),
+      removeItem: (key: string) => store.delete(key),
+    };
+    storage.setItem(CONNECTED_ESSID_KEY, ESSID);
+    lanLeaseCacheIn(storage).remember(ESSID, `${LAN.subnet}.77`);
+    vi.stubGlobal('localStorage', storage);
+    const player = getOrCreateIdentity(storage);
+
+    const everyone = ['root', 'user', 'guest'];
+    const journal = [
+      {
+        path: '/usr/bin/mail',
+        content: binaryStub('mail'),
+        owner: 'root',
+        permissions: { read: everyone, write: ['root'], execute: everyone },
+      },
+      {
+        path: '/home/tester/.mailrc',
+        content: 'set from=neo@emailit.io\nset password=s3cret\n',
+        owner: 'tester',
+        permissions: { read: ['root', 'user'], write: ['root', 'user'], execute: [] },
+      },
+    ];
+    const mail = {
+      inbox: [listed(1, true)] as ReturnType<typeof listed>[] | 'login_failed',
+      asked: 0,
+      /** Set to hold every inbox request until it is called. */
+      holdUntil: undefined as Promise<void> | undefined,
+    };
+    const json = (status: number, body: unknown) => ({
+      ok: status === 200,
+      status,
+      json: async () => body,
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_url: string, init?: { body?: string }) => {
+        const body = JSON.parse(init?.body ?? '{}') as { payload?: string; publicKey?: string };
+        const fields = JSON.parse(body.payload ?? '{}') as Record<string, unknown>;
+        if (body.publicKey !== player.publicKeyHex) return json(500, {});
+        if (fields.action === 'resolveMail' && fields.op === 'list') {
+          mail.asked += 1;
+          await mail.holdUntil;
+          return mail.inbox === 'login_failed'
+            ? json(401, { error: 'login_failed' })
+            : json(200, { ok: true, messages: mail.inbox });
+        }
+        return fields.action === 'listPatches'
+          ? json(200, { patches: journal })
+          : json(200, { patches: [], sessions: [] });
+      }),
+    );
+    const state = await import('./state.js');
+    state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
+    const printed = () => state.scrollback().map((line) => line.content);
+    const notices = () => printed().filter((line) => line === NOTICE).length;
+    const show = (now: DocumentVisibilityState) => {
+      visible = now;
+      document.dispatchEvent(new Event('visibilitychange'));
+    };
+    // The first check runs once the journal holding the login has landed.
+    await vi.waitFor(() => expect(mail.asked).toBe(1));
+    return { state, mail, printed, notices, show };
+  };
+
+  it('checks as the terminal opens, and says nothing when everything is read', async () => {
+    const { printed } = await mailTerminal();
+
+    await Promise.resolve();
+
+    expect(printed()).not.toContain(NOTICE);
+  });
+
+  it('announces a message that arrives, at the next minute, once', async () => {
+    const { mail, notices } = await mailTerminal();
+
+    mail.inbox = [listed(1, true), listed(2, false), listed(3, false)];
+    await vi.advanceTimersByTimeAsync(MINUTE / 2);
+    expect(mail.asked).toBe(1);
+    await vi.advanceTimersByTimeAsync(MINUTE / 2);
+    await vi.waitFor(() => expect(notices()).toBe(1));
+
+    await vi.advanceTimersByTimeAsync(MINUTE);
+    expect(mail.asked).toBe(3);
+    expect(notices()).toBe(1);
+  });
+
+  it('leaves whatever is half-typed as it was', async () => {
+    const { state, mail, notices } = await mailTerminal();
+    state.setInput('cat ~/no');
+
+    mail.inbox = [listed(1, true), listed(2, false)];
+    await vi.advanceTimersByTimeAsync(MINUTE);
+    await vi.waitFor(() => expect(notices()).toBe(1));
+
+    expect(state.input()).toBe('cat ~/no');
+  });
+
+  it('checks nothing while the tab is hidden, and checks at once when it is shown', async () => {
+    const { mail, notices, show } = await mailTerminal();
+
+    show('hidden');
+    mail.inbox = [listed(1, true), listed(2, false)];
+    await vi.advanceTimersByTimeAsync(3 * MINUTE);
+    expect(mail.asked).toBe(1);
+
+    show('visible');
+    await vi.waitFor(() => expect(notices()).toBe(1));
+    expect(mail.asked).toBe(2);
+  });
+
+  it('holds the notice while the editor is open, and prints it once the prompt is back', async () => {
+    const { state, mail, notices } = await mailTerminal();
+    void state.openCompose({ to: 'trin@emailit.io', subject: 'hi', content: '' });
+
+    mail.inbox = [listed(1, true), listed(2, false)];
+    await vi.advanceTimersByTimeAsync(MINUTE);
+    await vi.waitFor(() => expect(mail.asked).toBe(2));
+    await Promise.resolve();
+    expect(notices()).toBe(0);
+
+    state.closeOverlay();
+
+    expect(notices()).toBe(1);
+  });
+
+  it('holds the notice while a command waits at its password prompt', async () => {
+    const { state, mail, notices } = await mailTerminal();
+    state.setInput('mail passwd');
+    const running = state.runInput();
+    await vi.waitFor(() => expect(state.pendingPrompt()?.message).toBe('Old password: '));
+
+    mail.inbox = [listed(1, true), listed(2, false)];
+    await vi.advanceTimersByTimeAsync(MINUTE);
+    await vi.waitFor(() => expect(mail.asked).toBe(2));
+    await Promise.resolve();
+    expect(notices()).toBe(0);
+
+    state.cancelPrompt();
+    await running.catch(() => undefined);
+
+    expect(notices()).toBe(1);
+  });
+
+  it('never announces a message the player has already listed', async () => {
+    const { state, mail, printed, notices } = await mailTerminal();
+
+    mail.inbox = [listed(1, true), listed(2, false)];
+    state.setInput('mail');
+    await state.runInput();
+    expect(printed().join('\n')).toContain('message 2');
+    await vi.advanceTimersByTimeAsync(MINUTE);
+    await vi.waitFor(() => expect(mail.asked).toBe(3));
+    await Promise.resolve();
+
+    expect(notices()).toBe(0);
+  });
+
+  it('starts no check while another is still waiting on emailit.io', async () => {
+    const { mail, show } = await mailTerminal();
+    let answer: () => void = () => undefined;
+    mail.holdUntil = new Promise((resolve) => {
+      answer = resolve;
+    });
+
+    await vi.advanceTimersByTimeAsync(MINUTE);
+    show('visible');
+    await vi.advanceTimersByTimeAsync(MINUTE);
+    expect(mail.asked).toBe(2);
+
+    answer();
+    mail.holdUntil = undefined;
+    await vi.advanceTimersByTimeAsync(MINUTE);
+    await vi.waitFor(() => expect(mail.asked).toBe(3));
+  });
+
+  it('says once that the saved login failed, then stops asking with it', async () => {
+    const { mail, printed } = await mailTerminal();
+
+    mail.inbox = 'login_failed';
+    await vi.advanceTimersByTimeAsync(MINUTE);
+    await vi.waitFor(() => expect(printed()).toContain('mail: login failed for neo@emailit.io'));
+    await vi.advanceTimersByTimeAsync(3 * MINUTE);
+
+    expect(mail.asked).toBe(2);
+    expect(printed().filter((line) => line.startsWith('mail: login failed'))).toHaveLength(1);
   });
 });
