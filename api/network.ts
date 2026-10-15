@@ -27,6 +27,7 @@ import {
   type WebTargetDeps,
 } from '../src/core/network/resolveHttpFetch.js';
 import { handleResolveHttpSweep } from '../src/core/network/resolveHttpSweep.js';
+import { handleResolveMail } from '../src/core/emailit/handleResolveMail.js';
 import { handleResolveOccupantFetch } from '../src/core/network/resolveOccupantFetch.js';
 import { handleResolveOccupantSweep } from '../src/core/network/resolveOccupantSweep.js';
 import type {
@@ -444,6 +445,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           welcome_body: welcome.body,
         });
         logFailure('http-fetch email sign-up', error);
+        return { data: data as unknown, error };
+      },
+    });
+    res.status(status).json(body);
+    return;
+  }
+
+  if (actionOf(req.body) === 'resolveMail') {
+    // `mail`: an inbox opened to whoever holds its password. Reached through emailit.io's
+    // web server like a fetch, so a dark emailit.io has no mail; the password check and
+    // the inbox are one call into the function, and its answer is handed over as it came
+    // off the wire for the handler to read.
+    const { status, body } = await handleResolveMail(req.body, {
+      nonceStore: noopNonceStore,
+      ...webTargetDepsVia({ supabase, label: 'mail' }),
+      openInbox: async ({ handle, passwordMd5 }) => {
+        const { data, error } = await supabase.rpc('email_inbox', {
+          inbox_handle: handle,
+          inbox_password_md5: passwordMd5,
+        });
+        logFailure('mail inbox', error);
         return { data: data as unknown, error };
       },
     });

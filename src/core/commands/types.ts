@@ -1591,6 +1591,33 @@ export type WalletApi = {
   readonly transfer: (order: WalletTransferOrder) => Promise<WalletTransferResult>;
 };
 
+/** An emailit.io login: a handle and its password, sent with every request because
+ *  the server keeps no mail session. */
+export type MailLogin = {
+  readonly handle: string;
+  readonly password: string;
+};
+
+/** One message as `mail`'s list shows it. `number` is its place in the inbox, kept
+ *  until it is deleted. `deliveredAt` is the server's moment of delivery, ISO 8601. */
+export type InboxMessage = {
+  readonly number: number;
+  readonly sender: string;
+  readonly subject: string;
+  readonly deliveredAt: string;
+  readonly read: boolean;
+};
+
+export type InboxResult =
+  | { readonly ok: true; readonly messages: readonly InboxMessage[] }
+  /** `host_unreachable`: emailit.io did not answer. `login_failed`: a wrong password, or
+   *  a handle nobody holds, which the server does not tell apart. `network_error`: OUR
+   *  side failing to ask, or an answer that was not one. */
+  | {
+      readonly ok: false;
+      readonly error: 'host_unreachable' | 'login_failed' | 'network_error';
+    };
+
 // ---- The boundary ----
 
 export type CommandEnv = {
