@@ -3,7 +3,8 @@
 **Status**: Grilled, sliced and gap-reviewed. Decisions 1–27 confirmed by the owner 2026-10-14,
 28–41 from a find-gaps review the same day, 42–45 while planning slice 3 and 46–51 while
 planning slice 4 (2026-10-15). Slice 1 shipped at v0.384.0 (#681, 2026-10-15), slice 2 at
-v0.385.0 (#682, 2026-10-15) and slice 3 at v0.386.0 (#683, 2026-10-15); slice 4 is planned below.
+v0.385.0 (#682), slice 3 at v0.386.0 (#683) and slice 4 at v0.387.0 (#684, all 2026-10-15);
+slice 5 is next and needs its plan.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 
@@ -330,9 +331,9 @@ wire-check. One browser run at the end covers them all.
    list and `read`, and the offline and emailit.io-down answers; the guess throttle, stable
    numbers, scripted reads and read marks, and a stale login's error (decisions 28, 29, 32, 34,
    35, 37, 42, 44, 45). A player reads their welcome mail.
-4. **Sending mail.** `send`, `reply`, `delete`, the bounces, the size and rate limits, and the
-   inbox cap with system mail always delivered, and scripted `send` and `reply` (decisions 34,
-   46–51). Two players exchange mail.
+4. ✅ **Sending mail** (v0.387.0, #684). `send`, `reply`, `delete`, the bounces, the size and
+   rate limits, and the inbox cap with system mail always delivered, and scripted `send` and
+   `reply` (decisions 34, 46–51). Two players exchange mail.
 5. **Changing the password, and new-mail notices.** `mail passwd` and the background check of
    decisions 25, 26, 43 and 44.
 6. **emailit.io's root view.** `/var/mail/<handle>` and `/etc/emailit/passwd`, built from the
@@ -748,6 +749,30 @@ message → the command prints it. `mail login` asks the same RPC first, then wr
 
 **Branch**: `feat/mail-sending` · **Version**: 0.386.0 → 0.387.0 · **Class**: behaviour change ·
 **Delivery**: one PR against `main`, with a migration.
+
+**As built (2026-10-15, #684, merged as `f8f00a50`).** Shipped as planned, with these changes:
+
+- **One migration for the slice**, `20261015010000_email_sending.sql`: `email_sends` and
+  `email_send`, `email_read` recreated with `read_mark`, and `email_delete`. `email_sends` landed
+  with the send limit (increment 3), not with delivery.
+- **`mark` is required on a `read`**: a request that does not say whether to mark the message is
+  turned away, so no client can mark one read by leaving the field out.
+- **`send` needs a terminal only when typed, so the command asks itself.** `withoutTty` sees only
+  the arguments, and a typed `mail send trin hello there` and a script's
+  `mail('send', 'trin', 'hello', 'there')` are the same four words. The command checks
+  `env.scripted` and `hasTty` instead, as `msfconsole` does.
+- **A script's text stands where the player would have typed**, on the draft's empty first line,
+  so a scripted reply is the text, a newline, then the quote. An empty scripted body cancels, as
+  an empty draft does.
+- **`send` and `reply` share one `composeAndSend`**: editor (or script), cancel, the 4,000 check,
+  the send and its bounces.
+- **A reply to a sender at another domain is refused** before nano opens. No such sender exists
+  today; the check is what turns the sender into a handle.
+- **`Nano` takes a `title`, not a `path`**, so one editor serves files and messages, and closing
+  an overlay moved into `ui/state.ts`, where it hands a message back to the command waiting on it.
+- `scripts/testMailSend.ts` has 23 checks. The migration went to jshack-dev and jshack-prod before
+  the merge. Mutation 430/472 on the changed lines; the read and delete wiring in `ui/state.ts`
+  is left to the epic's closing browser run.
 
 **Value.** Two players mail each other: `mail send` writes a message in nano and it arrives in
 the other inbox, `mail reply` answers it with the history quoted, and `mail delete` clears it.
