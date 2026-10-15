@@ -1,9 +1,10 @@
 # Plan: email, at emailit.io
 
 **Status**: Grilled, sliced and gap-reviewed. Decisions 1–27 confirmed by the owner 2026-10-14,
-28–41 from a find-gaps review the same day, 42–45 while planning slice 3 (2026-10-15). Slice 1
-shipped at v0.384.0 (#681, 2026-10-15), slice 2 at v0.385.0 (#682, 2026-10-15) and slice 3 at
-v0.386.0 (#683, 2026-10-15); slice 4 is next and needs its plan.
+28–41 from a find-gaps review the same day, 42–45 while planning slice 3 and 46–51 while
+planning slice 4 (2026-10-15). Slice 1 shipped at v0.384.0 (#681, 2026-10-15), slice 2 at
+v0.385.0 (#682, 2026-10-15) and slice 3 at v0.386.0 (#683, 2026-10-15); slice 4 is next and
+needs its plan.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 
@@ -273,6 +274,40 @@ These replace decision 16's save question and decision 33's travelling login.
     `set password=s3cret`, each value running to the end of its line. Blank lines and lines
     starting with `#` are ignored, and a hand-written or copied file works exactly like one
     `mail login` wrote. A file missing either line makes `mail` print `mail: ~/.mailrc has no login`.
+
+## Decisions from slice 4 planning (owner-confirmed 2026-10-15)
+
+These settle what decisions 15, 18 and 20 left open about sending.
+
+46. **Ctrl-O writes the draft, Ctrl-X sends it.** In `send` and `reply`, nano's keys mean what
+    they mean for a file: Ctrl-O writes the draft and stays open, Ctrl-X closes the editor and
+    sends the draft as it was last written. Nothing written, or an empty draft, prints
+    `mail: send cancelled` (or `mail: reply cancelled`) and sends nothing. Edits after the last
+    Ctrl-O are lost, as an unsaved buffer is under a real `mail`. Rejected: Ctrl-X sending the
+    buffer as it stands, and a `Send message? (y/n)` question that file nano does not ask.
+47. **The domain is checked before nano opens; the rest at send.** `mail send bob@gmail.com hi`
+    is refused at once with `mail: bob@gmail.com: unknown domain`, asking no server and counting
+    nothing. `no such mailbox` and `mailbox full`, a reply to a system sender included, are found
+    when the message is sent, after Ctrl-X: the bounce prints, the draft is gone (there is no Sent
+    folder), and the send counts toward the 20 an hour. Rejected: asking the server before nano,
+    and saving a bounced draft to `~/dead.letter`.
+48. **A send, a reply or a delete that works prints nothing**, as real `mail` and `mail logout`
+    do. In a script it returns nothing.
+49. **`mail send trin hello there`** mails `trin@emailit.io` with the subject `hello there`. A bare
+    handle means `@emailit.io`, and the address is lowercased, as in `mail login`. The subject is
+    every word after the address and is required; without one `mail` prints its usage. In a
+    script the subject is exactly the third argument and the body the fourth:
+    `mail('send', 'trin', 'hello there', 'body text')`.
+50. **A reply opens on an empty line above the quoted original.** Every line of the original is
+    prefixed `> `, so its own quotes become `> > ` and the whole history comes along. No
+    `On … wrote:` line, as in the NPC mail already in the world. The subject is `Re: <subject>`,
+    never `Re: Re:`, cut to 80 characters. The quote counts toward the 4,000: a reply that grows
+    past it is refused, and the player trims it.
+51. **Size limits on the client, the rate limit on the server.** A subject over 80 characters is
+    refused before nano opens with `mail: subject too long`; a body over 4,000 after Ctrl-X with
+    `mail: message too long`. Neither reaches the server or counts. The 21st send in an hour is
+    found only at send and prints `mail: too many messages sent, wait an hour`; the draft is gone.
+    The server enforces all three regardless of what the client checked.
 
 ## Out of scope
 
