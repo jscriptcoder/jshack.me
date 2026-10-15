@@ -3,8 +3,8 @@
 **Status**: Grilled, sliced and gap-reviewed. Decisions 1–27 confirmed by the owner 2026-10-14,
 28–41 from a find-gaps review the same day, 42–45 while planning slice 3, 46–51 while planning
 slice 4 and 52–54 while planning slice 5 (2026-10-15). Slice 1 shipped at v0.384.0 (#681,
-2026-10-15), slice 2 at v0.385.0 (#682), slice 3 at v0.386.0 (#683) and slice 4 at v0.387.0
-(#684, all 2026-10-15); slice 5 is planned below.
+2026-10-15), slice 2 at v0.385.0 (#682), slice 3 at v0.386.0 (#683), slice 4 at v0.387.0 (#684)
+and slice 5 at v0.388.0 (#685, all 2026-10-15); slice 6 is next and needs its plan.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 
@@ -361,8 +361,8 @@ wire-check. One browser run at the end covers them all.
 4. ✅ **Sending mail** (v0.387.0, #684). `send`, `reply`, `delete`, the bounces, the size and
    rate limits, and the inbox cap with system mail always delivered, and scripted `send` and
    `reply` (decisions 34, 46–51). Two players exchange mail.
-5. **Changing the password, and new-mail notices.** `mail passwd` and the background check of
-   decisions 25, 26, 43, 44 and 52–54.
+5. ✅ **Changing the password, and new-mail notices** (v0.388.0, #685). `mail passwd` and the
+   background check of decisions 25, 26, 43, 44 and 52–54.
 6. **emailit.io's root view.** `/var/mail/<handle>` and `/etc/emailit/passwd`, built from the
    tables, read-only, and built only for a root caller (decision 31).
 
@@ -935,6 +935,24 @@ nothing, or the refusal.
 
 **Branch**: `feat/mail-passwd-and-notices` · **Version**: 0.387.0 → 0.388.0 · **Class**:
 behaviour change · **Delivery**: one PR against `main`, with a migration.
+
+**As built (2026-10-15, #685, merged as `aa632d64`).** Shipped as planned, with these changes:
+
+- **`email_passwd` locks the account row before the check**, so of two changes at once the first
+  wins and the second is told its login failed (decision 17's "whoever changes it first").
+- **`savedLogin` hands back the file's contents** with the login, so the check keys a failed file
+  by exactly what it read, in one read.
+- **`markSeen` is the one rule for raising a mark**, shared by `checkMail` and the terminal's
+  `env.mailSeen`; a check that ran while a typed list raised a mark is merged in through it.
+- **`executeLine`'s env build became `shellEnv(session, patches, signal)`**, so the check builds
+  exactly the env a typed `mail` runs in.
+- **The notice is held for a running command, an overlay or a sub-shell only.** A password prompt
+  was dropped from the list: it only ever waits inside a running command, so no test could fail
+  on it.
+- **A leaked listener is harmless by construction**: every trigger calls one guarded check, so a
+  second call while one is out returns at once.
+- `scripts/testMailPasswd.ts` has 12 checks. The migration went to jshack-dev and jshack-prod
+  before the merge. Mutation 288/305 on the changed lines; `mail.ts` and the handler fully killed.
 
 **Value.** Whoever holds an address's password can take it: `mail passwd` changes it, cutting off
 every other copy of the old one, a victim's saved login included. The victim finds out because
