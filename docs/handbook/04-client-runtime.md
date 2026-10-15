@@ -338,10 +338,13 @@ one `overlayMode` signal, so two overlays at once cannot be represented.
   answers `modified_since_open`, nano asks `File was modified since you opened it, continue saving?
 (y/n)`; `y` retries as an unconditional write.
 - **Lynx** (`Lynx.tsx`): a text-mode browser over `renderPage()`. Arrow keys select links and form
-  fields, Enter follows or submits (GET forms only), ← goes back, `q` quits. Following a link calls
+  fields, Enter follows or submits, ← goes back, `q` quits. Following a link calls
   `followLink` in `state.ts`: it needs a WiFi association, resolves the host, fetches public
   addresses through the server and LAN addresses locally (which also appends an access-log line on
-  the web server).
+  the web server). A GET form follows its action with the fields in the query; a POST form sends
+  them as the body, the way `curl -d` does. The trail keeps only addresses, so Back GETs a page
+  reached by POST and never sends a form again, and only one request is out at a time. A password
+  field is drawn `[]` (`[_]` while typed into) whatever it holds.
 - **Author**: a static card with the author's links. It loads the only external asset in the game
   (a GitHub avatar).
 

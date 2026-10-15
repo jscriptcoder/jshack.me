@@ -120,7 +120,10 @@ export const lynx: Command = {
       'headings, paragraphs, lists, tables in columns and preformatted text as written — ' +
       'rather than as the markup `curl` prints, so comments ' +
       'and scripts are not shown. Links are numbered: use the arrow keys to select one and ' +
-      'Enter to follow it, and Left Arrow or Backspace to go back. Press q or Escape to return ' +
+      'Enter to follow it, and Left Arrow or Backspace to go back. Select a field and type to ' +
+      'fill in a form, and press Enter to send it; a password field never shows what is typed ' +
+      'into it, and Escape leaves a field. Going back never sends a form again. Press q or ' +
+      'Escape to return ' +
       'to the terminal. Reaches hosts on the network you are on — your own at home, or the ' +
       'network of a box you have a shell on — including your own address once you ' +
       'are running a web server, and any public IP that forwards its web port — by its address or ' +
@@ -140,6 +143,10 @@ export const lynx: Command = {
       {
         command: 'lynx ridgemont.edu',
         description: "Read an institution's homepage by its domain, no scheme needed",
+      },
+      {
+        command: 'lynx emailit.io',
+        description: 'Sign up for an email address by filling in the form',
       },
       {
         command: 'lynx http://203.0.113.7',

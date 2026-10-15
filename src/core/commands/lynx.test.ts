@@ -691,3 +691,15 @@ describe('lynx at a fellow occupant of the network', () => {
     );
   });
 });
+
+describe('the lynx manual', () => {
+  it('says how a form is filled in and sent, with signing up at emailit.io as the example', () => {
+    expect(lynx.manual?.description).toContain(
+      'Select a field and type to fill in a form, and press Enter to send it',
+    );
+    expect(lynx.manual?.examples).toContainEqual({
+      command: 'lynx emailit.io',
+      description: 'Sign up for an email address by filling in the form',
+    });
+  });
+});
