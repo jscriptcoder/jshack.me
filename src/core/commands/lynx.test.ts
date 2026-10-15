@@ -697,6 +697,9 @@ describe('the lynx manual', () => {
     expect(lynx.manual?.description).toContain(
       'Select a field and type to fill in a form, and press Enter to send it',
     );
+    expect(lynx.manual?.description).toContain(
+      'Going back never sends a form again. Press q or Escape to return to the terminal.',
+    );
     expect(lynx.manual?.examples).toContainEqual({
       command: 'lynx emailit.io',
       description: 'Sign up for an email address by filling in the form',

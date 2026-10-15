@@ -50,7 +50,7 @@ describe('the front page of emailit.io', () => {
 
     expect(form?.getAttribute('action')).toBe('/signup');
     expect(form?.getAttribute('method')).toBe('post');
-    expect(form?.querySelector('input[name="handle"]')).not.toBeNull();
+    expect(form?.querySelector('input[name="handle"]')?.getAttribute('value')).toBe('');
     expect(form?.querySelector('input[name="password"]')?.getAttribute('type')).toBe('password');
     expect(form?.querySelector('input[type="submit"]')?.getAttribute('value')).toBe('Sign up');
   });

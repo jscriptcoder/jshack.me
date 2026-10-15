@@ -46,7 +46,7 @@
  */
 
 import { For, Show, createEffect, createMemo, createSignal, on, onMount } from 'solid-js';
-import { fieldBox, renderPage, type FormTarget, type Segment } from '../renderPage.js';
+import { fieldBox, renderPage, type Segment } from '../renderPage.js';
 import { encodeForm, formSubmissionUrl } from '../../core/network/http.js';
 
 /** What became of a follow: the reader moved (and new props are on their way), or
@@ -83,9 +83,8 @@ type Selectable = Exclude<Segment, { readonly kind: 'text' }>;
 
 type Field = Extract<Selectable, { readonly kind: 'field' }>;
 
-/** The form pressing Enter on `selectable` sends, or null when it sends nothing. */
-const sendingForm = (selectable: Selectable): FormTarget | null =>
-  selectable.kind === 'link' ? null : selectable.form;
+/** A field or a form's button: what Enter sends a form from. */
+type Control = Exclude<Selectable, { readonly kind: 'link' }>;
 
 export const Lynx = (props: LynxProps) => {
   let screen: HTMLElement | undefined;
@@ -180,8 +179,8 @@ export const Lynx = (props: LynxProps) => {
 
   /** Send the form `control` belongs to: every field of that form, and no other's. A
    *  field with no name has nothing to be sent as, so a browser leaves it out. */
-  const submit = async (control: Selectable) => {
-    const form = sendingForm(control);
+  const submit = async (control: Control) => {
+    const form = control.form;
     if (form === null) return;
     const fields = selectables().flatMap((segment) =>
       segment.kind === 'field' && segment.form?.id === form.id && segment.name !== ''
@@ -274,7 +273,7 @@ export const Lynx = (props: LynxProps) => {
     const target = current();
     if (target === undefined) return [];
     if (target.kind === 'link') return ['⏎ Follow'];
-    return sendingForm(target) === null ? [] : ['⏎ Submit'];
+    return target.form === null ? [] : ['⏎ Submit'];
   };
 
   /** Only the keys that lead somewhere from here — a hint for a door that is not
