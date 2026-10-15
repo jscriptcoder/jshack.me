@@ -1646,7 +1646,8 @@ export type OutgoingMail = {
 export type SendResult =
   | { readonly ok: true }
   /** As an inbox's, and the two bounces: `no_mailbox`, nobody holds the recipient's handle
-   *  (a system sender included); `mailbox_full`, the recipient's inbox is at its cap. */
+   *  (a system sender included); `mailbox_full`, the recipient's inbox is at its cap. And
+   *  `send_limited`: this player has sent 20 in the last hour, and nothing went. */
   | {
       readonly ok: false;
       readonly error:
@@ -1655,6 +1656,7 @@ export type SendResult =
         | 'throttled'
         | 'no_mailbox'
         | 'mailbox_full'
+        | 'send_limited'
         | 'network_error';
     };
 

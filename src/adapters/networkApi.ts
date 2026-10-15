@@ -355,14 +355,15 @@ export const readMailMessage = async (
   }
 };
 
-/** The refusals emailit.io gives for a message on its way out: an inbox's, and the two
- *  bounces. */
+/** The refusals emailit.io gives for a message on its way out: an inbox's, the two
+ *  bounces, and the hour's limit. */
 const SEND_REFUSALS = [
   'host_unreachable',
   'login_failed',
   'throttled',
   'no_mailbox',
   'mailbox_full',
+  'send_limited',
 ] as const;
 
 /**

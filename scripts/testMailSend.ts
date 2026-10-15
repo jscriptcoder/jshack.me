@@ -11,6 +11,10 @@
 //     nothing and is counted against the guesser's key.
 //   - SIZES ARE COUNTED AS A READER COUNTS THEM. An 81-character subject is turned away
 //     before the store; 80 emoji are one subject of 80 characters, and delivered.
+//   - SENDS ARE HELD TO 20 AN HOUR PER SENDER. Bounces count; a failed login and a send
+//     turned away before the store do not. The 21st is refused and delivers nothing, while
+//     another player is not held back, and once the oldest send is an hour old the next
+//     goes. Parallel sends queue on the lock: 25 at once go 20 and are refused 5.
 //   - A DARK EMAILIT.IO DELIVERS NOTHING.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
@@ -115,11 +119,22 @@ const failuresOf = async (player: Identity): Promise<number> => {
   return count ?? 0;
 };
 
+const sendsOf = async (player: Identity): Promise<readonly string[]> => {
+  const { data, error } = await sr
+    .from('email_sends')
+    .select('sent_at')
+    .eq('player_key', player.publicKeyHex)
+    .order('sent_at');
+  if (error) throw new Error(`send count failed: ${error.message}`);
+  return ((data ?? []) as readonly { sent_at: string }[]).map((row) => row.sent_at);
+};
+
 const cleanup = async () => {
   const keys = players.map((player) => player.publicKeyHex);
   if (keys.length > 0) {
     await sr.from('email_accounts').delete().in('signed_up_by', keys);
     await sr.from('email_login_failures').delete().in('player_key', keys);
+    await sr.from('email_sends').delete().in('player_key', keys);
   }
   // The brick, if a failed run left it behind.
   await sr.from('patches').delete().eq('machine_id', EMAILIT_MACHINE).eq('path', '/boot/vmlinuz');
@@ -225,7 +240,64 @@ const main = async () => {
     `status ${wide.status} ${JSON.stringify(wide.body)}`,
   );
 
-  // 5. A DARK EMAILIT.IO DELIVERS NOTHING.
+  // 5. SENDS ARE HELD TO 20 AN HOUR PER SENDER.
+  const neoSends = (await sendsOf(neo)).length;
+  check(
+    'bounces count as sends, and sends turned away before the store do not',
+    neoSends === 6,
+    `${neoSends} counted for 3 delivered, 3 bounced and 1 turned away`,
+  );
+  const strangerSends = (await sendsOf(stranger)).length;
+  check('a failed login counts as no send', strangerSends === 0, `${strangerSends} counted`);
+
+  const spammer = newPlayer();
+  const spam = `spam${RUN}`;
+  await signUp(spammer, spam);
+  for (let i = 0; i < 19; i++) {
+    await send(spammer, { handle: spam, to: spam, subject: `spam ${i}` });
+  }
+  await send(spammer, { handle: spam, to: `ghost${RUN}` });
+  const limited = await send(spammer, { handle: spam, to: spam, subject: 'one too many' });
+  const spamHeld = (await inboxOf(spammer, spam)).length;
+  check(
+    'the 21st send in an hour is refused as send_limited and delivers nothing',
+    limited.status === 429 && errorOf(limited.body) === 'send_limited' && spamHeld === 20,
+    `status ${limited.status} ${JSON.stringify(limited.body)}, ${spamHeld} in the inbox`,
+  );
+  const other = await send(neo, { handle: from, to: from, subject: 'not held' });
+  check('another player is not held back', other.status === 200, `status ${other.status}`);
+
+  const [oldest] = await sendsOf(spammer);
+  const { error: ageError } = await sr
+    .from('email_sends')
+    .update({ sent_at: new Date(Date.now() - 61 * 60 * 1000).toISOString() })
+    .eq('player_key', spammer.publicKeyHex)
+    .eq('sent_at', oldest ?? '');
+  if (ageError) throw new Error(`ageing failed: ${ageError.message}`);
+  const later = await send(spammer, { handle: spam, to: spam, subject: 'an hour on' });
+  check(
+    'once the oldest send is an hour old, the next goes',
+    later.status === 200 && (await sendsOf(spammer)).length === 20,
+    `status ${later.status} ${JSON.stringify(later.body)}`,
+  );
+
+  const swarm = newPlayer();
+  const swarmHandle = `swarm${RUN}`;
+  await signUp(swarm, swarmHandle);
+  const burst = await Promise.all(
+    Array.from({ length: 25 }, (_unused, index) =>
+      send(swarm, { handle: swarmHandle, to: swarmHandle, subject: `burst ${index}` }),
+    ),
+  );
+  const went = burst.filter((sent) => sent.status === 200).length;
+  const refused = burst.filter((sent) => errorOf(sent.body) === 'send_limited').length;
+  check(
+    '25 sends at once go 20 and are refused 5',
+    went === 20 && refused === 5 && (await sendsOf(swarm)).length === 20,
+    `${went} went, ${refused} refused`,
+  );
+
+  // 6. A DARK EMAILIT.IO DELIVERS NOTHING.
   const { error: brickError } = await sr.from('patches').upsert(
     {
       machine_id: EMAILIT_MACHINE,

@@ -255,6 +255,8 @@ const charactersIn = (text: string): number => [...text].length;
 const unsent = (saved: Saved, to: string, error: Exclude<SendResult, { ok: true }>['error']) => {
   if (error === 'no_mailbox') return refusal(`mail: ${to}: no such mailbox`);
   if (error === 'mailbox_full') return refusal(`mail: ${to}: mailbox full`);
+  // 20 sends in the last hour, bounces included; the draft is gone with this one.
+  if (error === 'send_limited') return refusal('mail: too many messages sent, wait an hour');
   return unanswered(saved, error);
 };
 

@@ -334,6 +334,7 @@ describe('emailit.io delivers a message from whoever holds the password', () => 
     ['throttled', 429],
     ['no_mailbox', 404],
     ['mailbox_full', 409],
+    ['send_limited', 429],
   ])('passes on a refusal of %s as %i', async (outcome, status) => {
     const { deps } = makeDeps({
       sendMessage: async () => ({ data: { outcome }, error: null }),

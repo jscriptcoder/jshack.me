@@ -23,6 +23,11 @@
  * last minute (`throttled`). No account is ever locked, so nobody can lock anybody out
  * of their mail by guessing at it.
  *
+ * Sends are held back per sender the same way: 20 in the last hour by one player's key,
+ * from whichever addresses, and the next is refused (`send_limited`) until the oldest is
+ * an hour old. A bounce counts, so probing handles by mailing them is held to 20 an hour
+ * too; a failed login is no send and counts nothing.
+ *
  * Mail leaves no line in emailit.io's `access.log`. It is not a page fetch, and a check
  * for new mail every minute would bury the log.
  */
@@ -98,6 +103,7 @@ const sendAnswerSchema = z.discriminatedUnion('outcome', [
   z.object({ outcome: z.literal('throttled') }),
   z.object({ outcome: z.literal('no_mailbox') }),
   z.object({ outcome: z.literal('mailbox_full') }),
+  z.object({ outcome: z.literal('send_limited') }),
 ]);
 
 /** A string of at most `limit` characters as a reader counts them: an emoji is one,
@@ -141,6 +147,7 @@ const STATUS_BY_REFUSAL = {
   no_message: 404,
   no_mailbox: 404,
   mailbox_full: 409,
+  send_limited: 429,
 } as const;
 
 const refused = (outcome: keyof typeof STATUS_BY_REFUSAL): HandlerResponse => ({

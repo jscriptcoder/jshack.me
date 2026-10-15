@@ -982,6 +982,7 @@ describe('mail send — a message written in nano, delivered to another inbox', 
   it.each([
     [{ ok: false, error: 'no_mailbox' } as const, 'mail: trin@emailit.io: no such mailbox'],
     [{ ok: false, error: 'mailbox_full' } as const, 'mail: trin@emailit.io: mailbox full'],
+    [{ ok: false, error: 'send_limited' } as const, 'mail: too many messages sent, wait an hour'],
     [{ ok: false, error: 'login_failed' } as const, 'mail: login failed for neo@emailit.io'],
     [{ ok: false, error: 'throttled' } as const, 'mail: too many failed logins, wait a minute'],
     [{ ok: false, error: 'host_unreachable' } as const, 'mail: cannot reach emailit.io'],

@@ -1049,6 +1049,7 @@ describe('sendMail', () => {
   it.each([
     [404, { error: 'no_mailbox' }, 'no_mailbox'],
     [409, { error: 'mailbox_full' }, 'mailbox_full'],
+    [429, { error: 'send_limited' }, 'send_limited'],
     [401, { error: 'login_failed' }, 'login_failed'],
     [429, { error: 'throttled' }, 'throttled'],
     [404, { error: 'host_unreachable' }, 'host_unreachable'],
