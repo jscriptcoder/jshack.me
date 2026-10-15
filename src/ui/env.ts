@@ -111,6 +111,8 @@ export type BuildCommandEnvArgs = {
   /** The editor a message is written in — backs `env.compose`. The UI opens nano on the
    *  draft and resolves with what was last written out when it closes. */
   readonly compose?: CommandEnv['compose'];
+  /** Backs `env.mailSeen` — the terminal's memory of the mail it has shown. */
+  readonly onMailSeen?: CommandEnv['mailSeen'];
   /** Writer — `su` (and later ssh/nc) call this (via `env.pushSession`) to push
    *  a new active session onto the stack. The UI owns the session signal. */
   readonly onPushSession: (session: Session) => void;
@@ -590,6 +592,8 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   prompt: args.prompt,
   // Loud when unwired: an editor that closed on its own would cancel every message.
   compose: args.compose ?? notWired('compose'),
+  // Quiet when unwired: forgetting what was shown costs no more than a notice repeated.
+  mailSeen: args.onMailSeen ?? (() => undefined),
   pushSession: args.onPushSession,
   popSession: args.onPopSession,
   resetGame: args.onResetGame ?? notWired('resetGame'),

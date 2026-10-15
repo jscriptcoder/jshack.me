@@ -1776,6 +1776,10 @@ export type CommandEnv = {
    *  real `mail`. The command decides what then happens to it; the editor only edits. */
   readonly compose: (draft: MailDraft) => Promise<string | null>;
 
+  /** Tell the terminal it has shown an address's mail up to message `highest`, so the
+   *  check for new mail never announces what the player has already seen. */
+  readonly mailSeen: (address: string, highest: number) => void;
+
   /** Elevate/switch the active session by pushing a new one onto the hop chain
    *  (sibling to `setCwd`/`setInterface`). The UI owns the session stack and
    *  reflects the new active session (prompt, tier) on the next command's env.

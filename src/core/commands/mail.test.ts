@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { checkMail, mail, type MailWatch } from './mail.js';
+import { checkMail, mail, markSeen, type MailWatch } from './mail.js';
 import { buildCommandContext } from '../scripting/commandContext.js';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
 import {
@@ -160,6 +160,8 @@ const mailEnv = (
   readonly sent: readonly { readonly login: MailLogin; readonly mail: OutgoingMail }[];
   readonly deleted: readonly { readonly login: MailLogin; readonly number: number }[];
   readonly changed: readonly { readonly login: MailLogin; readonly newPassword: string }[];
+  /** Every address the terminal was told it showed, with the highest number shown. */
+  readonly seen: readonly (readonly [string, number])[];
   /** Whether each write told the box the file was new. */
   readonly writtenAsNew: readonly boolean[];
   readonly treeAfter: () => Directory;
@@ -171,6 +173,7 @@ const mailEnv = (
   const sent: { readonly login: MailLogin; readonly mail: OutgoingMail }[] = [];
   const deleted: { readonly login: MailLogin; readonly number: number }[] = [];
   const changed: { readonly login: MailLogin; readonly newPassword: string }[] = [];
+  const seen: (readonly [string, number])[] = [];
   const writtenAsNew: boolean[] = [];
   const journal: Patch[] = [];
   const answers = [...(options.typed ?? [])];
@@ -185,6 +188,9 @@ const mailEnv = (
     prompt: async (asking) => {
       prompted.push(asking);
       return answers.shift() ?? '';
+    },
+    mailSeen: (address, highest) => {
+      seen.push([address, highest]);
     },
     compose: async (draft) => {
       composed.push(draft);
@@ -240,6 +246,7 @@ const mailEnv = (
     sent,
     deleted,
     changed,
+    seen,
     writtenAsNew,
     treeAfter: () => applyPatches(tree, journal),
   };
@@ -1506,6 +1513,108 @@ describe('mail passwd — a new password, saved where the old one was', () => {
 
     expect(linesOf(result, 'error')).toEqual([USAGE]);
     expect(prompted).toEqual([]);
+  });
+});
+
+describe('mail — what the terminal is told it has shown', () => {
+  it('tells it the address listed and the highest number in the list', async () => {
+    const { env, seen } = mailEnv({
+      answers: { ok: true, messages: [message({ number: 3 }), message({ number: 7 })] },
+    });
+
+    await mail.execute(env, [], NO_FLAGS);
+
+    expect(seen).toEqual([['neo@emailit.io', 7]]);
+  });
+
+  it('tells it an empty inbox was shown, as nothing', async () => {
+    const { env, seen } = mailEnv({ answers: { ok: true, messages: [] } });
+
+    await mail.execute(env, [], NO_FLAGS);
+
+    expect(seen).toEqual([['neo@emailit.io', 0]]);
+  });
+
+  it('tells it nothing when no list came back', async () => {
+    const { env, seen } = mailEnv({ answers: { ok: false, error: 'login_failed' } });
+
+    await mail.execute(env, [], NO_FLAGS);
+
+    expect(seen).toEqual([]);
+  });
+
+  it('tells it what login counted, since the count was the news', async () => {
+    const { env, seen } = mailEnv({
+      tree: boxWith({}),
+      typed: ['Neo', 's3cret'],
+      answers: { ok: true, messages: [message(), message({ number: 4 })] },
+    });
+
+    await mail.execute(env, ['login'], NO_FLAGS);
+
+    expect(seen).toEqual([['neo@emailit.io', 4]]);
+  });
+
+  it('tells it nothing when a login fails', async () => {
+    const { env, seen } = mailEnv({
+      tree: boxWith({}),
+      typed: ['neo', 'wrong'],
+      answers: { ok: false, error: 'login_failed' },
+    });
+
+    await mail.execute(env, ['login'], NO_FLAGS);
+
+    expect(seen).toEqual([]);
+  });
+
+  it('tells it nothing for one message read, which says nothing of what else arrived', async () => {
+    const { env, seen } = mailEnv();
+
+    await mail.execute(env, ['read', '1'], NO_FLAGS);
+
+    expect(seen).toEqual([]);
+  });
+});
+
+describe('markSeen — a mark raised by what the terminal showed', () => {
+  const NOTHING_WATCHED: MailWatch = { marks: new Map(), stale: new Set() };
+
+  it('marks an address not watched yet at the highest number shown', () => {
+    expect(markSeen(NOTHING_WATCHED, 'neo@emailit.io', 3).marks).toEqual(
+      new Map([['neo@emailit.io', 3]]),
+    );
+  });
+
+  it('never lowers a mark, since a number is never given out twice', () => {
+    const watched: MailWatch = { marks: new Map([['neo@emailit.io', 5]]), stale: new Set() };
+
+    expect(markSeen(watched, 'neo@emailit.io', 3)).toEqual(watched);
+  });
+
+  it('leaves the other addresses and the stale files as they were', () => {
+    const watched: MailWatch = {
+      marks: new Map([['trin@emailit.io', 9]]),
+      stale: new Set([NEO_MAILRC]),
+    };
+
+    expect(markSeen(watched, 'neo@emailit.io', 2)).toEqual({
+      marks: new Map([
+        ['trin@emailit.io', 9],
+        ['neo@emailit.io', 2],
+      ]),
+      stale: new Set([NEO_MAILRC]),
+    });
+  });
+
+  it('keeps a message already listed from being announced', async () => {
+    const { env } = mailEnv({
+      tree: boxWith({ aliceRc: NEO_MAILRC, mailRunBy: ['root', 'user', 'guest'] }),
+      answers: { ok: true, messages: [message(), message({ number: 2 })] },
+    });
+
+    const checked = await checkMail(env, markSeen(NOTHING_WATCHED, 'neo@emailit.io', 2));
+
+    expect(checked.lines).toEqual([]);
   });
 });
 

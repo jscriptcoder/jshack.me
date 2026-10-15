@@ -198,9 +198,15 @@ const said = (lines: readonly string[]): CommandResult => ({
   exitCode: 0,
 });
 
+/** The highest number in an inbox, or 0 for an empty one. Numbers only grow, so it is
+ *  the newest message there. */
+const highestIn = (messages: readonly InboxMessage[]): number =>
+  Math.max(0, ...messages.map((message) => message.number));
+
 const list = async (env: CommandEnv, saved: Saved): Promise<CommandResult> => {
   const inbox = await env.mail.inbox(saved.login);
   if (!inbox.ok) return unanswered(saved, inbox.error);
+  env.mailSeen(saved.address, highestIn(inbox.messages));
   return said(
     inbox.messages.length === 0 ? [`No mail for ${saved.address}`] : inbox.messages.map(listLine),
   );
@@ -269,6 +275,7 @@ const login = async (env: CommandEnv): Promise<CommandResult> => {
   if (!written.ok) {
     return refusal(`mail: can't create '${path}': ${PATCH_ERROR_REASON[written.error]}`);
   }
+  env.mailSeen(address, highestIn(inbox.messages));
   return said([newMail(inbox.messages)]);
 };
 
@@ -497,6 +504,13 @@ export type MailWatch = {
   readonly stale: ReadonlySet<string>;
 };
 
+/** A watch with `address` marked as shown up to `highest`. A mark never goes down: a
+ *  number is never given to another message, so whatever is above it is new. */
+export const markSeen = (watch: MailWatch, address: string, highest: number): MailWatch => ({
+  ...watch,
+  marks: new Map([...watch.marks, [address, Math.max(watch.marks.get(address) ?? 0, highest)]]),
+});
+
 /**
  * Check for new mail: `mail` run quietly where the shell stands, as whoever it stands as.
  *
@@ -535,15 +549,12 @@ export const checkMail = async (
   if (!inbox.ok) return quiet;
 
   const mark = watch.marks.get(saved.address);
-  const highest = Math.max(0, ...inbox.messages.map((message) => message.number));
+  const highest = highestIn(inbox.messages);
   const arrived =
     mark === undefined ? inbox.messages.some((message) => !message.read) : highest > mark;
   return {
     lines: arrived ? [{ kind: 'text', content: 'You have new mail.' }] : [],
-    watch: {
-      ...watch,
-      marks: new Map([...watch.marks, [saved.address, Math.max(mark ?? 0, highest)]]),
-    },
+    watch: markSeen(watch, saved.address, highest),
   };
 };
 

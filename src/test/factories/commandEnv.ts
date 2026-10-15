@@ -372,6 +372,7 @@ export const mockCommandEnv = (overrides: Partial<CommandEnv> = {}): CommandEnv 
   setInterface: () => undefined,
   prompt: NOT_IMPLEMENTED('prompt'),
   compose: NOT_IMPLEMENTED('compose'),
+  mailSeen: () => undefined,
   pushSession: () => undefined,
   popSession: () => undefined,
   resetGame: () => undefined,
