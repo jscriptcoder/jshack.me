@@ -1,8 +1,8 @@
 # Plan: email, at emailit.io
 
 **Status**: Grilled, sliced and gap-reviewed. Decisions 1–27 confirmed by the owner 2026-10-14,
-28–41 from a find-gaps review the same day. Slice 1 shipped at v0.384.0 (#681, 2026-10-15);
-slice 2 is planned (below) and next to build.
+28–41 from a find-gaps review the same day. Slice 1 shipped at v0.384.0 (#681, 2026-10-15) and
+slice 2 at v0.385.0 (#682, 2026-10-15); slice 3 is next and needs its plan.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 
@@ -258,7 +258,7 @@ wire-check. One browser run at the end covers them all.
    38–40). Every other server answers a POST with 405, and the access log records the real method
    (decision 30). The real-password line on Intro. A player who signs up reads `Welcome, neo@emailit.io`; a second
    sign-up for the same handle is refused.
-2. **lynx sends POST forms**, and Back never resends one. A lynx player signs up from the front
+2. ✅ **lynx sends POST forms** (v0.385.0, #682), and Back never resends one. A lynx player signs up from the front
    page.
 3. **Reading mail.** `mailutils`, `mail login` with `~/.mailrc`, auto-login, `logout`, the list and
    `read`, and the offline and emailit.io-down answers; the guess throttle, stable numbers, the
@@ -419,6 +419,21 @@ transaction: cap, handle, account, welcome mail) → page back → line in email
 
 **Branch**: `feat/lynx-post-forms` · **Version**: 0.384.0 → 0.385.0 · **Class**: behaviour change ·
 **Delivery**: one PR against `main`.
+
+**As built (2026-10-15, #682, merged as `8bc97a5e`).** Shipped as planned, with these changes:
+
+- **`onFollow` and `followLink` take `(url, body?)`**, not `{ url, body }`: unambiguous, and every
+  existing caller and test stayed as it was.
+- **The masked drawing landed with the renderer**, not with the submit: once a password was a
+  field, lynx drew what it held, so the two had to ship together.
+- **`followLink` came before the screen's submit**, so no commit had lynx sending a form that
+  `followLink` dropped.
+- **`encodeForm` in `http.ts`** encodes a GET form's query and a POST form's body alike.
+- **`sendingForm` is gone**: every caller had already handled links, so Lynx reads the form off
+  the field or button.
+- Slice 1's test that `GET /signup` is a 404 was flipped: it now serves the form and signs nobody
+  up.
+- `scripts/testEmailitSignup.ts` has 18 checks (two for `GET /signup`).
 
 **Value.** A lynx player signs up at emailit.io from its front page: types a handle and a
 password, presses Enter, and reads `Welcome, neo@emailit.io`. Going Back never sends the form
