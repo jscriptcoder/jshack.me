@@ -297,6 +297,7 @@ export const mockWalletApi = (overrides: Partial<WalletApi> = {}): WalletApi => 
  *  must be loud rather than list an empty inbox or a failed login. */
 export const mockMailApi = (overrides: Partial<MailApi> = {}): MailApi => ({
   inbox: NOT_IMPLEMENTED('mail.inbox'),
+  read: NOT_IMPLEMENTED('mail.read'),
   ...overrides,
 });
 

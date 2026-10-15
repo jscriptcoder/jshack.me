@@ -30,7 +30,7 @@ import { siteAddress } from '../generation/publisher.js';
 import { EMAILIT_DOMAIN } from '../generation/fixedSites.js';
 import { md5 } from '../generation/md5.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
-import { listedMessageSchema } from './inbox.js';
+import { listedMessageSchema, openedMessageSchema } from './inbox.js';
 
 /** Whose inbox is asked for, and by which player: the handle, the md5 of the password
  *  given for it, and the key that signed the request. */
@@ -46,14 +46,27 @@ export type OpenInbox = (
   login: InboxLogin,
 ) => Promise<{ readonly data: unknown; readonly error: unknown }>;
 
+/** Open one message by its number and mark it read, or say the login failed or the
+ *  inbox holds no such message: the store's reply as it came off the wire, read here. */
+export type OpenMessage = (
+  request: InboxLogin & { readonly number: number },
+) => Promise<{ readonly data: unknown; readonly error: unknown }>;
+
 export type ResolveMailDeps = WebTargetDeps & {
   readonly nonceStore: NonceStore;
   readonly openInbox: OpenInbox;
+  readonly openMessage: OpenMessage;
 };
 
 const inboxAnswerSchema = z.discriminatedUnion('outcome', [
   z.object({ outcome: z.literal('opened'), messages: z.array(listedMessageSchema) }),
   z.object({ outcome: z.literal('login_failed') }),
+]);
+
+const messageAnswerSchema = z.discriminatedUnion('outcome', [
+  z.object({ outcome: z.literal('opened'), message: openedMessageSchema }),
+  z.object({ outcome: z.literal('login_failed') }),
+  z.object({ outcome: z.literal('no_message') }),
 ]);
 
 // Loose so the envelope fields pass through; the refine keeps the codebase-wide posture
@@ -63,12 +76,15 @@ const resolveMailSchema = z
     action: z.literal('resolveMail'),
     handle: z.string().min(1),
     password: z.string(),
+    /** One message to open, by its number. Absent, the request is for the list. */
+    number: z.number().int().positive().optional(),
   })
   .refine((payload) => !('player_key' in payload));
 
 const EMAILIT_IP = siteAddress(EMAILIT_DOMAIN) ?? '';
 
 const MAIL_FAILED: HandlerResponse = { status: 500, body: { error: 'mail_failed' } };
+const LOGIN_FAILED: HandlerResponse = { status: 401, body: { error: 'login_failed' } };
 
 export const handleResolveMail = async (
   body: unknown,
@@ -85,17 +101,27 @@ export const handleResolveMail = async (
   const emailit = await resolveWebTarget(deps, { target: EMAILIT_IP, port: HTTP_DEFAULT_PORT });
   if ('status' in emailit) return emailit;
 
-  const reply = await deps.openInbox({
+  const login = {
     handle: payload.handle,
     passwordMd5: md5(payload.password),
     playerKey: publicKey,
-  });
+  };
   // A store that failed, or answered in a shape nobody taught it, has not said whether the
   // password was right: telling the player it was wrong would be a guess.
+  if (payload.number !== undefined) {
+    const reply = await deps.openMessage({ ...login, number: payload.number });
+    const answer = messageAnswerSchema.safeParse(reply.data);
+    if (reply.error || !answer.success) return MAIL_FAILED;
+    if (answer.data.outcome === 'login_failed') return LOGIN_FAILED;
+    if (answer.data.outcome === 'no_message') {
+      return { status: 404, body: { error: 'no_message' } };
+    }
+    return { status: 200, body: { ok: true, message: answer.data.message } };
+  }
+
+  const reply = await deps.openInbox(login);
   const answer = inboxAnswerSchema.safeParse(reply.data);
   if (reply.error || !answer.success) return MAIL_FAILED;
-  if (answer.data.outcome === 'login_failed') {
-    return { status: 401, body: { error: 'login_failed' } };
-  }
+  if (answer.data.outcome === 'login_failed') return LOGIN_FAILED;
   return { status: 200, body: { ok: true, messages: answer.data.messages } };
 };

@@ -453,7 +453,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (actionOf(req.body) === 'resolveMail') {
-    // `mail`: an inbox opened to whoever holds its password. Reached through emailit.io's
+    // `mail`: an inbox, or one message in it, opened to whoever holds its password. Reached through emailit.io's
     // web server like a fetch, so a dark emailit.io has no mail; the password check and
     // the inbox are one call into the function, and its answer is handed over as it came
     // off the wire for the handler to read.
@@ -466,6 +466,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           inbox_password_md5: passwordMd5,
         });
         logFailure('mail inbox', error);
+        return { data: data as unknown, error };
+      },
+      // Opening a message marks it read in the same call.
+      openMessage: async ({ handle, passwordMd5, number }) => {
+        const { data, error } = await supabase.rpc('email_read', {
+          read_handle: handle,
+          read_password_md5: passwordMd5,
+          read_number: number,
+        });
+        logFailure('mail read', error);
         return { data: data as unknown, error };
       },
     });

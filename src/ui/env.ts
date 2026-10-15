@@ -254,6 +254,8 @@ export type BuildCommandEnvArgs = {
   readonly onWalletTransfer?: WalletApi['transfer'];
   /** Backs `env.mail.inbox` — an emailit.io inbox opened with a login, signed. */
   readonly onMailInbox?: MailApi['inbox'];
+  /** Backs `env.mail.read` — one message opened, and marked read, signed. */
+  readonly onMailRead?: MailApi['read'];
   /** The scan-logging seam — backs `env.scan.record`. The UI wires it to the
    *  `recordScan` adapter (signed `nmapScan` round-trip). Optional here for terse
    *  test setups; the UI always passes the real one. */
@@ -544,6 +546,8 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
     // Loud when unwired: an inbox that answered on its own would list mail no server
     // ever delivered, or say a login failed that nobody checked.
     inbox: args.onMailInbox ?? notWired('mail.inbox'),
+    // Loud as well: a message that answered on its own was never delivered.
+    read: args.onMailRead ?? notWired('mail.read'),
   },
   exploit: {
     // Loud when unwired: an exploit that answered on its own would either open a

@@ -15,13 +15,21 @@
  * the shell's box stands on, exactly as `curl` there would.
  */
 
-import type { Command, CommandEnv, CommandResult, InboxMessage, MailLogin } from './types.js';
+import type {
+  Command,
+  CommandEnv,
+  CommandResult,
+  InboxMessage,
+  InboxResult,
+  MailLogin,
+  MailMessage,
+} from './types.js';
 import { vantageOf } from '../network/vantage.js';
 import { homeDirectory } from '../sessions/homeDirectory.js';
 import { EMAILIT_DOMAIN } from '../generation/fixedSites.js';
 import { asAbsPath } from '../types.js';
 
-const USAGE = 'mail: usage: mail';
+const USAGE = 'mail: usage: mail [read <n>]';
 
 /** No network to ask from, emailit.io not answering, or our own side failing to ask:
  *  to the player they are one thing, the mail is not there to be had. */
@@ -104,30 +112,71 @@ const listLine = ({ number, sender, subject, deliveredAt, read }: InboxMessage):
     .join('  ')
     .slice(0, LIST_WIDTH);
 
-const list = async (env: CommandEnv): Promise<CommandResult> => {
-  const saved = savedLogin(env);
-  // What is wrong with the file comes before what is wrong with the network: joining one
-  // would not mend it.
-  if ('refused' in saved) return refusal(saved.refused);
-  if (vantageOf(env.session, env.network) === null) return refusal(UNREACHABLE);
+type Saved = { readonly address: string; readonly login: MailLogin };
 
+/** What a request emailit.io refused, or that never got there, says. */
+const unanswered = (saved: Saved, error: Exclude<InboxResult, { ok: true }>['error']) =>
+  refusal(error === 'login_failed' ? `mail: login failed for ${saved.address}` : UNREACHABLE);
+
+/** A message's `Date:` header: `Thu, 15 Oct 2026 09:12:03 +0000`, in UTC. */
+const headerDate = (deliveredAt: string): string =>
+  new Date(deliveredAt).toUTCString().replace(/GMT$/, '+0000');
+
+/** A message as `read` prints it: its headers, a blank line, then the body as written. */
+const messageLines = (address: string, message: MailMessage): readonly string[] => [
+  `From: ${message.sender}`,
+  `To: ${address}`,
+  `Date: ${headerDate(message.deliveredAt)}`,
+  `Subject: ${message.subject}`,
+  '',
+  // A body ends with its last line's newline, which is no line of its own.
+  ...(message.body.endsWith('\n') ? message.body.slice(0, -1) : message.body).split('\n'),
+];
+
+const said = (lines: readonly string[]): CommandResult => ({
+  kind: 'sync',
+  lines: lines.map((content) => ({ kind: 'text', content })),
+  exitCode: 0,
+});
+
+const list = async (env: CommandEnv, saved: Saved): Promise<CommandResult> => {
   const inbox = await env.mail.inbox(saved.login);
-  if (!inbox.ok && inbox.error === 'login_failed') {
-    return refusal(`mail: login failed for ${saved.address}`);
-  }
-  if (!inbox.ok) return refusal(UNREACHABLE);
-  return {
-    kind: 'sync',
-    lines:
-      inbox.messages.length === 0
-        ? [{ kind: 'text', content: `No mail for ${saved.address}` }]
-        : inbox.messages.map((message) => ({ kind: 'text', content: listLine(message) })),
-    exitCode: 0,
-  };
+  if (!inbox.ok) return unanswered(saved, inbox.error);
+  return said(
+    inbox.messages.length === 0 ? [`No mail for ${saved.address}`] : inbox.messages.map(listLine),
+  );
 };
 
-const execute: Command['execute'] = async (env, args) =>
-  args.length === 0 ? list(env) : refusal(USAGE);
+const read = async (env: CommandEnv, saved: Saved, number: number): Promise<CommandResult> => {
+  const opened = await env.mail.read(saved.login, number);
+  if (!opened.ok) {
+    return opened.error === 'no_message'
+      ? refusal(`mail: no message ${number}`)
+      : unanswered(saved, opened.error);
+  }
+  return said(messageLines(saved.address, opened.message));
+};
+
+/** A message number as typed: a whole number from 1, written the way the list writes it. */
+const MESSAGE_NUMBER = /^[1-9][0-9]*$/;
+
+const execute: Command['execute'] = async (env, args) => {
+  const [subcommand, ...rest] = args;
+  const reading = subcommand === 'read' && rest.length === 1;
+  if (args.length > 0 && !reading) return refusal(USAGE);
+
+  // What is wrong with the question comes before what is wrong with the network: joining
+  // one would mend neither the file nor the number.
+  const saved = savedLogin(env);
+  if ('refused' in saved) return refusal(saved.refused);
+  const typed = rest[0];
+  if (typed !== undefined && !MESSAGE_NUMBER.test(typed)) {
+    return refusal(`mail: no message ${typed}`);
+  }
+  if (vantageOf(env.session, env.network) === null) return refusal(UNREACHABLE);
+
+  return typed === undefined ? list(env, saved) : read(env, saved, Number(typed));
+};
 
 export const mail: Command = {
   name: 'mail',

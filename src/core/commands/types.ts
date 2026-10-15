@@ -1618,10 +1618,23 @@ export type InboxResult =
       readonly error: 'host_unreachable' | 'login_failed' | 'network_error';
     };
 
+/** One message opened to be read: what the list shows of it, and its body as written. */
+export type MailMessage = Omit<InboxMessage, 'read'> & { readonly body: string };
+
+export type MessageResult =
+  | { readonly ok: true; readonly message: MailMessage }
+  /** As an inbox's, and `no_message`: the inbox holds nothing by that number. */
+  | {
+      readonly ok: false;
+      readonly error: 'host_unreachable' | 'login_failed' | 'no_message' | 'network_error';
+    };
+
 /** The emailit.io seam. Every request carries the login, because the server keeps no
  *  mail session; where it comes from is the command's business, not this seam's. */
 export type MailApi = {
   readonly inbox: (login: MailLogin) => Promise<InboxResult>;
+  /** Open one message by its number. emailit.io marks it read. */
+  readonly read: (login: MailLogin, number: number) => Promise<MessageResult>;
 };
 
 // ---- The boundary ----

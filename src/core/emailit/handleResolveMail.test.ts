@@ -6,7 +6,12 @@ import { EMAILIT_DOMAIN, EMAILIT_NETWORK } from '../generation/fixedSites.js';
 import { siteAddress } from '../generation/publisher.js';
 import { md5 } from '../generation/md5.js';
 import type { OwnerPatchRow } from '../network/materializeWorkstationFs.js';
-import { handleResolveMail, type OpenInbox, type ResolveMailDeps } from './handleResolveMail.js';
+import {
+  handleResolveMail,
+  type OpenInbox,
+  type OpenMessage,
+  type ResolveMailDeps,
+} from './handleResolveMail.js';
 
 const freshStore = async () => ({ fresh: true });
 const BOB = generateIdentity();
@@ -21,10 +26,26 @@ const WELCOME = {
   read: false,
 };
 
+const WELCOME_OPENED = {
+  number: 1,
+  sender: 'noreply@emailit.io',
+  subject: 'Welcome to emailit.io',
+  delivered_at: '2026-10-15T09:12:03.123456+00:00',
+  body: 'Welcome to emailit.io, neo.\n',
+};
+
 /** emailit.io's box as the world generates it, with `journal` written over it. */
 const makeDeps = (
-  over: { readonly openInbox?: OpenInbox; readonly journal?: readonly OwnerPatchRow[] } = {},
+  over: {
+    readonly openInbox?: OpenInbox;
+    readonly openMessage?: OpenMessage;
+    readonly journal?: readonly OwnerPatchRow[];
+  } = {},
 ) => {
+  const openMessage = vi.fn(
+    over.openMessage ??
+      (async () => ({ data: { outcome: 'opened', message: WELCOME_OPENED }, error: null })),
+  );
   const openInbox = vi.fn(
     over.openInbox ??
       (async () => ({ data: { outcome: 'opened', messages: [WELCOME] }, error: null })),
@@ -44,8 +65,9 @@ const makeDeps = (
     listOccupantsByEssid: async () => ({ data: [], error: null }),
     listLeasesByEssid: async () => ({ data: [], error: null }),
     openInbox,
+    openMessage,
   };
-  return { deps, openInbox, findNetworkByPublicIp };
+  return { deps, openInbox, openMessage, findNetworkByPublicIp };
 };
 
 const inboxRequest = (fields: Record<string, unknown> = {}) =>
@@ -143,5 +165,92 @@ describe('emailit.io opens an inbox to whoever holds its password', () => {
 
     expect((await handleResolveMail(passwordless, deps)).status).toBe(400);
     expect(openInbox).not.toHaveBeenCalled();
+  });
+});
+
+describe('emailit.io opens one message, and marks it read', () => {
+  const messageRequest = (fields: Record<string, unknown> = {}) =>
+    inboxRequest({ number: 1, ...fields });
+
+  it('answers the message the number names', async () => {
+    const { deps } = makeDeps();
+
+    expect(await handleResolveMail(messageRequest(), deps)).toEqual({
+      status: 200,
+      body: { ok: true, message: WELCOME_OPENED },
+    });
+  });
+
+  it('asks the store for that number with the md5 of the password, and lists nothing', async () => {
+    const { deps, openMessage, openInbox } = makeDeps();
+
+    await handleResolveMail(messageRequest({ number: 12 }), deps);
+
+    expect(openMessage).toHaveBeenCalledWith({
+      handle: 'neo',
+      passwordMd5: md5('s3cret'),
+      playerKey: BOB.publicKeyHex,
+      number: 12,
+    });
+    expect(openInbox).not.toHaveBeenCalled();
+  });
+
+  it('says there is no such message when the inbox holds none by that number', async () => {
+    const { deps } = makeDeps({
+      openMessage: async () => ({ data: { outcome: 'no_message' }, error: null }),
+    });
+
+    expect(await handleResolveMail(messageRequest({ number: 7 }), deps)).toEqual({
+      status: 404,
+      body: { error: 'no_message' },
+    });
+  });
+
+  it('says only that the login failed when the store does not open the inbox', async () => {
+    const { deps } = makeDeps({
+      openMessage: async () => ({ data: { outcome: 'login_failed' }, error: null }),
+    });
+
+    expect(await handleResolveMail(messageRequest(), deps)).toEqual({
+      status: 401,
+      body: { error: 'login_failed' },
+    });
+  });
+
+  it('opens nothing while emailit.io will not come up', async () => {
+    const { deps, openMessage } = makeDeps({
+      journal: [
+        {
+          path: '/boot/vmlinuz',
+          content: null,
+          owner: 'root',
+          permissions: null,
+          node_type: null,
+          updated_at: '2026-10-15T09:00:00.000Z',
+          writer_key: BOB.publicKeyHex,
+        },
+      ],
+    });
+
+    expect((await handleResolveMail(messageRequest(), deps)).status).toBe(404);
+    expect(openMessage).not.toHaveBeenCalled();
+  });
+
+  it('reports an answer it cannot read as a server error', async () => {
+    const { deps } = makeDeps({
+      openMessage: async () => ({ data: { outcome: 'opened' }, error: null }),
+    });
+
+    expect(await handleResolveMail(messageRequest(), deps)).toEqual({
+      status: 500,
+      body: { error: 'mail_failed' },
+    });
+  });
+
+  it.each([0, -1, 1.5, '1'])('turns away a message number of %o, asking nobody', async (number) => {
+    const { deps, openMessage } = makeDeps();
+
+    expect((await handleResolveMail(messageRequest({ number }), deps)).status).toBe(400);
+    expect(openMessage).not.toHaveBeenCalled();
   });
 });
