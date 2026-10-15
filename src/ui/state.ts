@@ -2109,12 +2109,10 @@ let mailCheckOut = false;
  *  prompt is idle so it never lands inside an editor, a sub-shell or a password prompt. */
 const [heldMail, setHeldMail] = createSignal<readonly TerminalLine[]>([]);
 
-/** Whether the shell sits at its own prompt with nothing in front of it. */
+/** Whether the shell sits at its own prompt with nothing in front of it. A password
+ *  prompt is never the only thing: it only ever waits inside a command that is running. */
 const shellIdle = (): boolean =>
-  runningCommand() === null &&
-  overlayMode() === null &&
-  pendingPrompt() === undefined &&
-  subShellPrompt() === null;
+  runningCommand() === null && overlayMode() === null && subShellPrompt() === null;
 
 /**
  * Check for new mail, as `mail` would answer where the shell stands, and hold whatever

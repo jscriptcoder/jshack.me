@@ -4589,8 +4589,16 @@ describe('new mail while the terminal waits at its prompt', () => {
     vi.unstubAllGlobals();
   });
 
-  const ESSID = 'ferro-cafe';
+  const ESSID = 'BEAN-THERE-WIFI';
   const LAN = generateHomeLan(ESSID);
+  const STORE_HOST = LAN.hosts.find(
+    (host) =>
+      host.kind === 'machine' &&
+      readOpenPorts(buildRemoteHostFs(ESSID, host)).some(
+        (open) => open.service === SERVICE_CATALOG.redis.service,
+      ),
+  );
+  if (STORE_HOST === undefined) throw new Error(`need a store host on ${ESSID}`);
   const MINUTE = 60_000;
   const NOTICE = 'You have new mail.';
 
@@ -4605,7 +4613,8 @@ describe('new mail while the terminal waits at its prompt', () => {
   /**
    * A terminal on the player's own box, online, with `mailutils` installed and a saved
    * login in `~/.mailrc`, and an emailit.io that answers with whatever `inbox` holds at
-   * the moment it is asked (a 401 when it is `'login_failed'`). Only `setInterval` is
+   * the moment it is asked (a 401 when it is `'login_failed'`) and takes every new password.
+   * `redis-cli` is installed too, and the café's store lets anyone in. Only `setInterval` is
    * faked, so the check's own requests still resolve; `visible` says whether the tab is
    * on screen. Each earlier test left a terminal of its own listening on the same
    * `document`, so only requests this test's player signed are answered and counted.
@@ -4635,6 +4644,12 @@ describe('new mail while the terminal waits at its prompt', () => {
         permissions: { read: everyone, write: ['root'], execute: everyone },
       },
       {
+        path: '/usr/bin/redis-cli',
+        content: binaryStub('redis-cli'),
+        owner: 'root',
+        permissions: { read: everyone, write: ['root'], execute: everyone },
+      },
+      {
         path: '/home/tester/.mailrc',
         content: 'set from=neo@emailit.io\nset password=s3cret\n',
         owner: 'tester',
@@ -4646,6 +4661,10 @@ describe('new mail while the terminal waits at its prompt', () => {
       asked: 0,
       /** Set to hold every inbox request until it is called. */
       holdUntil: undefined as Promise<void> | undefined,
+      /** Set to hold only the next inbox request until it is called. */
+      holdNext: undefined as Promise<void> | undefined,
+      /** Every new password asked for, with the login that asked. */
+      passwds: [] as Record<string, unknown>[],
     };
     const json = (status: number, body: unknown) => ({
       ok: status === 200,
@@ -4658,8 +4677,18 @@ describe('new mail while the terminal waits at its prompt', () => {
         const body = JSON.parse(init?.body ?? '{}') as { payload?: string; publicKey?: string };
         const fields = JSON.parse(body.payload ?? '{}') as Record<string, unknown>;
         if (body.publicKey !== player.publicKeyHex) return json(500, {});
+        if (fields.action === 'resolveMail' && fields.op === 'passwd') {
+          mail.passwds.push(fields);
+          return json(200, { ok: true });
+        }
+        if (fields.action === 'redisConnect') {
+          return json(200, { ok: true, hostname: STORE_HOST.hostname });
+        }
         if (fields.action === 'resolveMail' && fields.op === 'list') {
           mail.asked += 1;
+          const held = mail.holdNext;
+          mail.holdNext = undefined;
+          await held;
           await mail.holdUntil;
           return mail.inbox === 'login_failed'
             ? json(401, { error: 'login_failed' })
@@ -4760,6 +4789,110 @@ describe('new mail while the terminal waits at its prompt', () => {
     await running.catch(() => undefined);
 
     expect(notices()).toBe(1);
+  });
+
+  it('holds the notice while a command is still running, and prints it after its output', async () => {
+    const { state, mail, printed, notices } = await mailTerminal();
+    let answer: () => void = () => undefined;
+    mail.holdNext = new Promise((resolve) => {
+      answer = resolve;
+    });
+    state.setInput('mail');
+    const running = state.runInput();
+    await vi.waitFor(() => expect(mail.asked).toBe(2));
+
+    mail.inbox = [listed(1, true), listed(2, false)];
+    await vi.advanceTimersByTimeAsync(MINUTE);
+    await vi.waitFor(() => expect(mail.asked).toBe(3));
+    await Promise.resolve();
+    expect(notices()).toBe(0);
+
+    answer();
+    await running;
+
+    expect(notices()).toBe(1);
+    const listedAt = printed().findIndex((line) => line.includes('message 2'));
+    expect(printed().indexOf(NOTICE)).toBeGreaterThan(listedAt);
+  });
+
+  it('holds the notice at a sub-shell prompt, and prints it back at the shell', async () => {
+    const { state, mail, notices } = await mailTerminal();
+    state.setInput(`redis-cli ${STORE_HOST.ip}`);
+    await state.runInput();
+    expect(state.subShellPrompt()).toBe('redis> ');
+
+    mail.inbox = [listed(1, true), listed(2, false)];
+    await vi.advanceTimersByTimeAsync(MINUTE);
+    await vi.waitFor(() => expect(mail.asked).toBe(2));
+    await Promise.resolve();
+    expect(notices()).toBe(0);
+
+    state.setInput('quit');
+    await state.runInput();
+
+    expect(notices()).toBe(1);
+  });
+
+  it('prints one notice for mail found by two checks while it was held', async () => {
+    const { state, mail, notices } = await mailTerminal();
+    void state.openCompose({ to: 'trin@emailit.io', subject: 'hi', content: '' });
+
+    mail.inbox = [listed(1, true), listed(2, false)];
+    await vi.advanceTimersByTimeAsync(MINUTE);
+    await vi.waitFor(() => expect(mail.asked).toBe(2));
+    mail.inbox = [listed(1, true), listed(2, false), listed(3, false)];
+    await vi.advanceTimersByTimeAsync(MINUTE);
+    await vi.waitFor(() => expect(mail.asked).toBe(3));
+    await Promise.resolve();
+    state.closeOverlay();
+
+    expect(notices()).toBe(1);
+  });
+
+  it('keeps a different line found while one is held, and prints both in order', async () => {
+    const { state, mail, printed } = await mailTerminal();
+    void state.openCompose({ to: 'trin@emailit.io', subject: 'hi', content: '' });
+
+    mail.inbox = [listed(1, true), listed(2, false)];
+    await vi.advanceTimersByTimeAsync(MINUTE);
+    await vi.waitFor(() => expect(mail.asked).toBe(2));
+    mail.inbox = 'login_failed';
+    await vi.advanceTimersByTimeAsync(MINUTE);
+    await vi.waitFor(() => expect(mail.asked).toBe(3));
+    await Promise.resolve();
+    state.closeOverlay();
+
+    expect(printed().slice(-2)).toEqual([NOTICE, 'mail: login failed for neo@emailit.io']);
+  });
+
+  it('checks on one timer after the game is started again', async () => {
+    const { state, mail } = await mailTerminal();
+
+    state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
+    await vi.waitFor(() => expect(mail.asked).toBe(2));
+    await vi.advanceTimersByTimeAsync(2 * MINUTE);
+
+    expect(mail.asked).toBe(4);
+  });
+
+  it('changes the password at emailit.io when the player types mail passwd', async () => {
+    const { state, mail } = await mailTerminal();
+    const answer = async (asked: string, typed: string) => {
+      await vi.waitFor(() => expect(state.pendingPrompt()?.message).toBe(asked));
+      state.setInput(typed);
+      state.submitPrompt();
+    };
+
+    state.setInput('mail passwd');
+    const running = state.runInput();
+    await answer('Old password: ', 's3cret');
+    await answer('New password: ', 'n3wer');
+    await answer('Retype new password: ', 'n3wer');
+    await running;
+
+    expect(mail.passwds).toMatchObject([
+      { op: 'passwd', handle: 'neo', password: 's3cret', newPassword: 'n3wer' },
+    ]);
   });
 
   it('never announces a message the player has already listed', async () => {
