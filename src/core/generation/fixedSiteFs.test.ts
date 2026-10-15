@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { FINDIT_NETWORK } from './fixedSites.js';
+import { EMAILIT_NETWORK, FINDIT_NETWORK } from './fixedSites.js';
+import { MAIL_SPOOL_DIR, ROOT_DIR } from './baseFs.js';
+import { filterTreeForSession } from '../patches/readFilter.js';
 import { materializeApGatewayFs } from '../network/materializeRouterFs.js';
 import { readOpenPorts, readRunningProcesses } from '../services/pidfile.js';
 import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
@@ -9,7 +11,7 @@ import { parseDpkgVersions, readDpkgStatus } from '../packages/dpkgStatus.js';
 import { ALL_GENERATED_PASSWORDS, UNCRACKABLE_PASSWORDS } from './passwordPools.js';
 import { md5 } from './md5.js';
 import { asAbsPath } from '../types.js';
-import type { Directory } from '../filesystem/types.js';
+import type { Directory, FileNode } from '../filesystem/types.js';
 
 /**
  * A fixed site is a box like any other: reached at its public address, it is a machine
@@ -104,6 +106,41 @@ describe('the fixed sites, side by side', () => {
   it('keep a root password each, so rooting one opens nothing on the other', () => {
     const hashes = ['findit.io', 'hackademy.io', 'mapit.io', 'emailit.io'].map(rootHash);
     expect(new Set(hashes).size).toBe(hashes.length);
+  });
+});
+
+const nodeAt = (tree: Directory, path: string): FileNode | undefined =>
+  createFsView(tree, { userType: 'root' }).stat(asAbsPath(path)) ?? undefined;
+
+describe("the room emailit.io's box keeps for its mail", () => {
+  it('has an empty spool that only root may list', () => {
+    expect(nodeAt(siteBox(EMAILIT_NETWORK), '/var/mail')).toMatchObject({
+      kind: 'directory',
+      owner: 'root',
+      perms: MAIL_SPOOL_DIR,
+      entries: new Map(),
+    });
+  });
+
+  it('has an empty /etc/emailit that only root may enter', () => {
+    expect(nodeAt(siteBox(EMAILIT_NETWORK), '/etc/emailit')).toMatchObject({
+      kind: 'directory',
+      owner: 'root',
+      perms: ROOT_DIR,
+      entries: new Map(),
+    });
+  });
+
+  it.each(['user', 'guest'] as const)('is not there for a %s session', (tier) => {
+    const pruned = filterTreeForSession(siteBox(EMAILIT_NETWORK), tier);
+
+    expect(nodeAt(pruned, '/var/mail')).toBeUndefined();
+    expect(nodeAt(pruned, '/etc/emailit')).toBeUndefined();
+  });
+
+  it.each(['findit.io', 'hackademy.io', 'mapit.io'])('is kept on %s by nobody', (key) => {
+    expect(nodeAt(siteBox(key), '/var/mail')).toBeUndefined();
+    expect(nodeAt(siteBox(key), '/etc/emailit')).toBeUndefined();
   });
 });
 
