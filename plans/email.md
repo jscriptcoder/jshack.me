@@ -309,6 +309,33 @@ These settle what decisions 15, 18 and 20 left open about sending.
     found only at send and prints `mail: too many messages sent, wait an hour`; the draft is gone.
     The server enforces all three regardless of what the client checked.
 
+## Decisions from slice 5 planning (owner-confirmed 2026-10-15)
+
+These settle what decisions 17, 25, 35 and 43 left open about changing the password and the
+new-mail check.
+
+52. **`mail passwd` rewrites the `~/.mailrc` it ran from.** It changes the password of the login
+    the current user's `~/.mailrc` holds (decision 42), and on success writes the new password into
+    that same file, so the file it ran from keeps working and every other copy — a victim's home
+    file, a thief's copy on another box — fails from then on. A thief who changes it keeps the
+    account at once; an owner who changes it keeps their notices. As in `mail login`, a home that
+    cannot take the file is found out before emailit.io is asked, and a change the server refuses
+    writes nothing. Rejected: leaving the file alone, which would lock out whoever made the change
+    until they logged in again.
+53. **The first check of an address announces only unread mail.** The mark of decision 35 lives
+    in the terminal's memory, one per address, so a fresh terminal (after a reload) or an address
+    it has not watched yet (standing as a victim) starts with none. That first check prints
+    `You have new mail.` when any message in the inbox is unread, says nothing otherwise, and sets
+    the mark to the highest number; from then on only a message numbered above the mark is
+    announced. Going home after watching a victim picks your own mark up again; nothing is stored
+    anywhere. Rejected: a silent first check, which never tells a player about mail that came while
+    they were away, and announcing any non-empty inbox, which nags after every reload.
+54. **The check runs only where `mail` itself would.** It is `mail` run quietly (decision 43), so a
+    box without `mailutils` gives no notices even when the current user's `~/.mailrc` is there. A
+    thief installs `mailutils` on that box or copies the file away, as decision 13 already asks of
+    reading. Rejected: checking wherever the file is, which would tell a player about mail on a box
+    where `mail` is `command not found`.
+
 ## Out of scope
 
 - The job site, the private per-player mission address, and missions themselves. The job site
