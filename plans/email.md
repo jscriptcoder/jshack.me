@@ -563,6 +563,138 @@ No `api/` or database change.
   `core/emailit/` and `http.ts`; typecheck; lint; the full test run.
 - No browser run; the epic's one run at the end walks criteria 1–5 and 8 in lynx.
 
+## Slice 3 plan: reading mail
+
+**Branch**: `feat/mail-reading` · **Version**: 0.385.0 → 0.386.0 · **Class**: behaviour change ·
+**Delivery**: one PR against `main`, with a migration.
+
+**Value.** A player who signed up installs `mailutils`, runs `mail login`, and reads their welcome
+mail with `mail` and `mail read 1`. Whoever can read a `~/.mailrc` reads that inbox.
+
+**Path.** `mail` (`core/commands/mail.ts`) reads the current user's `~/.mailrc` on the current box
+→ `env.mail` → the adapter posts a signed `resolveMail` to `api/network.ts` → the handler finds
+where the caller stands and reaches emailit.io's web server through `resolveWebTarget`, as a
+`curl` would → one RPC checks the throttle and the password and answers with the inbox or one
+message → the command prints it. `mail login` asks the same RPC first, then writes the file.
+
+### Choices made while planning (owner to confirm with the plan)
+
+- **Mail is served by emailit.io's web server.** The handler reaches emailit.io through the same
+  `resolveWebTarget` a fetch uses, so a bricked emailit.io, a dark gateway or a stopped web server
+  takes mail down exactly as it takes sign-up down. A box with no network is refused on the
+  client before anything is sent, as `wallet` is. Every way of not getting there prints
+  `mail: cannot reach emailit.io`.
+- **Mail leaves no line in emailit.io's `access.log`.** It is not a page fetch, and slice 5's
+  60-second check would bury the log. A `/var/log/mail.log` of logins with their source address
+  goes to the backlog, beside emailit.io's root view.
+- **The password travels in the signed request and is hashed on the server**, as `ssh`'s does.
+  Nothing logs it.
+- **Two RPCs, each one transaction with the throttle.** `email_inbox(handle, md5, key)` answers
+  the list, and `email_read(handle, md5, key, number)` answers one message and marks it read.
+  Each takes a lock on the player's key, refuses while 5 failures sit in the last minute, and
+  records a failure for a wrong password. A new table `email_login_failures (player_key,
+  failed_at)` holds those failures. **An unknown handle is a wrong password**: the same answer,
+  and a failure counted, so `mail login` cannot tell a free handle from a taken one. A refused
+  (throttled) request is not a password check and counts nothing. Same security posture as
+  `email_signup`: RLS on, no policies, EXECUTE for `service_role` only.
+- **`mail login` asks `Address:`, then `Password:` (masked).** The address may be typed as `neo`
+  or `neo@emailit.io`, in any case, and is stored lowercase. Another domain is refused before the
+  password is asked, with `mail: <address>: unknown domain` (decision 18's wording). The server
+  is asked first, then the file is written: a refused login writes nothing and leaves an existing
+  file as it was. A home the user cannot write to prints `mail: can't create '<path>': Permission
+  denied`, and no login exists. An existing `~/.mailrc` is replaced without asking. Success prints
+  `You have 1 new message.`, `You have 2 new messages.` or `You have no new messages.`
+- **What `mail` says when it cannot use the file.** No file: `mail: not logged in — run mail
+  login`, with nothing sent. An unreadable one (after a `chmod`): `mail: can't read '<path>':
+  Permission denied`. A file whose address is at another domain: `mail: <address>: unknown
+  domain`. A wrong password or unknown handle: `mail: login failed for <address>`.
+- **`mail logout` deletes `~/.mailrc` and prints nothing**, as `rm` does. With no file it prints
+  `mail: not logged in`.
+- **The list's columns.** The `N` mark or a space, two spaces, the number right-aligned to 3, two
+  spaces, the sender padded to 22, the date (`Oct 15 09:12`, UTC), two spaces, the subject; the
+  line is cut at 80 characters. `read <n>` that is not a whole number answers
+  `mail: no message <n>`, as a missing one does.
+- **Which subcommands work where.** `login` refuses in a script with `mail: login is interactive`
+  and without a terminal with `mail: login needs a terminal` (it has a masked prompt). `logout`
+  refuses in a script with `mail: logout is interactive` (decision 34) and works in a pty-less
+  shell. The list and `read` work everywhere, a script included, and return their lines to it.
+  The usage this slice prints is `mail: usage: mail [read <n>] | login | logout`; slices 4 and 5
+  add theirs.
+- **`mailutils` is a plain apt package**, `{ name: 'mailutils', binaries: ['mail'] }`, and `mail`
+  is available where it is installed, as `wallet` is.
+
+### Acceptance criteria
+
+1. On a box without `mailutils`, `mail` is not found, as any uninstalled tool is. After
+   `apt install mailutils`, `mail` runs on that box.
+2. With no `~/.mailrc`, `mail` prints `mail: not logged in — run mail login` and sends nothing.
+3. `mail login`, address `Neo`, password `s3cret` (nothing echoed): prints
+   `You have 1 new message.`, and `~/.mailrc` holds `set from=neo@emailit.io` and
+   `set password=s3cret`, owned by the user, readable and writable by that user and root only.
+4. A wrong password or an unknown handle prints `mail: login failed for neo@emailit.io` and writes
+   nothing; an existing `~/.mailrc` is unchanged. An address at another domain is refused before
+   the password is asked.
+5. `mail` lists the inbox oldest first: `N    1  noreply@emailit.io      Oct 15 09:12  Welcome to
+   emailit.io`. An empty inbox prints `No mail for neo@emailit.io`.
+6. `mail read 1` prints the `From:`, `To:`, `Date:` (`Thu, 15 Oct 2026 09:12:03 +0000`) and
+   `Subject:` headers, a blank line and the body. Afterwards the list shows message 1 without
+   `N`, and a fresh `mail login` says `You have no new messages.` `mail read 7`, `mail read x`
+   and `mail read` with no number answer `mail: no message 7`, `mail: no message x` and the usage.
+7. A `~/.mailrc` written by hand or copied from another box logs in the same way; blank lines and
+   `#` lines are ignored, and a password containing spaces or `=` works. A file missing either
+   line prints `mail: ~/.mailrc has no login`.
+8. After the account's password changes (stood in for by a test writing a different hash), `mail`
+   prints `mail: login failed for neo@emailit.io` every time and the file is untouched.
+9. The file is the login: on box B with `mailutils` and no file, `mail` is not logged in; `exit`
+   home and `mail` lists the player's own inbox; `su` to a user whose `~/.mailrc` holds another
+   address and `mail` lists that inbox.
+10. After 5 failed password checks within a minute, from any mix of addresses, logins and saved
+    files, the next one, even with the right password, prints
+    `mail: too many failed logins, wait a minute`. A minute after the oldest failure, the right
+    password works again. Another player is not held back, and the account is never locked.
+11. With the box offline, or emailit.io bricked or its web server stopped, every `mail` command
+    prints `mail: cannot reach emailit.io`, and `mail login` writes nothing.
+12. In a script, `mail()` returns the list and `mail('read', '1')` returns the message and marks
+    it read; `mail('login')` and `mail('logout')` return `mail: login is interactive` and
+    `mail: logout is interactive`.
+13. `mail logout` deletes `~/.mailrc` and prints nothing; `mail` then says not logged in.
+    `mail logout` with no file prints `mail: not logged in`.
+14. `man mail` describes `login`, `logout`, the list and `read`, and says the login is saved in
+    plain text in `~/.mailrc`.
+
+### Increments (each RED → GREEN → REFACTOR; commit on approval)
+
+1. **The server answers an inbox.** Migration `email_login_failures`, `email_inbox`; a
+   `core/emailit/` handler for `resolveMail` (verify, where the caller stands, reach emailit.io,
+   ask the store, read its answer); the `api/network.ts` action; the adapter method. Unit tests
+   with a fake store; the wrong-password and unknown-handle answers are one answer.
+2. **`mail` lists an inbox from `~/.mailrc`.** The `mailutils` package, the command, the file's
+   parsing (decision 45), not logged in, cannot reach, login failed, the list's format and the
+   empty inbox. Criteria 1, 2, 5, 7, 8, 9, 11.
+3. **`mail read <n>`**, and the message marked read: `email_read`, the handler's second request,
+   the command's `read`. Criterion 6.
+4. **`mail login` and `mail logout`.** Prompts, the domain check, the server first, the `0600`
+   write, the new-message count, the delete. Criteria 3, 4, 13.
+5. **The guess throttle.** Both RPCs refuse while 5 failures sit in the last minute; the command
+   prints the wait. Criterion 10.
+6. **Scripts and terminals, `man mail`, handbook, version 0.386.0.** Criteria 12, 14; the
+   handbook's command table and codebase map; `docs/project-status.md`.
+
+### Evidence
+
+- Unit: the handler, the command (through a test env, as `wallet.test.ts` does), the `.mailrc`
+  parsing and the adapter. No UI change, so no jsdom work.
+- Wire-check: a new `scripts/testMailRead.ts` against `vercel dev` + supabase: sign up, the inbox
+  shows the welcome unread, `read 1` returns it and marks it read, a wrong password and an
+  unknown handle answer the same, the sixth failure in a minute is refused while another key is
+  not, and a bad message number answers `no message`. `testEmailitSignup.ts` re-runs unchanged.
+- Migration: applied to the local stack for the wire-check; pushed to jshack-dev and jshack-prod
+  after the merge, on the owner's go.
+- Pre-PR: Stryker on the changed lines of `core/emailit/`, `mail.ts` and the adapter; typecheck;
+  lint; the full test run.
+- No browser run; the epic's one run at the end walks login, the list, `read`, a stolen
+  `~/.mailrc` on a second player's box, and logout.
+
 ## Backlog from this grill
 
 - **Before multiplayer is announced**: reporting and blocking for player mail, and an operator
@@ -571,4 +703,7 @@ No `api/` or database change.
   `/var/mail/<user>` on the box, and comes preinstalled on NPC boxes that have mail. A candidate
   for when NPC mail starts to matter in missions.
 - **An `smtp` service on emailit.io**: port 25 in a scan, with its own versions and CVEs.
+- **A `/var/log/mail.log` on emailit.io**: one line per mail login with its source address, so
+  whoever roots emailit.io can see who reads which inbox from where. Mail leaves no access-log
+  line (slice 3).
 - **Mission-era NPC mail**: clients mailing players, and players mailing them.
