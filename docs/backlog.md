@@ -31,6 +31,41 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   otherwise leaves no log line); and **mission-era NPC mail**, clients mailing players and the
   reverse.
 
+- **More public websites — ideas, not yet grilled (2026-10-16).** The public web today is
+  findit.io (search), mapit.io (the map), emailit.io (mail), hackademy.io and the public places'
+  own sites. These are candidates to make Harrow Valley feel inhabited. Every name is a
+  placeholder, and each site needs its own grill before it is planned.
+  - **Inhabited world:**
+    - **Local news** (`valleynews.io`): generated headlines about the towns and their places,
+      and later things players did ("Copper Systems' site has been down since Tuesday"). It makes
+      persistence visible to everyone and can hand out leads.
+    - **A forum** (`talkit.io`): townsfolk talk about their WiFi, jobs and new routers. Flavour
+      and clues now, a place where players post to each other later. A friendlier form of the
+      "hacker BBS posting leads" under procedural world deferred.
+    - **A jobs board** (`hireit.io`): places post vacancies ("Ridgemont hospital seeks an IT
+      contractor"), and each posting says something about how the place runs. A possible front
+      door for missions.
+    - **Reviews** (`rateit.io`): star ratings and comments on mapit's places, cheap to generate
+      from the place data ("The Wi-Fi password is on the menu, lol").
+  - **Ties to systems that already exist:**
+    - **A JSC block explorer** (`chainit.io`): the public ledger as a web page, with balances,
+      recent transfers and the richest addresses. Mostly a view of reads that are already public.
+    - **A JSC shop** (`buyit.io`): something to spend JSC on, such as cosmetic themes or a vanity
+      hostname. This answers "anything to spend JSC on" under crypto wallet follow-ups.
+    - **A people directory** (`whoisit.io`): the `whois` data and the generator's people roles as
+      web pages, with staff pages and who works where. It feeds deliberate rendezvous.
+    - **Town council sites**: notices, opening hours and contacts for each town. It overlaps
+      "Ridgemont's council keeps no town directory" (Ridgemont's is a landmark).
+  - **Background texture:**
+    - **Weather** (`weatherit.io`): seeded per town and day. Later content could depend on it.
+    - **A status page** (`isitdown.io`): which public sites answer right now. It overlaps the
+      deferred live map on mapit.io, since both read every town's journals.
+    - **A paste site** (`pasteit.io`): townsfolk post config snippets and notes carelessly, a
+      source of leads that fits players learning the hard way.
+  - **The pick when this is taken up:** news, the forum and the block explorer. The first two
+    make the world feel alive and give missions a channel. The third builds on the shipped
+    wallet. Together they are the first sites to reflect what other players have done.
+
 - **CLOSED (2026-10-07) — three wire-checks that failed for fixture reasons.**
   `testCrossPlayerConnectionTrace` already read the gateway's trace under `ap:<essid>` (fixed in
   #601; this entry outlived it). `testMysqlDeep` now cleans its gateway and deep box at teardown as
