@@ -54,8 +54,15 @@ const EMAILIT: FixedSite = {
   place: { category: 'hacker', place: 'the post office' },
 };
 
+const CHAINIT: FixedSite = {
+  key: 'chainit.io',
+  domain: 'chainit.io',
+  hostname: 'chainit',
+  place: { category: 'hacker', place: 'the counting house' },
+};
+
 /** Every fixed site, in the order their addresses were handed out. */
-export const FIXED_SITES: readonly FixedSite[] = [FINDIT, HACKADEMY, MAPIT, EMAILIT];
+export const FIXED_SITES: readonly FixedSite[] = [FINDIT, HACKADEMY, MAPIT, EMAILIT, CHAINIT];
 
 /** The fixed site known by `key`, or `undefined` for any other network. */
 export const fixedSite = (key: string): FixedSite | undefined =>
@@ -73,3 +80,5 @@ export const MAPIT_NETWORK = MAPIT.key;
 
 export const EMAILIT_NETWORK = EMAILIT.key;
 export const EMAILIT_DOMAIN = EMAILIT.domain;
+
+export const CHAINIT_NETWORK = CHAINIT.key;
