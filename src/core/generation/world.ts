@@ -32,6 +32,7 @@ import {
 } from './pools/homeNames.js';
 import { createPrng, type Prng } from './prng.js';
 import {
+  CHAINIT_NETWORK,
   EMAILIT_NETWORK,
   FINDIT_NETWORK,
   FIXED_SITES,
@@ -773,6 +774,8 @@ const ADDRESS_BY_KEY: ReadonlyMap<string, string> = new Map([
   [MAPIT_NETWORK, placelessAddress(2 + LANDMARK_CORPORATIONS.length + CORPORATIONS.length)],
   // emailit came after mapit, and takes the next address.
   [EMAILIT_NETWORK, placelessAddress(3 + LANDMARK_CORPORATIONS.length + CORPORATIONS.length)],
+  // chainit came after emailit, and takes the next address.
+  [CHAINIT_NETWORK, placelessAddress(4 + LANDMARK_CORPORATIONS.length + CORPORATIONS.length)],
   ...DRAWN_TOWNS.flatMap((drawn) => townAddresses(drawn.town, drawn.networks)),
   // Ridgemont's drawn networks answer after its landmarks, at the places their keys hold.
   ...RIDGEMONT_DRAWN.map((network, index): [string, string] => [

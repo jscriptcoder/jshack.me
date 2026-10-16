@@ -974,6 +974,22 @@ describe('emailit.io, on the web findit searches', () => {
   });
 });
 
+describe('chainit.io, on the web findit searches', () => {
+  it('comes first for anybody who asks for an explorer', async () => {
+    expect(rankPages(await indexWith(), 'explorer')[0]?.address).toBe('chainit.io');
+  });
+
+  it.each(['jsc', 'balance'])('is found by anybody who asks about %s', async (query) => {
+    expect(rankPages(await indexWith(), query).map((page) => page.address)).toContain('chainit.io');
+  });
+
+  it('is listed by what it says of itself: any address, the latest transfers, the richest', async () => {
+    expect((await found('chainit.io'))?.description).toBe(
+      'Look up any JSC address: its balance and its transfers. The latest transfers on the chain, and the richest addresses.',
+    );
+  });
+});
+
 describe('the map of the world, on the web findit searches', () => {
   it('comes first for anybody who asks for a map', async () => {
     expect(rankPages(await indexWith(), 'map')[0]?.address).toBe('mapit.io');

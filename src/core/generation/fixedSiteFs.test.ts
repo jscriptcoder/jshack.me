@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { EMAILIT_NETWORK, FINDIT_NETWORK } from './fixedSites.js';
+import { CHAINIT_NETWORK, EMAILIT_NETWORK, FINDIT_NETWORK } from './fixedSites.js';
+import { CHAINIT_FRONT_PAGE } from '../chainit/pages.js';
 import { MAIL_SPOOL_DIR, ROOT_DIR } from './baseFs.js';
 import { filterTreeForSession } from '../patches/readFilter.js';
 import { materializeApGatewayFs } from '../network/materializeRouterFs.js';
@@ -33,6 +34,7 @@ describe.each([
   ['hackademy.io', 'hackademy'],
   ['mapit.io', 'mapit'],
   ['emailit.io', 'emailit'],
+  ['chainit.io', 'chainit'],
 ])('the box %s runs on', (key, hostname) => {
   const box = (): Directory => siteBox(key);
 
@@ -104,8 +106,20 @@ describe('the fixed sites, side by side', () => {
       ?.split(':')[1];
 
   it('keep a root password each, so rooting one opens nothing on the other', () => {
-    const hashes = ['findit.io', 'hackademy.io', 'mapit.io', 'emailit.io'].map(rootHash);
+    const hashes = ['findit.io', 'hackademy.io', 'mapit.io', 'emailit.io', 'chainit.io'].map(
+      rootHash,
+    );
     expect(new Set(hashes).size).toBe(hashes.length);
+  });
+});
+
+describe("chainit.io's box", () => {
+  it("serves the explorer's front page, a file a root can deface like any other", () => {
+    expect(read(siteBox(CHAINIT_NETWORK), '/var/www/html/index.html')).toBe(CHAINIT_FRONT_PAGE);
+  });
+
+  it('keeps no ledger on its disk, since the ledger is never a file', () => {
+    expect(read(siteBox(CHAINIT_NETWORK), '/var/www/html/address')).toBeNull();
   });
 });
 

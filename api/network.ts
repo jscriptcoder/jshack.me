@@ -448,6 +448,31 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         logFailure('http-fetch email sign-up', error);
         return { data: data as unknown, error };
       },
+      // Only a lookup at chainit.io's /address reaches these two: the public ledger, read
+      // exactly as api/wallet.ts reads it for `wallet balance` and `wallet history` (an
+      // api/ file is an endpoint of its own, so the reads are written here again). The
+      // handler parses the rows itself, so they are handed over as they came off the wire.
+      findBalance: async (address: string) => {
+        const { data, error } = await supabase
+          .from('wallet_balances')
+          .select('balance, next_sequence')
+          .eq('address', address)
+          .maybeSingle();
+        logFailure('http-fetch ledger balance lookup', error);
+        return { data: data as unknown, error };
+      },
+      // The address has already been checked for its shape, so it carries nothing the
+      // filter could misread. `id` orders the transfers, as two can share an instant.
+      findTransfers: async (address: string, limit: number) => {
+        const { data, error } = await supabase
+          .from('wallet_transfers')
+          .select('from_address, to_address, amount, created_at')
+          .or(`from_address.eq.${address},to_address.eq.${address}`)
+          .order('id', { ascending: false })
+          .limit(limit);
+        logFailure('http-fetch ledger history lookup', error);
+        return { data: data as unknown, error };
+      },
     });
     res.status(status).json(body);
     return;

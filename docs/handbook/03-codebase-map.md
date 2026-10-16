@@ -89,6 +89,7 @@ src/
 | `hackademy/`       | hackademy.io's pages and the home `README`.                                                                               | —       |
 | `mapit/`           | mapit.io's pages: the valley's drawing and each town's seeded plan.                                                       | —       |
 | `emailit/`         | emailit.io's pages, sign-up, `mail`'s server side, and the mail root finds on emailit.io's box.                           | —       |
+| `chainit/`         | chainit.io's pages, and its answer to a lookup at `/address` from the ledger.                                             | —       |
 | `logging/`         | One formatter per log file; source-IP and writer-key rules.                                                               | 8       |
 | `patches/`         | Server handlers for the journal (write, list, remove, log appends, traces), L1, L2, the read filter.                      | 9, 10   |
 | `signedRequest/`   | Envelope schema, signing, verification.                                                                                   | 9       |
@@ -118,7 +119,7 @@ builders), `lanDatabase.ts` and `lanStore.ts` (find real generated database and 
 | `test*.ts` (80 files)      | Wire-checks: drive the real `api/` endpoints against `vercel dev` and local Supabase.                                            |
 | `publicAddressOf.ts`       | A declared network's derived public address, for a wire-check to aim at; stops the run for a network the world does not declare. |
 | `seedCrossPlayerTarget.ts` | One-shot setup for a two-player browser run (not self-cleaning; run with `clean` after).                                         |
-| `restoreSite.ts`           | Operator tool: reset a fixed site (`findit.io`, `hackademy.io`, `mapit.io`, `emailit.io`) to its generated state. Can target production.       |
+| `restoreSite.ts`           | Operator tool: reset a fixed site (any domain in `FIXED_SITES`, e.g. `chainit.io`) to its generated state. Can target production.              |
 | `verifyPatchesRls.ts`      | Checks row-level security on `patches` (anonymous access denied).                                                                |
 
 Run any of them with `npx dotenv -e .env.development.local -- npx tsx scripts/<name>.ts`.

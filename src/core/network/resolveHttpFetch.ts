@@ -42,11 +42,12 @@ import { createFsView } from '../filesystem/fsView.js';
 import { HTTP_DEFAULT_PORT, METHOD_NOT_ALLOWED_PAGE, resolveWebPath } from './http.js';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import { generatedLanBox } from './generatedLanBox.js';
-import { EMAILIT_NETWORK, FINDIT_NETWORK } from '../generation/fixedSites.js';
+import { CHAINIT_NETWORK, EMAILIT_NETWORK, FINDIT_NETWORK } from '../generation/fixedSites.js';
 import { answerSignup, type SignUp } from '../emailit/signup.js';
 import { indexedWeb, siteOn, type MachinePatchRow } from '../findit/webIndex.js';
 import { rankPages } from '../findit/search.js';
 import { searchResultsPage } from '../findit/page.js';
+import { answerAddress, type LedgerReads } from '../chainit/answerAddress.js';
 import {
   ACCESS_LOG_OWNER,
   ACCESS_LOG_PATH,
@@ -140,7 +141,7 @@ export type ResolveHttpFetchDeps = WebTargetDeps & {
   ) => Promise<{ readonly data: readonly MachinePatchRow[] | null; readonly error: unknown }>;
   /** Open an emailit.io account. Only a form POSTed to emailit's `/signup` reaches it. */
   readonly signUp: SignUp;
-};
+} & LedgerReads;
 
 const UNREACHABLE: HandlerResponse = { status: 404, body: { error: 'host_unreachable' } };
 const NOT_FOUND: HandlerResponse = { status: 404, body: { error: 'not_found' } };
@@ -394,6 +395,9 @@ const searchedFor = (requestPath: string): string | null => {
 /** Where emailit.io takes a sign-up. */
 const SIGNUP_PATH = '/signup';
 
+/** Where chainit.io answers a lookup of an address from the ledger. */
+const ADDRESS_PATH = '/address';
+
 /** A request path without its query string. */
 const pathOf = (requestPath: string): string => requestPath.split('?')[0] ?? requestPath;
 
@@ -489,6 +493,22 @@ export const handleResolveHttpFetch = async (
       size: METHOD_NOT_ALLOWED_PAGE.length,
     });
     return { status: 405, body: { error: 'method_not_allowed', server: target.server } };
+  }
+
+  // chainit answers a lookup from the ledger, like findit's search, never from a file:
+  // a root on chainit can deface its front page or plant an `address` file, but cannot
+  // make the explorer say an address holds what it does not. Reached only after the
+  // target resolved, so a dark chainit answers no lookup at all.
+  if (target.essid === CHAINIT_NETWORK && pathOf(payload.path) === ADDRESS_PATH) {
+    const page = await answerAddress(payload.path, deps);
+    // No page was served, so nothing is recorded — as for a sign-up that failed.
+    if (page === null) return { status: 500, body: { error: 'ledger_lookup_failed' } };
+    await logFetch(deps, target, publicKey, standing.standingEssid, {
+      path: payload.path,
+      status: 200,
+      size: page.length,
+    });
+    return { status: 200, body: { ok: true, content: page, server: target.server } };
   }
 
   // findit answers a search from a function; every other address, and every other path

@@ -29,7 +29,7 @@ import { vantageOf } from '../network/vantage.js';
 import { homeDirectory } from '../sessions/homeDirectory.js';
 import { asAbsPath, type AbsPath, type UserType } from '../types.js';
 import { readAmount } from '../wallet/amount.js';
-import type { TransferRecord } from '../wallet/handleWalletHistory.js';
+import { historyLine } from '../wallet/historyLine.js';
 import {
   formatWalletFile,
   generateWalletKey,
@@ -199,16 +199,6 @@ const balance = async (env: CommandEnv, named: readonly string[]): Promise<Comma
   return said(`${address}  ${held.balance} JSC`);
 };
 
-/** One transfer as `address` sees it: coins in, with where they came from, or
- *  coins out, with where they went. Minted coins came from no address, and the
- *  word in its place is the wallet's own. The time is the ledger's, which is UTC. */
-const historyLine = (address: string, { from, to, amount, at }: TransferRecord): string => {
-  const when = `${at.slice(0, 10)} ${at.slice(11, 16)}`;
-  return to === address
-    ? `${when}  +${amount} JSC  from ${from ?? 'coinbase'}`
-    : `${when}  -${amount} JSC  to ${to}`;
-};
-
 const history = async (env: CommandEnv, named: readonly string[]): Promise<CommandResult> => {
   const address = addressAsked(env, named);
   if (typeof address !== 'string') return address;
@@ -277,7 +267,7 @@ export const wallet: Command = {
   manual: {
     synopsis: SYNOPSIS,
     description:
-      'Keep JSC, the coin of this world. "init" makes a new wallet: a key, and the address that key answers to. It writes both to .wallet/wallet.dat in the home directory of the account running it, as two lines marked "address:" and "key:", then prints the address and the path of the file. The address is what you give to whoever is paying you. The key is the wallet - the coins at an address belong to whoever holds its key and nothing else is asked, so the file is the money. It opens for the account that made it and for root. Each account on a box has a wallet of its own, and "init" refuses when one is already in place: it never replaces a key. Making a wallet needs no network. "balance" prints an address and the JSC held at it. The ledger is public, so it answers for any address and asks for no key; with no address it reads the key in the wallet in place and answers for that one. An address nothing was ever sent to holds 0 JSC, and so does a mistyped one. Asking the ledger needs a network. "history" prints what an address has sent and received, newest first, one transfer to a line: when the ledger recorded it, in UTC, then the JSC that came in or went out, then the address at the other end. Coins that were minted read as coming from coinbase, which is a word and not an address. It shows the latest 20 transfers and no more. Like "balance" it answers for any address and asks for no key, and with no address it answers for the wallet in place. An address that has done nothing prints nothing. "send" moves JSC from the wallet in place to an address. The transfer is signed by the key in the file and by nothing else, so whoever holds a copy of the key can send, from any box. The amount is a whole number of coins written in digits. Nothing checks that anybody holds the address the coins go to, and nothing brings a transfer back. A wallet cannot send more than it holds, or to its own address. Sending needs a network.',
+      'Keep JSC, the coin of this world. "init" makes a new wallet: a key, and the address that key answers to. It writes both to .wallet/wallet.dat in the home directory of the account running it, as two lines marked "address:" and "key:", then prints the address and the path of the file. The address is what you give to whoever is paying you. The key is the wallet - the coins at an address belong to whoever holds its key and nothing else is asked, so the file is the money. It opens for the account that made it and for root. Each account on a box has a wallet of its own, and "init" refuses when one is already in place: it never replaces a key. Making a wallet needs no network. "balance" prints an address and the JSC held at it. The ledger is public, so it answers for any address and asks for no key; with no address it reads the key in the wallet in place and answers for that one. An address nothing was ever sent to holds 0 JSC, and so does a mistyped one. Asking the ledger needs a network. "history" prints what an address has sent and received, newest first, one transfer to a line: when the ledger recorded it, in UTC, then the JSC that came in or went out, then the address at the other end. Coins that were minted read as coming from coinbase, which is a word and not an address. It shows the latest 20 transfers and no more. Like "balance" it answers for any address and asks for no key, and with no address it answers for the wallet in place. An address that has done nothing prints nothing. "send" moves JSC from the wallet in place to an address. The transfer is signed by the key in the file and by nothing else, so whoever holds a copy of the key can send, from any box. The amount is a whole number of coins written in digits. Nothing checks that anybody holds the address the coins go to, and nothing brings a transfer back. A wallet cannot send more than it holds, or to its own address. Sending needs a network. The same ledger can be read on the web at chainit.io: any address, the latest transfers, and the richest addresses.',
     arguments: [
       {
         name: 'command',

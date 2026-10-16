@@ -2487,6 +2487,7 @@ describe("Ridgemont's addresses", () => {
       'hackademy.io',
       'mapit.io',
       'emailit.io',
+      'chainit.io',
       ...corporations.map((network) => network.key),
     ]) {
       const address = publicAddress(key);
@@ -2504,6 +2505,7 @@ describe("Ridgemont's addresses", () => {
         'hackademy.io',
         'mapit.io',
         'emailit.io',
+        'chainit.io',
         'ACME-CORP',
         'NAKATOMI-PLAZA',
         'BREW-AND-CODE',
@@ -2514,6 +2516,7 @@ describe("Ridgemont's addresses", () => {
       ['hackademy.io', '193.249.140.121'],
       ['mapit.io', '193.10.253.15'],
       ['emailit.io', '193.26.109.162'],
+      ['chainit.io', '193.41.222.56'],
       ['ACME-CORP', '193.16.112.149'],
       ['NAKATOMI-PLAZA', '193.55.203.159'],
       ['BREW-AND-CODE', '87.1.159.19'],
