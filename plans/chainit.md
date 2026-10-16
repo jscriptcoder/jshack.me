@@ -1,7 +1,7 @@
 # Plan: a JSC block explorer, at chainit.io
 
-**Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-16. Slice 1 is planned
-below, its planning choices confirmed the same day, and is in progress.
+**Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-16. Slice 1 shipped at
+v0.393.0 (#690, 2026-10-16); slice 2 is next and needs its plan.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 
@@ -86,9 +86,9 @@ Read in the code on this date.
     be read on the web at chainit.io: any address, the latest transfers, and the richest
     addresses." No hackademy page. The manual says nothing about the log.
 14. **Two slices, one browser run at the close-out.**
-    1. **The site and the address page**: the fixed-site row, the static front page and form,
-       `/address?a=…` from the existing balance and history reads, the not-an-address page, the
-       `man wallet` sentence. No migration. The front page links only to what exists.
+    1. ✅ **The site and the address page** (v0.393.0, #690): the fixed-site row, the static front
+       page and form, `/address?a=…` from the existing balance and history reads, the not-an-address
+       page, the `man wallet` sentence. No migration. The front page links only to what exists.
     2. **The chain-wide views**: `/recent` and `/rich`, their two new ledger reads (and a balance
        index if planning finds it worth having, through `jshack-dev` then `jshack-prod`), the
        front page's links to them, and the wire-check that proves them.
@@ -104,6 +104,26 @@ Read in the code on this date.
 
 **Branch**: `feat/chainit-address-page` · **Version**: 0.392.0 → 0.393.0 · **Class**: behaviour
 change · **Delivery**: one PR against `main`, no migration.
+
+**As built (2026-10-16, #690, merged as `a9edc50e`).** Shipped as planned, with these changes:
+
+- **A failed read is decided by the parse alone.** `answerAddress` dropped its `status !== 200`
+  checks: a handler's error body parses as neither a balance nor a history, so the checks were
+  redundant (Stryker showed no test could tell them apart).
+- **The query is read through `URL`** (`new URL(path, 'http://chainit.io').searchParams`), not by
+  slicing at `?`; the slicing's branch was equivalent under every input.
+- **The front page has one line under the form** saying what the site is ("The public ledger of
+  JSC. …"), and every page closes its form with a `Look up` button and an `<hr>`.
+- **chainit's address is `193.41.222.56`**, pinned in `world.test.ts` beside the other fixed
+  sites; adding the domain moved no drawn name and no address.
+- **`scripts/testChainit.ts` (15 checks) bricks chainit and runs the real
+  `scripts/restoreSite.ts chainit.io`**, rather than wiping the journal by hand. A tombstone row is
+  `content: null` with `node_type: 'file'`, as `removePatch` writes it; the table refuses a null
+  `node_type`.
+- No migration. Mutation 110 killed, 1 timeout, 24 survived of 135 at first; after three tests
+  and the two simplifications `answerAddress.ts` is 21/21 and every changed line outside
+  `pages.ts` is killed. `pages.ts` keeps 8 markup survivors no reader can tell apart; its
+  module-load front-page mutant was checked by hand.
 
 **Value.** A player can open `chainit.io` in lynx or curl, type any JSC address into its form, and
 read what that address holds and its latest 20 transfers, with each address at the other end a
