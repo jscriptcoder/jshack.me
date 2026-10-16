@@ -1551,4 +1551,10 @@ describe('wallet — what the manual promises', () => {
     expect(wallet.manual?.description).toContain('"send"');
     expect(wallet.manual?.description).not.toMatch(/sweep|swept/i);
   });
+
+  it('ends by naming the explorer, where the same ledger is read on the web', () => {
+    expect(wallet.manual?.description).toMatch(
+      / The same ledger can be read on the web at chainit\.io: any address, the latest transfers, and the richest addresses\.$/,
+    );
+  });
 });
