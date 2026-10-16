@@ -360,6 +360,21 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   players' files, wallet keys, changed passwords, logs. Closing it means generating the world on
   the server alone, which rewrites every local resolver: several times the work that stopped
   here.
+  - **A cheaper middle step was measured and dropped (owner, 2026-10-16).** Key the streams
+    that draw credentials (`host-fs-` passwords, `wifi-pw-`, the gateway admins and
+    communities, `mysql-db-`, `redis-store-`) with a server-only secret, and give the client
+    a stub drawer that writes locked hashes. Usernames, services and content sit on other
+    streams, so only passwords would re-roll. Every client reader of those values was traced:
+    all but three already ask the server or read only open ports. The three were
+    `aircrack-ng`/`nmcli` (the scan carries the plaintext), the player's own box (drawn from
+    the uncrackable pool in the browser), and `msfconsole` scripts, which read a client-built
+    tree. The owner dropped it on the third. The script read path is being fixed on its own
+    (`plans/script-holes-read-the-box.md`), which removes that blocker if this is reopened.
+- **The password pools are in the public repo.** `src/core/secrets/secrets.ts` holds the
+  uncrackable and WiFi pools in plaintext, and the repository is public, so its history
+  already shows them. Taking them out means new words (human-looking, owner 2026-10-16), the
+  real lists in a build env var that `scripts/encode.ts` reads, a plainly fake dev list in the
+  repo, and one local content sweep against the real list. Wanted before the announce.
 
 - **A served tree is pulled whole before every line. Left as it is (2026-10-12).** A shell on
   any box that is not the player's own asks the server for the tree before each command, with
