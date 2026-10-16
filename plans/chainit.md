@@ -1,7 +1,7 @@
 # Plan: a JSC block explorer, at chainit.io
 
 **Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-16. Slice 1 shipped at
-v0.393.0 (#690, 2026-10-16); slice 2 is next and needs its plan.
+v0.393.0 (#690, 2026-10-16); slice 2 is planned below and awaits the owner's go.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 
@@ -261,3 +261,133 @@ way.
   `fixedSites.ts`, `world.ts` and `resolveHttpFetch.ts`; typecheck; lint; the full test run.
 - No browser run here; the close-out run after slice 2 roots chainit and reads who looked up whose
   address.
+
+## Slice 2 plan: the latest transfers and the richest addresses
+
+**Branch**: `feat/chainit-chain-views` · **Version**: 0.393.0 → 0.394.0 · **Class**: behaviour
+change · **Delivery**: one PR against `main`, no migration.
+
+**Value.** A player on chainit.io follows the front page's two links and reads the 20 latest
+transfers across the whole chain and the 20 richest addresses, every address a link to its page.
+Fresh mints, big movers and the fattest wallets are visible from one box, and every look at
+them leaves a line in chainit's access log.
+
+**Path.** `lynx`/`curl` → the signed `resolveHttpFetch` → `handleResolveHttpFetch` resolves
+chainit's box → a GET to `/recent` or `/rich` on chainit's network asks the ledger and answers
+with a page (as `/address` does); every other path is a file → the hit is logged in chainit's
+`access.log`.
+
+### Facts read while planning (2026-10-16)
+
+- **`/recent` needs no index.** `wallet_transfers.id` is the primary key, so the latest 20 by
+  `id DESC` is a walk down that index.
+- **`wallet_balances` has no index but its primary key `address`**, and one row per address ever
+  paid (a mint or a transfer in). Emptying an address leaves its row at `balance = 0`.
+- **The transfer row's schema and its row → record mapping are private** to
+  `handleWalletHistory.ts` (`transferRowSchema`, the `map` in the handler), and a history line's
+  time (`2026-10-11 22:07`) is cut inline in `historyLine.ts`.
+- **slice 1's routing is one `if`** in `handleResolveHttpFetch`: chainit's network and
+  `pathOf(path) === '/address'` → `answerAddress(path, deps)`; null → `500 ledger_lookup_failed`
+  and no log line; else a 200 logged like any fetch.
+- **`testChainit.ts` funds the ledger through the service role** (`wallet_mint`,
+  `wallet_transfer` with an explicit sequence) and deletes its own addresses' rows before and
+  after.
+
+### Choices made while planning (owner to confirm with the plan)
+
+- **No balance index, so no migration.** The rich list reads
+  `wallet_balances WHERE balance > 0 ORDER BY balance DESC, address LIMIT 20`. Without an index
+  Postgres scans the table once and keeps the top 20 in memory; the table holds a few rows per
+  player, so that scan is far below the cost of the fetch around it. A partial index
+  `(balance DESC, address) WHERE balance > 0` is one migration that changes no behaviour, kept
+  for the day a query plan asks for it. Nothing goes through `jshack-dev` or `jshack-prod`.
+- **Two new reads beside the two from slice 1**: `findLatestTransfers(limit)` and
+  `findLargestBalances(limit)`, deps of the fetch with `data: unknown` as `findTransfers` has.
+  `api/network.ts` builds them as two selects, ordered by `id` desc, and by `balance` desc then
+  `address` asc with `balance > 0`.
+- **One transfer parse for both lists.** `handleWalletHistory.ts` exports the parse it already
+  does (rows → records, `null` when any row is not a transfer); history and `/recent` both call it,
+  so a mint is a null sender and a time is UTC the same way on both. `historyLine.ts` exports the
+  `2026-10-11 22:07` cut for `/recent`'s lines.
+- **`core/chainit/chainViews.ts` answers both views**: `answerRecent(ledger)` and
+  `answerRich(ledger)`, each the page or `null` when the ledger could not be read or a row does not
+  parse (one bad row spoils the list, as for a history). The 20 is a constant there.
+- **The three view paths are one table.** The `if` becomes a lookup of `pathOf(path)` in a `Map`
+  of chainit's three views; a hit answers from the ledger, a miss falls through to files. Failure
+  and logging stay as slice 1 built them: `500 ledger_lookup_failed` with no log line, or a 200
+  logged with the full path. Only `GET /recent` and `GET /rich` exactly: `/recent/`, `/rich.html`
+  are files, a query string is ignored by the view and kept in the log, a POST is the 405.
+- **The pages**, each opening with the empty lookup form and `<hr>` as every chainit page does,
+  then one `<p>` saying what the list is and one `<pre>`:
+  - `/recent`, title `Latest transfers - chainit.io`, caption `The latest 20 transfers on the
+    chain, newest first.`; lines
+    `2026-10-16 09:12  500 JSC  coinbase -> <a href="/address?a=…">jsc…</a>` (`<from> -> <to>`,
+    both links, `coinbase` plain); an empty chain says `No transfers.`
+  - `/rich`, title `Richest addresses - chainit.io`, caption `The 20 richest addresses, largest
+    first.`; lines ` 1  <a href="/address?a=…">jsc…</a>  12000 JSC`, the rank padded to two so the
+    addresses line up; an empty ledger says `Nobody holds any JSC.`
+- **The front page gains one line of links** under its sentence:
+  `<p><a href="/recent">Latest transfers</a> | <a href="/rich">Richest addresses</a></p>`. The
+  view pages do not repeat it (decision 3 puts the links on the front page). The front page is
+  generated, so every undefaced chainit serves the new one at once; a defaced one gets it back
+  from `restoreSite.ts`.
+
+### Acceptance criteria
+
+1. `curl http://chainit.io/` shows links to `/recent` and `/rich`; in `lynx chainit.io` following
+   each opens its view. findit's listing of chainit is unchanged.
+2. `/recent` lists the latest 20 transfers across the chain, newest first by `id`, one line each
+   as `2026-10-16 09:12  500 JSC  <from> -> <to>`, time in UTC; both addresses link to their
+   address pages; a mint reads `coinbase`, not a link. Fewer than 20 shows them all; none shows
+   `No transfers.`
+3. `/rich` lists the 20 largest non-zero balances, largest first, equal balances by address; each
+   line is the rank, the address as a link, and `<n> JSC`. An address emptied by a transfer is not
+   listed. An empty ledger shows `Nobody holds any JSC.`
+4. Every `/recent` and `/rich` hit is a line in chainit's `access.log` with the path as asked and
+   the visitor's source IP, as for any fetch.
+5. A root on chainit who writes `/var/www/html/recent` or `/var/www/html/rich` changes neither
+   view; `/recent/` and `/rich.html` are files; a POST to either is the 405.
+6. When the ledger cannot be read, or a row it hands back does not parse, the view is a 500 and
+   nothing is logged.
+7. A chainit whose web server is stopped, or whose box is bricked, answers neither view;
+   after `scripts/restoreSite.ts chainit.io` both answer again.
+8. Every other site serves `/recent` and `/rich` from its files (a 404 where there is none), and
+   `/address`, `wallet history` and `wallet balance` answer as before.
+
+### Increments (each RED → GREEN → REFACTOR; commit on approval)
+
+1. **Share the transfer parse and the line's time.** A refactor under the history handler's and
+   `historyLine`'s green tests: the exported parse in `handleWalletHistory.ts`, the exported time
+   cut in `historyLine.ts`.
+2. **The two pages and the front page's links.** `recentPage` and `richPage` in
+   `core/chainit/pages.ts`, pure. Criteria 1–3 at the page (lines, links, `coinbase`, ranks,
+   both empty states).
+3. **The fetch answers `/recent` and `/rich`.** `findLatestTransfers` and `findLargestBalances` in
+   the fetch's deps, `core/chainit/chainViews.ts`, the three-view table in
+   `handleResolveHttpFetch`. Criteria 2–8 at the handler with fake deps.
+4. **The adapter and the wire-check.** The two selects in `api/network.ts`; `testChainit.ts`
+   extended. Criteria 1–7 live.
+5. **Docs and version 0.394.0.** The handbook's server-and-database row for `resolveHttpFetch`,
+   the codebase map's `chainit/` row, `docs/project-status.md`.
+
+### Evidence
+
+- Unit: the shared parse and time under the existing history tests; the pages (each line shape,
+  links and `coinbase`, rank padding, both empty states, the front page's links); the views with
+  fake reads (the limit asked for, order kept as read, a failed read and a bad row → null); the
+  handler (each view read and logged with its full path, a planted file does not shadow it,
+  `/recent/` is a file, a POST is a 405, a dark box answers nothing, a failed read is a 500 with no
+  log line, another site's `/recent` is a file).
+- Wire-check: `testChainit.ts` gains checks against `vercel dev` + supabase. It reads the largest
+  balance on the ledger, then mints that plus 1000 to two fresh addresses (a tie) and that plus
+  500 to a third, which then sends it all on; `/rich` lists the tie first and second in address
+  order and not the emptied one. Its latest mints and the transfer are the top lines of `/recent`,
+  `coinbase -> ` included, in `id` order, matching `/api/wallet`'s history of each. Both hits are in
+  the access log; planted `recent` and `rich` files change neither; after the restore both answer.
+  The new addresses join its cleanup. `testRestoreSite.ts chainit.io`, `testFindit.ts`,
+  `testHttpFetch.ts` and `testWallet.ts` re-run.
+- Pre-PR: Stryker on the changed lines of `core/chainit/`, the shared parse and time in
+  `core/wallet/`, and `resolveHttpFetch.ts`; typecheck; lint; the full test run.
+- No browser run in the slice. The epic's close-out, after this merges, is one browser run (root
+  chainit, read in its log who looked up whose address and who watched the rich list) and moving
+  this plan's lasting content into `docs/`.
