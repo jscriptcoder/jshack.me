@@ -48,8 +48,8 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
     - **Reviews** (`rateit.io`): star ratings and comments on mapit's places, cheap to generate
       from the place data ("The Wi-Fi password is on the menu, lol").
   - **Ties to systems that already exist:**
-    - **A JSC block explorer** (`chainit.io`): the public ledger as a web page, with balances,
-      recent transfers and the richest addresses. Mostly a view of reads that are already public.
+    - ✅ **A JSC block explorer** (`chainit.io`): shipped at v0.393.0–v0.394.0 (#690–#691); its
+      as-built is section 7 of [`wallet-architecture.md`](./wallet-architecture.md).
     - **A JSC shop** (`buyit.io`): something to spend JSC on, such as cosmetic themes or a vanity
       hostname. This answers "anything to spend JSC on" under crypto wallet follow-ups.
     - **A people directory** (`whoisit.io`): the `whois` data and the generator's people roles as
@@ -63,8 +63,8 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
     - **A paste site** (`pasteit.io`): townsfolk post config snippets and notes carelessly, a
       source of leads that fits players learning the hard way.
   - **The pick when this is taken up:** news, the forum and the block explorer. The first two
-    make the world feel alive and give missions a channel. The third builds on the shipped
-    wallet. Together they are the first sites to reflect what other players have done.
+    make the world feel alive and give missions a channel. The third built on the shipped
+    wallet and is done (2026-10-16); news and the forum remain.
 
 - **CLOSED (2026-10-07) — three wire-checks that failed for fixture reasons.**
   `testCrossPlayerConnectionTrace` already read the gateway's trace under `ap:<essid>` (fixed in

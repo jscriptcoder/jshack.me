@@ -703,22 +703,23 @@ site makes the link count meaningless.
 - **The crawl writes nothing on A's box.** Only real visits (B's `lynx` follow, a direct `curl`)
   land in A's `/var/log/access.log`; a search never does. Check the row, not the screen.
 
-**Rooting any fixed site (emailit.io, findit.io, mapit.io, hackademy.io) is CVE-only, by
-design.** A fixed site's root password is drawn from the UNCRACKABLE pool — `fixedSiteFs.ts`
-sets `CRACKABLE_ROOT_CHANCE = 0` with the comment "the way in is the software it runs … never a
-guess" — so §6 cannot recover it and `ssh root@<domain>` with a guessed password never lands.
-The ONLY in-game root is a **root-tier** CVE on `:80`/`:22`, and an exploit session's `userType`
-is the CVE's tier, not the account it lands on (`sessions/exploitCreateSession.ts`): a fixed site
-holds only `root`, so a user/guest-tier hole gives you a shell *as the root account at user/guest
-tier*, which is not a root session (a root-only file like `/etc/emailit/passwd` stays hidden). So
-when the day's holes are only user/guest tier, the box simply cannot be rooted that day — prove
-any root-only behaviour with the feature's wire-check seeded session instead (e.g.
-`testMailSpool.ts`), and say in the evidence that the UI run stood the root session up directly.
-**Trap:** matching a fixed site's `/etc/passwd` root hash against `ALL_GENERATED_PASSWORDS` WILL
-"find" it, because that array concatenates the uncrackable pool — it is NOT a route a player has,
-and must never be presented as an in-game crack. (The crackable hashes decision 3 means are the
-player-chosen *account* hashes in `/etc/emailit/passwd`, recovered with a real external wordlist
-tool once you are already root — not root's own password.)
+**Rooting any fixed site (emailit.io, findit.io, mapit.io, hackademy.io, chainit.io) is
+CVE-only, by design.** A fixed site's root password is drawn from the UNCRACKABLE pool —
+`fixedSiteFs.ts` sets `CRACKABLE_ROOT_CHANCE = 0` with the comment "the way in is the software
+it runs … never a guess" — so §6 cannot recover it and `ssh root@<domain>` with a guessed
+password never lands. The ONLY in-game root is a **root-tier** CVE on `:80`/`:22`, and an
+exploit session's `userType` is the CVE's tier, not the account it lands on
+(`sessions/exploitCreateSession.ts`): a fixed site holds only `root`, so a user/guest-tier hole
+gives you a shell *as the root account at user/guest tier*, which is not a root session (a
+root-only file like `/etc/emailit/passwd` stays hidden). So when the day's holes are only
+user/guest tier, the box simply cannot be rooted that day — prove any root-only behaviour with
+the feature's wire-check seeded session instead (e.g. `testMailSpool.ts`), and say in the
+evidence that the UI run stood the root session up directly. **Trap:** matching a fixed site's
+`/etc/passwd` root hash against `ALL_GENERATED_PASSWORDS` WILL "find" it, because that array
+concatenates the uncrackable pool — it is NOT a route a player has, and must never be presented
+as an in-game crack. (The crackable hashes decision 3 means are the player-chosen *account*
+hashes in `/etc/emailit/passwd`, recovered with a real external wordlist tool once you are
+already root — not root's own password.)
 
 **Rooting findit, reading the prize, and restoring it** (slice 4). findit's root does not crack
 (§6 won't help), so the only way in is a live CVE on its `:80` or `:22` — `nmap -sV findit.io`
@@ -759,3 +760,23 @@ does: a temp file inside the repo upserting one `patches` row with the service-r
   `Escape` out of the field, then `ArrowDown` twice (the button, then `[1]mapit.io`). The
   selected link is the element with `aria-current="true"`; read its `textContent` before
   pressing `Enter`.
+
+**Reading who looked up what on chainit.io** (verified 2026-10-16, v0.394.0, game day 96). A
+player needs `apt install wallet` before `wallet init` (it is not preinstalled), and coins only
+enter the ledger by mint: `scripts/mintCoins.ts <address> <amount>`, or `wallet_mint` through the
+service role. `lynx chainit.io` opens typing in the lookup field, so type the address one `press`
+per character (§2), `Enter` submits it, and the address page's links are reached with `Escape`
+then `ArrowDown`. To read the log, a shell on chainit is enough; no root tier is needed.
+- **On day 96 no release of chainit's nginx or sshd has a root-tier hole, and its own nginx
+  (1.26.0) only runs a script.** Compute the day's outcomes with `exploitOutcome(key, version,
+  gameDayAt(now))` over `packageTimeline(key, day)`, then stage a shell-granting version as
+  findit's close-out did: one service-role `patches` row on `computeApGatewayId('chainit.io')`
+  at `/var/lib/dpkg/status`, the generated file (`readDpkgStatus`) with nginx's `Version:` swapped
+  (1.28.3 gave a user-tier full shell that day), owner `root`, the file's own perms, `node_type`
+  `file`. `msfconsole chainit.io 80` then lands, and `cat /var/log/access.log` shows every
+  `/address?a=…`, `/recent` and `/rich` under the visitor's network address.
+- **`Escape` outside a field QUITS lynx.** `←` goes back one page and leaves you outside the
+  field, so a second `Escape` there drops you at the prompt and the `ArrowDown`s and `Enter` that
+  follow land in the shell. Read the footer first: `Esc Leave field` means you are in the field,
+  `← Back q Quit` means you are not.
+- `scripts/restoreSite.ts chainit.io` clears the staged manifest and the log with everything else.

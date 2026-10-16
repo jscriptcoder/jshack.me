@@ -6,6 +6,10 @@ epic, complete at **v0.362.0**. The grill record and slice plan were retired on 
 what the epic deliberately left out is in `backlog.md` under "Crypto wallet deferred". When
 this doc and the code disagree, the code wins — fix the doc.
 
+The ledger can also be read on the web at **chainit.io**, the JSC block explorer
+(v0.393.0–v0.394.0, PRs #690–#691); its as-built is section 7. Its grill record and slice
+plans were retired on close-out too.
+
 The epic shipped a fifth subcommand, `sweep <keyfile>`, which emptied a named key file into
 the wallet in place. It was removed at **v0.367.0**: it did nothing `balance` and `send`
 could not, and it read as a tool made for looting. Coins now leave an address by one route.
@@ -181,3 +185,77 @@ a second route to a key file, beside rooting the box.
   `gpg -c`'d the new key, leaving only `wallet.dat.gpg`, and B's stale copy swept nothing
   (`nothing to sweep at <A's old address>`). No defects found. That run used `wallet sweep`,
   since removed; the same theft is now `su <A's account>`, `wallet balance`, `wallet send`.
+
+## 7. chainit.io, the block explorer
+
+**A fifth fixed site whose ledger views answer from a function.** chainit.io is a row in
+`FIXED_SITES` (hostname `chainit`, address `193.41.222.56`, place "the counting house"): its own
+box running `http` and `ssh`, listed by findit under "Look up any JSC address …", and named by
+the last sentence of `man wallet`. Like every machine it is attackable, and its root password is
+uncrackable, so the way in is a CVE on its `:80` or `:22`.
+
+**The front page is a file; the views are not.** `/` is `CHAINIT_FRONT_PAGE`
+(`core/chainit/pages.ts`), planted in the web root by `WEB_ROOTS`, so a root can deface it or
+repoint its form and links. It carries the lookup form (`action="/address" method="GET"`,
+input `name="a"`), which is the site's documentation for `curl`, and links to the two
+chain-wide views. Three paths are answered by `CHAINIT_VIEWS` in
+`network/resolveHttpFetch.ts` and never from a file, whatever a root writes at them:
+
+| Path           | What it shows                                                                                                                                                                                                                                                                                                                          |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/address?a=…` | `wallet balance`'s line, then the latest 20 transfers in `wallet history`'s words (`historyLine`), each address at the other end a link. An unseen address is `0 JSC` and `No transfers.` and writes nothing; anything that is not an address after trimming (uppercase included) is `Not a JSC address: "…"` with the form re-filled. |
+| `/recent`      | The latest 20 transfers on the whole chain, by `id`, newest first: `2026-10-16 09:12  500 JSC  <from> -> <to>`, both ends links, `coinbase` for a mint, UTC.                                                                                                                                                                           |
+| `/rich`        | The 20 largest balances above zero, largest first, equal ones by address: ` 1  <address>  12000 JSC`. An emptied address keeps its row at zero and drops off.                                                                                                                                                                          |
+
+Only a GET of exactly those paths is a view: `/address/`, `/recent/` and `/rich.html` are files,
+a query string on `/recent` or `/rich` is ignored (and logged), and a POST is the 405 every server
+gives. Every page opens with the lookup form; the ledger part is one `<pre>`, as the command
+prints it.
+
+**The reads.** `/address` calls the wallet's own `handleWalletBalance` and
+`handleWalletHistory`, so the explorer and the command share one idea of a row and of 20.
+`/recent` parses its rows with the history's `parseTransferRows`, and `/rich` with a balance
+row schema in `core/chainit/chainViews.ts`. `api/network.ts` builds the four selects itself
+(every `api/*.ts` file is an endpoint, so it cannot import `api/wallet.ts`'s). `/recent` walks
+the primary key; `/rich` scans `wallet_balances`, which holds a few rows per player, so it has no
+index of its own. A partial index `(balance DESC, address) WHERE balance > 0` is one migration
+that changes no behaviour, for the day a query plan asks for it.
+
+**Failures.** A read that reports an error, or one row that does not parse, is
+`500 ledger_lookup_failed` and leaves no log line: a page claiming `0 JSC`, or a list with a hole
+in it, would be a lie a player acts on.
+
+**The log is the prize.** Every view is a line in chainit's `access.log`, path in full and the
+visitor's source address (home, or the hop it came from), as for any fetch, and nothing warns
+the player. A shell on chainit reads who looked up which addresses and who watched the rich
+list. The chain-wide views exist only on chainit (`wallet` keeps its four subcommands), so
+watching the whole chain leaves that line, and avoiding it takes a hop or a root.
+
+**What a root finds, and what goes dark.** The defaceable front page and the access log,
+nothing more: no ledger files and no planted wallet (generated wallets as loot are deferred in
+`backlog.md`). A dark or bricked chainit answers no view, while `wallet balance` and
+`wallet history` keep working, since they ask `api/wallet.ts` directly. The operator's
+`scripts/restoreSite.ts chainit.io` brings it back and never touches the ledger.
+
+**Rejected, and why.** Laying the views under the box's journal as emailit's spool is (the
+public ledger would be only as honest as the last person to root it); `/` as the live recent
+view (the one front door a root could not change); a path-shaped `/address/jsc…` beside the
+query one (two URLs for one page); paging or an "older" link (a site showing more than the
+command); a per-transfer page, share of supply or transfer counts (no play in them);
+`wallet recent` and `wallet rich` (they would bypass the trace); dropping the address from
+logged paths (it is the one thing worth rooting chainit for); a hackademy page.
+
+**Proving it.** Unit and mutation tests per slice on `core/chainit/`, the shared wallet pieces
+and `resolveHttpFetch.ts`. The wire-check `scripts/testChainit.ts` (22 checks) mints and moves
+coins through the service role, checks each view against `/api/wallet`, the rich list's tie and
+emptied address, the access-log lines and planted files, then bricks chainit and runs the real
+`restoreSite.ts chainit.io`. Browser close-out (2026-10-16, v0.394.0, one player on
+QUAYLES-BOOKS): `wallet init`, an operator mint of 500 and `wallet send … 40`; in `lynx
+chainit.io` the address typed into the form showed `460 JSC` and both of `wallet history`'s
+lines, and its link opened the other address; the front page's links opened `/recent` (the send,
+then the mints, from `coinbase`) and `/rich` (a 460 tie ordered by address). That game day
+(96) neither chainit's nginx nor its sshd had a root-tier hole in any release, so chainit's
+manifest was staged to nginx 1.28.3 (a user-tier full shell) as findit's close-out staged
+findit's; `msfconsole chainit.io 80` then landed, `cat /var/log/access.log` showed every lookup,
+`/recent` and `/rich` under the player's network address `87.1.124.70`, `ls /var/www/html` held
+only `index.html`, and `restoreSite.ts chainit.io` cleared the staging and the log. No defect.
