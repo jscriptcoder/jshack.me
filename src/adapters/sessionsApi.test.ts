@@ -24,12 +24,43 @@ import { generateIdentity } from '../core/identity/identity.js';
 import { computeWorkstationId } from '../core/identity/workstation.js';
 import { verifySignedRequest } from '../core/signedRequest/verify.js';
 import { asEpochMs, asMachineId, asPlayerKeyHex } from '../core/types.js';
+import { serializeTree } from '../core/filesystem/treeCodec.js';
+import type { Directory, FilePermissions } from '../core/filesystem/types.js';
 import type { MysqlConnectParams, Session } from '../core/commands/types.js';
 
 const ENDPOINT = 'http://test.local/api/sessions';
 
 const jsonResponse = (status: number, body: unknown): Response =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+
+/** A tiny server-served box for a step-1 script fire: a /tmp holding one planted file —
+ *  enough to prove the adapter rebuilds the wire tree into a live Directory the script can
+ *  read. */
+const servedTree = (): Directory => {
+  const world: FilePermissions = {
+    read: ['guest', 'user', 'root'],
+    write: ['guest', 'user', 'root'],
+    execute: ['guest', 'user', 'root'],
+  };
+  return {
+    kind: 'directory',
+    owner: 'root',
+    perms: world,
+    entries: new Map<string, Directory>([
+      [
+        'tmp',
+        {
+          kind: 'directory',
+          owner: 'root',
+          perms: world,
+          entries: new Map([
+            ['loot.txt', { kind: 'file', owner: 'root', perms: world, content: 'planted by a player\n' }],
+          ]),
+        },
+      ],
+    ]),
+  };
+};
 
 const makeDeps = (
   fetchImpl: typeof fetch,
@@ -759,6 +790,75 @@ describe('runExploit', () => {
       severity: 'high',
       tier: 'user',
     });
+  });
+
+  it('rebuilds the step-1 served box into a live tree for the script to read', async () => {
+    // Step 1 of a script run: the server answers with the target as it stands, filtered to
+    // the granted tier, as a wire tree. The adapter rebuilds it into the live Directory the
+    // client then runs the script against — a Map, not the plain record JSON carried.
+    const tree = servedTree();
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, {
+        ok: true,
+        effect: 'script_exec',
+        cve: 'CVE-2026-0269486',
+        severity: 'high',
+        tier: 'user',
+        tree: serializeTree(tree),
+      }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await runExploit(deps, params)).toEqual({
+      ok: true,
+      effect: 'script_exec',
+      cve: 'CVE-2026-0269486',
+      severity: 'high',
+      tier: 'user',
+      tree,
+    });
+  });
+
+  it('reads a step-1 answer whose tree did not survive the wire as a fault', async () => {
+    // A tree that does not decode is as useless as any malformed answer — running a script
+    // against half a box is worse than not running it — so it collapses to network_error
+    // rather than handing the client a broken view.
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, {
+        ok: true,
+        effect: 'script_exec',
+        cve: 'CVE-2026-0269486',
+        severity: 'high',
+        tier: 'user',
+        tree: { kind: 'directory', owner: 'root' },
+      }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    expect(await runExploit(deps, params)).toEqual({ ok: false, error: 'network_error' });
+  });
+
+  it('asks the server for the box when a script is ready to run', async () => {
+    // The fire the tool sends once it has read the script off its OWN box: it carries
+    // script_ready so the server hands back the target to run against, and no writes yet.
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, {
+        ok: true,
+        effect: 'script_exec',
+        cve: 'CVE-2026-0269486',
+        severity: 'high',
+        tier: 'user',
+        tree: serializeTree(servedTree()),
+      }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    await runExploit(deps, { ...params, arg: '/tmp/drop.js', scriptReady: true });
+
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected a verified envelope');
+    expect(verified.payload).toMatchObject({ arg: '/tmp/drop.js', script_ready: true });
+    expect(verified.payload).not.toHaveProperty('writes');
   });
 
   it('carries back a script hole fired with nothing to run', async () => {

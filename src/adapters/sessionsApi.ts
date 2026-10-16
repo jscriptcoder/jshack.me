@@ -17,6 +17,7 @@
 
 import { z } from 'zod';
 import { signRequest } from '../core/signedRequest/sign.js';
+import { deserializeTree, type SerializedDirectory } from '../core/filesystem/treeCodec.js';
 import {
   asEpochMs,
   asMachineId,
@@ -418,6 +419,22 @@ const exploitEffectSchema = z.union([
   }),
 ]);
 
+/** Step 1 of a script run: the hole's identity and the box as it stands, filtered to the
+ *  granted tier. The `tree` is left `unknown` here and decoded by `deserializeTree` — a
+ *  recursive zod schema would duplicate the codec's own shape and could drift from it — but
+ *  it must be PRESENT (not merely a bare success body), which is what keeps this arm from
+ *  claiming every blind `script_exec` success and demanding a tree that was never sent. */
+const scriptTreeSchema = z
+  .object({
+    ok: z.literal(true),
+    effect: z.literal('script_exec'),
+    cve: z.string().min(1),
+    severity: z.enum(['critical', 'high', 'medium', 'low']),
+    tier: z.enum(['guest', 'user', 'root']),
+    tree: z.unknown(),
+  })
+  .refine((parsed) => parsed.tree !== undefined);
+
 /** The server's answer to a fired CVE, read the same way whichever door reached it: a
  *  shell grant, a non-shell effect, or one of the two 404 refusals kept apart. Shared by
  *  the network fire and the cross-player local fire — the effect union is the server's, so
@@ -433,6 +450,27 @@ const interpretExploitResponse = (response: Response, body: unknown): ExploitRun
   if (response.ok) {
     const grant = exploitGrantSchema.safeParse(body);
     if (grant.success) return grant.data;
+    // Step 1 of a script run carries a tree the other script arms never do, so it is tried
+    // FIRST: the bare `script_exec` success arm below would otherwise match and strip the
+    // tree on the way past (`z.object` drops what it does not declare), turning the box the
+    // client needs into a "ran, nothing to show". A body carrying `tree` commits to this
+    // path — decoded into a live tree, or a fault if it did not survive the wire, never
+    // quietly dropped.
+    const scripted = scriptTreeSchema.safeParse(body);
+    if (scripted.success) {
+      try {
+        return {
+          ok: true,
+          effect: 'script_exec',
+          cve: scripted.data.cve,
+          severity: scripted.data.severity,
+          tier: scripted.data.tier,
+          tree: deserializeTree(scripted.data.tree as SerializedDirectory),
+        };
+      } catch {
+        return { ok: false, error: 'network_error' };
+      }
+    }
     const effect = exploitEffectSchema.safeParse(body);
     if (effect.success) return effect.data;
     return { ok: false, error: 'network_error' };
@@ -457,11 +495,13 @@ const exploitPayloadFields = (params: {
   readonly content?: string | undefined;
   readonly writes?: readonly { readonly path: string; readonly content: string }[] | undefined;
   readonly scripted?: boolean | undefined;
+  readonly scriptReady?: boolean | undefined;
 }): Readonly<Record<string, unknown>> => ({
   ...(params.arg === undefined ? {} : { arg: params.arg }),
   ...(params.content === undefined ? {} : { content: params.content }),
   ...(params.writes === undefined ? {} : { writes: params.writes }),
   ...(params.scripted === true ? { scripted: true } : {}),
+  ...(params.scriptReady === true ? { script_ready: true } : {}),
 });
 
 /** Fire a CVE at a port on a host on the caller's own LAN. No credential goes out —
