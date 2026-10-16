@@ -14,7 +14,7 @@
 
 import { escapeHtml } from '../findit/page.js';
 import type { TransferRecord } from '../wallet/handleWalletHistory.js';
-import { historyLine } from '../wallet/historyLine.js';
+import { historyLine, ledgerTime } from '../wallet/historyLine.js';
 
 const FRONT_TITLE = 'chainit.io - the JSC block explorer';
 
@@ -56,6 +56,7 @@ export const CHAINIT_FRONT_PAGE = chainitDocument({
   lookedUp: '',
   body: [
     '<p>The public ledger of JSC. Type an address to see what it holds, and what it has sent and received.</p>',
+    '<p><a href="/recent">Latest transfers</a> | <a href="/rich">Richest addresses</a></p>',
   ],
 });
 
@@ -93,4 +94,53 @@ export const notAnAddressPage = (typed: string): string =>
     title: 'Not a JSC address - chainit.io',
     lookedUp: typed,
     body: [`<p>Not a JSC address: ${escapeHtml(`"${typed}"`)}</p>`],
+  });
+
+/** What one address holds, as the rich list ranks it. */
+export type Holding = {
+  readonly address: string;
+  readonly balance: number;
+};
+
+/** A page that lists the whole chain: what the list is, then its lines, or what to say
+ *  when there are none. The form is empty, as nothing was looked up. */
+const chainPage = (options: {
+  readonly title: string;
+  readonly caption: string;
+  readonly lines: readonly string[];
+  readonly none: string;
+}): string =>
+  chainitDocument({
+    title: options.title,
+    lookedUp: '',
+    body: [
+      `<p>${options.caption}</p>`,
+      `<pre>${(options.lines.length === 0 ? [options.none] : options.lines).join('\n')}</pre>`,
+    ],
+  });
+
+/** The latest transfers across the whole chain, newest first, both ends on each line.
+ *  Minted coins came from no address, and the word in its place is the wallet's own. */
+export const recentPage = (transfers: readonly TransferRecord[]): string =>
+  chainPage({
+    title: 'Latest transfers - chainit.io',
+    caption: 'The latest 20 transfers on the chain, newest first.',
+    lines: transfers.map(
+      ({ from, to, amount, at }) =>
+        `${ledgerTime(at)}  ${amount} JSC  ${from === null ? 'coinbase' : addressLink(from)} -> ${addressLink(to)}`,
+    ),
+    none: 'No transfers.',
+  });
+
+/** The richest addresses, largest first, each with its rank. The rank is padded to two
+ *  places so the addresses line up down the list. */
+export const richPage = (holdings: readonly Holding[]): string =>
+  chainPage({
+    title: 'Richest addresses - chainit.io',
+    caption: 'The 20 richest addresses, largest first.',
+    lines: holdings.map(
+      ({ address, balance }, place) =>
+        `${String(place + 1).padStart(2)}  ${addressLink(address)}  ${balance} JSC`,
+    ),
+    none: 'Nobody holds any JSC.',
   });
