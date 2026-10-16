@@ -46,7 +46,7 @@ import type {
   SessionKind,
 } from './types.js';
 import type { MachineId } from '../types.js';
-import type { FilePermissions } from '../filesystem/types.js';
+import type { Directory, FileNode, FilePermissions } from '../filesystem/types.js';
 import type { ConnectivityState, NetworkInterface } from '../network/interfaces.js';
 
 /**
@@ -157,6 +157,47 @@ const GRANTED_LIMITED: ExploitRunResult = {
 /** What the attacker's own box holds for a write's local half to name. */
 const LOCAL_LOOT = 'the combination is 12-24-36\n';
 
+/** The passwd the SERVER-served step-1 tree carries — a file the generator never put here,
+ *  so a script that reads it back could only have read the served tree and not some
+ *  client-side regeneration of the target. World-readable, because the real step-1 tree is
+ *  already filtered to the granted tier and holds nothing that tier could not read. */
+const SERVED_PASSWD = 'root:x:0:0:served-by-the-server:/root:/bin/bash\n';
+
+/** The box the server hands back for step 1 of a script run: the target as it stands,
+ *  filtered to the granted tier. The mock seam stands in for the adapter, which has already
+ *  rebuilt the wire tree into this live `Directory`. */
+const servedTargetTree = (over: Readonly<Record<string, FileNode>> = {}): Directory =>
+  buildDirectory({
+    etc: buildDirectory({
+      passwd: buildFile(SERVED_PASSWD, { perms: { read: ['root', 'user', 'guest'] } }),
+    }),
+    ...over,
+  });
+
+const SCRIPT_CVE = 'CVE-2026-0269486';
+
+/** Step 1 of a script run: the hole's identity plus the served tree the script reads. */
+const scriptStep1 = (tree: Directory = servedTargetTree()): ExploitRunResult => ({
+  ok: true,
+  effect: 'script_exec',
+  cve: SCRIPT_CVE,
+  severity: 'high',
+  tier: 'user',
+  tree,
+});
+
+/** Step 2 of a script run: the blind success the server answers once the writes land. */
+const SCRIPT_STEP2: ExploitRunResult = {
+  ok: true,
+  effect: 'script_exec',
+  cve: SCRIPT_CVE,
+  severity: 'high',
+  tier: 'user',
+};
+
+/** The pair of answers a complete script run draws from the seam, in order. */
+const SCRIPT_RUN = (tree?: Directory): readonly ExploitRunResult[] => [scriptStep1(tree), SCRIPT_STEP2];
+
 /** The box the tool is RUN FROM, holding one readable file. A write reads its local half
  *  here before firing, so a test that left this empty would be refused pre-flight and
  *  never reach the server at all. */
@@ -239,7 +280,10 @@ const BROKEN_SCRIPT_PATH = '/home/attacker/broken.js';
 const REACHING_SCRIPT_PATH = '/home/attacker/reach.js';
 
 type EnvOpts = {
-  readonly result?: ExploitRunResult;
+  /** The seam's answer. A single result is returned to EVERY fire (the one-call effects); a
+   *  sequence is consumed in order, which is how a script run's two fires — the served tree,
+   *  then the blind success — are driven. */
+  readonly result?: ExploitRunResult | readonly ExploitRunResult[];
   readonly connectivity?: ConnectivityState;
   /** The box the tool is RUN FROM. Only a write effect reads it — its `local:remote`
    *  names a file here, and the server has no way to see it. */
@@ -254,9 +298,19 @@ type EnvOpts = {
   readonly session?: Partial<Session>;
 };
 
+/** Normalise a seam option into the ordered answers a fire draws from: nothing → a full
+ *  shell for every call, one result → that same result for every call, a sequence → each
+ *  fire in turn (a script run's two steps). */
+const resultSequence = (
+  result: ExploitRunResult | readonly ExploitRunResult[] | undefined,
+): readonly ExploitRunResult[] =>
+  result === undefined ? [GRANTED_FULL] : Array.isArray(result) ? result : [result as ExploitRunResult];
+
 const exploitEnv = (opts: EnvOpts = {}) => {
+  const answers = resultSequence(opts.result);
+  let call = 0;
   const run = vi.fn<(params: ExploitRunParams) => Promise<ExploitRunResult>>(
-    async () => opts.result ?? GRANTED_FULL,
+    async () => answers[Math.min(call++, answers.length - 1)] ?? GRANTED_FULL,
   );
   const pushed: Session[] = [];
   const cwds: string[] = [];
@@ -623,13 +677,7 @@ describe('msfconsole', () => {
     // the cwd holds — the bargain every effect that opens no shell already strikes.
     const { env, pushed, cwds } = exploitEnv({
       fs: attackerBox(),
-      result: {
-        ok: true,
-        effect: 'script_exec',
-        cve: 'CVE-2026-0269486',
-        severity: 'high',
-        tier: 'user',
-      },
+      result: SCRIPT_RUN(),
     });
 
     const { text, exitCode } = await drain(
@@ -651,13 +699,7 @@ describe('msfconsole', () => {
     // text inside the server, which is the one shape this effect may never take.
     const { env, run } = exploitEnv({
       fs: attackerBox(),
-      result: {
-        ok: true,
-        effect: 'script_exec',
-        cve: 'CVE-2026-0269486',
-        severity: 'high',
-        tier: 'user',
-      },
+      result: SCRIPT_RUN(),
     });
 
     await drain(await msfconsole.execute(env, [TARGET.ip, String(PORT), SCRIPT_PATH], NO_FLAGS));
@@ -677,13 +719,7 @@ describe('msfconsole', () => {
     // than being left to believe the whole run took.
     const { env, run } = exploitEnv({
       fs: attackerBox(),
-      result: {
-        ok: true,
-        effect: 'script_exec',
-        cve: 'CVE-2026-0269486',
-        severity: 'high',
-        tier: 'user',
-      },
+      result: SCRIPT_RUN(),
     });
 
     const { text, exitCode } = await drain(
@@ -697,24 +733,15 @@ describe('msfconsole', () => {
     expect(exitCode).toBe(1);
   });
 
-  it('lets the script read the TARGET rather than the box it was launched from', async () => {
-    // The filesystem the script is handed is the target's, regenerated — so a read comes
-    // back with that box's file and not with the attacker's own. Proving it needs a path
-    // that exists on both: `/etc/passwd` is on every box in the world, and the two differ.
+  it('lets the script read the SERVER-SERVED target rather than the box it was launched from', async () => {
+    // The filesystem the script is handed is the one step 1 served — the target as it
+    // STANDS, filtered to the granted tier — not the box the tool ran from and not a
+    // client-side regeneration of the target. Proving it needs a file only the served tree
+    // carries: `SERVED_PASSWD` is what the server put there, and the script copies it back.
     const { env, run } = exploitEnv({
       fs: attackerBox(),
-      result: {
-        ok: true,
-        effect: 'script_exec',
-        cve: 'CVE-2026-0269486',
-        severity: 'high',
-        tier: 'user',
-      },
+      result: SCRIPT_RUN(),
     });
-    const targetPasswd = mockFsViewFromTree(resolveLanHostIdentity(TARGET, ESSID).baseFs, {
-      userType: 'user',
-    }).read(asAbsPath('/etc/passwd'));
-    if (!targetPasswd.ok) throw new Error('expected the target to hold a readable passwd');
 
     await drain(
       await msfconsole.execute(env, [TARGET.ip, String(PORT), '/home/attacker/read.js'], NO_FLAGS),
@@ -722,7 +749,7 @@ describe('msfconsole', () => {
 
     expect(run).toHaveBeenCalledWith(
       expect.objectContaining({
-        writes: [{ path: '/tmp/stolen.txt', content: targetPasswd.content }],
+        writes: [{ path: '/tmp/stolen.txt', content: SERVED_PASSWD }],
       }),
     );
   });
@@ -733,20 +760,15 @@ describe('msfconsole', () => {
     // last, which is exactly the shape a sweep writing one line per host would take.
     const { env, run } = exploitEnv({
       fs: attackerBox(),
-      result: {
-        ok: true,
-        effect: 'script_exec',
-        cve: 'CVE-2026-0269486',
-        severity: 'high',
-        tier: 'user',
-      },
+      result: SCRIPT_RUN(),
     });
 
     await drain(
       await msfconsole.execute(env, [TARGET.ip, String(PORT), '/home/attacker/append.js'], NO_FLAGS),
     );
 
-    const sent = run.mock.calls[0]?.[0].writes;
+    // Step 1 is the fire that asks for the box; the writes travel on the SECOND fire.
+    const sent = run.mock.calls[1]?.[0].writes;
     // Both appends travel. The server replays them in order, so the LAST one is what the
     // box ends up holding — and it has to carry both lines.
     expect(sent?.at(-1)).toEqual({ path: '/tmp/notes.txt', content: 'one\ntwo\n' });
@@ -758,13 +780,7 @@ describe('msfconsole', () => {
     // write somewhere on the target that mirrors a directory only this machine has.
     const { env, run } = exploitEnv({
       fs: attackerBox(),
-      result: {
-        ok: true,
-        effect: 'script_exec',
-        cve: 'CVE-2026-0269486',
-        severity: 'high',
-        tier: 'user',
-      },
+      result: SCRIPT_RUN(),
     });
 
     await drain(
@@ -787,13 +803,7 @@ describe('msfconsole', () => {
     // silently losing all but the first and last.
     const { env, run } = exploitEnv({
       fs: attackerBox(),
-      result: {
-        ok: true,
-        effect: 'script_exec',
-        cve: 'CVE-2026-0269486',
-        severity: 'high',
-        tier: 'user',
-      },
+      result: SCRIPT_RUN(),
     });
 
     await drain(
@@ -804,8 +814,9 @@ describe('msfconsole', () => {
       ),
     );
 
-    // The server replays in order, so the LAST write is what the box ends up holding.
-    expect(run.mock.calls[0]?.[0].writes?.at(-1)).toEqual({
+    // The server replays in order, so the LAST write is what the box ends up holding. The
+    // writes travel on the SECOND fire, step 1 having only asked for the box.
+    expect(run.mock.calls[1]?.[0].writes?.at(-1)).toEqual({
       path: '/tmp/log.txt',
       content: 'first\nsecond\nthird\n',
     });
@@ -817,13 +828,7 @@ describe('msfconsole', () => {
     // with the failure.
     const { env } = exploitEnv({
       fs: attackerBox(),
-      result: {
-        ok: true,
-        effect: 'script_exec',
-        cve: 'CVE-2026-0269486',
-        severity: 'high',
-        tier: 'user',
-      },
+      result: SCRIPT_RUN(),
     });
 
     const { text, exitCode } = await drain(
@@ -873,13 +878,7 @@ describe('msfconsole', () => {
     // target's log would name a source that was never there.
     const { env, run } = exploitEnv({
       fs: attackerBox(),
-      result: {
-        ok: true,
-        effect: 'script_exec',
-        cve: 'CVE-2026-0269486',
-        severity: 'high',
-        tier: 'user',
-      },
+      result: SCRIPT_RUN(),
     });
 
     const { text, exitCode } = await drain(
@@ -892,6 +891,71 @@ describe('msfconsole', () => {
     // It still FIRED, and still wrote nothing: the hole opened, and the script that came
     // through it failed on its own first line.
     expect(run).toHaveBeenCalledWith(expect.objectContaining({ writes: [] }));
+  });
+
+  it('runs the script in two fires: asks for the box, then sends what it wrote', async () => {
+    // The whole shape of the two-step dance. Step 1 carries script_ready and no writes — it
+    // is asking for the box to run against. Step 2 carries the writes the script made against
+    // that box. Running player source on the server is the one shape this effect may never
+    // take, so the box comes here and only the writes go back.
+    const { env, run } = exploitEnv({ fs: attackerBox(), result: SCRIPT_RUN() });
+
+    await drain(await msfconsole.execute(env, [TARGET.ip, String(PORT), SCRIPT_PATH], NO_FLAGS));
+
+    expect(run).toHaveBeenCalledTimes(2);
+    expect(run.mock.calls[0]?.[0]).toMatchObject({ arg: SCRIPT_PATH, scriptReady: true });
+    expect(run.mock.calls[0]?.[0].writes).toBeUndefined();
+    expect(run.mock.calls[1]?.[0]).toMatchObject({
+      arg: SCRIPT_PATH,
+      writes: [{ path: '/tmp/dropped.txt', content: 'planted' }],
+    });
+    // The script's own source never crosses the wire — only what it did.
+    expect(run.mock.calls[1]?.[0]).not.toHaveProperty('scriptReady');
+  });
+
+  it('answers a read hole named with a readable local file in a single fire', async () => {
+    // A bare token is a script for a script hole and a path for a read hole, and the client
+    // cannot tell which until the server answers. When the hole turns out to READ, step 1
+    // alone carries the answer — there is no tree, so no script runs and no second fire goes
+    // out, even though the token happened to name a file this box could read.
+    const { env, run } = exploitEnv({
+      fs: attackerBox(),
+      result: {
+        ok: true,
+        effect: 'file_read',
+        cve: 'CVE-2026-0184',
+        severity: 'critical',
+        tier: 'root',
+        read: { ok: true, content: 'root:x:0:0\n' },
+      },
+    });
+
+    const { text, exitCode } = await drain(
+      await msfconsole.execute(env, [TARGET.ip, String(PORT), SCRIPT_PATH], NO_FLAGS),
+    );
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(text).toContain('[+] Reading');
+    expect(exitCode).toBe(0);
+  });
+
+  it('renders a step-2 answer as that answer, landing nothing when the server bounces it', async () => {
+    // The second fire is a fire like any other: if the server answers it differently — a
+    // box that went dark between the two steps — the player sees that answer, not the script
+    // success the first step promised. Nothing the script wrote is claimed as landed.
+    const { env, pushed } = exploitEnv({
+      fs: attackerBox(),
+      result: [scriptStep1(), { ok: false, error: 'not_vulnerable' }],
+    });
+
+    const { text, exitCode } = await drain(
+      await msfconsole.execute(env, [TARGET.ip, String(PORT), SCRIPT_PATH], NO_FLAGS),
+    );
+
+    expect(text).toContain('[-] Exploit failed — no known vulnerability');
+    expect(text).not.toContain('[+] Script injected');
+    expect(exitCode).toBe(1);
+    expect(pushed).toEqual([]);
   });
 
   it('asks for a script when the hole was fired with no third token at all', async () => {
@@ -1804,15 +1868,17 @@ const FOREIGN_MACHINE_ID = asMachineId(computeWorkstationId('bob', 'f'.repeat(64
  *  outcome itself. `elevateLocal` is captured so a test can see the box, command and tool
  *  path that crossed the wire. */
 const crossPlayerLocalEnv = (opts: {
-  readonly result?: ExploitRunResult;
+  readonly result?: ExploitRunResult | readonly ExploitRunResult[];
   readonly argv0?: string;
   readonly fs?: FsView;
   readonly sessionKind?: SessionKind;
   /** The box the shell stands on. Defaults to another player's workstation. */
   readonly machineId?: MachineId;
 } = {}) => {
+  const answers = resultSequence(opts.result ?? { ...GRANTED_FULL, machineId: FOREIGN_MACHINE_ID });
+  let call = 0;
   const elevateLocal = vi.fn<(params: ExploitLocalElevateParams) => Promise<ExploitRunResult>>(
-    async () => opts.result ?? { ...GRANTED_FULL, machineId: FOREIGN_MACHINE_ID },
+    async () => answers[Math.min(call++, answers.length - 1)] ?? { ...GRANTED_FULL, machineId: FOREIGN_MACHINE_ID },
   );
   const pushed: Session[] = [];
   const cwds: string[] = [];
@@ -2969,6 +3035,57 @@ describe('msfconsole --local', () => {
       content: LOCAL_LOOT,
     });
     expect(text).toContain('[+] Wrote');
+  });
+
+  it('runs a --local script against the server-served box, reading above the caller shell', async () => {
+    // The two-step dance on the --local path. B holds only a GUEST session on A's box, but the
+    // hole grants root. Step 1 hands back the box filtered to root — a view above B's own shell
+    // — and the script reads a root-only file off it; step 2 carries what it wrote. Only the
+    // writes cross back, never the script's source.
+    const script =
+      "const secret = await fs.readFile('/root/flag')\nawait fs.writeFile('/tmp/loot', secret)\n";
+    const fs = mockFsViewFromTree(
+      buildDirectory({
+        home: buildDirectory({
+          guest: buildDirectory(
+            { 'grab.js': buildFile(script, { owner: 'guest', perms: { read: ['root', 'user', 'guest'] } }) },
+            { owner: 'guest' },
+          ),
+        }),
+      }),
+      { userType: 'guest', cwd: asAbsPath('/home/guest') },
+    );
+    // The served tree: filtered to root, so it carries /root — which B's guest shell could not
+    // have read for itself.
+    const servedRoot = buildDirectory({
+      root: buildDirectory({ flag: buildFile('root-only loot\n', { perms: { read: ['root'] } }) }),
+    });
+    const step: ExploitRunResult = {
+      ok: true,
+      effect: 'script_exec',
+      cve: SCRIPT_CVE,
+      severity: 'critical',
+      tier: 'root',
+      tree: servedRoot,
+    };
+    const { env, elevateLocal } = crossPlayerLocalEnv({
+      fs,
+      result: [step, { ok: true, effect: 'script_exec', cve: SCRIPT_CVE, severity: 'critical', tier: 'root' }],
+    });
+
+    const { text, exitCode } = await drain(
+      await msfconsole.execute(env, ['reboot', '/home/guest/grab.js'], localFlags),
+    );
+
+    expect(elevateLocal).toHaveBeenCalledTimes(2);
+    expect(elevateLocal.mock.calls[0]![0]).toMatchObject({ scriptReady: true });
+    expect(elevateLocal.mock.calls[0]![0].writes).toBeUndefined();
+    expect(elevateLocal.mock.calls[1]![0].writes).toEqual([
+      { path: '/tmp/loot', content: 'root-only loot\n' },
+    ]);
+    expect(elevateLocal.mock.calls[1]![0]).not.toHaveProperty('scriptReady');
+    expect(text).toContain('[+] Script injected on rig as root');
+    expect(exitCode).toBe(0);
   });
 
   it('refuses a local half B cannot read before it fires, without troubling the server', async () => {

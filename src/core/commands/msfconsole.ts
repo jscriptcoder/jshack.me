@@ -25,16 +25,13 @@
 import { asAbsPath, asMachineId, type UserType } from '../types.js';
 import { LOOPBACK_IPV4, LOOPBACK_NAMES } from '../network/interfaces.js';
 import { vantageOf } from '../network/vantage.js';
-import { dir } from '../generation/baseFs.js';
-import { defaultDirectoryPermissions, defaultFilePermissions } from '../filesystem/defaultPermissions.js';
+import { defaultFilePermissions } from '../filesystem/defaultPermissions.js';
 import { createFsView } from '../filesystem/fsView.js';
 import { resolveWriteTarget } from '../filesystem/writeTarget.js';
 import { describeScriptError, runScript } from '../scripting/runScript.js';
 import { formatScriptValue } from '../scripting/format.js';
 import type { ScriptFs } from '../scripting/fsApi.js';
 import type { Directory } from '../filesystem/types.js';
-import { generateHomeLan } from '../generation/generateHomeLan.js';
-import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
 import { addressForTarget } from '../network/resolveName.js';
 import { isOwnWorkstation } from '../identity/workstation.js';
 import { homeDirectory } from '../sessions/homeDirectory.js';
@@ -176,20 +173,17 @@ const remoteHalfOf = (arg: string): string | undefined => {
 
 /** A script's filesystem when the box it is running against is NOT this one.
  *
- *  Reads come off the target's own regenerated tree. Writes are COLLECTED rather than
- *  sent, because nothing on this side is entitled to write that box: the fire carries
- *  them, and the server re-walks every one at the tier the CVE granted before any of them
- *  lands. A client can therefore propose whatever it likes and change nothing by it.
+ *  Reads come off the SERVER-SERVED tree — the target as it stands, filtered to the granted
+ *  tier, which step 1 of the fire handed back. So a script reads a box other players have
+ *  changed, at the tier the hole granted, rather than a client-side regeneration of it.
+ *  Writes are COLLECTED rather than applied, because nothing on this side is entitled to write
+ *  that box: step 2 of the fire carries them, and the server re-walks every one at the granted
+ *  tier before any lands. A client can therefore propose whatever it likes and change nothing.
  *
- *  The tree is the box as the world GENERATES it, without the journal replayed over it —
- *  reading that needs a session this effect never mints. So a script sees the box as it
- *  shipped rather than as it stands, which is a fidelity cost the blindness of the effect
- *  already carries elsewhere.
- *
- *  The view takes no tier, which reads as an ordinary user. Deliberately the
- *  under-permissive side of the choice rather than the over: the tier is unknown until the
- *  fire returns, a read this view refuses is simply a read the script does not get, and a
- *  write it allows still has to survive the server's own walk at the real tier. */
+ *  The view is built at the granted tier the step-1 answer named. The served tree is already
+ *  pruned to that tier, so every file in it is one that tier may read; building the view at the
+ *  same tier keeps the two consistent and still lets a per-file permission refuse a read, as a
+ *  shell of that tier would. */
 const targetScriptFs = (
   tree: Directory,
   collected: { path: string; content: string }[],
@@ -260,41 +254,40 @@ type Attempt = {
    *  server says the hole runs a script — before that it is an ordinary miss on a path
    *  that was never ours to open. */
   readonly localError: 'not_found' | 'permission_denied' | 'is_directory' | undefined;
-  /** What the script did, when a bare token named one this box could read. Undefined when
-   *  nothing was run at all — which is a different fact from having run and written
-   *  nothing, and the server tells the two apart on exactly that distinction. */
-  readonly writes: readonly { readonly path: string; readonly content: string }[] | undefined;
-  /** Why the script stopped early, or undefined when it finished. Carried rather than
-   *  printed, for the same reason `localError` is: a read hole aimed at a path that
-   *  happens to be valid JavaScript must not report a script failure nobody asked for. */
-  readonly scriptError: string | undefined;
+  /** The bytes of a BARE third token this box could read — a script, held ready to run once
+   *  the server hands back the box to run it against. Undefined when no bare token was named,
+   *  or one was but this box could not read it (that is `localError`). The script does not run
+   *  here: a script effect runs in TWO steps, and the source is kept for step 2. */
+  readonly scriptSource: string | undefined;
 };
 
 /** The blind payload both fires carry to the server: the bytes a write effect would plant,
- *  and what a script effect's run wrote. Blind because the effect is unknown until the
- *  server answers — a read hole and a write hole name their third token the same way. */
+ *  and the source of a script a script effect would run. Blind because the effect is unknown
+ *  until the server answers — a read hole and a write hole name their third token the same
+ *  way, and a bare token is a path on the target for a read hole but a script on this box for
+ *  a script hole. */
 type BlindPayload = {
   readonly content: string | undefined;
   readonly localError: 'not_found' | 'permission_denied' | 'is_directory' | undefined;
-  readonly writes: readonly { readonly path: string; readonly content: string }[] | undefined;
-  readonly scriptError: string | undefined;
+  readonly scriptSource: string | undefined;
 };
 
-/** Read the LOCAL half of a `local:remote` token off this box, and run a BARE token blind
- *  against `scriptBaseFs`, before either fire knows which effect the CVE carries. Both the
- *  network fire and the local fire the server answers must do this the same way — the bytes
- *  and any script writes are the whole of what a write or a script effect can send, because
- *  the server regenerates the target and has no view of this filesystem.
+/** Read the LOCAL half of a `local:remote` token off this box, and the bytes of a BARE token,
+ *  before either fire knows which effect the CVE carries. Both the network fire and the local
+ *  fire the server answers must do this the same way — the bytes of a write's local half and
+ *  the source of a script are the whole of what this side can offer, because the server
+ *  regenerates the target and has no view of this filesystem. Nothing is RUN here: a script
+ *  effect runs in two steps, the server first handing back the box to run against.
  *
  *  A local half this shell cannot read is the player's OWN typo, refused here rather than
  *  fired: nothing reached the box, so it is owed no line, and the player learns it without
- *  spending a break-in on somebody else's log. A bare token that fails to read is CARRIED
- *  instead — until the server names the effect, nothing on this side knows whether it was a
- *  file on the target (a read hole) or a script on this box, so a blind read aimed at a path
- *  this box happens not to have must not be stopped before it reaches the network. */
+ *  spending a break-in on somebody else's log. A bare token that fails to read is CARRIED as
+ *  a `localError` instead — until the server names the effect, nothing on this side knows
+ *  whether it was a file on the target (a read hole) or a script on this box, so a blind read
+ *  aimed at a path this box happens not to have must not be stopped before it reaches the
+ *  network. */
 const prepareBlindPayload = async (
   env: CommandEnv,
-  scriptBaseFs: Directory,
   rawArg: string | undefined,
 ): Promise<{ readonly ok: false; readonly message: string } | { readonly ok: true; readonly payload: BlindPayload }> => {
   const localPath = rawArg === undefined ? undefined : localHalfOf(rawArg);
@@ -308,23 +301,13 @@ const prepareBlindPayload = async (
     rawArg === undefined || localPath !== undefined
       ? undefined
       : env.fs.read(resolveAbsPath(env.fs.cwd(), rawArg));
-  const collected: { path: string; content: string }[] = [];
-  const scriptRun =
-    bareLocal !== undefined && bareLocal.ok
-      ? await runScript(bareLocal.content, { fs: targetScriptFs(scriptBaseFs, collected) })
-      : undefined;
 
   return {
     ok: true,
     payload: {
       content: local !== undefined && local.ok ? local.content : undefined,
       localError: bareLocal !== undefined && !bareLocal.ok ? bareLocal.error : undefined,
-      // Present whenever a script RAN, even when it wrote nothing: having reached the box
-      // and left it alone is a real outcome, and sending nothing would reach the server as
-      // the entirely different fire that had nothing to run at all.
-      writes: scriptRun === undefined ? undefined : collected,
-      scriptError:
-        scriptRun !== undefined && !scriptRun.ok ? describeScriptError(scriptRun.error) : undefined,
+      scriptSource: bareLocal !== undefined && bareLocal.ok ? bareLocal.content : undefined,
     },
   };
 };
@@ -500,6 +483,51 @@ async function* renderExploitResult(
   return 0;
 }
 
+/** The extra fields that differ between the two fires of a script run: step 1 says a script
+ *  is ready, step 2 carries what it wrote. Every one-request effect sends neither. */
+type FireExtra = {
+  readonly scriptReady?: boolean;
+  readonly writes?: readonly { readonly path: string; readonly content: string }[];
+};
+
+/** Fire once, and if the server answers step 1 of a script run — the box as it stands,
+ *  filtered to the granted tier — run the script against that box and fire again with what it
+ *  wrote. Shared by the network fire and the `--local` fire the server answers: the two differ
+ *  only in HOW a single fire is sent (`runFire`) and in the render context, which they pass in.
+ *
+ *  Every other effect — a read, a reset, a shell, a bounce, or a script hole asked with
+ *  nothing to run — comes back whole on the first fire and renders at once. Only a script hole
+ *  given a ready script takes the second trip, because running player-supplied source on the
+ *  server is the one shape the effect may never take: the box comes here to run against, and
+ *  only the writes go back. */
+async function* fireWithOptionalScript(
+  env: CommandEnv,
+  runFire: (extra: FireExtra) => Promise<ExploitRunResult>,
+  scriptSource: string | undefined,
+  ctx: Omit<ExploitRenderContext, 'scriptError'>,
+): AsyncGenerator<TerminalLine, number> {
+  // Step 1. When a bare token read as a script here, say so, so a script hole hands back the
+  // box rather than taking the fire as nothing to run.
+  const first = await runFire(scriptSource === undefined ? {} : { scriptReady: true });
+  if (
+    scriptSource === undefined ||
+    !(first.ok && 'effect' in first && first.effect === 'script_exec' && 'tree' in first)
+  ) {
+    return yield* renderExploitResult(env, first, { ...ctx, scriptError: undefined });
+  }
+
+  // Step 2. Run the script against the served box, then fire again with what it wrote. A
+  // script that threw still sends what it managed before it stopped — a side effect that
+  // landed cannot be unwound — and the failure is reported over whatever the second fire says.
+  const collected: { path: string; content: string }[] = [];
+  const scriptRun = await runScript(scriptSource, {
+    fs: targetScriptFs(first.tree, collected, first.tier),
+  });
+  const scriptError = scriptRun.ok ? undefined : describeScriptError(scriptRun.error);
+  const second = await runFire({ writes: collected });
+  return yield* renderExploitResult(env, second, { ...ctx, scriptError });
+}
+
 async function* fire(env: CommandEnv, attempt: Attempt): AsyncGenerator<TerminalLine, number> {
   yield text(`[*] Targeting ${attempt.targetIp}:${attempt.port}`);
   await env.sleep(PHASE_DELAY_MS);
@@ -508,30 +536,30 @@ async function* fire(env: CommandEnv, attempt: Attempt): AsyncGenerator<Terminal
   yield text('[*] Payload delivered, waiting for callback...');
 
   const sessionId = `exploit-${attempt.port}-${env.now()}`;
-  const result = await env.exploit.run({
-    sessionId,
-    essid: attempt.essid,
-    targetIp: attempt.targetIp,
-    port: attempt.port,
-    // The box the shell stands on — the server reads where the caller is from it and
-    // derives the source address, so a fire from a hop travels from that box.
-    callerMachineId: env.session.machineId,
-    parentSessionId: env.session.id,
-    arg: attempt.arg,
-    content: attempt.content,
-    writes: attempt.writes,
-    // A script reports a shell rather than entering it (see `renderExploitResult`), so the
-    // server must not open one: a row nobody stands in would set the tier the player's
-    // real shell on that box is served at.
-    scripted: env.scripted === true,
-  });
+  const runFire = (extra: FireExtra) =>
+    env.exploit.run({
+      sessionId,
+      essid: attempt.essid,
+      targetIp: attempt.targetIp,
+      port: attempt.port,
+      // The box the shell stands on — the server reads where the caller is from it and
+      // derives the source address, so a fire from a hop travels from that box.
+      callerMachineId: env.session.machineId,
+      parentSessionId: env.session.id,
+      arg: attempt.arg,
+      content: attempt.content,
+      // A script reports a shell rather than entering it (see `renderExploitResult`), so the
+      // server must not open one: a row nobody stands in would set the tier the player's
+      // real shell on that box is served at.
+      scripted: env.scripted === true,
+      ...extra,
+    });
 
-  return yield* renderExploitResult(env, result, {
+  return yield* fireWithOptionalScript(env, runFire, attempt.scriptSource, {
     host: attempt.targetIp,
     missLabel: `${attempt.targetIp}:${attempt.port}`,
     refusal: (reason) => connectFailure(attempt.targetIp, attempt.port, reason),
     arg: attempt.arg,
-    scriptError: attempt.scriptError,
     localError: attempt.localError,
     sessionId,
   });
@@ -949,27 +977,27 @@ async function* fireLocalThroughServer(
   yield text('[*] Payload delivered, waiting for callback...');
 
   const sessionId = `exploit-local-${command}-${env.now()}`;
-  const result = await env.exploit.elevateLocal({
-    sessionId,
-    machineId: env.session.machineId,
-    command,
-    commandPath,
-    parentSessionId: env.session.id,
-    ...(arg === undefined ? {} : { arg }),
-    ...(payload.content === undefined ? {} : { content: payload.content }),
-    ...(payload.writes === undefined ? {} : { writes: payload.writes }),
-    // As on the network path: a script opens no session, so the server mints no row.
-    scripted: env.scripted === true,
-  });
+  const runFire = (extra: FireExtra) =>
+    env.exploit.elevateLocal({
+      sessionId,
+      machineId: env.session.machineId,
+      command,
+      commandPath,
+      parentSessionId: env.session.id,
+      ...(arg === undefined ? {} : { arg }),
+      ...(payload.content === undefined ? {} : { content: payload.content }),
+      // As on the network path: a script opens no session, so the server mints no row.
+      scripted: env.scripted === true,
+      ...extra,
+    });
 
-  return yield* renderExploitResult(env, result, {
+  return yield* fireWithOptionalScript(env, runFire, payload.scriptSource, {
     host: env.hostname,
     missLabel: command,
     // No host or port to name on a `--local` fire, so the connect-level bounce is the
     // tool's own line rather than the network path's `connect to host … port …`.
     refusal: (reason) => `msfconsole: ${reason}`,
     arg,
-    scriptError: payload.scriptError,
     localError: payload.localError,
     sessionId,
   });
@@ -997,7 +1025,7 @@ const executeLocal = async (
   // on THIS side first and travel with the fire, exactly as the network path sends them to
   // a target.
   if (!isOwnWorkstation(env.session.machineId, env.identity.publicKeyHex)) {
-    const prepared = await prepareBlindPayload(env, env.fs.root(), path);
+    const prepared = await prepareBlindPayload(env, path);
     if (!prepared.ok) return errorResult(prepared.message);
     return streamedResult(
       fireLocalThroughServer(env, command, invocationPath(env), path, prepared.payload),
@@ -1092,27 +1120,13 @@ const execute: Command['execute'] = async (env, args, flags) => {
           resolveOccupants: (forEssid) => env.scan.resolveOccupants(forEssid),
         });
 
-  // The tree a blind script runs against. Only a box this side can REGENERATE whole — a
-  // generated host on the network the shell stands on — has one; a fellow occupant, a
-  // public box and a box on a deep layer are the server's to resolve, so there is nothing
-  // here to read their tree from. An empty tree keeps a script hole working — its writes
-  // still travel and are re-walked at the granted tier over there — at the same fidelity
-  // cost this run already carries on a generated box, where it sees the box as it shipped
-  // rather than as it stands. Reachability is the server's too: an address nothing answers
-  // to is told at the socket, as `ssh` tells it, rather than refused from a world this side
-  // cannot see — the hop's deep layers and occupants are not this side's to rule on.
-  const host = generateHomeLan(essid).hosts.find((candidate) => candidate.ip === targetIp);
-  const baseFs =
-    host === undefined
-      ? dir({}, defaultDirectoryPermissions('user'))
-      : resolveLanHostIdentity(host, essid).baseFs;
-
-  // A `local:remote` token's local half, and a bare token's blind script, both read off
-  // THIS box before the effect is known — the same preparation the local fire the server
-  // answers makes, against the target's regenerated tree here and the box under the caller
-  // there. A local half this shell cannot read is the player's own typo, refused before
-  // firing.
-  const prepared = await prepareBlindPayload(env, baseFs, rawArg);
+  // A `local:remote` token's local half is read off THIS box before the effect is known,
+  // and a bare token's bytes are held in case the hole turns out to run a script — the same
+  // preparation the local fire the server answers makes. A script no longer runs here: the
+  // server hands back the box to run it against first, so there is nothing to regenerate on
+  // this side. A local half this shell cannot read is the player's own typo, refused before
+  // firing; reachability is the server's, told at the socket as `ssh` tells it.
+  const prepared = await prepareBlindPayload(env, rawArg);
   if (!prepared.ok) return errorResult(prepared.message);
 
   return streamedResult(
@@ -1123,8 +1137,7 @@ const execute: Command['execute'] = async (env, args, flags) => {
       arg: rawArg,
       content: prepared.payload.content,
       localError: prepared.payload.localError,
-      writes: prepared.payload.writes,
-      scriptError: prepared.payload.scriptError,
+      scriptSource: prepared.payload.scriptSource,
     }),
   );
 };
