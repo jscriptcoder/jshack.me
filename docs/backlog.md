@@ -481,7 +481,16 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   in a row, unrelated to the change at hand). Either make the test cheaper (it walks the world)
   or give it its own timeout with the reason beside it; do not raise the global one. Seen again
   on 2026-10-12 (12 s alone, over 30 s in the full run, the same on `main`); it passed in the
-  full run of 2026-10-13.
+  full run of 2026-10-13. Seen again on 2026-10-16 (chainit slice 1, which does not touch it):
+  failed once in a full run, ~18 s and 3/3 green alone, clean in the next full run. That run's
+  output went through a filter, so its error text was lost; a timeout is still the likely cause.
+
+- **`resolveOccupants.test.ts` fails about once in 250 runs.** "derives each occupant's LAN IP
+  from THAT occupant's key+ESSID, not the caller's" draws two fresh identities and asserts their
+  LAN addresses differ, but both come from one network's octet pool, so the two can draw the
+  same address. Seen once in a full run on 2026-10-16 (chainit slice 1, which does not touch it),
+  3/3 green alone. Fix the test, not the code: build the two occupants from fixed keys known to
+  land on different octets.
 
 - **CLOSED v0.326.0 (#619) — `grep -c` answered `grep: unrecognized option: -c`.** Parity rather
   than a missing capability (`grep … | wc -l` worked since v0.278.0), but the game planted
