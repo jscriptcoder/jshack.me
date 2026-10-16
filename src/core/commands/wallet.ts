@@ -29,7 +29,7 @@ import { vantageOf } from '../network/vantage.js';
 import { homeDirectory } from '../sessions/homeDirectory.js';
 import { asAbsPath, type AbsPath, type UserType } from '../types.js';
 import { readAmount } from '../wallet/amount.js';
-import type { TransferRecord } from '../wallet/handleWalletHistory.js';
+import { historyLine } from '../wallet/historyLine.js';
 import {
   formatWalletFile,
   generateWalletKey,
@@ -197,16 +197,6 @@ const balance = async (env: CommandEnv, named: readonly string[]): Promise<Comma
   const held = await env.wallet.balance(address);
   if (!held.ok) return refusal(NO_ANSWER);
   return said(`${address}  ${held.balance} JSC`);
-};
-
-/** One transfer as `address` sees it: coins in, with where they came from, or
- *  coins out, with where they went. Minted coins came from no address, and the
- *  word in its place is the wallet's own. The time is the ledger's, which is UTC. */
-const historyLine = (address: string, { from, to, amount, at }: TransferRecord): string => {
-  const when = `${at.slice(0, 10)} ${at.slice(11, 16)}`;
-  return to === address
-    ? `${when}  +${amount} JSC  from ${from ?? 'coinbase'}`
-    : `${when}  -${amount} JSC  to ${to}`;
 };
 
 const history = async (env: CommandEnv, named: readonly string[]): Promise<CommandResult> => {
