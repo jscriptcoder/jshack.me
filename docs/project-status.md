@@ -912,7 +912,7 @@ agreed order:
     [`email-architecture.md`](./email-architecture.md); follow-ups in `backlog.md` under "Email —
     follow-ups deferred". **Pick up here (2026-10-15):** item 8's list and item 6, the agreed work
     until the owner reopens missions.
-12. **A JSC block explorer at chainit.io (in flight; slice 1 v0.393.0, #690, 2026-10-16).** The
+12. **A JSC block explorer at chainit.io (in flight; slice 1 v0.393.0, #690; slice 2 v0.394.0; 2026-10-16).** The
     first of the public-website ideas in `backlog.md`, picked for building on the shipped wallet.
     Grill record and slices in [`plans/chainit.md`](../plans/chainit.md). Slice 1 (v0.393.0):
     chainit.io is a fifth fixed site; its front page is a defaceable file with a lookup form, and
@@ -920,8 +920,10 @@ agreed order:
     transfers in `wallet history`'s words (`historyLine`, now in `core/wallet/`), each address at
     the other end a link. Every lookup is logged on chainit with the visitor's address, a dark
     chainit answers none while `wallet` keeps working, `restoreSite.ts chainit.io` restores it, and
-    `man wallet` names the site. **Pick up here (2026-10-16):** slice 2, `/recent` and `/rich`,
-    needs its plan.
+    `man wallet` names the site. Slice 2 (v0.394.0): `/recent` lists the latest 20 transfers on
+    the chain and `/rich` the 20 largest non-zero balances, both from the ledger, linked from the
+    front page and logged like a lookup; no migration. **Pick up here (2026-10-16):** the epic's
+    close-out, one browser run and the plan moved into `docs/`.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
