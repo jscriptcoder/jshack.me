@@ -1295,8 +1295,10 @@ decision, not a gap.
   office/police/university/café as drop-in additions; handler+generator registries dispatch
   on `theme`. CVE-eligible themed ports need `Port.owner` stamped; pages must be well-formed
   HTML; CVE pickers constrain INITIAL state only (not post-`apt upgrade`).
-- **Player-hosted websites** — apache2/nginx daemons shipped (legacy); remaining: mutable
-  router NAT, findit.io registration/crawl.
+- **Player-hosted websites — RESOLVED.** A player runs apache2/nginx, forwards `:80` on their
+  gateway, and findit.io lists the page under its bare public IP — crawled live at every
+  search, never submitted, opt-out by `robots.txt`. As built: forwards in
+  `docs/cross-player-architecture.md`, the crawl in `docs/discovery-architecture.md`.
 - **A reason to keep a service running (its own epic).** Since v0.330.0 a workstation is born
   running 1–3 services and the CVE clock opens holes in them; an owner's safest move is to stop
   them all, and nothing yet pays them not to. Give a running service something to offer (perhaps
