@@ -45,6 +45,7 @@ import type { SignUp } from '../emailit/signup.js';
 import { FINDIT_FRONT_PAGE } from '../findit/page.js';
 import { EMAILIT_FRONT_PAGE } from '../emailit/pages.js';
 import { CHAINIT_FRONT_PAGE } from '../chainit/pages.js';
+import type { ChainReads } from '../chainit/chainViews.js';
 import type { WalletBalanceDeps } from '../wallet/handleWalletBalance.js';
 import type { WalletHistoryDeps } from '../wallet/handleWalletHistory.js';
 import type { MachinePatchRow } from '../findit/webIndex.js';
@@ -202,6 +203,8 @@ type FetchOverrides = {
   signUp?: SignUp;
   findBalance?: WalletBalanceDeps['findBalance'];
   findTransfers?: WalletHistoryDeps['findTransfers'];
+  findLatestTransfers?: ChainReads['findLatestTransfers'];
+  findLargestBalances?: ChainReads['findLargestBalances'];
 };
 
 const makeDeps = (over: FetchOverrides = {}) => {
@@ -246,6 +249,13 @@ const makeDeps = (over: FetchOverrides = {}) => {
   const findTransfers = vi.fn<WalletHistoryDeps['findTransfers']>(
     over.findTransfers ?? (async () => ({ data: [], error: null })),
   );
+  // Default: the chain has moved nothing. Only chainit's `/recent` and `/rich` ever ask.
+  const findLatestTransfers = vi.fn<ChainReads['findLatestTransfers']>(
+    over.findLatestTransfers ?? (async () => ({ data: [], error: null })),
+  );
+  const findLargestBalances = vi.fn<ChainReads['findLargestBalances']>(
+    over.findLargestBalances ?? (async () => ({ data: [], error: null })),
+  );
   const deps: ResolveHttpFetchDeps = {
     nonceStore: freshStore,
     findPatchesForMachines,
@@ -262,12 +272,16 @@ const makeDeps = (over: FetchOverrides = {}) => {
     signUp,
     findBalance,
     findTransfers,
+    findLatestTransfers,
+    findLargestBalances,
   };
   return {
     deps,
     signUp,
     findBalance,
     findTransfers,
+    findLatestTransfers,
+    findLargestBalances,
     findNetworkByPublicIp,
     findPatches,
     listOccupantsByEssid,
@@ -1606,6 +1620,259 @@ describe('chainit.io answers a lookup from the ledger', () => {
     expect(response).toEqual({ status: 404, body: { error: 'not_found' } });
     expect(findBalance).not.toHaveBeenCalled();
   });
+});
+
+describe('chainit.io lists the whole chain from the ledger', () => {
+  const CHAINIT_IP = siteAddress('chainit.io') ?? '';
+  const CHAINIT_ID = computeApGatewayId(CHAINIT_NETWORK);
+  const OURS = `jsc${'a'.repeat(40)}`;
+  const THEIRS = `jsc${'b'.repeat(40)}`;
+  const onChainit = {
+    lookup: async () => ({
+      data: { router_machine_id: CHAINIT_ID, essid: CHAINIT_NETWORK },
+      error: null,
+    }),
+    listOccupantsByEssid: async () => ({ data: [], error: null }),
+    listLeasesByEssid: async () => ({ data: [], error: null }),
+  };
+  /** Ours was minted 500 and sent 40 to theirs, newest first: what the two chain-wide
+   *  reads hand back. */
+  const busyLedger = {
+    findLatestTransfers: async () => ({
+      data: [
+        {
+          from_address: OURS,
+          to_address: THEIRS,
+          amount: 40,
+          created_at: '2026-10-16T10:01:00+00:00',
+        },
+        {
+          from_address: null,
+          to_address: OURS,
+          amount: 500,
+          created_at: '2026-10-16T09:12:44+00:00',
+        },
+      ],
+      error: null,
+    }),
+    findLargestBalances: async () => ({
+      data: [
+        { address: OURS, balance: 460 },
+        { address: THEIRS, balance: 40 },
+      ],
+      error: null,
+    }),
+  };
+  const fetchPath = (path: string, fields: Record<string, unknown> = {}) =>
+    signRequest(BOB, 'resolveHttpFetch', {
+      target: CHAINIT_IP,
+      port: HTTP_DEFAULT_PORT,
+      path,
+      ...fields,
+    });
+  const contentOf = (response: { body: Record<string, unknown> }): string =>
+    typeof response.body.content === 'string' ? response.body.content : '';
+  const accessLogOf = (upsertPatch: ReturnType<typeof makeDeps>['upsertPatch']) =>
+    upsertPatch.mock.calls.map(([row]) => row).find((row) => row.path === ACCESS_LOG_PATH);
+  const linked = (address: string): string => `<a href="/address?a=${address}">${address}</a>`;
+
+  it('shows the latest 20 transfers on the chain, newest first, both ends on each', async () => {
+    const { deps, findLatestTransfers } = makeDeps({ ...onChainit, ...busyLedger });
+
+    const response = await handleResolveHttpFetch(fetchPath('/recent'), deps);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ ok: true, server: 'nginx' });
+    expect(contentOf(response)).toContain(
+      [
+        `2026-10-16 10:01  40 JSC  ${linked(OURS)} -> ${linked(THEIRS)}`,
+        `2026-10-16 09:12  500 JSC  coinbase -> ${linked(OURS)}`,
+      ].join('\n'),
+    );
+    expect(findLatestTransfers).toHaveBeenCalledWith(20);
+  });
+
+  it('ranks the 20 richest addresses, largest first', async () => {
+    const { deps, findLargestBalances } = makeDeps({ ...onChainit, ...busyLedger });
+
+    const response = await handleResolveHttpFetch(fetchPath('/rich'), deps);
+
+    expect(response.status).toBe(200);
+    expect(contentOf(response)).toContain(
+      [` 1  ${linked(OURS)}  460 JSC`, ` 2  ${linked(THEIRS)}  40 JSC`].join('\n'),
+    );
+    expect(findLargestBalances).toHaveBeenCalledWith(20);
+  });
+
+  it.each([
+    ['/recent', 'No transfers.'],
+    ['/rich', 'Nobody holds any JSC.'],
+  ])('says plainly at %s when the ledger is empty', async (path, said) => {
+    const { deps } = makeDeps(onChainit);
+
+    expect(contentOf(await handleResolveHttpFetch(fetchPath(path), deps))).toContain(said);
+  });
+
+  it.each(['/recent', '/rich', '/recent?page=2'])(
+    'records a look at %s in its own log, as asked, traced to the visitor',
+    async (path) => {
+      const { deps, upsertPatch } = makeDeps({ ...onChainit, ...busyLedger });
+
+      await handleResolveHttpFetch(fetchPath(path), deps);
+
+      const logged = accessLogOf(upsertPatch);
+      expect(logged?.machine_id).toBe(CHAINIT_ID);
+      expect(logged?.content).toContain(`${BOB_PUBLIC_IP} `);
+      expect(logged?.content).toContain(` ${path} `);
+      expect(logged?.content).toContain(' 200 ');
+    },
+  );
+
+  it.each([
+    ['/recent', 'recent', 'No transfers.'],
+    ['/rich', 'rich', 'Nobody holds any JSC.'],
+  ])(
+    'answers %s from the ledger whatever a root has written there on its disk',
+    async (path, planted, said) => {
+      const { deps } = makeDeps({
+        ...onChainit,
+        patches: patchesByMachine({
+          [CHAINIT_ID]: [publishedPage('<html>FORGED</html>', planted)],
+        }),
+      });
+
+      const page = contentOf(await handleResolveHttpFetch(fetchPath(path), deps));
+
+      expect(page).toContain(said);
+      expect(page).not.toContain('FORGED');
+    },
+  );
+
+  it.each([
+    ['/recent/', 'recent/index.html'],
+    ['/rich.html', 'rich.html'],
+  ])('serves %s from its disk, like any other path', async (path, planted) => {
+    const { deps, findLatestTransfers, findLargestBalances } = makeDeps({
+      ...onChainit,
+      patches: patchesByMachine({
+        [CHAINIT_ID]: [publishedPage('<html>OWNED</html>', planted)],
+      }),
+    });
+
+    expect(contentOf(await handleResolveHttpFetch(fetchPath(path), deps))).toBe(
+      '<html>OWNED</html>',
+    );
+    expect(findLatestTransfers).not.toHaveBeenCalled();
+    expect(findLargestBalances).not.toHaveBeenCalled();
+  });
+
+  it.each(['/recent', '/rich'])('answers nothing at %s when the box is bricked', async (path) => {
+    const { deps, findLatestTransfers, findLargestBalances } = makeDeps({
+      ...onChainit,
+      ...busyLedger,
+      patches: patchesByMachine({
+        [CHAINIT_ID]: [
+          { ...publishedPage(''), path: '/boot/vmlinuz', content: null, node_type: null },
+        ],
+      }),
+    });
+
+    expect(await handleResolveHttpFetch(fetchPath(path), deps)).toEqual({
+      status: 404,
+      body: { error: 'host_unreachable' },
+    });
+    expect(findLatestTransfers).not.toHaveBeenCalled();
+    expect(findLargestBalances).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      '/recent',
+      'cannot be read',
+      // Rows that would parse, beside the error: the error alone has to fail the view.
+      { findLatestTransfers: async () => ({ data: [], error: new Error('down') }) },
+    ],
+    [
+      '/recent',
+      'hands back a row that is not a transfer',
+      {
+        findLatestTransfers: async () => ({
+          data: [{ from_address: null, to_address: OURS, amount: 0, created_at: 'never' }],
+          error: null,
+        }),
+      },
+    ],
+    [
+      '/rich',
+      'cannot be read',
+      { findLargestBalances: async () => ({ data: [], error: new Error('down') }) },
+    ],
+    [
+      '/rich',
+      'hands back a row that is not a balance',
+      {
+        findLargestBalances: async () => ({
+          data: [{ address: OURS, balance: 460 }, { address: 'nobody', balance: 40 }],
+          error: null,
+        }),
+      },
+    ],
+  ])('fails %s, and records nothing, when the ledger %s', async (path, _case, broken) => {
+    const { deps, upsertPatch } = makeDeps({ ...onChainit, ...busyLedger, ...broken });
+
+    const response = await handleResolveHttpFetch(fetchPath(path), deps);
+
+    // Never a short list: a list with a hole in it would read as a chain without the row.
+    expect(response).toEqual({ status: 500, body: { error: 'ledger_lookup_failed' } });
+    expect(accessLogOf(upsertPatch)).toBeUndefined();
+  });
+
+  it.each(['/recent', '/rich'])('takes no form at %s', async (path) => {
+    const { deps, findLatestTransfers, findLargestBalances } = makeDeps({
+      ...onChainit,
+      ...busyLedger,
+    });
+
+    const response = await handleResolveHttpFetch(fetchPath(path, { body: 'a=1' }), deps);
+
+    expect(response).toEqual({
+      status: 405,
+      body: { error: 'method_not_allowed', server: 'nginx' },
+    });
+    expect(findLatestTransfers).not.toHaveBeenCalled();
+    expect(findLargestBalances).not.toHaveBeenCalled();
+  });
+
+  it.each(['/recent', '/rich'])(
+    'leaves every other site to serve %s from its own disk',
+    async (path) => {
+      const { deps, findLatestTransfers, findLargestBalances } = makeDeps({
+        ...busyLedger,
+        lookup: async () => ({
+          data: {
+            router_machine_id: computeApGatewayId(HACKADEMY_NETWORK),
+            essid: HACKADEMY_NETWORK,
+          },
+          error: null,
+        }),
+        listOccupantsByEssid: async () => ({ data: [], error: null }),
+        listLeasesByEssid: async () => ({ data: [], error: null }),
+      });
+
+      const response = await handleResolveHttpFetch(
+        signRequest(BOB, 'resolveHttpFetch', {
+          target: siteAddress('hackademy.io') ?? '',
+          port: HTTP_DEFAULT_PORT,
+          path,
+        }),
+        deps,
+      );
+
+      expect(response).toEqual({ status: 404, body: { error: 'not_found' } });
+      expect(findLatestTransfers).not.toHaveBeenCalled();
+      expect(findLargestBalances).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe('hackademy.io serves its pages to anybody who asks', () => {
