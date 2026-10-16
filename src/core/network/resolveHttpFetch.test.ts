@@ -34,6 +34,7 @@ import type { PatchRow } from '../patches/upsertPatch.js';
 import { siteAddress } from '../generation/publisher.js';
 import { publicAddress } from '../generation/world.js';
 import {
+  CHAINIT_NETWORK,
   EMAILIT_DOMAIN,
   EMAILIT_NETWORK,
   FINDIT_DOMAIN,
@@ -43,6 +44,9 @@ import {
 import type { SignUp } from '../emailit/signup.js';
 import { FINDIT_FRONT_PAGE } from '../findit/page.js';
 import { EMAILIT_FRONT_PAGE } from '../emailit/pages.js';
+import { CHAINIT_FRONT_PAGE } from '../chainit/pages.js';
+import type { WalletBalanceDeps } from '../wallet/handleWalletBalance.js';
+import type { WalletHistoryDeps } from '../wallet/handleWalletHistory.js';
 import type { MachinePatchRow } from '../findit/webIndex.js';
 import { logRead } from '../../test/factories/logRows.js';
 import { derivedPublicIpByEssid, type FindPublicIpByEssid } from '../logging/crossPlayerSourceIp.js';
@@ -196,6 +200,8 @@ type FetchOverrides = {
   findActiveSession?: FindActiveSession;
   findPublicIpByEssid?: FindPublicIpByEssid;
   signUp?: SignUp;
+  findBalance?: WalletBalanceDeps['findBalance'];
+  findTransfers?: WalletHistoryDeps['findTransfers'];
 };
 
 const makeDeps = (over: FetchOverrides = {}) => {
@@ -233,6 +239,13 @@ const makeDeps = (over: FetchOverrides = {}) => {
   );
   // Default: every sign-up opens its account. Only emailit's `/signup` ever asks.
   const signUp = vi.fn<SignUp>(over.signUp ?? (async () => ({ data: 'created', error: null })));
+  // Default: the ledger has never seen the address. Only chainit's `/address` ever asks.
+  const findBalance = vi.fn<WalletBalanceDeps['findBalance']>(
+    over.findBalance ?? (async () => ({ data: null, error: null })),
+  );
+  const findTransfers = vi.fn<WalletHistoryDeps['findTransfers']>(
+    over.findTransfers ?? (async () => ({ data: [], error: null })),
+  );
   const deps: ResolveHttpFetchDeps = {
     nonceStore: freshStore,
     findPatchesForMachines,
@@ -247,10 +260,14 @@ const makeDeps = (over: FetchOverrides = {}) => {
     findActiveSession,
     findPublicIpByEssid,
     signUp,
+    findBalance,
+    findTransfers,
   };
   return {
     deps,
     signUp,
+    findBalance,
+    findTransfers,
     findNetworkByPublicIp,
     findPatches,
     listOccupantsByEssid,
@@ -1357,6 +1374,237 @@ describe('findit.io answers a search over the public web', () => {
     );
 
     expect(response).toEqual({ status: 200, body: { ok: true, content: ALICE_PAGE, server: 'nginx' } });
+  });
+});
+
+describe('chainit.io answers a lookup from the ledger', () => {
+  const CHAINIT_IP = siteAddress('chainit.io') ?? '';
+  const CHAINIT_ID = computeApGatewayId(CHAINIT_NETWORK);
+  const OURS = `jsc${'a'.repeat(40)}`;
+  const THEIRS = `jsc${'b'.repeat(40)}`;
+  const onChainit = {
+    lookup: async () => ({
+      data: { router_machine_id: CHAINIT_ID, essid: CHAINIT_NETWORK },
+      error: null,
+    }),
+    listOccupantsByEssid: async () => ({ data: [], error: null }),
+    listLeasesByEssid: async () => ({ data: [], error: null }),
+  };
+  /** Ours was minted 500, then sent 40 on: what the ledger's two reads hand back. */
+  const fundedLedger = {
+    findBalance: async () => ({ data: { balance: 460, next_sequence: 1 }, error: null }),
+    findTransfers: async () => ({
+      data: [
+        {
+          from_address: OURS,
+          to_address: THEIRS,
+          amount: 40,
+          created_at: '2026-10-16T10:01:00+00:00',
+        },
+        {
+          from_address: null,
+          to_address: OURS,
+          amount: 500,
+          created_at: '2026-10-16T09:12:44+00:00',
+        },
+      ],
+      error: null,
+    }),
+  };
+  const fetchPath = (path: string, fields: Record<string, unknown> = {}) =>
+    signRequest(BOB, 'resolveHttpFetch', {
+      target: CHAINIT_IP,
+      port: HTTP_DEFAULT_PORT,
+      path,
+      ...fields,
+    });
+  const lookUp = (typed: string) => fetchPath(`/address?a=${encodeURIComponent(typed)}`);
+  const contentOf = (response: { body: Record<string, unknown> }): string =>
+    typeof response.body.content === 'string' ? response.body.content : '';
+  const accessLogOf = (upsertPatch: ReturnType<typeof makeDeps>['upsertPatch']) =>
+    upsertPatch.mock.calls.map(([row]) => row).find((row) => row.path === ACCESS_LOG_PATH);
+
+  it('shows what an address holds and its latest transfers, as `wallet` prints them', async () => {
+    const { deps, findBalance, findTransfers } = makeDeps({ ...onChainit, ...fundedLedger });
+
+    const response = await handleResolveHttpFetch(lookUp(OURS), deps);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ ok: true, server: 'nginx' });
+    const page = contentOf(response);
+    expect(page).toContain(`${OURS}  460 JSC`);
+    expect(page).toContain(
+      `2026-10-16 10:01  -40 JSC  to <a href="/address?a=${THEIRS}">${THEIRS}</a>`,
+    );
+    expect(page).toContain('2026-10-16 09:12  +500 JSC  from coinbase');
+    expect(findBalance).toHaveBeenCalledWith(OURS);
+    // The history the wallet command reads, at the length it reads.
+    expect(findTransfers).toHaveBeenCalledWith(OURS, 20);
+  });
+
+  it('answers an address the ledger has never seen with nothing held and nothing done', async () => {
+    const { deps } = makeDeps(onChainit);
+
+    const page = contentOf(await handleResolveHttpFetch(lookUp(THEIRS), deps));
+
+    expect(page).toContain(`${THEIRS}  0 JSC`);
+    expect(page).toContain('No transfers.');
+  });
+
+  it('looks up an address typed with spaces around it', async () => {
+    const { deps, findBalance } = makeDeps({ ...onChainit, ...fundedLedger });
+
+    const page = contentOf(await handleResolveHttpFetch(lookUp(`  ${OURS} `), deps));
+
+    expect(page).toContain(`${OURS}  460 JSC`);
+    expect(findBalance).toHaveBeenCalledWith(OURS);
+  });
+
+  it.each([
+    ['nothing at all', '/address'],
+    ['a blank address', '/address?a='],
+    ['a word', '/address?a=hello'],
+    ['an address one character short', `/address?a=jsc${'a'.repeat(39)}`],
+    ['an address in capitals', `/address?a=JSC${'A'.repeat(40)}`],
+  ])('says %s is not an address, and never asks the ledger', async (_case, path) => {
+    const { deps, findBalance, findTransfers } = makeDeps({ ...onChainit, ...fundedLedger });
+
+    const response = await handleResolveHttpFetch(fetchPath(path), deps);
+
+    expect(response.status).toBe(200);
+    expect(contentOf(response)).toContain('Not a JSC address: &quot;');
+    expect(findBalance).not.toHaveBeenCalled();
+    expect(findTransfers).not.toHaveBeenCalled();
+  });
+
+  it('hands back an empty form when nothing was typed at all', async () => {
+    const { deps } = makeDeps(onChainit);
+
+    const page = contentOf(await handleResolveHttpFetch(fetchPath('/address'), deps));
+
+    expect(page).toContain('Not a JSC address: &quot;&quot;');
+    expect(page).toContain('name="a" value=""');
+  });
+
+  it('records every lookup in its own log, address and all, traced to the visitor', async () => {
+    const { deps, upsertPatch } = makeDeps({ ...onChainit, ...fundedLedger });
+
+    await handleResolveHttpFetch(lookUp(OURS), deps);
+
+    const logged = accessLogOf(upsertPatch);
+    expect(logged?.machine_id).toBe(CHAINIT_ID);
+    expect(logged?.content).toContain(`${BOB_PUBLIC_IP} `);
+    expect(logged?.content).toContain(`/address?a=${OURS}`);
+    expect(logged?.content).toContain(' 200 ');
+  });
+
+  it('serves its own front page, from its own disk', async () => {
+    const { deps } = makeDeps(onChainit);
+
+    expect(contentOf(await handleResolveHttpFetch(fetchPath('/'), deps))).toBe(CHAINIT_FRONT_PAGE);
+  });
+
+  it('answers from the ledger whatever a root has written at /address on its disk', async () => {
+    const { deps } = makeDeps({
+      ...onChainit,
+      ...fundedLedger,
+      patches: patchesByMachine({
+        [CHAINIT_ID]: [publishedPage('<html>FORGED</html>', 'address')],
+      }),
+    });
+
+    const page = contentOf(await handleResolveHttpFetch(lookUp(OURS), deps));
+
+    expect(page).toContain(`${OURS}  460 JSC`);
+    expect(page).not.toContain('FORGED');
+  });
+
+  it('serves any other path from its disk, /address/ included', async () => {
+    const { deps, findBalance } = makeDeps({
+      ...onChainit,
+      patches: patchesByMachine({
+        [CHAINIT_ID]: [publishedPage('<html>OWNED</html>', 'address/index.html')],
+      }),
+    });
+
+    expect(contentOf(await handleResolveHttpFetch(fetchPath('/address/'), deps))).toBe(
+      '<html>OWNED</html>',
+    );
+    expect(findBalance).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['bricked', '/boot/vmlinuz'],
+    ['whose web server was stopped', `/var/run/${SERVICE_CATALOG.http.pidfile}`],
+  ])('answers no lookup at all when the box is %s', async (_case, removed) => {
+    const { deps, findBalance } = makeDeps({
+      ...onChainit,
+      ...fundedLedger,
+      patches: patchesByMachine({
+        [CHAINIT_ID]: [{ ...publishedPage(''), path: removed, content: null, node_type: null }],
+      }),
+    });
+
+    expect(await handleResolveHttpFetch(lookUp(OURS), deps)).toEqual({
+      status: 404,
+      body: { error: 'host_unreachable' },
+    });
+    expect(findBalance).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['the balance', { findBalance: async () => ({ data: null, error: new Error('down') }) }],
+    ['the history', { findTransfers: async () => ({ data: null, error: new Error('down') }) }],
+  ])('fails the lookup, and records nothing, when %s cannot be read', async (_case, broken) => {
+    const { deps, upsertPatch } = makeDeps({ ...onChainit, ...fundedLedger, ...broken });
+
+    const response = await handleResolveHttpFetch(lookUp(OURS), deps);
+
+    // Never `0 JSC`: an address the ledger could not read is not an address that holds nothing.
+    expect(response).toEqual({ status: 500, body: { error: 'ledger_lookup_failed' } });
+    expect(accessLogOf(upsertPatch)).toBeUndefined();
+  });
+
+  it('takes no form at /address, as no server but emailit takes one', async () => {
+    const { deps, findBalance } = makeDeps({ ...onChainit, ...fundedLedger });
+
+    const response = await handleResolveHttpFetch(
+      fetchPath(`/address?a=${OURS}`, { body: `a=${OURS}` }),
+      deps,
+    );
+
+    expect(response).toEqual({
+      status: 405,
+      body: { error: 'method_not_allowed', server: 'nginx' },
+    });
+    expect(findBalance).not.toHaveBeenCalled();
+  });
+
+  it('leaves every other site to serve /address from its own disk', async () => {
+    const { deps, findBalance } = makeDeps({
+      ...fundedLedger,
+      lookup: async () => ({
+        data: {
+          router_machine_id: computeApGatewayId(HACKADEMY_NETWORK),
+          essid: HACKADEMY_NETWORK,
+        },
+        error: null,
+      }),
+      listOccupantsByEssid: async () => ({ data: [], error: null }),
+      listLeasesByEssid: async () => ({ data: [], error: null }),
+    });
+
+    const response = await handleResolveHttpFetch(
+      signRequest(BOB, 'resolveHttpFetch', {
+        target: siteAddress('hackademy.io') ?? '',
+        port: HTTP_DEFAULT_PORT,
+        path: `/address?a=${OURS}`,
+      }),
+      deps,
+    );
+
+    expect(response).toEqual({ status: 404, body: { error: 'not_found' } });
+    expect(findBalance).not.toHaveBeenCalled();
   });
 });
 

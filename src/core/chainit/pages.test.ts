@@ -37,7 +37,26 @@ const lookupForm = (page: string) => {
   };
 };
 
+describe('every page', () => {
+  it.each([
+    ['the front page', CHAINIT_FRONT_PAGE],
+    ['an address page', addressPage(OURS, 0, [])],
+    ['a refusal', notAnAddressPage('hello')],
+  ])('%s opens with its name, then a form a reader can submit, then a rule', (_page, page) => {
+    const body = parsed(page).body;
+    expect(body.textContent?.trimStart().startsWith('chainit.io')).toBe(true);
+    expect(body.querySelector('form button[type="submit"]')?.textContent).toBe('Look up');
+    expect(body.querySelector('form + hr')).not.toBeNull();
+  });
+});
+
 describe('the front page', () => {
+  it('says what the site is, for a reader who has never heard of it', () => {
+    expect(parsed(CHAINIT_FRONT_PAGE).querySelector('hr + p')?.textContent).toBe(
+      'The public ledger of JSC. Type an address to see what it holds, and what it has sent and received.',
+    );
+  });
+
   it('documents itself with the form an address is looked up by', () => {
     expect(lookupForm(CHAINIT_FRONT_PAGE)).toEqual({
       action: '/address',
