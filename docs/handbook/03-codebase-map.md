@@ -89,7 +89,7 @@ src/
 | `hackademy/`       | hackademy.io's pages and the home `README`.                                                                               | —       |
 | `mapit/`           | mapit.io's pages: the valley's drawing and each town's seeded plan.                                                       | —       |
 | `emailit/`         | emailit.io's pages, sign-up, `mail`'s server side, and the mail root finds on emailit.io's box.                           | —       |
-| `chainit/`         | chainit.io's pages, and its answer to a lookup at `/address` from the ledger.                                             | —       |
+| `chainit/`         | chainit.io's pages, and its views from the ledger: `/address`, `/recent` and `/rich`.                                     | —       |
 | `logging/`         | One formatter per log file; source-IP and writer-key rules.                                                               | 8       |
 | `patches/`         | Server handlers for the journal (write, list, remove, log appends, traces), L1, L2, the read filter.                      | 9, 10   |
 | `signedRequest/`   | Envelope schema, signing, verification.                                                                                   | 9       |

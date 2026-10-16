@@ -32,7 +32,7 @@ here refers to a real network or system.
 | **findit.io**               | The in-game search engine, a one-machine network on the public web.                                                                                 |
 | **mapit.io**                | The in-game map of Harrow Valley and each town's public places, a one-machine network on the public web.                                            |
 | **emailit.io**              | Where a player signs up for an email address (`curl -d` to `/signup`), a one-machine network on the public web.                                     |
-| **chainit.io**              | The JSC block explorer (`/address?a=<address>`), a one-machine network on the public web whose lookups come from the ledger.                        |
+| **chainit.io**              | The JSC block explorer (`/address?a=<address>`, `/recent`, `/rich`), a one-machine network on the public web whose views come from the ledger.      |
 | **`~/.mailrc`**             | The login `mail` uses: an emailit.io address and its password in plain text, per user per box. The file is the login.                               |
 | **Forward**                 | A line `forward <public port> to <ip>:<port>` in a router's `/etc/iptables/rules.v4`.                                                               |
 | **Vantage**                 | Where a request is made from: own LAN, same-WiFi player, public internet, or down an inner gateway's chain. Decided by the server from the address. |

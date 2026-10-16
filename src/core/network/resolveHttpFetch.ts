@@ -48,6 +48,7 @@ import { indexedWeb, siteOn, type MachinePatchRow } from '../findit/webIndex.js'
 import { rankPages } from '../findit/search.js';
 import { searchResultsPage } from '../findit/page.js';
 import { answerAddress, type LedgerReads } from '../chainit/answerAddress.js';
+import { answerRecent, answerRich, type ChainReads } from '../chainit/chainViews.js';
 import {
   ACCESS_LOG_OWNER,
   ACCESS_LOG_PATH,
@@ -141,7 +142,8 @@ export type ResolveHttpFetchDeps = WebTargetDeps & {
   ) => Promise<{ readonly data: readonly MachinePatchRow[] | null; readonly error: unknown }>;
   /** Open an emailit.io account. Only a form POSTed to emailit's `/signup` reaches it. */
   readonly signUp: SignUp;
-} & LedgerReads;
+} & LedgerReads &
+  ChainReads;
 
 const UNREACHABLE: HandlerResponse = { status: 404, body: { error: 'host_unreachable' } };
 const NOT_FOUND: HandlerResponse = { status: 404, body: { error: 'not_found' } };
@@ -395,8 +397,17 @@ const searchedFor = (requestPath: string): string | null => {
 /** Where emailit.io takes a sign-up. */
 const SIGNUP_PATH = '/signup';
 
-/** Where chainit.io answers a lookup of an address from the ledger. */
-const ADDRESS_PATH = '/address';
+/** The paths chainit.io answers from the ledger, and how each is answered: a lookup of
+ *  one address, the latest transfers on the chain, the richest addresses. A view is never
+ *  a file, whatever a root writes at its path. */
+const CHAINIT_VIEWS = new Map<
+  string,
+  (requestPath: string, ledger: LedgerReads & ChainReads) => Promise<string | null>
+>([
+  ['/address', answerAddress],
+  ['/recent', (_requestPath, ledger) => answerRecent(ledger)],
+  ['/rich', (_requestPath, ledger) => answerRich(ledger)],
+]);
 
 /** A request path without its query string. */
 const pathOf = (requestPath: string): string => requestPath.split('?')[0] ?? requestPath;
@@ -495,12 +506,14 @@ export const handleResolveHttpFetch = async (
     return { status: 405, body: { error: 'method_not_allowed', server: target.server } };
   }
 
-  // chainit answers a lookup from the ledger, like findit's search, never from a file:
-  // a root on chainit can deface its front page or plant an `address` file, but cannot
-  // make the explorer say an address holds what it does not. Reached only after the
-  // target resolved, so a dark chainit answers no lookup at all.
-  if (target.essid === CHAINIT_NETWORK && pathOf(payload.path) === ADDRESS_PATH) {
-    const page = await answerAddress(payload.path, deps);
+  // chainit answers its views from the ledger, like findit's search, never from a file:
+  // a root on chainit can deface its front page or plant a file at a view's path, but
+  // cannot make the explorer say the ledger holds what it does not. Reached only after the
+  // target resolved, so a dark chainit answers no view at all.
+  const view =
+    target.essid === CHAINIT_NETWORK ? CHAINIT_VIEWS.get(pathOf(payload.path)) : undefined;
+  if (view !== undefined) {
+    const page = await view(payload.path, deps);
     // No page was served, so nothing is recorded — as for a sign-up that failed.
     if (page === null) return { status: 500, body: { error: 'ledger_lookup_failed' } };
     await logFetch(deps, target, publicKey, standing.standingEssid, {

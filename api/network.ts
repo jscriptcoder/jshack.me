@@ -473,6 +473,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         logFailure('http-fetch ledger history lookup', error);
         return { data: data as unknown, error };
       },
+      // The primary key orders the whole chain, so the latest transfers are a walk down it.
+      findLatestTransfers: async (limit: number) => {
+        const { data, error } = await supabase
+          .from('wallet_transfers')
+          .select('from_address, to_address, amount, created_at')
+          .order('id', { ascending: false })
+          .limit(limit);
+        logFailure('http-fetch ledger latest transfers', error);
+        return { data: data as unknown, error };
+      },
+      // An emptied address keeps its row at zero, and holds nothing worth ranking. Equal
+      // balances are ordered by address, so the list reads the same on every visit.
+      findLargestBalances: async (limit: number) => {
+        const { data, error } = await supabase
+          .from('wallet_balances')
+          .select('address, balance')
+          .gt('balance', 0)
+          .order('balance', { ascending: false })
+          .order('address', { ascending: true })
+          .limit(limit);
+        logFailure('http-fetch ledger largest balances', error);
+        return { data: data as unknown, error };
+      },
     });
     res.status(status).json(body);
     return;

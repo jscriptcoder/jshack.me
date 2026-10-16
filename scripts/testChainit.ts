@@ -10,9 +10,13 @@
 //   - AN UNSEEN ADDRESS WRITES NOTHING, and text that is not an address is refused with
 //     the form.
 //   - THE LOOKUP IS LOGGED in chainit's own access.log, address and visitor both.
-//   - THE LEDGER IS NOT A FILE. A root's `/var/www/html/address` changes no lookup; a
-//     bricked chainit answers none; the operator's real `scripts/restoreSite.ts
-//     chainit.io` brings it back.
+//   - THE WHOLE CHAIN IS LISTED. `/recent` is the latest 20 transfers on the chain and
+//     `/rich` the 20 largest non-zero balances, through api/network.ts's two chain-wide
+//     selects: newest first, largest first, equal balances by address, an emptied address
+//     gone. Both are logged like a lookup.
+//   - THE LEDGER IS NOT A FILE. A root's `/var/www/html/address`, `recent` or `rich`
+//     changes no view; a bricked chainit answers none; the operator's real
+//     `scripts/restoreSite.ts chainit.io` brings them back.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testChainit.ts
@@ -31,7 +35,7 @@ import { CHAINIT_NETWORK, FINDIT_DOMAIN, fixedSite } from '../src/core/generatio
 import { WEB_PAGE_FILE } from '../src/core/generation/baseFs.js';
 import { CHAINIT_FRONT_PAGE } from '../src/core/chainit/pages.js';
 import { generateWalletKey } from '../src/core/wallet/walletKey.js';
-import { historyLine } from '../src/core/wallet/historyLine.js';
+import { historyLine, ledgerTime } from '../src/core/wallet/historyLine.js';
 import type { TransferRecord } from '../src/core/wallet/handleWalletHistory.js';
 import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js';
 import { md5 } from '../src/core/generation/md5.js';
@@ -101,13 +105,20 @@ const firstResultHost = (resultsPage: string): string =>
 /** The address at the other end of a line, as the explorer links it. */
 const linked = (address: string): string => `<a href="/address?a=${address}">${address}</a>`;
 
+/** The lines of a view's one `<pre>`, as a reader sees them laid out. */
+const ledgerLines = (page: string): readonly string[] =>
+  (/<pre>([\s\S]*?)<\/pre>/.exec(page)?.[1] ?? '').split('\n').filter((line) => line !== '');
+
 // Minted 500, then sent 40 to PAID; BUSY is minted to more often than a history holds;
-// UNSEEN is never touched.
+// UNSEEN is never touched. The two TIED are minted the same, more than anybody held,
+// and EMPTIED is minted less and sends it all to PAID: the top of the rich list.
 const FUNDED = generateWalletKey().address;
 const PAID = generateWalletKey().address;
 const BUSY = generateWalletKey().address;
 const UNSEEN = generateWalletKey().address;
-const EVERY_ADDRESS = [FUNDED, PAID, BUSY, UNSEEN];
+const TIED = [generateWalletKey().address, generateWalletKey().address].sort();
+const EMPTIED = generateWalletKey().address;
+const EVERY_ADDRESS = [FUNDED, PAID, BUSY, UNSEEN, ...TIED, EMPTIED];
 const BUSY_MINTS = 25;
 
 const visitor = generateIdentity();
@@ -175,6 +186,29 @@ const main = async () => {
   }
   if (minted.error || sent.data !== 'moved') {
     console.error(`Could not fund the ledger: ${minted.error?.message ?? String(sent.data)}`);
+    process.exit(2);
+  }
+  const { data: topRow } = await sr
+    .from('wallet_balances')
+    .select('balance')
+    .order('balance', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const top = (topRow as { balance?: number } | null)?.balance ?? 0;
+  const tiedBalance = top + 1000;
+  const emptiedAmount = top + 500;
+  for (const tied of TIED) {
+    await sr.rpc('wallet_mint', { mint_to: tied, mint_amount: tiedBalance });
+  }
+  await sr.rpc('wallet_mint', { mint_to: EMPTIED, mint_amount: emptiedAmount });
+  const emptied = await sr.rpc('wallet_transfer', {
+    transfer_from: EMPTIED,
+    transfer_to: PAID,
+    transfer_amount: emptiedAmount,
+    transfer_sequence: 0,
+  });
+  if (emptied.data !== 'moved') {
+    console.error(`Could not empty an address: ${String(emptied.data)}`);
     process.exit(2);
   }
 
@@ -268,23 +302,97 @@ const main = async () => {
     logLine || '(no line)',
   );
 
-  // 6. A ROOT'S FILE AT /address CHANGES NO LOOKUP.
+  // 6. THE LATEST TRANSFERS ON THE CHAIN, NEWEST FIRST, BOTH ENDS ON EACH.
+  const recent = await fetchPath('/recent');
+  const recentLines = ledgerLines(contentOf(recent.body));
+  const emptiedHistory = await post(WALLET, { action: 'history', address: EMPTIED });
+  const [sentOn] =
+    (emptiedHistory.body as { transfers?: readonly TransferRecord[] } | null)?.transfers ?? [];
+  check(
+    '/recent lists 20 transfers, the latest first, as the wallet times them',
+    recent.status === 200 &&
+      recentLines.length === 20 &&
+      sentOn !== undefined &&
+      recentLines[0] ===
+        `${ledgerTime(sentOn.at)}  ${emptiedAmount} JSC  ${linked(EMPTIED)} -> ${linked(PAID)}`,
+    `status ${recent.status}; ${recentLines.length} line(s); ${recentLines[0] ?? '(none)'}`,
+  );
+  const mintedTo = recentLines
+    .slice(1, 4)
+    .map((line) => /coinbase -> <a href="\/address\?a=(jsc[0-9a-f]{40})">/.exec(line)?.[1]);
+  check(
+    'the mints before it follow in the order they were made, each from coinbase',
+    JSON.stringify(mintedTo) === JSON.stringify([EMPTIED, ...[...TIED].reverse()]),
+    JSON.stringify(mintedTo),
+  );
+
+  // 7. THE RICHEST ADDRESSES, LARGEST FIRST, EQUAL BALANCES BY ADDRESS, NONE EMPTIED.
+  const rich = await fetchPath('/rich');
+  const richPage = contentOf(rich.body);
+  const richLines = ledgerLines(richPage);
+  check(
+    '/rich ranks the tied addresses first in address order, then the one that was paid',
+    rich.status === 200 &&
+      richLines.length > 3 &&
+      richLines.length <= 20 &&
+      JSON.stringify(richLines.slice(0, 3)) ===
+        JSON.stringify([
+          ` 1  ${linked(TIED[0] ?? '')}  ${tiedBalance} JSC`,
+          ` 2  ${linked(TIED[1] ?? '')}  ${tiedBalance} JSC`,
+          ` 3  ${linked(PAID)}  ${emptiedAmount + 40} JSC`,
+        ]),
+    `status ${rich.status}; ${JSON.stringify(richLines.slice(0, 3))}`,
+  );
+  check(
+    'an address emptied by a transfer is not on the rich list',
+    !richPage.includes(EMPTIED),
+    EMPTIED,
+  );
+
+  // 8. EVERY LOOK AT THE CHAIN IS LOGGED ON CHAINIT, VISITOR AND ALL.
+  const lines = (await accessLog()).split('\n');
+  for (const path of ['/recent', '/rich']) {
+    const viewLine = lines.find((line) => line.includes(` ${path} `)) ?? '';
+    check(
+      `a look at ${path} lands in chainit’s access.log with the visitor’s address`,
+      viewLine.includes(visitorIp) && viewLine.includes(' 200 '),
+      viewLine || '(no line)',
+    );
+  }
+
+  // 9. A ROOT'S FILE AT A VIEW'S PATH CHANGES NO VIEW.
   await seedRootWrite('/var/www/html/address', '<html>FORGED</html>\n');
+  await seedRootWrite('/var/www/html/recent', '<html>FORGED</html>\n');
+  await seedRootWrite('/var/www/html/rich', '<html>FORGED</html>\n');
   const afterForgery = contentOf((await lookUp(FUNDED)).body);
   check(
     'a planted /var/www/html/address changes nothing the explorer says',
     afterForgery.includes(`${FUNDED}  460 JSC`) && !afterForgery.includes('FORGED'),
     afterForgery.slice(0, 60),
   );
+  const recentAfterForgery = contentOf((await fetchPath('/recent')).body);
+  const richAfterForgery = contentOf((await fetchPath('/rich')).body);
+  check(
+    'planted /var/www/html/recent and rich change neither view',
+    recentAfterForgery.includes(`-> ${linked(PAID)}`) &&
+      richAfterForgery.includes(linked(TIED[0] ?? '')) &&
+      !recentAfterForgery.includes('FORGED') &&
+      !richAfterForgery.includes('FORGED'),
+    `${recentAfterForgery.slice(0, 40)} / ${richAfterForgery.slice(0, 40)}`,
+  );
 
-  // 7. A BRICKED CHAINIT ANSWERS NO LOOKUP; THE OPERATOR'S RESTORE BRINGS IT BACK.
+  // 10. A BRICKED CHAINIT ANSWERS NO VIEW; THE OPERATOR'S RESTORE BRINGS THEM BACK.
   await seedRootWrite('/boot/vmlinuz', null);
   const bricked = await lookUp(FUNDED);
+  const brickedViews = [await fetchPath('/recent'), await fetchPath('/rich')];
   check(
-    'a bricked chainit answers no lookup at all',
-    bricked.status === 404 &&
-      (bricked.body as { error?: string } | null)?.error === 'host_unreachable',
-    `status ${bricked.status}`,
+    'a bricked chainit answers no lookup and no view at all',
+    [bricked, ...brickedViews].every(
+      (dark) =>
+        dark.status === 404 &&
+        (dark.body as { error?: string } | null)?.error === 'host_unreachable',
+    ),
+    `status ${bricked.status}, ${brickedViews.map((dark) => dark.status).join(', ')}`,
   );
   const balanceWhileDark = await post(WALLET, { action: 'balance', address: FUNDED });
   check(
@@ -300,13 +408,17 @@ const main = async () => {
   );
   const afterRestore = await lookUp(FUNDED);
   const frontAfterRestore = await fetchPath('/');
+  const viewsAfterRestore = [await fetchPath('/recent'), await fetchPath('/rich')];
   check(
-    'restoreSite.ts chainit.io brings back the front page and the lookups',
+    'restoreSite.ts chainit.io brings back the front page, the lookups and the views',
     restored.status === 0 &&
       afterRestore.status === 200 &&
       contentOf(afterRestore.body).includes(`${FUNDED}  460 JSC`) &&
-      contentOf(frontAfterRestore.body) === CHAINIT_FRONT_PAGE,
-    `restore exit ${restored.status}; lookup ${afterRestore.status}`,
+      contentOf(frontAfterRestore.body) === CHAINIT_FRONT_PAGE &&
+      viewsAfterRestore.every((view) => view.status === 200),
+    `restore exit ${restored.status}; lookup ${afterRestore.status}; views ${viewsAfterRestore
+      .map((view) => view.status)
+      .join(', ')}`,
   );
 
   await cleanup();

@@ -58,6 +58,19 @@ export type WalletHistoryDeps = {
 
 const LOOKUP_FAILED: HandlerResponse = { status: 500, body: { error: 'history_lookup_failed' } };
 
+/** Transfers read off the ledger, as the wire carries them, or null when any row is
+ *  not a transfer: a list with a hole in it would read as a list without the transfer. */
+export const parseTransferRows = (data: unknown): readonly TransferRecord[] | null => {
+  const rows = z.array(transferRowSchema).safeParse(data);
+  if (!rows.success) return null;
+  return rows.data.map((row) => ({
+    from: row.from_address,
+    to: row.to_address,
+    amount: row.amount,
+    at: new Date(row.created_at).toISOString(),
+  }));
+};
+
 const requestOf = (body: unknown): { readonly address?: unknown } =>
   typeof body === 'object' && body !== null ? body : {};
 
@@ -73,16 +86,7 @@ export const handleWalletHistory = async (
   const found = await deps.findTransfers(named, HISTORY_LENGTH);
   if (found.error) return LOOKUP_FAILED;
 
-  // One row that is not a transfer spoils the list: a history with a hole in it
-  // would read as a history without the transfer.
-  const rows = z.array(transferRowSchema).safeParse(found.data);
-  if (!rows.success) return LOOKUP_FAILED;
-
-  const transfers: readonly TransferRecord[] = rows.data.map((row) => ({
-    from: row.from_address,
-    to: row.to_address,
-    amount: row.amount,
-    at: new Date(row.created_at).toISOString(),
-  }));
+  const transfers = parseTransferRows(found.data);
+  if (transfers === null) return LOOKUP_FAILED;
   return { status: 200, body: { transfers } };
 };
