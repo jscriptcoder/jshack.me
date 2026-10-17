@@ -140,7 +140,9 @@ doc and the code disagree, the code wins — fix the doc.
     and the gate read 1.93–2.31 ms; finding it once in `buildGatewayBaseFs` and handing it down
     read 1.53–1.67, no cache needed. The gate is noisy near the line (one run of the same tree
     failed at 2.31 and the next passed at 1.93; at v0.302.0 Ashby's 121 boxes read 1.62–2.16 on
-    one pass with nothing in Ashby changed), which is why it reads the best of three.
+    one pass with nothing in Ashby changed), which is why it reads the best of three. A loaded
+    machine can still fail it: run `main` and the branch back to back before blaming a change
+    (2026-10-18, `main` failed the sets the branch then passed).
     **The one cache is the relations memo** (`memoised` in `relations.ts`, v0.301.0). Reading a
     network's leads walks every LAN of its town, so its cost grows with the town: Oakhurst's 47
     networks built at 2.53 ms a box. `relationsTo` and `relationsFrom` keep each key's answer, the

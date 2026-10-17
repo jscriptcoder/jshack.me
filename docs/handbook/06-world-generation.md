@@ -264,6 +264,28 @@ prints its WiFi key), so the codec only keeps them out of a `grep` of `dist/`. T
 secrecy: the key ships in the bundle. Changing the key only needs a re-encode; changing a pool re-rolls
 every password drawn from it.
 
+Why it is built this way (owner decisions, 2026-10-17; shipped v0.396.0–v0.398.0):
+
+- **The variable carries the uncrackable words as plaintext, and `encode.ts` hashes them.** A variable
+  holding hashes only would hide the words from nobody but the owner's own machine, and the tests that
+  log in as a generated account or assert that no pool word leaks into generated content would have
+  nothing to compare against.
+- **No fallback list.** A committed placeholder list for local runs was rejected: two lists to keep in
+  step, and a wrong "am I on Vercel?" check would ship a placeholder world to production with no
+  error. Revisit only if contributors arrive before launch.
+- **One JSON variable, never `VITE_`-prefixed**: Vite hands every `VITE_` variable to client code.
+- **Only the uncrackable list was rotated** (v0.397.0), because the old one is in git history. The
+  other three reach players anyway, and new values would only reshuffle the world.
+- **A player's own SNMP agent draws from the crackable pool only**, so the install can always print
+  its community (chapter 7).
+
+Limits worth knowing. `checkSecrets.ts` matches literal words: an `encode.ts` that regressed to writing
+plaintext under the hash key would pass it, and is caught by the generation tests instead.
+`UNCRACKABLE_HASHES` goes through the codec only so the module has one shape; it adds nothing for
+hashes. And every hash stays computable from an ESSID by any client (`docs/backlog.md`, "What a network
+was generated with is computable by any client"): this design stops the bundle handing over the words,
+not the doors.
+
 ## Budgets: why generation must stay fast
 
 Because nothing is cached, every command on the client and every request on the server pays the
@@ -403,7 +425,8 @@ rules to `parseSecrets.ts`, run `npm run encode`, and read it from `__encoded.js
   `JSHACK_SECRETS`.
 - **A seeder returns a hash, never a word.** A test or wire-check that logs in as a generated account
   takes `plaintextFor(seedApGatewayAdminHash(essid))` from `src/test/passwords.ts`; production code
-  compares hashes.
+  compares hashes. `plaintextFor` throws for a hash no pool produced, so a test reading an account a
+  player may have set uses `ALL_GENERATED_PASSWORDS.find(…)`, where no match is a normal answer.
 - **Existing leases outrank the machine-octet exclusion.** Changing `generateHomeLan` after launch
   could place a new machine on an address a player already holds.
 - **Two template syntaxes**: content pools use `{slot}`; config and page templates use `{{hostname}}`.

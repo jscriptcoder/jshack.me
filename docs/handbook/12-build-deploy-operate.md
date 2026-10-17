@@ -134,6 +134,9 @@ player: harvested words stop working, and a player's own SNMP agent keeps the co
 installed with until it is reinstalled.
 
 1. Edit `JSHACK_SECRETS` in `.env.development.local`: one line of JSON, wrapped in single quotes.
+   A new uncrackable word keeps the list's shape: a word plus a few digits or a symbol, 8–12
+   characters, reading like something a person chose. md5 is weak on purpose, so external cracking
+   stays a route; a word beyond it would change what "uncrackable" means.
 2. Run `npm run encode`. It names every rule the new value breaks (`parseSecrets.ts`): a blank or
    padded word, a repeat, an uncrackable word that is also in another list, fewer than 40 uncrackable
    words, or no more of them than crackable ones.
@@ -144,7 +147,10 @@ installed with until it is reinstalled.
    hashes and positions, never a word.
 4. Paste the same value into all three Vercel environments: dashboard → Settings → Environment
    Variables → `JSHACK_SECRETS`, kept readable (not sensitive). The CLI's
-   `vercel env add JSHACK_SECRETS preview` keeps asking for a branch even when none is given.
+   `vercel env add JSHACK_SECRETS preview` keeps asking for a branch even when none is given; the
+   all-branches Preview entry was made with `vercel api /v10/projects/<project id>/env` (type
+   `encrypted`, which stays readable). The Vercel MCP tools answered 403 on project environment
+   variables (2026-10-17).
 5. Redeploy: a variable change takes effect on the next deployment only. Push the commit from step 3,
    or redeploy Production from the dashboard.
 

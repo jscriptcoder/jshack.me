@@ -951,6 +951,25 @@ agreed order:
     chapter 8 of the handbook. **Pick up here (2026-10-17):** item 8's list and item 6, the agreed
     work until the owner reopens missions; the next public sites (news, the forum) wait in
     `backlog.md` for their own grill.
+14. ✅ **The password pools come from the environment (v0.396.0–v0.398.0, PRs #693, #695, #696,
+    2026-10-17/18).** No spoiler secret is in the repo, and the bundle carries no uncrackable word.
+    Slice 1 (v0.396.0): a player's own SNMP agent draws its community from the crackable pool only,
+    so the install can always print it. Slice 2 (v0.397.0): the four pools arrive in one JSON
+    variable, `JSHACK_SECRETS`, validated by `parseSecrets.ts`; a missing or malformed value fails
+    every gate, `secrets.ts` is gone, the uncrackable list was rotated to 52 new words since the old
+    one is in git history, and the value is stored readable in all three Vercel environments.
+    Slice 3 (v0.398.0): `encode.ts` writes the uncrackable pool into the bundle as md5s only and the
+    raw lists into a test-only `__plaintext.ts` (lint keeps it out of shipped code), every seeder
+    returns a hash, and `scripts/checkSecrets.ts` fails any build whose `dist/` holds an uncrackable
+    word; every generated box hashed byte-identical to the build before. Browser close-out against
+    production (2026-10-18, v0.398.0, a new player on PEAR-TREE-HOUSE): `apt install snmp` printed a
+    community that `grep` found in the stock `passwords.txt`; `hydra` cracked `portal-130`'s guest
+    and left its root and httpd standing; with root's word appended to the wordlist, `hydra`
+    cracked root and `ssh` logged in with it; the live bundle held none of the 48 old or 52 new
+    uncrackable words. No defect. As built: chapter 6 of the handbook ("Secrets") and chapter 12
+    ("Changing the secrets later"). **Pick up here (2026-10-18):** item 8's list and item 6, the
+    agreed work until the owner reopens missions; the next public sites (news, the forum) wait in
+    `backlog.md` for their own grill.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
