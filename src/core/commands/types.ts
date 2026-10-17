@@ -1234,6 +1234,11 @@ export type ExploitRunParams = {
   /** The fire came from a script, which has nowhere to put a shell down — so the server
    *  answers a shell hole without opening a session nobody would stand in. */
   readonly scripted?: boolean | undefined;
+  /** Step 1 of a script run: the client has read a script off its own box and is ready to
+   *  run it, but needs the target first. Set on the fire that asks for the box; the server
+   *  answers a script hole with the tier-filtered tree, and the client fires again with the
+   *  writes the script then made. Carried without `writes`. */
+  readonly scriptReady?: boolean | undefined;
 };
 
 /** What came back. On success the CVE is the attacker's to keep — they earned it,
@@ -1373,6 +1378,19 @@ export type ExploitRunResult =
       readonly severity: CveSeverity;
       readonly tier: UserType;
     }
+  /** Step 1 of a script run: the box as it stands, filtered to the granted tier, handed
+   *  back for the client to run the script against before it fires again with the writes
+   *  the script made. The tree is the one thing a script fire reads back — every other
+   *  script answer is blind — because running player source on the server is the very thing
+   *  the two-step dance avoids. */
+  | {
+      readonly ok: true;
+      readonly effect: 'script_exec';
+      readonly cve: string;
+      readonly severity: CveSeverity;
+      readonly tier: UserType;
+      readonly tree: Directory;
+    }
   /** The same hole fired with nothing to run — either no third token at all, or one
    *  naming a script this box could not read. The tool tells those two apart itself,
    *  knowing which of them happened; the server only knows it was handed nothing. */
@@ -1422,6 +1440,9 @@ export type ExploitLocalElevateParams = {
   readonly writes?: readonly { readonly path: string; readonly content: string }[] | undefined;
   /** The fire came from a script — see `ExploitRunParams.scripted`. */
   readonly scripted?: boolean | undefined;
+  /** Step 1 of a script run — see `ExploitRunParams.scriptReady`. The `--local` path asks
+   *  for the box the same way the network fire does. */
+  readonly scriptReady?: boolean | undefined;
 };
 
 /** The exploit seam. `run` fires at a network service; `elevateLocal` fires a library

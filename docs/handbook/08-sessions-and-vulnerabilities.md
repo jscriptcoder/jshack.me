@@ -192,9 +192,14 @@ vulnerability is live, its severity, and what firing it grants.
 - **The request carries only an address and a port.** There is no field in which a client could
   claim a version, a vulnerability, an effect or a tier. The server rebuilds the target, reads its
   manifest, and recomputes everything.
-- **An in-game script run by an exploit executes on the client**, against the target's tree; the
-  server re-checks each resulting write at the granted tier. Server-side evaluation of player
-  JavaScript was rejected and must stay rejected.
+- **An in-game script run by an exploit executes on the client**, in two fires, against the box
+  as it stands. Server-side evaluation of player JavaScript was rejected and must stay rejected,
+  so the first fire carries `script_ready: true` and the server answers with the materialized
+  target tree (journal replayed) filtered to the granted tier; the client runs the script against
+  that, then fires again with the writes, which the server re-checks at the granted tier. The
+  script therefore reads what other players actually changed, at the hole's tier, on every box a
+  fire reaches — not a journal-less client regeneration. Both fires leave the service-axis line
+  (two per run, so neither is a silent door); a `--local` script leaves none.
 
 The defender's tools are `nmap -sV` (see the vulnerability and severity, never the effect),
 `apt list -u` (triage), `apt upgrade` (stops new exploits, does not evict), and `reboot` (evicts
