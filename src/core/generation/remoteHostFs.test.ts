@@ -1294,19 +1294,19 @@ describe('buildRemoteHostFs', () => {
 
       expect(readBox('db-11', 11)).toEqual({
         passwd: [
-          'root:d002d4825c449e44003e0d7c876057e3:0',
+          'root:33c595f3edb62eedc2c6d418c9ba544b:0',
           'sqladmin:0c4c43c0a94fc3d2210fa58dca6e09da:1000',
           'guest:4cb9c8a8048fd02294477fcb1a41191a:1001',
         ],
         pidfiles: ['mysqld.pid', 'sshd.pid', 'vsftpd.pid'],
         dbAccounts: [
-          'root:df9188ba1a456801ab6848157a2af621',
-          'backup_svc:0307607e60354081e931298517ce2bec',
+          'root:0ac884a2a375cedd90c64a383f9017f6',
+          'backup_svc:dc3fcb80353a0ac7842e3a9d435631d6',
         ],
       });
       expect(readBox('www-7', 7)).toEqual({
         passwd: [
-          'root:d09ab9985607dc6b20edbb25c0d57f31:0',
+          'root:1647c3e266df70e280360d33d510bcfa:0',
           'devops:ff9830c42660c1dd1942844f8069b74a:1000',
           'guest:aabb2100033f0352fe7458e412495148:1001',
         ],
@@ -1315,8 +1315,8 @@ describe('buildRemoteHostFs', () => {
       });
       expect(readBox('host-42', 42)).toEqual({
         passwd: [
-          'root:36cf655efe569f20c40c42f8673004c8:0',
-          'support:f4de0e02cf21722f17c09be7ba42b3ec:1000',
+          'root:b75613283b21ccf746e2fad053a008fa:0',
+          'support:576c266a0d1d3c27d5cdc3e545d4bf47:1000',
           'guest:c21f969b5f03d33d43e04f8f136e7682:1001',
         ],
         pidfiles: [],
@@ -1324,7 +1324,7 @@ describe('buildRemoteHostFs', () => {
       });
       expect(readBox('cam-31', 31)).toEqual({
         passwd: [
-          'root:37065afef085c96205cbbe76e37832b2:0',
+          'root:653ff926b79dae76bc6412c5f5b8f484:0',
           'telemetry:0c4c43c0a94fc3d2210fa58dca6e09da:1000',
           'guest:0d107d09f5bbe40cade3de5c71e9e9b7:1001',
         ],
@@ -2144,7 +2144,7 @@ describe('buildRemoteHostFs', () => {
       // shift every draw after it and silently re-roll every NPC username and
       // password on every network. These rows were captured before the roll existed.
       expect(rowFor(buildRemoteHostFs(ESSID, host(42)), 'root')[1]).toBe(
-        '36cf655efe569f20c40c42f8673004c8',
+        'b75613283b21ccf746e2fad053a008fa',
       );
       expect(humanUserOf(buildRemoteHostFs(ESSID, host(42)))).toBe('support');
       expect(humanUserOf(buildRemoteHostFs(ESSID, host(7)))).toBe('pi');
