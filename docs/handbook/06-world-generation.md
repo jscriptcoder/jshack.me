@@ -73,7 +73,7 @@ _Everything left of the journal is a pure function of strings. Only the journal 
 | `generation/pools/*.ts`                                                                                                                                 | Authored static text pools (hostnames, usernames, people, config templates, pages, mail, …).               |
 | `services/serviceCatalog.ts`, `services/pidfile.ts`                                                                                                     | The seven network services and the one reader of "what is running".                                        |
 | `packages/packageManifest.ts`                                                                                                                           | Stamps `/var/lib/dpkg/status` on every generated box.                                                      |
-| `secrets/secrets.ts`, `secrets/contentCodec.ts`, `scripts/encode.ts`                                                                                    | Spoiler pools and their build-time obfuscation.                                                            |
+| `secrets/parseSecrets.ts`, `secrets/contentCodec.ts`, `scripts/encode.ts`                                                                               | Spoiler pools from `JSHACK_SECRETS`, their validation and build-time obfuscation.                          |
 | `cve/worldClock.ts`                                                                                                                                     | `WORLD_EPOCH`, the date all generated history ends.                                                        |
 | `scripts/checkBudgets.ts`                                                                                                                               | The bundle-size and per-box build-time budget.                                                             |
 
@@ -233,16 +233,21 @@ running": every producer writes pidfiles through its formatter and every reader 
 
 ## Secrets: obfuscation, not secrecy
 
-Some pools would hand a player the answer key if they searched the JavaScript bundle (the
-uncrackable passwords, the WiFi passwords). They live as plaintext in `src/core/secrets/secrets.ts`,
-which application code never imports. Before every `dev`, `build`, `typecheck` and test run,
-`npm run encode` runs `scripts/encode.ts`, which writes the **git-ignored**
-`src/core/secrets/__encoded.ts`: each value XOR-ed with a fixed key and Base64-encoded, decoded at
-module load. Consumers import from `__encoded.js`.
+Some pools would hand a player the answer key if they read the repo or searched the JavaScript bundle
+(the uncrackable passwords, the WiFi passwords). The four password pools are not in the repo: they
+arrive in the `JSHACK_SECRETS` environment variable, one JSON object of four lists (chapter 2 says
+where it comes from, chapter 12 how to change it). Before every `dev`, `build`, `typecheck` and test
+run, `npm run encode` runs `scripts/encode.ts`, which validates the value with `parseSecrets.ts` and
+writes the **git-ignored** `src/core/secrets/__encoded.ts`: each list JSON-stringified, XOR-ed with a
+fixed key and Base64-encoded, decoded at module load. Consumers import from `__encoded.js`.
 
-This keeps the answers out of a `grep` of `dist/`. It is not secrecy: the key ships in the bundle and
-the plaintext is in git. Changing the key only needs a re-encode; changing a pool re-rolls every
-password drawn from it.
+The parser is the gate for the pools' invariants (non-blank, unique, no uncrackable word in any list a
+player can read, at least 40 uncrackable words and more of them than crackable ones), so a bad paste
+fails the Vercel build instead of shipping a world with the wrong difficulty curve.
+
+The codec keeps the answers out of a `grep` of `dist/`. It is not secrecy: the key ships in the
+bundle. Changing the key only needs a re-encode; changing a pool re-rolls every password drawn from
+it.
 
 ## Budgets: why generation must stay fast
 
@@ -357,7 +362,8 @@ can be offered by a scan or joined.
 
 ### Add a spoiler pool
 
-Add it to `secrets/secrets.ts` as a JSON string, run `npm run encode`, and read it from `__encoded.js`.
+Add it as a key of `JSHACK_SECRETS` (locally and in all three Vercel environments), add the key and its
+rules to `parseSecrets.ts`, run `npm run encode`, and read it from `__encoded.js`.
 
 ## Pitfalls
 
@@ -378,7 +384,7 @@ Add it to `secrets/secrets.ts` as a JSON string, run `npm run encode`, and read 
 - **The access-point gateway is not returned by `generatedBaseFsForMachineId`** on purpose; build it
   with `buildApGatewayBaseFs(essid)`.
 - **`__encoded.ts` must exist.** Running `npx vitest`, `npx stryker run` or `npm run vercel:dev`
-  directly on a fresh clone fails until `npm run encode` has run.
+  directly on a fresh clone fails until `npm run encode` has run, and that needs `JSHACK_SECRETS`.
 - **Existing leases outrank the machine-octet exclusion.** Changing `generateHomeLan` after launch
   could place a new machine on an address a player already holds.
 - **Two template syntaxes**: content pools use `{slot}`; config and page templates use `{{hostname}}`.

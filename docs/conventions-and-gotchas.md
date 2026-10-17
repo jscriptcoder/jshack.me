@@ -95,6 +95,11 @@ doc and the code disagree, the code wins — fix the doc.
   constraint correctness needs a **wire-check** (§5). Keep `api/` handlers thin; push logic
   into the typechecked `src/core/`.
 - **Format/lint gate = `npm run lint`** (ESLint).
+- **Every gate needs `JSHACK_SECRETS`.** `typecheck`, `test*`, `dev` and `build` all run
+  `npm run encode` first, which reads the password pools from that variable (or from
+  `.env.development.local`) and stops with `JSHACK_SECRETS: not set` without it. A fresh machine
+  restores it from Vercel's Development environment (`docs/handbook/02-local-development.md`); there
+  is no fallback list, on purpose.
 - **The whole-world content tests sweep a fixed sample; each PR's gate sweeps everything once.**
   `ALL_ESSIDS` (`src/test/worldContent.ts`) holds every Ridgemont landmark and every key outside
   the catalog, but of the drawn networks only Millbrook and the corporations whole and, from every

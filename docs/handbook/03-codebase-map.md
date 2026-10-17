@@ -114,7 +114,7 @@ builders), `lanDatabase.ts` and `lanStore.ts` (find real generated database and 
 
 | Script                     | Purpose                                                                                                                          |
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `encode.ts`                | Writes `src/core/secrets/__encoded.ts`. Runs before dev, build, typecheck and tests.                                             |
+| `encode.ts`                | Writes `src/core/secrets/__encoded.ts` from `JSHACK_SECRETS`. Runs before dev, build, typecheck and tests.                       |
 | `checkBudgets.ts`          | Post-build bundle-size and per-box timing budget.                                                                                |
 | `test*.ts` (80 files)      | Wire-checks: drive the real `api/` endpoints against `vercel dev` and local Supabase.                                            |
 | `publicAddressOf.ts`       | A declared network's derived public address, for a wire-check to aim at; stops the run for a network the world does not declare. |

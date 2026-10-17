@@ -25,7 +25,6 @@ The Supabase CLI is used through `npx supabase`; it does not need a global insta
 git clone <repo-url> jshack.me
 cd jshack.me
 npm install
-npm run encode                 # generates src/core/secrets/__encoded.ts (git-ignored)
 npx supabase start             # local Postgres + API in Docker; applies supabase/migrations/
 npx supabase status -o env     # prints the local URL and keys
 ```
@@ -37,7 +36,29 @@ the last command:
 SUPABASE_URL=http://127.0.0.1:54421
 SUPABASE_ANON_KEY=<anon key from supabase status>
 SUPABASE_SERVICE_ROLE_KEY=<service role key from supabase status>
+JSHACK_SECRETS='<the password pools, as one line of JSON>'
 ```
+
+`JSHACK_SECRETS` holds every password pool the world draws from, as one JSON object with four lists:
+`UNCRACKABLE_PASSWORDS`, `CRACKABLE_PASSWORDS`, `COMMON_PASSWORDS` and `WIFI_PASSWORDS`. The repo does
+not carry them, so a fresh clone fetches them from Vercel's Development environment, where they are
+stored readable:
+
+```bash
+vercel env pull .env.vercel.local --environment=development   # git-ignored; delete it afterwards
+```
+
+Copy the `JSHACK_SECRETS` value from that file into `.env.development.local`, **wrapped in single
+quotes**: the pull wraps it in double quotes without escaping the ones inside, which Node's env-file
+reader does not parse. Then generate the encoded pools:
+
+```bash
+npm run encode                 # generates src/core/secrets/__encoded.ts (git-ignored)
+```
+
+Without the variable, `npm run encode` stops with `JSHACK_SECRETS: not set`, and so do `dev`, `build`,
+`typecheck` and every `test*` script, which run it first. A malformed value stops it with every broken
+rule named, one per line (`parseSecrets.ts` holds the rules). There is no fallback list.
 
 The local API port is **54421**, not the Supabase default 54321 (`supabase/config.toml` moves the
 API, database, Studio and mail ports into the 5442x range).
