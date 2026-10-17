@@ -8,12 +8,43 @@
  * Each value is a single string so the codec can encode it as one blob; arrays
  * are JSON-stringified and the consumer `JSON.parse`s after decoding.
  *
- * Scope: `WIFI_PASSWORDS` (the crackable-AP pool `generateWifi` draws from) and
- * `UNCRACKABLE_PASSWORDS` (every password the shipped wordlist does NOT cover —
- * accounts and gateway admins alike). Other legacy pools port in when their
- * feature lands.
+ * Scope: `WIFI_PASSWORDS` (the crackable-AP pool `generateWifi` draws from),
+ * `CRACKABLE_PASSWORDS` (every password the shipped wordlist covers) and
+ * `UNCRACKABLE_PASSWORDS` (every password it does NOT cover — accounts and
+ * gateway admins alike). Other legacy pools port in when their feature lands.
  */
 export const secrets = {
+  /**
+   * Account passwords the wordlist `apt install hydra` ships covers completely.
+   * Obvious and guessable by design — an attacker's first twenty tries.
+   *
+   * Encoded even though every player's `passwords.txt` prints them: that file
+   * mixes them with common-list padding, so it does not say which words this
+   * world actually draws. Printed in the bundle they would.
+   */
+  CRACKABLE_PASSWORDS: JSON.stringify([
+    'guest',
+    'password',
+    'letmein',
+    'changeme',
+    'welcome1',
+    'qwerty123',
+    'trustno1',
+    'sunshine',
+    'admin123',
+    'root1234',
+    // Router factory defaults. One pool serves accounts and gateways alike: the
+    // roll decides WHETHER a door falls, and a themed pool per door kind would
+    // only decide what the plaintext reads like once it already has. Keeping these
+    // in means a cracked gateway still often prints something router-shaped.
+    'admin',
+    'root123',
+    'toor',
+    'default',
+    'cisco',
+    'linksys',
+    'netgear',
+  ]),
   /**
    * Account passwords that are NOT in the wordlist `apt install hydra` ships, so
    * an account that draws one holds against a default install. They live here

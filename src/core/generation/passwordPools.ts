@@ -18,44 +18,22 @@ import { secrets } from '../secrets/__encoded.js';
 import type { Prng } from './prng.js';
 
 /**
- * Passwords the shipped wordlist covers completely. Obvious and guessable by
- * design — an attacker's first twenty tries. Committed in plaintext because
- * they are printed into every player's `passwords.txt` anyway; hiding them
- * would protect nothing.
- */
-export const CRACKABLE_PASSWORDS: readonly string[] = [
-  'guest',
-  'password',
-  'letmein',
-  'changeme',
-  'welcome1',
-  'qwerty123',
-  'trustno1',
-  'sunshine',
-  'admin123',
-  'root1234',
-  // Router factory defaults. One pool serves accounts and gateways alike: the
-  // roll decides WHETHER a door falls, and a themed pool per door kind would
-  // only decide what the plaintext reads like once it already has. Keeping these
-  // in means a cracked gateway still often prints something router-shaped.
-  'admin',
-  'root123',
-  'toor',
-  'default',
-  'cisco',
-  'linksys',
-  'netgear',
-];
-
-/**
- * Passwords the shipped wordlist covers not at all — an account that draws one
- * holds against a default install until the player harvests that exact word and
- * appends it. Read through the build-time codec (see `secrets.ts`) so a grep of
- * the deployed bundle does not return the answer key.
+ * Passwords the shipped wordlist covers completely — obvious and guessable by
+ * design. Both pools are read through the build-time codec (see `secrets.ts`)
+ * so a grep of the deployed bundle does not return the answer key.
  *
  * Obfuscation, not secrecy: `contentCodec.ts` says so plainly, and the key ships
  * with the bundle. It raises the cost of skipping the progression; it does not
  * make skipping impossible.
+ */
+export const CRACKABLE_PASSWORDS: readonly string[] = JSON.parse(
+  secrets.CRACKABLE_PASSWORDS,
+) as readonly string[];
+
+/**
+ * Passwords the shipped wordlist covers not at all — an account that draws one
+ * holds against a default install until the player harvests that exact word and
+ * appends it.
  */
 export const UNCRACKABLE_PASSWORDS: readonly string[] = JSON.parse(
   secrets.UNCRACKABLE_PASSWORDS,
