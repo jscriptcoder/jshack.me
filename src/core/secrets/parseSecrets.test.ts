@@ -208,6 +208,19 @@ describe('parseSecrets', () => {
     });
   });
 
+  it('names every shape problem at once, one per line', () => {
+    const secrets = validSecrets({ EXTRA_PASSWORDS: [] });
+    delete secrets['WIFI_PASSWORDS'];
+
+    expect(parseSecrets(JSON.stringify(secrets))).toEqual({
+      ok: false,
+      error: [
+        'JSHACK_SECRETS.WIFI_PASSWORDS: missing',
+        'JSHACK_SECRETS.EXTRA_PASSWORDS: not a known list',
+      ].join('\n'),
+    });
+  });
+
   it('names every broken rule at once, one per line, so one paste fixes them all', () => {
     expect(
       parse({ COMMON_PASSWORDS: ['qwerty', ''], WIFI_PASSWORDS: ['guestwifi', 'guestwifi'] }),

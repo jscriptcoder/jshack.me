@@ -111,9 +111,10 @@ const uncrackableProblems = (secrets: Secrets): string[] => {
   return [...tooFew, ...outnumbered, ...leaked];
 };
 
-const parseJson = (raw: string): { readonly ok: true; readonly value: unknown } | null => {
+/** The parsed value, boxed so that a value of `null` is not mistaken for a failed parse. */
+const parseJson = (raw: string): { readonly value: unknown } | null => {
   try {
-    return { ok: true, value: JSON.parse(raw) };
+    return { value: JSON.parse(raw) };
   } catch {
     return null;
   }
