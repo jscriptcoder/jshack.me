@@ -195,9 +195,9 @@ internalPort}`; else `none` (router-own wins a same-port tie). It shares `readRu
   never leak into the LAN-side `.1` view — the dual-homed invariant: one function, two vantages, never a
   merged view (`project_dual_homed_router_scan_discrepancy` closed). Client-only (no api/DB); self and
   sibling hosts still read their own FS via `readOpenPorts`.
-- **Guest password:** `workstationGuestPassword(ownerKeyHex)` — a deterministic pick from a
-  weak-password list, seeded from the owner's pubkey alone (`core/generation/workstationFs.ts`),
-  so the server can recover it for cross-player auth and a future cracker can match it. The
+- **Guest password:** `workstationGuestHash(ownerKeyHex)` — the md5 of a deterministic pick from
+  the crackable pool, seeded from the owner's pubkey alone (`core/generation/workstationFs.ts`),
+  so the server can rebuild it for cross-player auth and a cracker can match it. The
   player's own user has an empty hash (unauthenticatable cross-player — `md5(x)` is never `''`).
 
 ## 4. Authorization (server-enforced)

@@ -28,7 +28,7 @@ vercel.json             { "regions": ["fra1"] }
 
 Generated or local-only, all git-ignored: `dist/` (build output), `node_modules/`, `reports/` (Stryker
 output), `.stryker-tmp/` (Stryker sandboxes), `.vercel/` (project link), `src/core/secrets/__encoded.ts`
-(written by `npm run encode`), `*.tsbuildinfo`.
+and `__plaintext.ts` (written by `npm run encode`), `*.tsbuildinfo`.
 
 ## `src/`: the client and the shared core
 
@@ -114,7 +114,8 @@ builders), `lanDatabase.ts` and `lanStore.ts` (find real generated database and 
 
 | Script                     | Purpose                                                                                                                          |
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `encode.ts`                | Writes `src/core/secrets/__encoded.ts` from `JSHACK_SECRETS`. Runs before dev, build, typecheck and tests.                       |
+| `encode.ts`                | Writes `src/core/secrets/__encoded.ts` (uncrackable pool as md5s) and the test-only `__plaintext.ts`.                            |
+| `checkSecrets.ts`          | Post-build: fails if any uncrackable password appears in `dist/`.                                                                |
 | `checkBudgets.ts`          | Post-build bundle-size and per-box timing budget.                                                                                |
 | `test*.ts` (80 files)      | Wire-checks: drive the real `api/` endpoints against `vercel dev` and local Supabase.                                            |
 | `publicAddressOf.ts`       | A declared network's derived public address, for a wire-check to aim at; stops the run for a network the world does not declare. |

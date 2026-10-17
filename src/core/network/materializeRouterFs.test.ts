@@ -2,8 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { materializeApGatewayFs } from './materializeRouterFs.js';
 import type { OwnerPatchRow } from './materializeWorkstationFs.js';
 import { generateIdentity } from '../identity/identity.js';
-import { md5 } from '../generation/md5.js';
-import { seedApGatewayAdminPw } from '../generation/routerFs.js';
+import { seedApGatewayAdminHash } from '../generation/routerFs.js';
 import { readOpenPorts } from '../services/pidfile.js';
 import { canBoot } from '../boot/bootFiles.js';
 import type { Directory, FileNode, FilePermissions } from '../filesystem/types.js';
@@ -64,7 +63,7 @@ describe('materializeApGatewayFs', () => {
     const router = materializeApGatewayFs(NETWORK, []);
 
     const passwd = readFileContent(router, '/etc/passwd');
-    expect(passwd).toContain(md5(seedApGatewayAdminPw(ESSID)));
+    expect(passwd).toContain(seedApGatewayAdminHash(ESSID));
   });
 
   it('replays the journal over the base — a written rules.v4 forward is reflected', () => {

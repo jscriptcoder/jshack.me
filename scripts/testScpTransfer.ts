@@ -36,16 +36,16 @@ import { computeApGatewayId } from '../src/core/identity/router.js';
 import { generateHomeLan, type LanHost } from '../src/core/generation/generateHomeLan.js';
 import { hostServices } from '../src/core/generation/remoteHostFs.js';
 import { machineIdForLanHost, resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity.js';
-import { workstationGuestPassword } from '../src/core/generation/workstationFs.js';
+import { workstationGuestHash } from '../src/core/generation/workstationFs.js';
 import { lanAddressFor } from '../src/core/network/lanAddress.js';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
-import { ALL_GENERATED_PASSWORDS } from '../src/core/generation/passwordPools.js';
 import { accountsIn } from '../src/core/sessions/passwdAccount.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { leaveNetwork, standOnNetwork } from './standVantage.js';
 import { AUTH_LOG_PATH } from '../src/core/logging/authLog.js';
 import { VSFTPD_LOG_PATH } from '../src/core/logging/vsftpdLog.js';
 import { publicAddressOf } from './publicAddressOf.js';
+import { ALL_GENERATED_PASSWORDS, plaintextFor } from '../src/test/passwords.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
@@ -182,7 +182,7 @@ const A_GATEWAY = computeApGatewayId(A_ESSID);
 const A_WS = computeWorkstationId('anton', defender.publicKeyHex);
 const A_OCTET = 24;
 const A_LAN_IP = lanAddressFor(A_ESSID, A_OCTET);
-const A_GUEST_PW = workstationGuestPassword(defender.publicKeyHex);
+const A_GUEST_PW = plaintextFor(workstationGuestHash(defender.publicKeyHex));
 // Neither is 22 or 21: on a public address those belong to the AP's own gateway,
 // which is a different machine entirely.
 const SSH_FORWARD = 5544;

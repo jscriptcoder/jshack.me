@@ -28,12 +28,13 @@ import { generateIdentity } from '../src/core/identity/identity.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
 import { md5 } from '../src/core/generation/md5.js';
-import { seedApGatewayAdminPw } from '../src/core/generation/routerFs.js';
+import { seedApGatewayAdminHash } from '../src/core/generation/routerFs.js';
 import { orderPatchesForReplay } from '../src/core/patches/orderPatchesForReplay.js';
 import { deserializeTree, type SerializedDirectory } from '../src/core/filesystem/treeCodec.js';
 import { createFsView } from '../src/core/filesystem/fsView.js';
 import { asAbsPath } from '../src/core/types.js';
 import { publicAddressOf } from './publicAddressOf.js';
+import { plaintextFor } from '../src/test/passwords.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
@@ -75,7 +76,7 @@ const B_ESSID = 'UPSTAIRS-NEIGHBOR';
 const C_ESSID = 'CASA-DE-RAMIREZ';
 const GATEWAY = computeApGatewayId(TARGET_ESSID);
 const GATEWAY_IP = publicAddressOf(TARGET_ESSID);
-const ADMIN_PW = seedApGatewayAdminPw(TARGET_ESSID);
+const ADMIN_PW = plaintextFor(seedApGatewayAdminHash(TARGET_ESSID));
 const B_PUBLIC_IP = publicAddressOf(B_ESSID);
 const C_PUBLIC_IP = publicAddressOf(C_ESSID);
 

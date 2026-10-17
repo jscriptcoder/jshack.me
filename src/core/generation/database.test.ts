@@ -18,6 +18,7 @@ import { roleOfHostname } from './pools/hostnames.js';
 import { usernamePool } from './pools/usernames.js';
 import { crackableEssidPool } from './generateWifi.js';
 import { CRACK_CHANCE, CRACKABLE_PASSWORDS } from './passwordPools.js';
+
 import { MYSQL_USERNAMES } from './pools/database.js';
 import { md5 } from './md5.js';
 import { databaseIn } from '../mysql/datadir.js';

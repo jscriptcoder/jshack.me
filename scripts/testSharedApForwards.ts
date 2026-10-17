@@ -27,9 +27,10 @@ import { computeApGatewayId } from '../src/core/identity/router.js';
 import { lanAddressFor } from '../src/core/network/lanAddress.js';
 import { formatPidfileContent } from '../src/core/services/pidfile.js';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
-import { workstationGuestPassword } from '../src/core/generation/workstationFs.js';
+import { workstationGuestHash } from '../src/core/generation/workstationFs.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { publicAddressOf } from './publicAddressOf.js';
+import { plaintextFor } from '../src/test/passwords.js';
 
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
@@ -96,8 +97,8 @@ const alice = generateIdentity();
  *  "B's password is refused on A's box" is not a wrong password at all. */
 const drawNotSharingAliceGuestPassword = (): ReturnType<typeof generateIdentity> => {
   const candidate = generateIdentity();
-  return workstationGuestPassword(candidate.publicKeyHex) ===
-    workstationGuestPassword(alice.publicKeyHex)
+  return plaintextFor(workstationGuestHash(candidate.publicKeyHex)) ===
+    plaintextFor(workstationGuestHash(alice.publicKeyHex))
     ? drawNotSharingAliceGuestPassword()
     : candidate;
 };
@@ -121,8 +122,8 @@ const B_OCTET = 34;
 const A_LAN = lanAddressFor(ESSID, A_OCTET);
 const B_LAN = lanAddressFor(ESSID, B_OCTET);
 
-const A_GUEST_PW = workstationGuestPassword(alice.publicKeyHex);
-const B_GUEST_PW = workstationGuestPassword(bob.publicKeyHex);
+const A_GUEST_PW = plaintextFor(workstationGuestHash(alice.publicKeyHex));
+const B_GUEST_PW = plaintextFor(workstationGuestHash(bob.publicKeyHex));
 
 const RULES = '/etc/iptables/rules.v4';
 const ROOT_ONLY = { read: ['root'], write: ['root'], execute: [] };

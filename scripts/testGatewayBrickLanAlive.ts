@@ -35,9 +35,10 @@ import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
 import { formatPidfileContent } from '../src/core/services/pidfile.js';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 import { md5 } from '../src/core/generation/md5.js';
-import { seedApGatewayAdminPw } from '../src/core/generation/routerFs.js';
-import { workstationGuestPassword } from '../src/core/generation/workstationFs.js';
+import { seedApGatewayAdminHash } from '../src/core/generation/routerFs.js';
+import { workstationGuestHash } from '../src/core/generation/workstationFs.js';
 import { publicAddressOf } from './publicAddressOf.js';
+import { plaintextFor } from '../src/test/passwords.js';
 
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
@@ -103,8 +104,8 @@ const leasedAddress = async (owner: ReturnType<typeof generateIdentity>): Promis
   if (octet === undefined) throw new Error(`no lan lease for ${owner.publicKeyHex.slice(0, 8)}`);
   return lanAddressFor(ESSID, octet);
 };
-const A_GUEST_PW = workstationGuestPassword(alice.publicKeyHex);
-const ADMIN_PW = seedApGatewayAdminPw(ESSID);
+const A_GUEST_PW = plaintextFor(workstationGuestHash(alice.publicKeyHex));
+const ADMIN_PW = plaintextFor(seedApGatewayAdminHash(ESSID));
 const VMLINUZ = '/boot/vmlinuz';
 const WORLD_PID = { read: ['root', 'user', 'guest'], write: ['root'], execute: [] };
 

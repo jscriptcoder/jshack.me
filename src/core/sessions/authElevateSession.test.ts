@@ -5,11 +5,10 @@ import {
   type SuSessionRow,
 } from './authElevateSession.js';
 import type { OccupantWorkstation } from './stoodOnBox.js';
-import { workstationGuestPassword } from '../generation/workstationFs.js';
+import { workstationGuestHash } from '../generation/workstationFs.js';
 import { generateHomeLan } from '../generation/generateHomeLan.js';
 import { baseFsForLanHost, machineIdForLanHost } from '../generation/lanHostIdentity.js';
-import { ALL_GENERATED_PASSWORDS } from '../generation/passwordPools.js';
-import { seedApGatewayAdminPw } from '../generation/routerFs.js';
+import { seedApGatewayAdminHash } from '../generation/routerFs.js';
 import { npcUsername } from '../generation/remoteHostFs.js';
 import { computeApGatewayId } from '../identity/router.js';
 import { accountIn } from './passwdAccount.js';
@@ -33,6 +32,7 @@ import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appen
 import type { PatchRow } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import type { FindActiveSession, StandingSession } from '../patches/authorizeMachineAccess.js';
+import { ALL_GENERATED_PASSWORDS, plaintextFor } from '../../test/passwords.js';
 
 /**
  * `handleAuthElevateSession` answers `su` on a box that is not the caller's own. The
@@ -51,7 +51,7 @@ const MACHINE = 'skylab-deadbeef';
 // 2026-06-19 12:00:00 UTC — the server clock the su auth.log line is stamped with.
 const FIXED_NOW = Date.UTC(2026, 5, 19, 12, 0, 0);
 // A's identity → owner_key; the guest password is seeded from it, so the dev (and
-// a future cracker) recovers it via `workstationGuestPassword`.
+// a future cracker) recovers it from `workstationGuestHash`.
 const OWNER = generateIdentity();
 const OCCUPANT: OccupantWorkstation = {
   owner_key: OWNER.publicKeyHex,
@@ -61,7 +61,7 @@ const OCCUPANT: OccupantWorkstation = {
   workstation_machine_name: 'nebuchadnezzar',
   workstation_root_hash: md5('matrix1999'),
 };
-const GUEST_PW = workstationGuestPassword(OWNER.publicKeyHex);
+const GUEST_PW = plaintextFor(workstationGuestHash(OWNER.publicKeyHex));
 // Where the attacker's ssh login onto the box came from, as the server stamped it.
 const SSH_LOGIN_IP = '198.51.100.23';
 const ESSID = 'BEAN-THERE-WIFI';
@@ -239,7 +239,7 @@ describe('handleAuthElevateSession', () => {
       envelope(visitor, {
         machine_id: computeApGatewayId(ESSID),
         username: 'root',
-        password: seedApGatewayAdminPw(ESSID),
+        password: plaintextFor(seedApGatewayAdminHash(ESSID)),
       }),
       deps,
     );

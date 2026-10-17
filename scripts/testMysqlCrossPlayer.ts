@@ -32,13 +32,13 @@ import { materializeWorkstationFs } from '../src/core/network/materializeWorksta
 import { asEpochMs } from '../src/core/types.js';
 import { ownDatabase } from '../src/core/mysql/ownDatabase.js';
 import { DATADIR_PATH } from '../src/core/mysql/datadir.js';
-import { ALL_GENERATED_PASSWORDS } from '../src/core/generation/passwordPools.js';
 import { formatPidfileContent, pidfilePath, PIDFILE_PERMISSIONS } from '../src/core/services/pidfile.js';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 import { MYSQL_LOG_PATH } from '../src/core/logging/mysqlLog.js';
 import { WORDLIST_PATH, formatWordlist } from '../src/core/wordlist/defaultWordlist.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { publicAddressOf } from './publicAddressOf.js';
+import { ALL_GENERATED_PASSWORDS } from '../src/test/passwords.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;

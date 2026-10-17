@@ -23,8 +23,7 @@
 
 import { asAbsPath } from '../types.js';
 import { createPrng, type Prng } from './prng.js';
-import { md5 } from './md5.js';
-import { CRACK_CHANCE, drawPassword } from './passwordPools.js';
+import { CRACK_CHANCE, drawPasswordHash } from './passwordPools.js';
 import { STORE_SPECS, type StoreSpec } from './pools/storeApps.js';
 import { roleOfHostname } from './pools/hostnames.js';
 import { generateHomeLan, isOnHomeLan, type LanHost } from './generateHomeLan.js';
@@ -320,7 +319,7 @@ export const generateRedisStore = ({
  */
 export const drawStoreLock = (seed: string): string | null => {
   const prng = createPrng(seed);
-  return prng.next() < REQUIREPASS_CHANCE ? md5(drawPassword(prng, CRACK_CHANCE.npcUser)) : null;
+  return prng.next() < REQUIREPASS_CHANCE ? drawPasswordHash(prng, CRACK_CHANCE.npcUser) : null;
 };
 
 /**

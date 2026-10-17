@@ -20,11 +20,12 @@ import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
 import { computeDeepGatewayId, computeInnerGatewayId } from '../src/core/identity/router.js';
-import { seedDeepGatewayAdminPw } from '../src/core/generation/routerFs.js';
+import { seedDeepGatewayAdminHash } from '../src/core/generation/routerFs.js';
 import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
 import { crackableEssidPool } from '../src/core/generation/generateWifi.js';
 import { generateDeepLayer, seedNetworkDepth } from '../src/core/generation/generateDeepLayer.js';
 import { leaveNetwork, standOnNetwork } from './standVantage.js';
+import { plaintextFor } from '../src/test/passwords.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
@@ -101,7 +102,7 @@ if (found === undefined || found === null) {
 const alice = generateIdentity();
 const { essid: ESSID, innerIp: INNER_IP, innerId: INNER_GW_ID, switchIp: SWITCH_IP } = found;
 const SWITCH_ID = computeDeepGatewayId(INNER_GW_ID, octetOf(SWITCH_IP));
-const SWITCH_ROOT_PW = seedDeepGatewayAdminPw(INNER_GW_ID, octetOf(SWITCH_IP));
+const SWITCH_ROOT_PW = plaintextFor(seedDeepGatewayAdminHash(INNER_GW_ID, octetOf(SWITCH_IP)));
 
 const RULES = '/etc/iptables/rules.v4';
 const ACL = '/etc/switch/acl.conf';

@@ -10,7 +10,6 @@ import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
 import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import { DATADIR_PATH } from '../redis/datadir.js';
 import { DATADIR_FILE } from '../generation/baseFs.js';
-import { ALL_GENERATED_PASSWORDS } from '../generation/passwordPools.js';
 import { md5 } from '../generation/md5.js';
 import {
   formatRedisAttemptLine,
@@ -38,6 +37,7 @@ import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import { logRead } from '../../test/factories/logRows.js';
+import { ALL_GENERATED_PASSWORDS } from '../../test/passwords.js';
 
 /**
  * `handleRedisStatement` answers one question against a box's REAL store — journal

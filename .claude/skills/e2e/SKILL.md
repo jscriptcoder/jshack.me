@@ -219,18 +219,17 @@ Redis speaks `AUTH`, `KEYS <glob>` (only `*` is a wildcard), `GET`, `DBSIZE`, `S
 value is a string; structured ones are JSON. There is no `TTL`, `TYPE` or `SCAN`.
 
 **Getting in without cracking.** Both doors' secrets are seeded, so derive them per §6 rather than
-running `hydra` for minutes. The hashes come out md5; recover the plaintext by matching the pool:
+running `hydra` for minutes. The game holds only hashes (the uncrackable pool ships as md5s);
+recover the plaintext with the test-only helper, which reads the raw lists from the gitignored
+`__plaintext.ts`:
 
 ```ts
 import { drawDatabaseCredentials } from './src/core/generation/generateDatabase.js';
 import { drawStoreLock } from './src/core/generation/generateRedisStore.js';
-import { ALL_GENERATED_PASSWORDS } from './src/core/generation/passwordPools.js';
-import { md5 } from './src/core/generation/md5.js';
+import { plaintextFor } from './src/test/passwords.js';
 
 const wanted = drawDatabaseCredentials(`mysql-db-${ESSID}-${IP}`); // and drawStoreLock(`redis-store-${ESSID}-${IP}`)
-for (const candidate of ALL_GENERATED_PASSWORDS) {
-  if (wanted.some((credential) => credential.passwordHash === md5(candidate))) console.log(candidate);
-}
+for (const credential of wanted) console.log(credential.username, plaintextFor(credential.passwordHash));
 ```
 
 A store whose `requirepassHash` is `null` is open and takes no `AUTH` at all. To pick a target
@@ -279,7 +278,7 @@ prints `<n> bytes received`, where `n` is the file's length in characters, the s
 transfer log records. A file server's share is at `/srv/share` or `/srv/backup/<date>`; find one
 offline by walking `generateHomeLan(essid).hosts` for a `share-`/`files-`/`nas-`/`backup-`/`vault-`
 hostname whose `hostServices` include `ftp`, and recover its guest password by matching
-`/etc/passwd`'s md5 against `ALL_GENERATED_PASSWORDS`, as for the data doors.
+`/etc/passwd`'s md5 with `plaintextFor` (`src/test/passwords.ts`), as for the data doors.
 
 A LAN file server running vsftpd keeps `/var/log/vsftpd.log.1`, readable by guest: `get` it, then
 `grep <file name>` to find the upload that put a share file there — the client IP is the author's
@@ -294,7 +293,7 @@ Verified 2026-10-10 (v0.349.0) on ABSTERGO-NET. No forward is needed: a gateway 
 layer it fronts, so it is two logins.
 
 ```
-ssh root@<inner gateway's LAN ip>   →  password = seedInnerGatewayAdminPw(<key>, <octet>)
+ssh root@<inner gateway's LAN ip>   →  password = plaintextFor(seedInnerGatewayAdminHash(<key>, <octet>))
 ssh root@<deep box's 10.x ip>       →  password from its /etc/passwd md5 (§6)
 ```
 
@@ -336,8 +335,8 @@ B: /tmp/msfconsole --local kill   →  [+] Full shell as root@<host>, an `exploi
 B: reboot                     →  A's next line: Connection to <host> closed by remote host.
 ```
 
-Pick the machine offline: every account's password matches `/etc/passwd`'s md5 against
-`ALL_GENERATED_PASSWORDS` (§6), and `localExploitOutcome(command, parseDpkgVersions(
+Pick the machine offline: every account's password is `plaintextFor` of its `/etc/passwd` md5
+(§6), and `localExploitOutcome(command, parseDpkgVersions(
 readDpkgStatus(fs)), gameDayAt(now))` says what each command's hole grants there today. On
 2026-10-13 each of the twelve machines checked, on six networks, fell to `kill`, `su`,
 `systemctl` and `reboot` at root.
@@ -356,8 +355,8 @@ readDpkgStatus(fs)), gameDayAt(now))` says what each command's hole grants there
 An `android-`, `iphone-` or `tablet-` keeps a device's storage in its person's home instead of
 dotfiles. Only about one in three catalog LANs has one that runs sshd, so pick it offline and
 AFTER a scan (§3): walk `generateHomeLan(essid).hosts` for those prefixes, keep the ones whose
-`hostServices` include `ssh` (`entry.spec.service`), and recover the account's password from
-`/etc/passwd`'s md5 against `ALL_GENERATED_PASSWORDS` (§6). `deviceModel(essid, host)`
+`hostServices` include `ssh` (`entry.spec.service`), and recover the account's password as
+`plaintextFor` of its `/etc/passwd` md5 (§6). `deviceModel(essid, host)`
 (`generation/phoneHome.ts`) names the make and model its photos will carry. Played 2026-09-25 on
 ESPRESSO-EXPRESS: `ssh agarcia@192.168.232.180`, password `letmein` (a Galaxy Tab A8).
 
@@ -381,7 +380,7 @@ The gateway is the `.1` of the connected LAN. Its credentials seed from the **ES
 them offline (§6) rather than cracking in-game:
 
 ```
-ssh root@192.168.<subnet>.1     →  password = seedApGatewayAdminPw(<ESSID>)
+ssh root@192.168.<subnet>.1     →  password = plaintextFor(seedApGatewayAdminHash(<ESSID>))
 ```
 
 The prompt becomes `root@ap-gw:/root#`. Verify the **server-served** tree actually arrived —
@@ -422,7 +421,7 @@ in every table that names it.
   `/var/www`) and a web server config bound to `127.0.0.1`; nothing new answers on the network.
 
 To go on to the admin's machine, pick a network offline whose AP admin runs sshd, and recover
-their password from `/etc/passwd`'s md5 against `ALL_GENERATED_PASSWORDS` (§6). On HOOLI-SEC the
+their password as `plaintextFor` of its `/etc/passwd` md5 (§6). On HOOLI-SEC the
 AP's admin is `workstation-130` (`rjohnson`, ssh on 22); `nmap` it, `ssh` in, and their home is
 there.
 
@@ -525,15 +524,16 @@ Verified 2026-10-07 (v0.324.0) checking that a WiFi change in one tab reaches th
 ## 6. Deriving seeded secrets and querying the DB
 
 The game does not surface another player's secrets, and gateway credentials seed from the ESSID.
-Compute them with a **temp file inside the repo** — `./src/...` imports only resolve from there, and
-a `/tmp` path will not work:
+Every seeder returns a **hash** (`seed*Hash`, `workstationGuestHash`): the game never holds an
+uncrackable word. Turn one into its word with `plaintextFor` from `src/test/passwords.ts`, which
+reads the gitignored `__plaintext.ts` that `npm run encode` writes. Compute them with a **temp file
+inside the repo** — `./src/...` imports only resolve from there, and a `/tmp` path will not work:
 
 ```bash
 cat > ./g.tmp.ts << 'EOF'
-import { seedApGatewayAdminPw } from './src/core/generation/routerFs.js';
-import { seedApGatewayHostname } from './src/core/generation/gatewayHostname.js';
-import { computeApGatewayId } from './src/core/identity/router.js';
-console.log('adminpw=' + seedApGatewayAdminPw('SHINRA-5G'));
+import { seedApGatewayAdminHash } from './src/core/generation/routerFs.js';
+import { plaintextFor } from './src/test/passwords.js';
+console.log('adminpw=' + plaintextFor(seedApGatewayAdminHash('SHINRA-5G')));
 EOF
 npx tsx ./g.tmp.ts; rm -f ./g.tmp.ts
 ```
@@ -552,7 +552,7 @@ For a plain table read, skip the temp file — query the container directly. **`
 docker exec supabase_db_jshack-me psql -U postgres -tAc "select * from home_network_occupants"
 ```
 
-Useful lookups: `workstationGuestPassword(ownerKey)`, `assignHomeNetwork(ownerKey, essid)` →
+Useful lookups: `plaintextFor(workstationGuestHash(ownerKey))`, `assignHomeNetwork(ownerKey, essid)` →
 `{ localIp, hostname }` (no `publicIp`), and `publicAddressOf(essid)` from
 `scripts/publicAddressOf.ts` for an ESSID's public IP, which the world derives from the
 network's place in it. Cross-check any derived `localIp`
@@ -715,8 +715,8 @@ root-only file like `/etc/emailit/passwd` stays hidden). So when the day's holes
 user/guest tier, the box simply cannot be rooted that day — prove any root-only behaviour with
 the feature's wire-check seeded session instead (e.g. `testMailSpool.ts`), and say in the
 evidence that the UI run stood the root session up directly. **Trap:** matching a fixed site's
-`/etc/passwd` root hash against `ALL_GENERATED_PASSWORDS` WILL "find" it, because that array
-concatenates the uncrackable pool — it is NOT a route a player has, and must never be presented
+`/etc/passwd` root hash with `plaintextFor` WILL "find" it, because the helper searches the
+uncrackable pool too — it is NOT a route a player has, and must never be presented
 as an in-game crack. (The crackable hashes decision 3 means are the player-chosen *account*
 hashes in `/etc/emailit/passwd`, recovered with a real external wordlist tool once you are
 already root — not root's own password.)

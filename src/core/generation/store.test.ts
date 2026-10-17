@@ -14,7 +14,7 @@ import { createPrng } from './prng.js';
 import { generateApplication, type Application } from './generateDatabase.js';
 import { generateHomeLan, isOnHomeLan } from './generateHomeLan.js';
 import { roleOfHostname } from './pools/hostnames.js';
-import { ALL_GENERATED_PASSWORDS, CRACK_CHANCE, CRACKABLE_PASSWORDS } from './passwordPools.js';
+import { CRACK_CHANCE, CRACKABLE_PASSWORDS } from './passwordPools.js';
 import { md5 } from './md5.js';
 import { storeIn } from '../redis/datadir.js';
 import { databaseIn } from '../mysql/datadir.js';
@@ -30,6 +30,7 @@ import {
 import type { RedisStore } from '../redis/types.js';
 import type { Directory } from '../filesystem/types.js';
 import type { MysqlRow } from '../mysql/types.js';
+import { ALL_GENERATED_PASSWORDS } from '../../test/passwords.js';
 
 type StoreBox = Box & { readonly store: RedisStore; readonly fs: Directory };
 

@@ -29,9 +29,9 @@ import { buildRemoteHostFs, hostServices, npcUsername } from './remoteHostFs.js'
 import { networkPersona } from './persona.js';
 import { relationsFrom } from './relations.js';
 import { boxMail, networkMail } from './networkMail.js';
-import { ALL_GENERATED_PASSWORDS } from './passwordPools.js';
 import { PHONE_MODELS, SHARE_FOLDERS } from './pools/shareFiles.js';
 import type { NetworkCategory } from './pools/essidCatalog.js';
+import { ALL_GENERATED_PASSWORDS } from '../../test/passwords.js';
 
 const NO_FLAGS = new Map<string, string | true>();
 

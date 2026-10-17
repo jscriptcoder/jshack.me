@@ -1,7 +1,7 @@
 {
   "name": "jshack-me",
   "private": true,
-  "version": "0.397.0",
+  "version": "0.398.0",
   "type": "module",
   "scripts": {
     "encode": "tsx scripts/encode.ts",
@@ -9,7 +9,7 @@
     "dev": "vite",
     "prebuild": "npm run encode",
     "build": "tsc -b && vite build",
-    "postbuild": "tsx scripts/checkBudgets.ts",
+    "postbuild": "tsx scripts/checkSecrets.ts && tsx scripts/checkBudgets.ts",
     "pretypecheck": "npm run encode",
     "typecheck": "tsc -b",
     "lint": "eslint .",

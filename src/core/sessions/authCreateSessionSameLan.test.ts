@@ -10,7 +10,7 @@ import { generateHomeLan } from '../generation/generateHomeLan.js';
 import { machineIdForLanHost } from '../generation/lanTopology.js';
 import { computeWorkstationId } from '../identity/workstation.js';
 import { md5 } from '../generation/md5.js';
-import { workstationGuestPassword } from '../generation/workstationFs.js';
+import { workstationGuestHash } from '../generation/workstationFs.js';
 import { signRequest } from '../signedRequest/sign.js';
 import { generateIdentity } from '../identity/identity.js';
 import { assignHomeNetwork } from '../network/homeNetwork.js';
@@ -29,6 +29,7 @@ import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appen
 import type { PatchRow } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import { logRead } from '../../test/factories/logRows.js';
+import { plaintextFor } from '../../test/passwords.js';
 
 /**
  * `handleAuthCreateSessionSameLan` is the same-WiFi LAN connect front door. A fellow
@@ -86,7 +87,7 @@ const B_REDRAWN_OCTET = REDRAWN_OCTETS[1]!;
 // connect is sourced from the occupant's LAN IP, never any public address.
 const B_HOME_PUBLIC_IP = '198.51.100.50';
 // A's deterministic weak guest password — the credential B types to land a guest shell.
-const GUEST_PW = workstationGuestPassword(ALICE.publicKeyHex);
+const GUEST_PW = plaintextFor(workstationGuestHash(ALICE.publicKeyHex));
 
 const A_ROW: OccupantConnectRow = {
   owner_key: ALICE.publicKeyHex,
@@ -348,7 +349,7 @@ describe('handleAuthCreateSessionSameLan', () => {
     const result = await handleAuthCreateSessionSameLan(
       envelope(BOB, {
         username: 'guest',
-        password: workstationGuestPassword(BOB.publicKeyHex),
+        password: plaintextFor(workstationGuestHash(BOB.publicKeyHex)),
         target_ip: B_LAN_IP,
       }),
       deps,

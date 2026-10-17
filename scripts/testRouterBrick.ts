@@ -26,9 +26,10 @@ import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
 import { formatPidfileContent } from '../src/core/services/pidfile.js';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 import { md5 } from '../src/core/generation/md5.js';
-import { seedApGatewayAdminPw } from '../src/core/generation/routerFs.js';
-import { workstationGuestPassword } from '../src/core/generation/workstationFs.js';
+import { seedApGatewayAdminHash } from '../src/core/generation/routerFs.js';
+import { workstationGuestHash } from '../src/core/generation/workstationFs.js';
 import { publicAddressOf } from './publicAddressOf.js';
+import { plaintextFor } from '../src/test/passwords.js';
 
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
@@ -100,8 +101,8 @@ const WORLD_PID = { read: ['root', 'user', 'guest'], write: ['root'], execute: [
 // A's opt-in: open a forward exposing her workstation sshd on the public :2222.
 const FORWARD_RULES = `# /etc/iptables/rules.v4 — NAT port-forward table\nforward 2222 to ${A_LAN}:22\n`;
 // Seeded secrets the server recovers for a cross-player public login.
-const ROUTER_ADMIN_PW = seedApGatewayAdminPw(ESSID);
-const WS_GUEST_PW = workstationGuestPassword(alice.publicKeyHex);
+const ROUTER_ADMIN_PW = plaintextFor(seedApGatewayAdminHash(ESSID));
+const WS_GUEST_PW = plaintextFor(workstationGuestHash(alice.publicKeyHex));
 
 // Clean slate, then seed A's occupancy row (as the join would) + B's ROOT sessions on
 // A's ROUTER and A's WORKSTATION (as the escalated `su root` would leave them).

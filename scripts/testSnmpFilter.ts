@@ -32,7 +32,7 @@ import { generateIdentity } from '../src/core/identity/identity.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { lanAddressFor } from '../src/core/network/lanAddress.js';
 import { materializeWorkstationFs } from '../src/core/network/materializeWorkstationFs.js';
-import { workstationGuestPassword } from '../src/core/generation/workstationFs.js';
+import { workstationGuestHash } from '../src/core/generation/workstationFs.js';
 import { ownStore } from '../src/core/redis/ownStore.js';
 import { DATADIR_PATH as STORE_PATH } from '../src/core/redis/datadir.js';
 import {
@@ -50,6 +50,7 @@ import {
 import { formatSnmpdState } from '../src/core/snmp/rwCommunity.js';
 import { formatWordlist, WORDLIST_PATH } from '../src/core/wordlist/defaultWordlist.js';
 import { md5 } from '../src/core/generation/md5.js';
+import { plaintextFor } from '../src/test/passwords.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
@@ -149,7 +150,7 @@ const attackerOccupant = {
   workstation_root_hash: md5('attacker-root-secret'),
 };
 
-const DEFENDER_GUEST_PW = workstationGuestPassword(defender.publicKeyHex);
+const DEFENDER_GUEST_PW = plaintextFor(workstationGuestHash(defender.publicKeyHex));
 
 const store = ownStore({
   ownerKeyHex: defender.publicKeyHex,

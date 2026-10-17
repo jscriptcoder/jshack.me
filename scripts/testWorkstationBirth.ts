@@ -25,7 +25,7 @@ import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { lanAddressFor } from '../src/core/network/lanAddress.js';
 import {
   buildWorkstationBaseFs,
-  workstationGuestPassword,
+  workstationGuestHash,
 } from '../src/core/generation/workstationFs.js';
 import { applyPatches } from '../src/core/filesystem/applyPatches.js';
 import { createPatchApi, readOwnPatches, type PatchClientDeps } from '../src/adapters/patchApi.js';
@@ -36,6 +36,7 @@ import { WORDLIST_PATH, formatWordlist } from '../src/core/wordlist/defaultWordl
 import { md5 } from '../src/core/generation/md5.js';
 import { asEpochMs, asMachineId } from '../src/core/types.js';
 import type { Directory } from '../src/core/filesystem/types.js';
+import { plaintextFor } from '../src/test/passwords.js';
 
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
@@ -172,7 +173,7 @@ failFast(
         machine_id: ATTACKER_WS,
         path: WORDLIST_PATH,
         writer_key: attacker.publicKeyHex,
-        content: formatWordlist(['hunter2', workstationGuestPassword(defender.publicKeyHex)]),
+        content: formatWordlist(['hunter2', plaintextFor(workstationGuestHash(defender.publicKeyHex))]),
         owner: 'root',
         node_type: 'file',
         permissions: PIDFILE_PERMISSIONS,
@@ -250,7 +251,7 @@ const sweep = await postTo(
 const guest = crackedIn(sweep.body).find((account) => account.username === 'guest');
 check(
   '3. hydra earns the guest account over the born sshd',
-  sweep.status === 200 && guest?.password === workstationGuestPassword(defender.publicKeyHex),
+  sweep.status === 200 && guest?.password === plaintextFor(workstationGuestHash(defender.publicKeyHex)),
   `${sweep.status} ${textOf(sweep.body).slice(0, 160)}`,
 );
 

@@ -15,6 +15,7 @@
  */
 
 import { secrets } from '../secrets/__encoded.js';
+import { md5 } from './md5.js';
 import type { Prng } from './prng.js';
 
 /**
@@ -37,30 +38,21 @@ export const CRACKABLE_PASSWORDS: readonly string[] = JSON.parse(
 ) as readonly string[];
 
 /**
- * Passwords the shipped wordlist covers not at all — an account that draws one
- * holds against a default install until the player harvests that exact word and
- * appends it. Printed in the bundle they would be a lookup table for the whole
- * game, and a player who grepped for them would skip the progression entirely.
+ * The md5 of every password the shipped wordlist covers not at all, in the pool's
+ * own order — an account that draws one holds against a default install until the
+ * player harvests that exact word and appends it. Printed in the bundle the words
+ * would be a lookup table for the whole game, and a player who grepped for them
+ * would skip the progression entirely; so the game never holds them, only their
+ * hashes, which a player has to crack exactly as they would in-game.
  *
  * Long on purpose: wordlist growth is the progression, and it stays one only
  * while each find is a real but partial gain. And deliberately idiosyncratic
  * rather than merely long — they read like passwords somebody chose, which is
  * exactly why a generic wordlist misses them.
  */
-export const UNCRACKABLE_PASSWORDS: readonly string[] = JSON.parse(
-  secrets.UNCRACKABLE_PASSWORDS,
+export const UNCRACKABLE_HASHES: readonly string[] = JSON.parse(
+  secrets.UNCRACKABLE_HASHES,
 ) as readonly string[];
-
-/**
- * Every password anything in the generated world can hold. The reverse lookup
- * (hash back to plaintext) that credential-validating code and its tests need —
- * a generated door draws from either pool, so matching against one alone
- * silently misses half the world rather than failing loudly.
- */
-export const ALL_GENERATED_PASSWORDS: readonly string[] = [
-  ...CRACKABLE_PASSWORDS,
-  ...UNCRACKABLE_PASSWORDS,
-];
 
 /**
  * How often each kind of account draws from the crackable pool.
@@ -94,11 +86,12 @@ export const CRACK_CHANCE = {
 } as const;
 
 /**
- * One door's password: crackable with probability `crackChance`, otherwise not.
- * Always consumes exactly two draws from `prng` whichever branch it takes, so a
- * caller's later draws stay put when a chance is retuned.
+ * One door's password hash: crackable with probability `crackChance`, otherwise not.
+ * A hash and never a word, because the uncrackable pool exists in the game only as
+ * hashes. Always consumes exactly two draws from `prng` whichever branch it takes,
+ * so a caller's later draws stay put when a chance is retuned.
  */
-export const drawPassword = (prng: Prng, crackChance: number): string => {
+export const drawPasswordHash = (prng: Prng, crackChance: number): string => {
   const crackable = prng.next() < crackChance;
-  return prng.pick(crackable ? CRACKABLE_PASSWORDS : UNCRACKABLE_PASSWORDS);
+  return crackable ? md5(prng.pick(CRACKABLE_PASSWORDS)) : prng.pick(UNCRACKABLE_HASHES);
 };

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { CRACKABLE_PASSWORDS, UNCRACKABLE_PASSWORDS } from '../generation/passwordPools.js';
-import { seedApGatewayAdminPw } from '../generation/routerFs.js';
+import { CRACKABLE_PASSWORDS } from '../generation/passwordPools.js';
+import { md5 } from '../generation/md5.js';
+import { UNCRACKABLE_PASSWORDS } from '../../test/passwords.js';
+import { seedApGatewayAdminHash } from '../generation/routerFs.js';
 import {
   DEFAULT_WORDLIST,
   formatWordlist,
@@ -48,7 +50,7 @@ describe('the default wordlist', () => {
     // The rate itself is asserted where it belongs — over a population, in the
     // router generator's own tests.
     const verdicts = ['ACME-CORP', 'TYRELL-NET', 'BREW-AND-CODE', 'SHINRA-5G'].map((essid) =>
-      DEFAULT_WORDLIST.includes(seedApGatewayAdminPw(essid)) ? 'falls' : 'holds',
+      DEFAULT_WORDLIST.map(md5).includes(seedApGatewayAdminHash(essid)) ? 'falls' : 'holds',
     );
 
     expect(verdicts).toEqual(['falls', 'falls', 'holds', 'holds']);

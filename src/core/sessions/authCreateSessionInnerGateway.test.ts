@@ -12,11 +12,10 @@ import { crackableEssidPool } from '../generation/generateWifi.js';
 import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer.js';
 import { buildDeepHostFs } from '../generation/deepHostFs.js';
 import { computeDeepGatewayId, computeInnerGatewayId } from '../identity/router.js';
-import { seedDeepGatewayAdminPw, seedInnerGatewayAdminPw } from '../generation/routerFs.js';
+import { seedDeepGatewayAdminHash, seedInnerGatewayAdminHash } from '../generation/routerFs.js';
 import { hostMachineId } from '../generation/remoteHostId.js';
 import { accountIn } from './passwdAccount.js';
 import { md5 } from '../generation/md5.js';
-import { ALL_GENERATED_PASSWORDS } from '../generation/passwordPools.js';
 import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
 import type { AuthSessionRow } from './authCreateSession.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
@@ -31,6 +30,7 @@ import { logRead } from '../../test/factories/logRows.js';
 import type { HomeVantage } from './callerVantage.js';
 import type { ActiveSession } from '../patches/authorizeMachineAccess.js';
 import { lanAddressFor } from '../network/lanAddress.js';
+import { ALL_GENERATED_PASSWORDS, plaintextFor } from '../../test/passwords.js';
 
 /**
  * `handleAuthCreateSessionInnerGateway` is the server gate for `ssh user@<inner>:<fwd
@@ -103,7 +103,7 @@ const EDGE = hostMatching((host) => octetOf(host) === 1);
 const SIBLING = hostMatching((host) => host.kind === 'machine');
 
 const GATEWAY_ID = computeInnerGatewayId(ESSID, octetOf(INNER));
-const GATEWAY_ROOT_PW = seedInnerGatewayAdminPw(ESSID, octetOf(INNER));
+const GATEWAY_ROOT_PW = plaintextFor(seedInnerGatewayAdminHash(ESSID, octetOf(INNER)));
 
 const DEEP = generateDeepLayer(ESSID, { machineId: GATEWAY_ID, kind: 'router' });
 const DEEP_FS: Directory = buildDeepHostFs(ESSID, DEEP.host);
@@ -133,7 +133,7 @@ const CHILD_ID = computeDeepGatewayId(GATEWAY_ID, CHILD_OCTET);
 // PASSWORDS` pool member, disjoint from the account pools `recover`
 // searches) — its base FS hashes it, exactly as the gateway-port-22 test uses
 // `GATEWAY_ROOT_PW` for the inner gateway's own root login.
-const CHILD_ROOT_PW = seedDeepGatewayAdminPw(GATEWAY_ID, CHILD_OCTET);
+const CHILD_ROOT_PW = plaintextFor(seedDeepGatewayAdminHash(GATEWAY_ID, CHILD_OCTET));
 
 /** A root `nano /etc/iptables/rules.v4` edit on the gateway journal opening a NAT
  *  forward `2222 → <deep host>:22` — the opt-in that exposes the Layer-2 machine. */
@@ -500,7 +500,7 @@ describe('handleAuthCreateSessionInnerGateway — a depth-1 network (the inner r
     { hangsChild: true },
   ).childGateway;
   if (WOULD_BE_CHILD === null) throw new Error('expected a would-be child gateway to assert absence of');
-  const WOULD_BE_CHILD_PW = seedDeepGatewayAdminPw(SHALLOW_GATEWAY_ID, octetOf(WOULD_BE_CHILD));
+  const WOULD_BE_CHILD_PW = plaintextFor(seedDeepGatewayAdminHash(SHALLOW_GATEWAY_ID, octetOf(WOULD_BE_CHILD)));
   const shallowChildForward: OwnerPatchRow = {
     path: '/etc/iptables/rules.v4',
     content: `forward 2223 to ${WOULD_BE_CHILD.ip}:22`,
@@ -574,7 +574,7 @@ describe('handleAuthCreateSessionInnerGateway — reach a deep SWITCH child gate
   ).childGateway;
   if (swChild === null) throw new Error('the inner router hangs no child gateway');
   const SWITCH_ID = computeDeepGatewayId(SW_INNER_ID, octetOf(swChild));
-  const SWITCH_PW = seedDeepGatewayAdminPw(SW_INNER_ID, octetOf(swChild));
+  const SWITCH_PW = plaintextFor(seedDeepGatewayAdminHash(SW_INNER_ID, octetOf(swChild)));
 
   // The inner gateway forwards 2222 → the switch's own sshd:22.
   const switchForward: OwnerPatchRow = {
@@ -663,7 +663,7 @@ describe('handleAuthCreateSessionInnerGateway — chained reach down a deeper ch
   const L3CHILD = L3.childGateway;
   if (L3CHILD === null) throw new Error('the depth-3 L2 child fronts no L3 child gateway');
   const L3CHILD_ID = computeDeepGatewayId(L2CHILD_ID, octetOf(L3CHILD));
-  const L3CHILD_PW = seedDeepGatewayAdminPw(L2CHILD_ID, octetOf(L3CHILD));
+  const L3CHILD_PW = plaintextFor(seedDeepGatewayAdminHash(L2CHILD_ID, octetOf(L3CHILD)));
 
   const CHAINED_PORT = 2222;
   const innerForward: OwnerPatchRow = {
@@ -816,7 +816,7 @@ describe('handleAuthCreateSessionInnerGateway — the seeded depth bounds the ch
       envelope({
         port: 2222,
         username: 'root',
-        password: seedDeepGatewayAdminPw(CHILD_ID, octetOf(GRANDCHILD)),
+        password: plaintextFor(seedDeepGatewayAdminHash(CHILD_ID, octetOf(GRANDCHILD))),
       }),
       deps,
     );

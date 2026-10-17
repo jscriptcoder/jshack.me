@@ -24,11 +24,12 @@ import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
 import { computeDeepGatewayId, computeInnerGatewayId } from '../src/core/identity/router.js';
-import { seedDeepGatewayAdminPw } from '../src/core/generation/routerFs.js';
+import { seedDeepGatewayAdminHash } from '../src/core/generation/routerFs.js';
 import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
 import { crackableEssidPool } from '../src/core/generation/generateWifi.js';
 import { generateDeepLayer, seedNetworkDepth } from '../src/core/generation/generateDeepLayer.js';
 import { leaveNetwork, standOnNetwork } from './standVantage.js';
+import { plaintextFor } from '../src/test/passwords.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
@@ -137,7 +138,7 @@ const L2CHILD_IP = chain.l2Ip;
 const L2CHILD_ID = chain.l2Id;
 const L3CHILD_IP = chain.l3Ip;
 const L3CHILD_ID = chain.l3Id;
-const L3CHILD_ROOT_PW = seedDeepGatewayAdminPw(L2CHILD_ID, octetOf(L3CHILD_IP));
+const L3CHILD_ROOT_PW = plaintextFor(seedDeepGatewayAdminHash(L2CHILD_ID, octetOf(L3CHILD_IP)));
 
 const RULES = '/etc/iptables/rules.v4';
 const VMLINUZ = '/boot/vmlinuz';

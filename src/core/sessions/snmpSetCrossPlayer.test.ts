@@ -5,7 +5,7 @@ import { handleSnmpSet, type SnmpSetDeps } from './snmpSet.js';
 import { signRequest } from '../signedRequest/sign.js';
 import { generateIdentity } from '../identity/identity.js';
 import { generateHomeLan } from '../generation/generateHomeLan.js';
-import { seedApGatewayCommunity, seedSnmpCommunity } from '../generation/routerFs.js';
+import { seedApGatewayCommunityHash, seedSnmpCommunityHash } from '../generation/routerFs.js';
 import { generateDeepLayer } from '../generation/generateDeepLayer.js';
 import { crackableEssidPool } from '../generation/generateWifi.js';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
@@ -29,6 +29,7 @@ import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appen
 import type { PatchRow } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import type { Identity } from '../commands/types.js';
+import { plaintextFor } from '../../test/passwords.js';
 
 /**
  * Writing to a device that belongs to somebody else, reached by their public address —
@@ -67,7 +68,7 @@ const AP_NETWORK: ApNetworkLookup = { router_machine_id: AP_GATEWAY_ID, essid: T
 /** The community a `hydra <public ip> snmp` sweep earns. Seeded from the defender's
  *  ESSID and never from anything the attacker holds, which is what makes it worth
  *  cracking. */
-const COMMUNITY = seedApGatewayCommunity(TARGET_ESSID);
+const COMMUNITY = plaintextFor(seedApGatewayCommunityHash(TARGET_ESSID));
 
 /** The network the ATTACKER's own card is associated with, and the ESSID their client
  *  therefore sends. Deliberately not the defender's: it is the whole point that a
@@ -535,7 +536,7 @@ describe('rewriting a generated router behind a forward, from the other side of 
         gateway,
         machineId,
         agentPort: agent.port,
-        community: seedSnmpCommunity(`inner-gw-community-${essid}:${gateway.ip.split('.')[3]}`),
+        community: plaintextFor(seedSnmpCommunityHash(`inner-gw-community-${essid}:${gateway.ip.split('.')[3]}`)),
         deepSubnet: generateDeepLayer(essid, { machineId, kind: 'router' }).subnet,
         lanSubnet: generateHomeLan(essid).subnet,
       };

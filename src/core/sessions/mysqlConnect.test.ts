@@ -18,7 +18,6 @@ import type { ApNetworkLookup, NatOccupantRow } from '../network/resolvePublicTa
 import { databaseIn } from '../mysql/datadir.js';
 import { readOpenPorts } from '../services/pidfile.js';
 import { hostServices } from '../generation/remoteHostFs.js';
-import { ALL_GENERATED_PASSWORDS } from '../generation/passwordPools.js';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
 import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import { accountsIn } from './passwdAccount.js';
@@ -38,6 +37,7 @@ import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import { logRead } from '../../test/factories/logRows.js';
+import { ALL_GENERATED_PASSWORDS } from '../../test/passwords.js';
 
 /**
  * `handleMysqlConnect` decides whether a credential opens a box's database, and it

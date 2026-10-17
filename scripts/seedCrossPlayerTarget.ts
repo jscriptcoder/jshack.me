@@ -16,12 +16,13 @@ import { signRequest } from '../src/core/signedRequest/sign.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
 import { bytesToHex, hexToBytes } from '../src/core/identity/hex.js';
-import { workstationGuestPassword } from '../src/core/generation/workstationFs.js';
+import { workstationGuestHash } from '../src/core/generation/workstationFs.js';
 import { assignHomeNetwork } from '../src/core/network/homeNetwork.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { asPlayerKeyHex } from '../src/core/types.js';
 import type { Identity } from '../src/core/commands/types.js';
 import { publicAddressOf } from './publicAddressOf.js';
+import { plaintextFor } from '../src/test/passwords.js';
 
 ed.hashes.sha512 = sha512;
 
@@ -48,7 +49,7 @@ const ESSID = 'EV-CHARGER-LOT-3';
 const A_MACHINE = computeWorkstationId('skylab', alice.publicKeyHex);
 const A_ROUTER = computeApGatewayId(ESSID);
 const A_LAN = assignHomeNetwork(alice.publicKeyHex, ESSID).localIp;
-const GUEST_PW = workstationGuestPassword(alice.publicKeyHex);
+const GUEST_PW = plaintextFor(workstationGuestHash(alice.publicKeyHex));
 const ROOT_PW = 'alice-root-secret'; // matches the registered workstation_root_hash
 
 if (process.argv[2] === 'clean') {

@@ -26,13 +26,14 @@ import { generateIdentity } from '../src/core/identity/identity.js';
 import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
-import { seedApGatewayAdminPw } from '../src/core/generation/routerFs.js';
-import { workstationGuestPassword } from '../src/core/generation/workstationFs.js';
+import { seedApGatewayAdminHash } from '../src/core/generation/routerFs.js';
+import { workstationGuestHash } from '../src/core/generation/workstationFs.js';
 import { lanAddressFor } from '../src/core/network/lanAddress.js';
 import { WORDLIST_PATH, formatWordlist } from '../src/core/wordlist/defaultWordlist.js';
 import { AUTH_LOG_PATH } from '../src/core/logging/authLog.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { publicAddressOf } from './publicAddressOf.js';
+import { plaintextFor } from '../src/test/passwords.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;
@@ -79,7 +80,7 @@ const TARGET_ESSID = 'SUITE-401';
 const TARGET_PUBLIC_IP = publicAddressOf(TARGET_ESSID);
 const TARGET_GATEWAY = computeApGatewayId(TARGET_ESSID);
 const RESIDENT_WS = computeWorkstationId('anton', resident.publicKeyHex);
-const ADMIN_PW = seedApGatewayAdminPw(TARGET_ESSID);
+const ADMIN_PW = plaintextFor(seedApGatewayAdminHash(TARGET_ESSID));
 // The lease the resident holds — the address their published forward names, and (as
 // the AP's only lease) the key its ownerless gateway logs under.
 const RESIDENT_OCTET = 23;
@@ -102,7 +103,7 @@ const bystander = generateIdentity();
 const VICTIM_ESSID = 'HOUSE-OF-CARDS';
 const VICTIM_PUBLIC_IP = publicAddressOf(VICTIM_ESSID);
 const VICTIM_GATEWAY = computeApGatewayId(VICTIM_ESSID);
-const VICTIM_ADMIN_PW = seedApGatewayAdminPw(VICTIM_ESSID);
+const VICTIM_ADMIN_PW = plaintextFor(seedApGatewayAdminHash(VICTIM_ESSID));
 const BYSTANDER_WS = computeWorkstationId('erlich', bystander.publicKeyHex);
 const BYSTANDER_OCTET = 31;
 // The session that puts the attacker on the resident's box — an ssh hop, as
@@ -263,7 +264,7 @@ check(
 //     same door an attacker walks through. Everything above reached the shared
 //     gateway; from here the target is a PERSON's machine. ---
 const RESIDENT_LAN_IP = lanAddressFor(TARGET_ESSID, RESIDENT_OCTET);
-const RESIDENT_GUEST_PW = workstationGuestPassword(resident.publicKeyHex);
+const RESIDENT_GUEST_PW = plaintextFor(workstationGuestHash(resident.publicKeyHex));
 
 const patchRow = (machineId: string, path: string, content: string) => ({
   machine_id: machineId,

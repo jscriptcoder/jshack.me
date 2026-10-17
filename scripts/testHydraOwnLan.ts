@@ -47,7 +47,6 @@ import { generateIdentity } from '../src/core/identity/identity.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { generateHomeLan, type LanHost } from '../src/core/generation/generateHomeLan.js';
 import { hostServices } from '../src/core/generation/remoteHostFs.js';
-import { ALL_GENERATED_PASSWORDS } from '../src/core/generation/passwordPools.js';
 import { machineIdForLanHost, resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity.js';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 import { accountsIn } from '../src/core/sessions/passwdAccount.js';
@@ -61,6 +60,7 @@ import {
 import { AUTH_LOG_OWNER, AUTH_LOG_PATH } from '../src/core/logging/authLog.js';
 import { lanAddressFor } from '../src/core/network/lanAddress.js';
 import { standOnNetwork, leaveNetwork } from './standVantage.js';
+import { ALL_GENERATED_PASSWORDS } from '../src/test/passwords.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;

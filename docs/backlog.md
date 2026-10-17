@@ -390,11 +390,11 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   and mysql script holes are user-tier, redis user/guest today), so a network script's writes land
   only at user/guest tier — the root `/etc/passwd` path needs `--local systemctl` (libsystemd
   255.4.3, staged).
-- **The password pools are in the public repo.** `src/core/secrets/secrets.ts` holds the
-  uncrackable and WiFi pools in plaintext, and the repository is public, so its history
-  already shows them. Taking them out means new words (human-looking, owner 2026-10-16), the
-  real lists in a build env var that `scripts/encode.ts` reads, a plainly fake dev list in the
-  repo, and one local content sweep against the real list. Wanted before the announce.
+- **The password pools are in the public repo — RESOLVED 2026-10-18 (v0.396.0–v0.398.0).** The
+  pools come from the `JSHACK_SECRETS` environment variable (no list in the repo, and no fake dev
+  list: a missing value fails every gate), the uncrackable list was rotated since the old one is in
+  git history, and the bundle carries that pool as md5s only, with `scripts/checkSecrets.ts`
+  failing any build that ships an uncrackable word. See `docs/handbook/06-world-generation.md`.
 
 - **A served tree is pulled whole before every line. Left as it is (2026-10-12).** A shell on
   any box that is not the player's own asks the server for the tree before each command, with

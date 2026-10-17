@@ -8,15 +8,15 @@ import {
   buildInnerGatewayBaseFs,
   buildRouterBaseFsFromIdentity,
   buildSwitchBaseFs,
-  seedDeepGatewayAdminPw,
-  seedInnerGatewayAdminPw,
-  seedApGatewayAdminPw,
-  seedApGatewayCommunity,
+  seedDeepGatewayAdminHash,
+  seedInnerGatewayAdminHash,
+  seedApGatewayAdminHash,
+  seedApGatewayCommunityHash,
   seedApGatewayHasSsh,
 } from './routerFs.js';
 import { ROUTER_HOSTNAMES, seedApGatewayHostname } from './gatewayHostname.js';
 import { computeInnerGatewayId } from '../identity/router.js';
-import { workstationGuestPassword } from './workstationFs.js';
+import { workstationGuestHash } from './workstationFs.js';
 import {
   LOCALHOST_PREINSTALLED_TOOLS,
   SERVICE_CONTROL_TOOLS,
@@ -34,7 +34,8 @@ import { hostServices } from './remoteHostFs.js';
 import { parseAclDenies } from '../network/switchAcl.js';
 import { parseSnmpdConf, readSnmpdConf } from '../snmp/conf.js';
 import { DEFAULT_WORDLIST } from '../wordlist/defaultWordlist.js';
-import { UNCRACKABLE_PASSWORDS } from './passwordPools.js';
+import { UNCRACKABLE_HASHES } from './passwordPools.js';
+import { plaintextFor } from '../../test/passwords.js';
 
 // Two distinct valid 64-hex pubkeys — the owner-key seed source.
 // Owner keys — still what a DEEP gateway (below the shared LAN) and a workstation
@@ -52,16 +53,16 @@ const COMMUNITY_HASH = 'feedfacefeedfacefeedfacefeedface';
 /**
  * Story 5.1: the router's root ("admin") password and its sshd presence are
  * seeded from the owner key ALONE, so the SERVER can recover them cross-player
- * without the owner's config (mirroring `workstationGuestPassword`). These pin
+ * without the owner's config (mirroring `workstationGuestHash`). These pin
  * the seed contract through the public functions, not internals.
  */
-describe('seedApGatewayCommunity', () => {
+describe('seedApGatewayCommunityHash', () => {
   it('gives one access point one community, however many times it is asked', () => {
-    expect(seedApGatewayCommunity(ESSID_A)).toBe(seedApGatewayCommunity(ESSID_A));
+    expect(seedApGatewayCommunityHash(ESSID_A)).toBe(seedApGatewayCommunityHash(ESSID_A));
   });
 
   it('gives two access points different ones', () => {
-    expect(seedApGatewayCommunity(ESSID_A)).not.toBe(seedApGatewayCommunity(ESSID_B));
+    expect(seedApGatewayCommunityHash(ESSID_A)).not.toBe(seedApGatewayCommunityHash(ESSID_B));
   });
 
   it('is nothing to do with the same gateway root password', () => {
@@ -69,35 +70,35 @@ describe('seedApGatewayCommunity', () => {
     // make SNMP a second name for a credential the player already has, instead of an
     // independent way in: crack one, hold the other, and neither tells you about its
     // twin.
-    expect(seedApGatewayCommunity(ESSID_A)).not.toBe(seedApGatewayAdminPw(ESSID_A));
+    expect(seedApGatewayCommunityHash(ESSID_A)).not.toBe(seedApGatewayAdminHash(ESSID_A));
   });
 });
 
-describe('seedApGatewayAdminPw', () => {
+describe('seedApGatewayAdminHash', () => {
   it('is deterministic: same owner key yields the same admin password', () => {
-    expect(seedApGatewayAdminPw(ESSID_A)).toBe(seedApGatewayAdminPw(ESSID_A));
+    expect(seedApGatewayAdminHash(ESSID_A)).toBe(seedApGatewayAdminHash(ESSID_A));
   });
 
   it('is owner-key specific — different identities get different admin passwords', () => {
-    expect(seedApGatewayAdminPw(ESSID_A)).not.toBe(seedApGatewayAdminPw(ESSID_B));
+    expect(seedApGatewayAdminHash(ESSID_A)).not.toBe(seedApGatewayAdminHash(ESSID_B));
   });
 
-  it('returns a non-empty weak password string', () => {
-    expect(seedApGatewayAdminPw(ESSID_A)).toMatch(/^\S+$/);
+  it('returns the hash of a non-empty password from the pools', () => {
+    expect(plaintextFor(seedApGatewayAdminHash(ESSID_A))).toMatch(/^\S+$/);
   });
 
   it('always returns a non-empty password across many networks (every pool entry is real)', () => {
     // Sweeps enough networks to land on every pool word — an emptied pool entry would
     // surface as a blank password for whichever network selects it.
     const networks = Array.from({ length: 40 }, (_unused, index) => `NET-${index}`);
-    networks.forEach((essid) => expect(seedApGatewayAdminPw(essid)).toMatch(/^\S+$/));
+    networks.forEach((essid) => expect(plaintextFor(seedApGatewayAdminHash(essid))).toMatch(/^\S+$/));
   });
 
   it('draws from a DISTINCT namespace than the workstation guest password', () => {
     // Same owner key, but the router admin pw must not be coupled to the
     // workstation guest pw — they seed from separate `router-admin-` /
     // `workstation-` streams (and disjoint pools), so they never coincide.
-    expect(seedApGatewayAdminPw(ESSID_A)).not.toBe(workstationGuestPassword(SEED_A));
+    expect(seedApGatewayAdminHash(ESSID_A)).not.toBe(workstationGuestHash(SEED_A));
   });
 });
 
@@ -156,33 +157,36 @@ describe('seedApGatewayHostname', () => {
  * (a SEPARATE `inner-gw-admin-` stream from the edge router's `router-admin-`), so
  * the two routers never share a credential by construction.
  */
-describe('seedInnerGatewayAdminPw', () => {
+describe('seedInnerGatewayAdminHash', () => {
   it('is deterministic for the same ESSID + octet', () => {
-    expect(seedInnerGatewayAdminPw(ESSID_A, 25)).toBe(seedInnerGatewayAdminPw(ESSID_A, 25));
+    expect(seedInnerGatewayAdminHash(ESSID_A, 25)).toBe(seedInnerGatewayAdminHash(ESSID_A, 25));
   });
 
   it('varies by octet, so two inner gateways on one LAN do not share a credential', () => {
     const octets = [2, 25, 70, 130, 200, 245];
-    const passwords = new Set(octets.map((octet) => seedInnerGatewayAdminPw(ESSID_A, octet)));
-    expect(passwords.size).toBeGreaterThan(1);
+    const hashes = new Set(octets.map((octet) => seedInnerGatewayAdminHash(ESSID_A, octet)));
+    expect(hashes.size).toBeGreaterThan(1);
   });
 
   it('always returns a non-empty weak password across many networks', () => {
     const networks = Array.from({ length: 40 }, (_unused, index) => `NET-${index}`);
-    networks.forEach((essid) => expect(seedInnerGatewayAdminPw(essid, 25)).toMatch(/^\S+$/));
+    networks.forEach((essid) =>
+      expect(plaintextFor(seedInnerGatewayAdminHash(essid, 25))).toMatch(/^\S+$/),
+    );
   });
 
   it('is pinned per ESSID+octet (golden) — locks the inner-gw-admin- namespace, roll and pick', () => {
     // Captured from the seeded generator; the pool position is hardcoded (not
     // recomputed via the fn) so a mutated namespace/pool/index shifts the value and
-    // fails here deterministically. A position rather than the word, so the repo
-    // never prints an uncrackable password; it moves whenever that pool's length does.
+    // fails here deterministically. A position rather than the hash, so the repo
+    // pins nothing an owner's new list would change; it moves whenever that pool's
+    // length does.
     //
     // This network's gateway drew the UNCRACKABLE half — somebody changed the
     // factory password — which is why the value does not read like a router. It
     // also pins the roll: were the crack chance mutated to always take the
     // crackable branch, this would come back a router default instead.
-    expect(seedInnerGatewayAdminPw(ESSID_A, 25)).toBe(UNCRACKABLE_PASSWORDS[2]);
+    expect(seedInnerGatewayAdminHash(ESSID_A, 25)).toBe(UNCRACKABLE_HASHES[2]);
   });
 });
 
@@ -204,7 +208,7 @@ describe('buildInnerGatewayBaseFs', () => {
     const rows = passwdRows(buildInnerGatewayBaseFs(ESSID_A, 25));
     expect(rows).toHaveLength(1);
     expect(rows[0]![0]).toBe('root');
-    expect(rows[0]![1]).toBe(md5(seedInnerGatewayAdminPw(ESSID_A, 25)));
+    expect(rows[0]![1]).toBe(seedInnerGatewayAdminHash(ESSID_A, 25));
   });
 
   it('runs sshd:22 — an inner gateway is a reachable target by design', () => {
@@ -233,7 +237,7 @@ describe('buildSwitchBaseFs', () => {
     const rows = passwdRows(buildSwitchBaseFs(ESSID_A, 80));
     expect(rows).toHaveLength(1);
     expect(rows[0]![0]).toBe('root');
-    expect(rows[0]![1]).toBe(md5(seedInnerGatewayAdminPw(ESSID_A, 80)));
+    expect(rows[0]![1]).toBe(seedInnerGatewayAdminHash(ESSID_A, 80));
   });
 
   it('runs sshd:22 — a switch is a reachable target by design', () => {
@@ -275,26 +279,28 @@ describe('buildSwitchBaseFs', () => {
 const PARENT_GW = computeInnerGatewayId(ESSID_A, 25);
 const OTHER_PARENT_GW = computeInnerGatewayId(ESSID_A, 70);
 
-describe('seedDeepGatewayAdminPw', () => {
+describe('seedDeepGatewayAdminHash', () => {
   it('is deterministic for the same parent + octet', () => {
-    expect(seedDeepGatewayAdminPw(PARENT_GW, 50)).toBe(seedDeepGatewayAdminPw(PARENT_GW, 50));
+    expect(seedDeepGatewayAdminHash(PARENT_GW, 50)).toBe(seedDeepGatewayAdminHash(PARENT_GW, 50));
   });
 
   it('varies by PARENT, so two deep gateways behind different parents differ', () => {
     const parents = [PARENT_GW, OTHER_PARENT_GW, computeInnerGatewayId(ESSID_B, 25)];
-    const passwords = new Set(parents.map((parent) => seedDeepGatewayAdminPw(parent, 50)));
-    expect(passwords.size).toBeGreaterThan(1);
+    const hashes = new Set(parents.map((parent) => seedDeepGatewayAdminHash(parent, 50)));
+    expect(hashes.size).toBeGreaterThan(1);
   });
 
   it('varies by octet behind the same parent', () => {
     const octets = [2, 50, 120, 200, 245];
-    const passwords = new Set(octets.map((octet) => seedDeepGatewayAdminPw(PARENT_GW, octet)));
-    expect(passwords.size).toBeGreaterThan(1);
+    const hashes = new Set(octets.map((octet) => seedDeepGatewayAdminHash(PARENT_GW, octet)));
+    expect(hashes.size).toBeGreaterThan(1);
   });
 
   it('always returns a non-empty password across many doors (every pool entry is real)', () => {
     const octets = Array.from({ length: 40 }, (_unused, index) => index + 2);
-    octets.forEach((octet) => expect(seedDeepGatewayAdminPw(PARENT_GW, octet)).toMatch(/^\S+$/));
+    octets.forEach((octet) =>
+      expect(plaintextFor(seedDeepGatewayAdminHash(PARENT_GW, octet))).toMatch(/^\S+$/),
+    );
   });
 });
 
@@ -339,9 +345,9 @@ describe('the gateway difficulty curve (a gateway is the best root target in the
    *  on one octet, so a per-octet artefact cannot masquerade as the rate. */
   const octetFor = (index: number): number => 2 + (index % 253);
 
-  /** Exactly the test `hydra` applies: a password falls when the player's
-   *  starting wordlist holds it. */
-  const covered = new Set(DEFAULT_WORDLIST);
+  /** Exactly the test `hydra` applies: a door falls when the player's starting
+   *  wordlist holds a word with its hash. */
+  const covered = new Set(DEFAULT_WORDLIST.map(md5));
 
   /** Computed ONCE for the whole block. Regenerating per test is fast normally
    *  but slow enough under mutation instrumentation to race Stryker's timeout,
@@ -355,16 +361,16 @@ describe('the gateway difficulty curve (a gateway is the best root target in the
     readonly ownAgent: number;
     readonly ownAgentWords: number;
   } => {
-    const rate = (passwords: readonly string[]): number =>
-      passwords.filter((password) => covered.has(password)).length;
+    const rate = (hashes: readonly string[]): number =>
+      hashes.filter((hash) => covered.has(hash)).length;
     return {
-      ap: rate(NETWORKS.map(seedApGatewayAdminPw)),
-      inner: rate(NETWORKS.map((essid, index) => seedInnerGatewayAdminPw(essid, octetFor(index)))),
+      ap: rate(NETWORKS.map(seedApGatewayAdminHash)),
+      inner: rate(NETWORKS.map((essid, index) => seedInnerGatewayAdminHash(essid, octetFor(index)))),
       deep: rate(
-        NETWORKS.map((_unused, index) => seedDeepGatewayAdminPw(`gw-${index}`, octetFor(index))),
+        NETWORKS.map((_unused, index) => seedDeepGatewayAdminHash(`gw-${index}`, octetFor(index))),
       ),
-      community: rate(NETWORKS.map(seedApGatewayCommunity)),
-      ownAgent: rate(OWNER_KEYS.map(ownAgentCommunity)),
+      community: rate(NETWORKS.map(seedApGatewayCommunityHash)),
+      ownAgent: rate(OWNER_KEYS.map((key) => md5(ownAgentCommunity(key)))),
       ownAgentWords: new Set(OWNER_KEYS.map(ownAgentCommunity)).size,
     };
   })();
@@ -547,7 +553,7 @@ describe('buildDeepGatewayBaseFs', () => {
     const rows = passwdRows(buildDeepGatewayBaseFs(ESSID_A, PARENT_GW, 50));
     expect(rows).toHaveLength(1);
     expect(rows[0]![0]).toBe('root');
-    expect(rows[0]![1]).toBe(md5(seedDeepGatewayAdminPw(PARENT_GW, 50)));
+    expect(rows[0]![1]).toBe(seedDeepGatewayAdminHash(PARENT_GW, 50));
   });
 
   it('runs sshd:22 — a deep gateway is a reachable target by design', () => {

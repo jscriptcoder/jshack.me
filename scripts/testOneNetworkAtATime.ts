@@ -34,7 +34,8 @@ import { lanAddressFor } from '../src/core/network/lanAddress.js';
 import { formatPidfileContent } from '../src/core/services/pidfile.js';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 import { md5 } from '../src/core/generation/md5.js';
-import { workstationGuestPassword } from '../src/core/generation/workstationFs.js';
+import { workstationGuestHash } from '../src/core/generation/workstationFs.js';
+import { plaintextFor } from '../src/test/passwords.js';
 
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
@@ -134,7 +135,7 @@ const sshAsBob = (sessionId: string, targetIp: string) =>
       essid: NET_ONE,
       target_ip: targetIp,
       username: 'guest',
-      password: workstationGuestPassword(alice.publicKeyHex),
+      password: plaintextFor(workstationGuestHash(alice.publicKeyHex)),
     }),
   );
 

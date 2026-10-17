@@ -31,11 +31,12 @@ import { lanAddressFor } from '../src/core/network/lanAddress.js';
 import { formatPidfileContent } from '../src/core/services/pidfile.js';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 import { md5 } from '../src/core/generation/md5.js';
-import { seedApGatewayAdminPw } from '../src/core/generation/routerFs.js';
+import { seedApGatewayAdminHash } from '../src/core/generation/routerFs.js';
 import { seedApGatewayHostname } from '../src/core/generation/gatewayHostname.js';
-import { workstationGuestPassword } from '../src/core/generation/workstationFs.js';
+import { workstationGuestHash } from '../src/core/generation/workstationFs.js';
 import { publicAddressOf } from './publicAddressOf.js';
 import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js';
+import { plaintextFor } from '../src/test/passwords.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;
@@ -107,8 +108,8 @@ const A_LAN = lanAddressFor(A_ESSID, A_OCTET); // A's ws LAN ip
 const B_PUBLIC_IP = publicAddressOf(B_ESSID);
 const C_PUBLIC_IP = publicAddressOf(C_ESSID);
 const A_ROUTER_HOST = seedApGatewayHostname(A_ESSID);
-const ADMIN_PW = seedApGatewayAdminPw(A_ESSID); // A's router root (admin) pw
-const GUEST_PW = workstationGuestPassword(alice.publicKeyHex); // A's ws guest pw
+const ADMIN_PW = plaintextFor(seedApGatewayAdminHash(A_ESSID)); // A's router root (admin) pw
+const GUEST_PW = plaintextFor(workstationGuestHash(alice.publicKeyHex)); // A's ws guest pw
 
 const RULES = '/etc/iptables/rules.v4';
 const ROOT_ONLY = { read: ['root'], write: ['root'], execute: [] };

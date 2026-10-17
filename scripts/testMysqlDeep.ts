@@ -39,12 +39,12 @@ import { hostMachineId } from '../src/core/generation/remoteHostId.js';
 import { databaseIn } from '../src/core/mysql/datadir.js';
 import { readOpenPorts } from '../src/core/services/pidfile.js';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
-import { ALL_GENERATED_PASSWORDS } from '../src/core/generation/passwordPools.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { DATADIR_FILE } from '../src/core/generation/baseFs.js';
 import { MYSQL_LOG_OWNER, MYSQL_LOG_PATH } from '../src/core/logging/mysqlLog.js';
 import { WORDLIST_PATH, formatWordlist } from '../src/core/wordlist/defaultWordlist.js';
 import type { MysqlDatabase } from '../src/core/mysql/types.js';
+import { ALL_GENERATED_PASSWORDS } from '../src/test/passwords.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';

@@ -6,7 +6,7 @@ import { resolveWebPath, WEB_ROOT } from '../network/http.js';
 import {
   buildWorkstationBaseFs,
   buildWorkstationBaseFsFromIdentity,
-  workstationGuestPassword,
+  workstationGuestHash,
 } from './workstationFs.js';
 import {
   LOCALHOST_PREINSTALLED_TOOLS,
@@ -763,14 +763,14 @@ describe('buildWorkstationBaseFsFromIdentity (server reconstruction)', () => {
   });
 });
 
-describe('workstationGuestPassword', () => {
-  it('recovers the guest plaintext that md5-hashes to the box guest line (the cross-player auth credential)', () => {
+describe('workstationGuestHash', () => {
+  it('is the hash on the box guest line (the cross-player auth credential)', () => {
     const fs = buildWorkstationBaseFs(SEED_A, getConfig());
-    expect(md5(workstationGuestPassword(SEED_A))).toBe(passwdRow(fs, 'guest')[1]);
+    expect(workstationGuestHash(SEED_A)).toBe(passwdRow(fs, 'guest')[1]);
   });
 
   it('is owner-key specific — different identities get different guest passwords', () => {
-    expect(workstationGuestPassword(SEED_A)).not.toBe(workstationGuestPassword(SEED_B));
+    expect(workstationGuestHash(SEED_A)).not.toBe(workstationGuestHash(SEED_B));
   });
 
   it('draws from the crackable pool, reaching every word in it', () => {
@@ -780,11 +780,11 @@ describe('workstationGuestPassword', () => {
     // is a curve nobody chose: it drifts silently the moment one is edited.
     const drawn = new Set(
       Array.from({ length: 400 }, (_, index) =>
-        workstationGuestPassword(index.toString(16).padStart(64, '0')),
+        workstationGuestHash(index.toString(16).padStart(64, '0')),
       ),
     );
 
-    expect([...drawn].sort()).toEqual([...CRACKABLE_PASSWORDS].sort());
+    expect([...drawn].sort()).toEqual(CRACKABLE_PASSWORDS.map(md5).sort());
   });
 
   it('is always covered by the wordlist a player starts with', () => {
@@ -792,8 +792,8 @@ describe('workstationGuestPassword', () => {
     // whatever a workstation stamps on guest, a default `apt install hydra`
     // must be able to recover. This is what makes cross-player play possible.
     const uncovered = Array.from({ length: 400 }, (_, index) =>
-      workstationGuestPassword(index.toString(16).padStart(64, '0')),
-    ).filter((password) => !DEFAULT_WORDLIST.includes(password));
+      workstationGuestHash(index.toString(16).padStart(64, '0')),
+    ).filter((hash) => !DEFAULT_WORDLIST.some((word) => md5(word) === hash));
 
     expect(uncovered).toEqual([]);
   });

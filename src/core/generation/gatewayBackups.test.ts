@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { gatewayAdminIp } from './gatewayHistory.js';
 import { md5 } from './md5.js';
-import { ALL_GENERATED_PASSWORDS } from './passwordPools.js';
 import { parseAclDenies } from '../network/switchAcl.js';
 import { createFsView } from '../filesystem/fsView.js';
 import { asAbsPath } from '../types.js';
@@ -14,6 +13,7 @@ import {
   softwareVersionsIn,
   type Gateway,
 } from '../../test/worldContent.js';
+import { ALL_GENERATED_PASSWORDS } from '../../test/passwords.js';
 
 /**
  * A gateway's configuration backups, read the way a player who has rooted the box reads

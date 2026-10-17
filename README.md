@@ -32,7 +32,7 @@ plans/        live epic and slice plans
 
 ```bash
 npm install
-npm run encode              # generates the git-ignored src/core/secrets/__encoded.ts
+npm run encode              # generates the git-ignored src/core/secrets/__encoded.ts and __plaintext.ts
 npx supabase start          # local Postgres in Docker
 npm run vercel:dev          # vite + api/ functions on http://localhost:3100
 ```

@@ -44,16 +44,19 @@ injection is `__APP_VERSION__`.
 
 `npm run build` runs, in order:
 
-1. **`prebuild` → `npm run encode`**: writes the git-ignored `src/core/secrets/__encoded.ts` from the
-   `JSHACK_SECRETS` environment variable (chapter 6). The functions import it too. A missing or
-   malformed value fails the build, naming every broken rule.
+1. **`prebuild` → `npm run encode`**: writes the git-ignored `src/core/secrets/__encoded.ts` (the
+   uncrackable pool as md5s only) and the test-only `__plaintext.ts` from the `JSHACK_SECRETS`
+   environment variable (chapter 6). The functions import `__encoded.ts` too. A missing or malformed
+   value fails the build, naming every broken rule.
 2. **`tsc -b`**: type-checks both project references: `tsconfig.app.json` (`src/`) and
    `tsconfig.node.json` (`vite.config.ts`, `api/`, `scripts/`). Both are strict with
    `exactOptionalPropertyTypes`, `noUnusedLocals/Parameters` and `noImplicitReturns`. A plain
    `tsc --noEmit` checks **nothing**, because the root `tsconfig.json` has `files: []`.
 3. **`vite build`**: emits the single-page app to `dist/`.
-4. **`postbuild` → `scripts/checkBudgets.ts`**: fails the build if the gzipped main chunk exceeds
-   284,975 bytes, or (locally only) if the average box build exceeds 2 ms (chapter 6).
+4. **`postbuild` → `scripts/checkSecrets.ts`, then `scripts/checkBudgets.ts`**: the first fails the
+   build, naming the word and the file, if any uncrackable password appears in `dist/`; the second
+   if the gzipped main chunk exceeds 284,975 bytes, or (locally only) if the average box build
+   exceeds 2 ms (chapter 6).
 
 Any failure fails the build, and on Vercel that means **nothing deploys**.
 
@@ -121,7 +124,8 @@ it. Leaving the CLI linked risks pushing to the wrong project.
   keys, and there are no third-party API keys.
 - **Game "secrets"**: the password pools, in the `JSHACK_SECRETS` variable (chapter 6). It is set,
   readable, in Production, Preview and Development, and in `.env.development.local` locally. Vercel
-  re-encodes it during `prebuild`. Changing the codec key needs only a re-encode.
+  re-encodes it during `prebuild`; the bundle carries the uncrackable pool as md5s only. Changing the
+  codec key needs only a re-encode.
 
 ### Changing the secrets later
 
@@ -180,7 +184,8 @@ installed with until it is reinstalled.
   wire-checks. `npx supabase db reset` is the cure.
 - **`__encoded.ts` must exist before `npm run vercel:dev`**, which has no pre-hook. On a fresh clone
   set `JSHACK_SECRETS` (chapter 2) and run `npm run encode` (or any of `typecheck`, `test`, `dev`,
-  `build`) first.
+  `build`) first. Wire-checks need its `__plaintext.ts` as well, for every generated password they
+  log in with.
 - **Case-only renames on Windows** can ship import casing that fails on Linux. Check import casing
   after renaming.
 - **Do not run Stryker alongside `vercel dev`.** Its sandbox copies (`.stryker-tmp/`) can crash the

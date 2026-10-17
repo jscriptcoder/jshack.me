@@ -17,8 +17,7 @@
  */
 
 import { createPrng } from './prng.js';
-import { md5 } from './md5.js';
-import { CRACK_CHANCE, drawPassword } from './passwordPools.js';
+import { CRACK_CHANCE, drawPasswordHash } from './passwordPools.js';
 import { usernamePool } from './pools/usernames.js';
 import { generateHomeLan, isOnHomeLan, type LanHost } from './generateHomeLan.js';
 import { npcUsername } from './remoteHostFs.js';
@@ -104,17 +103,17 @@ export const generateDatabase = ({
  */
 export const drawDatabaseCredentials = (seed: string): readonly MysqlCredential[] => {
   const prng = createPrng(seed);
-  const rootPassword = drawPassword(prng, CRACK_CHANCE.npcRoot);
+  const rootHash = drawPasswordHash(prng, CRACK_CHANCE.npcRoot);
   const appUsername = prng.pick(MYSQL_USERNAMES);
-  const appPassword = drawPassword(prng, CRACK_CHANCE.npcUser);
+  const appHash = drawPasswordHash(prng, CRACK_CHANCE.npcUser);
   const hasReadonly = prng.next() < 0.5;
-  const readonlyPassword = drawPassword(prng, CRACK_CHANCE.guest);
+  const readonlyHash = drawPasswordHash(prng, CRACK_CHANCE.guest);
 
   return [
-    { username: 'root', passwordHash: md5(rootPassword), userType: 'root' },
-    { username: appUsername, passwordHash: md5(appPassword), userType: 'user' },
+    { username: 'root', passwordHash: rootHash, userType: 'root' },
+    { username: appUsername, passwordHash: appHash, userType: 'user' },
     ...(hasReadonly
-      ? [{ username: 'readonly', passwordHash: md5(readonlyPassword), userType: 'guest' as const }]
+      ? [{ username: 'readonly', passwordHash: readonlyHash, userType: 'guest' as const }]
       : []),
   ];
 };

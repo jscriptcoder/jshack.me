@@ -40,13 +40,13 @@ import { computeApGatewayId } from '../src/core/identity/router.js';
 import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
 import { baseFsForLanHost, machineIdForLanHost } from '../src/core/generation/lanHostIdentity.js';
 import { npcUsername } from '../src/core/generation/remoteHostFs.js';
-import { seedApGatewayAdminPw } from '../src/core/generation/routerFs.js';
+import { seedApGatewayAdminHash } from '../src/core/generation/routerFs.js';
 import { buildWorkstationBaseFsFromIdentity } from '../src/core/generation/workstationFs.js';
-import { ALL_GENERATED_PASSWORDS } from '../src/core/generation/passwordPools.js';
 import { PASSWD_FILE } from '../src/core/generation/baseFs.js';
 import { accountIn } from '../src/core/sessions/passwdAccount.js';
 import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js';
 import { md5 } from '../src/core/generation/md5.js';
+import { ALL_GENERATED_PASSWORDS, plaintextFor } from '../src/test/passwords.js';
 
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
@@ -405,7 +405,7 @@ check(
 // === The access point's gateway ===
 
 // 14. Nobody's box: found from the network on B's shell, not from occupancy.
-const e14 = await su(bob, GATEWAY, { password: seedApGatewayAdminPw(ESSID) });
+const e14 = await su(bob, GATEWAY, { password: plaintextFor(seedApGatewayAdminHash(ESSID)) });
 const suRows14 = await suRows(bob, GATEWAY);
 check(
   'B suElevate on the access point’s gateway with its admin password → 200, a root row',

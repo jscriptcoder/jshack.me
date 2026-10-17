@@ -26,8 +26,9 @@ import { generateIdentity } from '../src/core/identity/identity.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
 import { md5 } from '../src/core/generation/md5.js';
-import { seedApGatewayAdminPw } from '../src/core/generation/routerFs.js';
+import { seedApGatewayAdminHash } from '../src/core/generation/routerFs.js';
 import { publicAddressOf } from './publicAddressOf.js';
+import { plaintextFor } from '../src/test/passwords.js';
 
 const NETWORK = process.env.ENDPOINT ?? 'http://localhost:3100/api/network';
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
@@ -84,7 +85,7 @@ const A_PUBLIC_IP = publicAddressOf(ESSID);
 const ROOT_HASH = md5('alice-root-secret');
 // The gateway's admin password — server-recoverable from the ESSID alone, the
 // credential B types to log into the gateway over the public IP.
-const ROUTER_ADMIN_PW = seedApGatewayAdminPw(ESSID);
+const ROUTER_ADMIN_PW = plaintextFor(seedApGatewayAdminHash(ESSID));
 
 const bootPerms = { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] };
 
