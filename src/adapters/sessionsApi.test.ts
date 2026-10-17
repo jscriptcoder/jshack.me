@@ -783,13 +783,18 @@ describe('runExploit', () => {
     );
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
 
-    expect(await runExploit(deps, params)).toEqual({
+    const result = await runExploit(deps, params);
+    expect(result).toEqual({
       ok: true,
       effect: 'script_exec',
       cve: 'CVE-2026-0269486',
       severity: 'high',
       tier: 'user',
     });
+    // No `tree` key at all, not merely an undefined one: the command layer decides whether a
+    // script ran by whether the answer carries a tree (`'tree' in result`), so a blind
+    // success that smuggled an undefined `tree` through would send it chasing a second fire.
+    expect(result).not.toHaveProperty('tree');
   });
 
   it('rebuilds the step-1 served box into a live tree for the script to read', async () => {
@@ -908,6 +913,10 @@ describe('runExploit', () => {
       arg: '/tmp/drop.js',
       writes: [{ path: '/tmp/dropped.txt', content: 'planted\n' }],
     });
+    // Step 2 must NOT re-send script_ready: that flag is what asks the server for the box,
+    // and carrying it again would have the server serve a fresh tree instead of landing the
+    // writes the script already made.
+    expect(verified.payload).not.toHaveProperty('script_ready');
   });
 
   it('says a fire came from a script, and says nothing when it did not', async () => {
