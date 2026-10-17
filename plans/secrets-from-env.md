@@ -1,7 +1,8 @@
 # Plan: secrets come from the environment
 
 **Status**: Grilled and planned. Decisions confirmed by the owner 2026-10-17. Three slices, in
-order; slices 1 and 2 DONE (2026-10-17), slice 3 next.
+order; slices 1 and 2 DONE (2026-10-17), slice 3 DONE (2026-10-18). Next: the close-out browser
+run against production (below), then this plan's content moves into `docs/`.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 
@@ -259,6 +260,25 @@ variable instead of a quietly wrong world.
 ---
 
 ## Slice 3: the bundle carries the uncrackable pool as hashes only
+
+**Status**: DONE — PR #696, squash-merged as `0eca075e`, v0.398.0; Production READY
+(`dpl_9nkFznEYry7PjSNpm9ScyX5VB9pg`). As built, worth knowing for the close-out:
+
+- **`plaintextFor(hash)` throws** for a hash from no pool. The ~31 sites that call
+  `ALL_GENERATED_PASSWORDS.find(…)` and treat "no match" as normal (a player-set account)
+  kept that call, only importing it from `src/test/passwords.ts` now.
+- **The leak scan is `src/core/secrets/findSecretLeaks.ts`**, pure and unit-tested, because
+  vitest only collects `src/`; `scripts/checkSecrets.ts` reads `dist/` and reports. It matches
+  literal words only: an `encode.ts` that regressed to writing plaintext under the hash key would
+  pass it, and is caught instead by the generation tests and the world fingerprint.
+- **`UNCRACKABLE_HASHES` goes through the same XOR codec** as the other lists, for one module
+  shape; the obfuscation adds nothing for hashes.
+- **The world fingerprint** (scratch, uncommitted) hashed every box tree of 612 networks (3,727
+  boxes), the 5 fixed sites and 200 own boxes: byte-identical to `main`. Every one of the 45
+  migrated wire-checks passed against `vercel dev`; the Vercel Preview log shows both modules
+  written and `ok   secrets: none of 52 uncrackable passwords in 18 built files`.
+- **`checkBudgets` timings are load-noisy here**: a back-to-back A/B had `main` failing sets the
+  branch then passed. Read a timing failure against `main` before blaming a change.
 
 **Value**: a player who digs through the bundle finds no uncrackable word, only hashes they
 would have to crack, exactly as they would in-game. The generated world is identical.
