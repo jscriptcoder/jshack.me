@@ -40,8 +40,12 @@ export const WORDLIST_PERMISSIONS: FilePermissions = {
 
 /** Passwords beyond the generated pools — the common-list padding that makes the
  *  file read like a real wordlist rather than a key to this specific world. They
- *  crack nothing. Read through the build-time codec (see `secrets.ts`), like the
- *  pools, so the bundle does not print the default wordlist. */
+ *  crack nothing; they are what an attacker would actually try first. Read from
+ *  `JSHACK_SECRETS` through the build-time codec (`scripts/encode.ts`), like the
+ *  pools, so the bundle prints neither half of the default wordlist.
+ *
+ *  A router factory default such as `admin` belongs in the crackable pool, not
+ *  here: padding that opens a gateway is a crackable word nobody declared. */
 const COMMON_PASSWORDS: readonly string[] = JSON.parse(
   secrets.COMMON_PASSWORDS,
 ) as readonly string[];
