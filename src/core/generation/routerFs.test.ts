@@ -350,6 +350,7 @@ describe('the gateway difficulty curve (a gateway is the best root target in the
     readonly deep: number;
     readonly community: number;
     readonly ownAgent: number;
+    readonly ownAgentWords: number;
   } => {
     const rate = (passwords: readonly string[]): number =>
       passwords.filter((password) => covered.has(password)).length;
@@ -361,6 +362,7 @@ describe('the gateway difficulty curve (a gateway is the best root target in the
       ),
       community: rate(NETWORKS.map(seedApGatewayCommunity)),
       ownAgent: rate(OWNER_KEYS.map(ownAgentCommunity)),
+      ownAgentWords: new Set(OWNER_KEYS.map(ownAgentCommunity)).size,
     };
   })();
 
@@ -397,14 +399,18 @@ describe('the gateway difficulty curve (a gateway is the best root target in the
     expect(crackable.community).toBeGreaterThan(crackable.ap);
   });
 
-  it("opens a player's own agent on the same odds as a device the world drew", () => {
-    // The whole argument for drawing this community through the same primitive. An
-    // agent a player installed is a door like any other: harder to open than a
-    // generated one and the filter it guards would defend against nothing anybody
-    // could get past, easier and a player who ran one would be handing their port
-    // table to the first neighbour with the shipped wordlist.
-    expect(crackable.ownAgent).toBeGreaterThan(COMMUNITY_FLOOR);
-    expect(crackable.ownAgent).toBeLessThan(COMMUNITY_CEILING);
+  it("always opens a player's own agent to the shipped wordlist", () => {
+    // Every agent a player installs joins the economy, so the filter it guards is never
+    // defending against nothing — and the owner is always told a word, whatever the
+    // uncrackable pool holds. A neighbour with the shipped wordlist always gets in; that
+    // is the price of running an agent at all.
+    expect(crackable.ownAgent).toBe(OWNER_KEYS.length);
+  });
+
+  it("does not hand every player's own agent the same community", () => {
+    // Always crackable is not one shared word: one crack must still open one box, so
+    // the draw spreads across the pool.
+    expect(crackable.ownAgentWords).toBeGreaterThan(1);
   });
 
   it('applies the same odds to an inner gateway — depth changes the route, not the lock', () => {
