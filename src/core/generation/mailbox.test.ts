@@ -13,7 +13,6 @@ import { WORLD_EPOCH } from '../cve/worldClock.js';
 import { networkArchetype } from './databaseApp.js';
 import { MAIL_SPECS, PERSONAL_THREADS } from './pools/mailThreads.js';
 import { CRON_OUTPUT } from './pools/cronMail.js';
-import { ALL_GENERATED_PASSWORDS } from './passwordPools.js';
 import {
   ALL_ESSIDS,
   WORLD_ESSIDS,
@@ -23,6 +22,7 @@ import {
   softwareVersionsIn,
   type Box,
 } from '../../test/worldContent.js';
+import { ALL_GENERATED_PASSWORDS } from '../../test/passwords.js';
 
 const DAY_MS = 86_400_000;
 

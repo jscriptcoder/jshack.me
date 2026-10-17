@@ -35,12 +35,12 @@ import { materializeWorkstationFs } from '../src/core/network/materializeWorksta
 import { ownStore } from '../src/core/redis/ownStore.js';
 import { DATADIR_PATH } from '../src/core/redis/datadir.js';
 import { REDIS_LOG_PATH } from '../src/core/logging/redisLog.js';
-import { ALL_GENERATED_PASSWORDS } from '../src/core/generation/passwordPools.js';
 import { formatPidfileContent, pidfilePath, PIDFILE_PERMISSIONS } from '../src/core/services/pidfile.js';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 import { WORDLIST_PATH, formatWordlist } from '../src/core/wordlist/defaultWordlist.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { publicAddressOf } from './publicAddressOf.js';
+import { ALL_GENERATED_PASSWORDS } from '../src/test/passwords.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;

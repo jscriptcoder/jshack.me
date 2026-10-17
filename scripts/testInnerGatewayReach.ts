@@ -24,7 +24,7 @@ import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
 import { computeDeepGatewayId, computeInnerGatewayId } from '../src/core/identity/router.js';
-import { seedDeepGatewayAdminPw, seedInnerGatewayAdminPw } from '../src/core/generation/routerFs.js';
+import { seedDeepGatewayAdminHash, seedInnerGatewayAdminHash } from '../src/core/generation/routerFs.js';
 import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
 import { crackableEssidPool } from '../src/core/generation/generateWifi.js';
 import { generateDeepLayer, seedNetworkDepth } from '../src/core/generation/generateDeepLayer.js';
@@ -32,9 +32,9 @@ import { buildDeepHostFs } from '../src/core/generation/deepHostFs.js';
 import { hostMachineId } from '../src/core/generation/remoteHostId.js';
 import { accountIn } from '../src/core/sessions/passwdAccount.js';
 import { md5 } from '../src/core/generation/md5.js';
-import { ALL_GENERATED_PASSWORDS } from '../src/core/generation/passwordPools.js';
 import { WORDLIST_PATH, formatWordlist } from '../src/core/wordlist/defaultWordlist.js';
 import { leaveNetwork, standOnNetwork } from './standVantage.js';
+import { ALL_GENERATED_PASSWORDS, plaintextFor } from '../src/test/passwords.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
@@ -98,7 +98,7 @@ if (innerGateway === undefined) {
 const INNER_IP = innerGateway.ip;
 const INNER_OCTET = Number(INNER_IP.split('.')[3]);
 const INNER_GW_ID = computeInnerGatewayId(ESSID, INNER_OCTET);
-const GATEWAY_ROOT_PW = seedInnerGatewayAdminPw(ESSID, INNER_OCTET);
+const GATEWAY_ROOT_PW = plaintextFor(seedInnerGatewayAdminHash(ESSID, INNER_OCTET));
 
 const deep = generateDeepLayer(ESSID, { machineId: INNER_GW_ID, kind: 'router' });
 const DEEP_IP = deep.host.ip;
@@ -126,7 +126,7 @@ if (child === null) {
 const CHILD_IP = child.ip;
 const CHILD_OCTET = Number(CHILD_IP.split('.')[3]);
 const CHILD_ID = computeDeepGatewayId(INNER_GW_ID, CHILD_OCTET);
-const CHILD_ROOT_PW = seedDeepGatewayAdminPw(INNER_GW_ID, CHILD_OCTET);
+const CHILD_ROOT_PW = plaintextFor(seedDeepGatewayAdminHash(INNER_GW_ID, CHILD_OCTET));
 
 const RULES = '/etc/iptables/rules.v4';
 const VMLINUZ = '/boot/vmlinuz';

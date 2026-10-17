@@ -29,10 +29,10 @@ import { materializeWorkstationFs } from '../../core/network/materializeWorkstat
 import type { NatOccupantRow } from '../../core/network/resolvePublicTarget.js';
 import { readOpenPorts } from '../../core/services/pidfile.js';
 import { SERVICE_CATALOG } from '../../core/services/serviceCatalog.js';
-import { ALL_GENERATED_PASSWORDS } from '../../core/generation/passwordPools.js';
 import { md5 } from '../../core/generation/md5.js';
 import type { RedisStore } from '../../core/redis/types.js';
 import type { Directory } from '../../core/filesystem/types.js';
+import { ALL_GENERATED_PASSWORDS } from '../passwords.js';
 
 export type DeepStoreFixture = {
   readonly essid: string;

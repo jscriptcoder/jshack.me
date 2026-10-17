@@ -25,7 +25,8 @@ import { lanAddressFor } from '../src/core/network/lanAddress.js';
 import { formatPidfileContent } from '../src/core/services/pidfile.js';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 import { md5 } from '../src/core/generation/md5.js';
-import { workstationGuestPassword } from '../src/core/generation/workstationFs.js';
+import { workstationGuestHash } from '../src/core/generation/workstationFs.js';
+import { plaintextFor } from '../src/test/passwords.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;
@@ -71,7 +72,7 @@ const A_WS = computeWorkstationId(A_WS_NAME, alice.publicKeyHex);
 const A_OCTET = 11;
 const B_OCTET = 12;
 const A_LAN = lanAddressFor(ESSID, A_OCTET); // A's ws LAN ip
-const GUEST_PW = workstationGuestPassword(alice.publicKeyHex); // A's ws guest pw
+const GUEST_PW = plaintextFor(workstationGuestHash(alice.publicKeyHex)); // A's ws guest pw
 
 const WORLD_PID = { read: ['root', 'user', 'guest'], write: ['root'], execute: [] };
 

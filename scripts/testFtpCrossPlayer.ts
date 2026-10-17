@@ -24,7 +24,7 @@ import { signRequest } from '../src/core/signedRequest/sign.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
-import { workstationGuestPassword } from '../src/core/generation/workstationFs.js';
+import { workstationGuestHash } from '../src/core/generation/workstationFs.js';
 import { lanAddressFor } from '../src/core/network/lanAddress.js';
 import { VSFTPD_LOG_PATH } from '../src/core/logging/vsftpdLog.js';
 import { AUTH_LOG_PATH } from '../src/core/logging/authLog.js';
@@ -32,6 +32,7 @@ import { md5 } from '../src/core/generation/md5.js';
 import { deserializeTree, type SerializedDirectory } from '../src/core/filesystem/treeCodec.js';
 import type { Directory, FileNode } from '../src/core/filesystem/types.js';
 import { publicAddressOf } from './publicAddressOf.js';
+import { plaintextFor } from '../src/test/passwords.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
@@ -88,7 +89,7 @@ const A_GATEWAY = computeApGatewayId(A_ESSID);
 const A_WS = computeWorkstationId('anton', defender.publicKeyHex);
 const A_OCTET = 23;
 const A_LAN_IP = lanAddressFor(A_ESSID, A_OCTET);
-const A_GUEST_PW = workstationGuestPassword(defender.publicKeyHex);
+const A_GUEST_PW = plaintextFor(workstationGuestHash(defender.publicKeyHex));
 // The two doors A publishes. Neither is 22 or 21: on a public address those belong to
 // the AP's own gateway, which is a different machine.
 const FTP_FORWARD = 2121;

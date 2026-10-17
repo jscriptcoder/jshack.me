@@ -35,9 +35,9 @@ import { signRequest } from '../src/core/signedRequest/sign.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
-import { seedApGatewayCommunity } from '../src/core/generation/routerFs.js';
+import { seedApGatewayCommunityHash } from '../src/core/generation/routerFs.js';
 import { seedApGatewayHostname } from '../src/core/generation/gatewayHostname.js';
-import { workstationGuestPassword } from '../src/core/generation/workstationFs.js';
+import { workstationGuestHash } from '../src/core/generation/workstationFs.js';
 import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
 import { lanAddressFor } from '../src/core/network/lanAddress.js';
 import { formatSnmpdState } from '../src/core/snmp/rwCommunity.js';
@@ -49,6 +49,7 @@ import { RULES_V4_PATH } from '../src/core/network/iptablesRules.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { publicAddressOf } from './publicAddressOf.js';
 import type { Identity } from '../src/core/commands/types.js';
+import { plaintextFor } from '../src/test/passwords.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;
@@ -109,12 +110,12 @@ const TARGET_GATEWAY = computeApGatewayId(TARGET_ESSID);
 const TARGET_SUBNET = generateHomeLan(TARGET_ESSID).subnet;
 const GATEWAY_HOSTNAME = seedApGatewayHostname(TARGET_ESSID);
 /** Seeded from A's ESSID and nothing B holds — the string the whole arc is aimed at. */
-const COMMUNITY = seedApGatewayCommunity(TARGET_ESSID);
+const COMMUNITY = plaintextFor(seedApGatewayCommunityHash(TARGET_ESSID));
 
 const DEFENDER_OCTET = 23;
 const DEFENDER_LAN_IP = lanAddressFor(TARGET_ESSID, DEFENDER_OCTET);
 const DEFENDER_WS = computeWorkstationId('anton', defender.publicKeyHex);
-const DEFENDER_GUEST_PW = workstationGuestPassword(defender.publicKeyHex);
+const DEFENDER_GUEST_PW = plaintextFor(workstationGuestHash(defender.publicKeyHex));
 /** A community on A's OWN workstation agent, so the box behind the forward answers a
  *  set — which is how "this device fronts no network" gets said out loud. */
 const DEFENDER_WS_COMMUNITY = 'homelab';

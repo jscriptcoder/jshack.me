@@ -7,7 +7,6 @@ import {
   PLACE_DOWNLOADS,
   TABLET_MODELS,
 } from './pools/phoneFiles.js';
-import { ALL_GENERATED_PASSWORDS } from './passwordPools.js';
 import { createPatchApi } from '../../adapters/patchApi.js';
 import { generateIdentity } from '../identity/identity.js';
 import { computeWorkstationId } from '../identity/workstation.js';
@@ -26,6 +25,7 @@ import {
   worldBoxesNamed,
   type BuiltBox,
 } from '../../test/deviceBoxes.js';
+import { ALL_GENERATED_PASSWORDS } from '../../test/passwords.js';
 
 /**
  * A phone is not somebody's Linux account: what its person left on it is what a phone

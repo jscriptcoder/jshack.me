@@ -8,8 +8,7 @@ import { signRequest } from '../signedRequest/sign.js';
 import { generateIdentity } from '../identity/identity.js';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
 import { buildRemoteHostFs } from '../generation/remoteHostFs.js';
-import { ALL_GENERATED_PASSWORDS } from '../generation/passwordPools.js';
-import { seedInnerGatewayAdminPw, seedApGatewayAdminPw } from '../generation/routerFs.js';
+import { seedInnerGatewayAdminHash, seedApGatewayAdminHash } from '../generation/routerFs.js';
 import { hostMachineId } from '../generation/remoteHostId.js';
 import { computeInnerGatewayId, computeApGatewayId } from '../identity/router.js';
 import { md5 } from '../generation/md5.js';
@@ -42,6 +41,7 @@ import type { PatchRow } from '../patches/upsertPatch.js';
 import type { Directory } from '../filesystem/types.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import { logRead } from '../../test/factories/logRows.js';
+import { ALL_GENERATED_PASSWORDS, plaintextFor } from '../../test/passwords.js';
 
 /**
  * `handleAuthCreateSession` is the server-side gate for an ssh session on a
@@ -610,7 +610,7 @@ describe('handleAuthCreateSession', () => {
       basePayload({
         target_ip: router.ip,
         username: 'root',
-        password: seedApGatewayAdminPw(ESSID),
+        password: plaintextFor(seedApGatewayAdminHash(ESSID)),
       }),
     );
     const { deps, upsertPatch } = makeDeps();
@@ -894,7 +894,7 @@ describe('handleAuthCreateSession', () => {
       basePayload({
         target_ip: router.ip,
         username: 'root',
-        password: seedApGatewayAdminPw(ESSID),
+        password: plaintextFor(seedApGatewayAdminHash(ESSID)),
       }),
     );
     const { deps, insertSession } = makeDeps();
@@ -962,7 +962,7 @@ describe('handleAuthCreateSession', () => {
       basePayload({
         target_ip: inner.ip,
         username: 'root',
-        password: seedInnerGatewayAdminPw(ESSID, octet),
+        password: plaintextFor(seedInnerGatewayAdminHash(ESSID, octet)),
       }),
     );
     const { deps, insertSession } = makeDeps();
@@ -1010,7 +1010,7 @@ describe('handleAuthCreateSession', () => {
       basePayload({
         target_ip: device.ip,
         username: 'root',
-        password: seedInnerGatewayAdminPw(ESSID, octet),
+        password: plaintextFor(seedInnerGatewayAdminHash(ESSID, octet)),
       }),
     );
     const { deps, insertSession } = makeDeps();
@@ -1083,7 +1083,7 @@ describe('handleAuthCreateSession — a bricked own-LAN host is dark from inside
       basePayload({
         target_ip: router.ip,
         username: 'root',
-        password: seedApGatewayAdminPw(ESSID),
+        password: plaintextFor(seedApGatewayAdminHash(ESSID)),
       }),
     );
     const { deps, insertSession } = makeDeps({
@@ -1105,7 +1105,7 @@ describe('handleAuthCreateSession — a bricked own-LAN host is dark from inside
       basePayload({
         target_ip: router.ip,
         username: 'root',
-        password: seedApGatewayAdminPw(ESSID),
+        password: plaintextFor(seedApGatewayAdminHash(ESSID)),
       }),
     );
     const { deps, findPatches } = makeDeps();

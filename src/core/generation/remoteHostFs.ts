@@ -64,8 +64,7 @@ import {
   WEB_PAGE_FILE,
   DATADIR_FILE,
 } from './baseFs.js';
-import { md5 } from './md5.js';
-import { CRACK_CHANCE, drawPassword } from './passwordPools.js';
+import { CRACK_CHANCE, drawPasswordHash } from './passwordPools.js';
 import { pickWebPage } from './pools/webPages.js';
 import { buildWebSite } from './webSite.js';
 import { roleConfigFile } from './pools/configFiles.js';
@@ -272,7 +271,7 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
   const passwd = generatePasswd([
     {
       username: 'root',
-      passwordHash: md5(drawPassword(prng, CRACK_CHANCE.npcRoot)),
+      passwordHash: drawPasswordHash(prng, CRACK_CHANCE.npcRoot),
       uid: 0,
       gid: 0,
       gecos: 'root',
@@ -281,7 +280,7 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
     },
     {
       username,
-      passwordHash: md5(drawPassword(prng, CRACK_CHANCE.npcUser)),
+      passwordHash: drawPasswordHash(prng, CRACK_CHANCE.npcUser),
       uid: 1000,
       gid: 1000,
       gecos: username,
@@ -290,7 +289,7 @@ export const buildRemoteHostFs = (essid: string, host: LanHost): Directory => {
     },
     {
       username: 'guest',
-      passwordHash: md5(drawPassword(prng, CRACK_CHANCE.guest)),
+      passwordHash: drawPasswordHash(prng, CRACK_CHANCE.guest),
       uid: 1001,
       gid: 1001,
       gecos: 'guest',

@@ -28,8 +28,7 @@ import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js
 import { generateHomeLan, type LanHost } from '../src/core/generation/generateHomeLan.js';
 import { machineIdForLanHost } from '../src/core/generation/lanTopology.js';
 import { resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity.js';
-import { ALL_GENERATED_PASSWORDS } from '../src/core/generation/passwordPools.js';
-import { workstationGuestPassword } from '../src/core/generation/workstationFs.js';
+import { workstationGuestHash } from '../src/core/generation/workstationFs.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { formatPidfileContent, readOpenPorts } from '../src/core/services/pidfile.js';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
@@ -37,6 +36,7 @@ import { accountsIn } from '../src/core/sessions/passwdAccount.js';
 import { AUTH_LOG_PATH } from '../src/core/logging/authLog.js';
 import { VSFTPD_LOG_PATH } from '../src/core/logging/vsftpdLog.js';
 import { leaveNetwork, standOnNetwork } from './standVantage.js';
+import { ALL_GENERATED_PASSWORDS, plaintextFor } from '../src/test/passwords.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;
@@ -250,7 +250,7 @@ const intoCarol = await post('authCreateSessionSameLan', {
   target_ip: LOOPBACK,
   port: 22,
   username: 'guest',
-  password: workstationGuestPassword(carol.publicKeyHex),
+  password: plaintextFor(workstationGuestHash(carol.publicKeyHex)),
   parent_session_id: 'hop-carol-1',
   caller_machine_id: CAROL_WS,
 });
@@ -274,7 +274,7 @@ const ftpIntoCarol = await post('authCreateSessionSameLan', {
   target_ip: LOOPBACK,
   port: 21,
   username: 'guest',
-  password: workstationGuestPassword(carol.publicKeyHex),
+  password: plaintextFor(workstationGuestHash(carol.publicKeyHex)),
   parent_session_id: 'hop-carol-1',
   caller_machine_id: CAROL_WS,
   kind: 'ftp',

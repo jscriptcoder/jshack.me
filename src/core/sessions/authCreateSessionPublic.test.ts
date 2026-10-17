@@ -7,9 +7,9 @@ import {
 import type { ApNetworkLookup, NatOccupantRow } from '../network/resolvePublicTarget.js';
 import type { AuthSessionRow } from './authCreateSession.js';
 import { md5 } from '../generation/md5.js';
-import { seedApGatewayAdminPw } from '../generation/routerFs.js';
+import { seedApGatewayAdminHash } from '../generation/routerFs.js';
 import { seedApGatewayHostname } from '../generation/gatewayHostname.js';
-import { workstationGuestPassword } from '../generation/workstationFs.js';
+import { workstationGuestHash } from '../generation/workstationFs.js';
 import { signRequest } from '../signedRequest/sign.js';
 import { generateIdentity } from '../identity/identity.js';
 import { computeApGatewayId } from '../identity/router.js';
@@ -36,6 +36,7 @@ import type { FindActiveSession } from '../patches/authorizeMachineAccess.js';
 import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
+import { plaintextFor } from '../../test/passwords.js';
 
 /**
  * `handleAuthCreateSessionPublic` is the cross-player ssh-login gate: it routes by
@@ -76,12 +77,12 @@ const identityWithGuestPasswordOtherThan = (
   password: string,
 ): ReturnType<typeof generateIdentity> => {
   const candidate = generateIdentity();
-  return workstationGuestPassword(candidate.publicKeyHex) === password
+  return plaintextFor(workstationGuestHash(candidate.publicKeyHex)) === password
     ? identityWithGuestPasswordOtherThan(password)
     : candidate;
 };
 
-const BOB = identityWithGuestPasswordOtherThan(workstationGuestPassword(ALICE.publicKeyHex));
+const BOB = identityWithGuestPasswordOtherThan(plaintextFor(workstationGuestHash(ALICE.publicKeyHex)));
 
 const AP_GATEWAY_ID = computeApGatewayId(ESSID);
 const ALICE_WS = 'workstation-a1b2c3d4';
@@ -115,9 +116,9 @@ const BOTH_LEASES: readonly LanLeaseRow[] = [
 ];
 
 const REGISTERED: ApNetworkLookup = { router_machine_id: AP_GATEWAY_ID, essid: ESSID };
-const ADMIN_PW = seedApGatewayAdminPw(ESSID);
-const ALICE_GUEST_PW = workstationGuestPassword(ALICE.publicKeyHex);
-const BOB_GUEST_PW = workstationGuestPassword(BOB.publicKeyHex);
+const ADMIN_PW = plaintextFor(seedApGatewayAdminHash(ESSID));
+const ALICE_GUEST_PW = plaintextFor(workstationGuestHash(ALICE.publicKeyHex));
+const BOB_GUEST_PW = plaintextFor(workstationGuestHash(BOB.publicKeyHex));
 
 /** A root `nano /etc/iptables/rules.v4` edit on the GATEWAY's journal — the opt-in that
  *  exposes a box behind the NAT. One file, one journal, every occupant's forwards. */

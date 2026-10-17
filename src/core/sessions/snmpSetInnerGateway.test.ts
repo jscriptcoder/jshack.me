@@ -7,7 +7,7 @@ import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js'
 import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer.js';
 import { crackableEssidPool } from '../generation/generateWifi.js';
 import { computeDeepGatewayId, computeInnerGatewayId } from '../identity/router.js';
-import { buildDeepSwitchBaseFs, seedSnmpCommunity } from '../generation/routerFs.js';
+import { buildDeepSwitchBaseFs, seedSnmpCommunityHash } from '../generation/routerFs.js';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
 import { readOpenPorts } from '../services/pidfile.js';
 import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
@@ -19,6 +19,7 @@ import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
 import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
+import { plaintextFor } from '../../test/passwords.js';
 
 /**
  * Writing to a device through an inner gateway, and what a forward on that gateway is
@@ -67,7 +68,7 @@ const innerGatewayWithAnAgent = (): {
       essid,
       gateway,
       gatewayId,
-      community: seedSnmpCommunity(`inner-gw-community-${essid}:${octetOf(gateway)}`),
+      community: plaintextFor(seedSnmpCommunityHash(`inner-gw-community-${essid}:${octetOf(gateway)}`)),
       deepSubnet: generateDeepLayer(essid, { machineId: gatewayId, kind: 'router' }).subnet,
     };
   }
@@ -101,7 +102,7 @@ const deepSwitchWithAnAgent = (): {
       gatewayId,
       device,
       deviceId: computeDeepGatewayId(gatewayId, deviceOctet),
-      community: seedSnmpCommunity(`deep-sw-community-${gatewayId}:${deviceOctet}`),
+      community: plaintextFor(seedSnmpCommunityHash(`deep-sw-community-${gatewayId}:${deviceOctet}`)),
     };
   }
   throw new Error('no seeded world hangs a deep switch running an SNMP agent');
@@ -224,7 +225,7 @@ describe('setting on a device behind an inner gateway', () => {
         essid: DEEP.essid,
         target_ip: DEEP.gateway.ip,
         port: FORWARDED_PORT,
-        community: seedSnmpCommunity(`inner-gw-community-${DEEP.essid}:${octetOf(DEEP.gateway)}`),
+        community: plaintextFor(seedSnmpCommunityHash(`inner-gw-community-${DEEP.essid}:${octetOf(DEEP.gateway)}`)),
         assignment: 'aclPort.8080=deny',
       }),
       deps,

@@ -35,13 +35,13 @@ import { generateHomeLan, type LanHost } from '../src/core/generation/generateHo
 import { hostServices } from '../src/core/generation/remoteHostFs.js';
 import { machineIdForLanHost, resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity.js';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
-import { ALL_GENERATED_PASSWORDS } from '../src/core/generation/passwordPools.js';
 import { accountsIn } from '../src/core/sessions/passwdAccount.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { leaveNetwork, standOnNetwork } from './standVantage.js';
 import type { UserType } from '../src/core/types.js';
 import { deserializeTree, type SerializedDirectory } from '../src/core/filesystem/treeCodec.js';
 import type { Directory, FileNode } from '../src/core/filesystem/types.js';
+import { ALL_GENERATED_PASSWORDS } from '../src/test/passwords.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';

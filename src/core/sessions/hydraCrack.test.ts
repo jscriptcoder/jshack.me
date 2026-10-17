@@ -6,7 +6,6 @@ import { generateIdentity } from '../identity/identity.js';
 import { computeWorkstationId } from '../identity/workstation.js';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
 import { hostServices } from '../generation/remoteHostFs.js';
-import { ALL_GENERATED_PASSWORDS, UNCRACKABLE_PASSWORDS } from '../generation/passwordPools.js';
 import { machineIdForLanHost, resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
 import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import { DEFAULT_WORDLIST, WORDLIST_PATH, formatWordlist } from '../wordlist/defaultWordlist.js';
@@ -14,7 +13,7 @@ import { accountsIn } from './passwdAccount.js';
 import { sweepAccounts } from '../wordlist/passwordSweep.js';
 import { parseMysqlDatabase, type MysqlDatabase } from '../mysql/types.js';
 import { md5 } from '../generation/md5.js';
-import { workstationGuestPassword } from '../generation/workstationFs.js';
+import { workstationGuestHash } from '../generation/workstationFs.js';
 import { lanAddressFor } from '../network/lanAddress.js';
 import { playerDatabaseOn } from '../../test/factories/lanDatabase.js';
 import { DATADIR_PATH } from '../mysql/datadir.js';
@@ -60,6 +59,7 @@ import type {
 } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import { logRead } from '../../test/factories/logRows.js';
+import { ALL_GENERATED_PASSWORDS, UNCRACKABLE_PASSWORDS, plaintextFor } from '../../test/passwords.js';
 
 /**
  * `handleHydraCrack` decides what a player can crack, and it decides it
@@ -1893,7 +1893,7 @@ const DEFENDER_ROOT_PW = 'correct-horse-battery-staple';
 /** The guest account's password is drawn from the crackable pool and seeded from the
  *  owner's pubkey alone, so it is the one account on a player's box a stranger can
  *  reach with a wordlist. */
-const DEFENDER_GUEST_PW = workstationGuestPassword(DEFENDER.publicKeyHex);
+const DEFENDER_GUEST_PW = plaintextFor(workstationGuestHash(DEFENDER.publicKeyHex));
 
 const ATTACKER_OCTET = 61;
 const ATTACKER_LAN_IP = lanAddressFor(ESSID, ATTACKER_OCTET);

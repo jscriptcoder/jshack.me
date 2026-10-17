@@ -25,13 +25,14 @@ import { signRequest } from '../src/core/signedRequest/sign.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
-import { seedApGatewayAdminPw } from '../src/core/generation/routerFs.js';
+import { seedApGatewayAdminHash } from '../src/core/generation/routerFs.js';
 import { networkAt } from '../src/core/generation/world.js';
 import { deserializeTree, type SerializedDirectory } from '../src/core/filesystem/treeCodec.js';
 import { createFsView } from '../src/core/filesystem/fsView.js';
 import { asAbsPath } from '../src/core/types.js';
 import { publicAddressOf } from './publicAddressOf.js';
 import { standOnNetwork } from './standVantage.js';
+import { plaintextFor } from '../src/test/passwords.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
@@ -76,7 +77,7 @@ const hopOn = (essid: string) => ({
   essid,
   gateway: computeApGatewayId(essid),
   publicIp: publicAddressOf(essid),
-  adminPw: seedApGatewayAdminPw(essid),
+  adminPw: plaintextFor(seedApGatewayAdminHash(essid)),
 });
 
 const HOME = 'SMART-FRIDGE-NET';

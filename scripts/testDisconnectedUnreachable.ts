@@ -43,9 +43,10 @@ import { lanAddressFor } from '../src/core/network/lanAddress.js';
 import { formatPidfileContent } from '../src/core/services/pidfile.js';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 import { md5 } from '../src/core/generation/md5.js';
-import { workstationGuestPassword } from '../src/core/generation/workstationFs.js';
+import { workstationGuestHash } from '../src/core/generation/workstationFs.js';
 import { deserializeTree, type SerializedDirectory } from '../src/core/filesystem/treeCodec.js';
 import type { Directory, FileNode } from '../src/core/filesystem/types.js';
+import { plaintextFor } from '../src/test/passwords.js';
 
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
@@ -110,7 +111,7 @@ const leasedAddress = async (owner: ReturnType<typeof generateIdentity>): Promis
   if (octet === undefined) throw new Error(`no lan lease for ${owner.publicKeyHex.slice(0, 8)}`);
   return lanAddressFor(ESSID, octet);
 };
-const GUEST_PW = workstationGuestPassword(alice.publicKeyHex);
+const GUEST_PW = plaintextFor(workstationGuestHash(alice.publicKeyHex));
 
 const WORLD_PID = { read: ['root', 'user', 'guest'], write: ['root'], execute: [] };
 const ROOT_ONLY = { read: ['root'], write: ['root'], execute: ['root'] };

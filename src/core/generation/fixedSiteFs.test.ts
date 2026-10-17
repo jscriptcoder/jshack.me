@@ -9,10 +9,10 @@ import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import { canBoot } from '../boot/bootFiles.js';
 import { createFsView } from '../filesystem/fsView.js';
 import { parseDpkgVersions, readDpkgStatus } from '../packages/dpkgStatus.js';
-import { ALL_GENERATED_PASSWORDS, UNCRACKABLE_PASSWORDS } from './passwordPools.js';
 import { md5 } from './md5.js';
 import { asAbsPath } from '../types.js';
 import type { Directory, FileNode } from '../filesystem/types.js';
+import { ALL_GENERATED_PASSWORDS, UNCRACKABLE_PASSWORDS } from '../../test/passwords.js';
 
 /**
  * A fixed site is a box like any other: reached at its public address, it is a machine

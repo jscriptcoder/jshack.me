@@ -46,7 +46,7 @@ import {
   WEB_PAGE_FILE,
 } from './baseFs.js';
 import { md5 } from './md5.js';
-import { CRACK_CHANCE, drawPassword } from './passwordPools.js';
+import { CRACK_CHANCE, drawPasswordHash } from './passwordPools.js';
 import { ACCESS_LOG_PERMISSIONS } from '../logging/accessLog.js';
 import { AUTH_LOG_PERMISSIONS } from '../logging/authLog.js';
 import { KERN_LOG_PERMISSIONS } from '../logging/kernLog.js';
@@ -76,7 +76,7 @@ const DEFAULT_PAGE = [
   '</html>',
 ].join('\n');
 
-/** The guest account's plaintext password — seeded from the owner's pubkey ALONE
+/** The hash of the guest account's password — seeded from the owner's pubkey ALONE
  *  (the `workstation-` namespace), so the SERVER can recover it for a cross-player
  *  auth without the owner's config.
  *
@@ -84,8 +84,8 @@ const DEFAULT_PAGE = [
  *  account uses. That is the one account a defender cannot harden before the CVE
  *  phase, and it is deliberately so: their chosen root password stays safe, and
  *  guest is the door that makes cross-player play exist at all. */
-export const workstationGuestPassword = (ownerKeyHex: string): string =>
-  drawPassword(createPrng(`workstation-${ownerKeyHex}`), CRACK_CHANCE.guest);
+export const workstationGuestHash = (ownerKeyHex: string): string =>
+  drawPasswordHash(createPrng(`workstation-${ownerKeyHex}`), CRACK_CHANCE.guest);
 
 /**
  * Build the player's own-workstation base filesystem from the IDENTITY the server
@@ -123,7 +123,7 @@ export const buildWorkstationBaseFsFromIdentity = (identity: {
     },
     {
       username: 'guest',
-      passwordHash: md5(workstationGuestPassword(identity.ownerKeyHex)),
+      passwordHash: workstationGuestHash(identity.ownerKeyHex),
       uid: 1001,
       gid: 1001,
       gecos: 'guest',

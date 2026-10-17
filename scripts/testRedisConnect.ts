@@ -53,10 +53,10 @@ import { storeIn, DATADIR_PATH } from '../src/core/redis/datadir.js';
 import { redisStoreSchema } from '../src/core/redis/types.js';
 import { DATADIR_FILE } from '../src/core/generation/baseFs.js';
 import { REDIS_LOG_OWNER, REDIS_LOG_PATH } from '../src/core/logging/redisLog.js';
-import { ALL_GENERATED_PASSWORDS } from '../src/core/generation/passwordPools.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { lanAddressFor } from '../src/core/network/lanAddress.js';
 import { standOnNetwork, leaveNetwork } from './standVantage.js';
+import { ALL_GENERATED_PASSWORDS } from '../src/test/passwords.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;

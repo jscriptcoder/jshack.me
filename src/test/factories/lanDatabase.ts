@@ -21,7 +21,6 @@ import { databaseIn } from '../../core/mysql/datadir.js';
 import { readOpenPorts } from '../../core/services/pidfile.js';
 import { hostServices } from '../../core/generation/remoteHostFs.js';
 import { resolveLanHostIdentity } from '../../core/generation/lanHostIdentity.js';
-import { ALL_GENERATED_PASSWORDS } from '../../core/generation/passwordPools.js';
 import { SERVICE_CATALOG } from '../../core/services/serviceCatalog.js';
 import { md5 } from '../../core/generation/md5.js';
 import { parseMysqlDatabase, type MysqlDatabase } from '../../core/mysql/types.js';
@@ -30,6 +29,7 @@ import { ownDatabase } from '../../core/mysql/ownDatabase.js';
 import { materializeWorkstationFs } from '../../core/network/materializeWorkstationFs.js';
 import type { NatOccupantRow } from '../../core/network/resolvePublicTarget.js';
 import type { Directory } from '../../core/filesystem/types.js';
+import { ALL_GENERATED_PASSWORDS } from '../passwords.js';
 
 /** A LAN host running mysqld — the only kind with a database to open. */
 export const mysqlHostOn = (essid: string): LanHost => {

@@ -7,7 +7,7 @@ import { generateHomeLan } from '../generation/generateHomeLan.js';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
 import { parseDpkgVersions, readDpkgStatus } from '../packages/dpkgStatus.js';
 import { displayVersion, isFirmwarePackage } from '../packages/packageVersions.js';
-import { seedApGatewayCommunity } from '../generation/routerFs.js';
+import { seedApGatewayCommunityHash } from '../generation/routerFs.js';
 import { seedApGatewayHostname } from '../generation/gatewayHostname.js';
 import { computeApGatewayId } from '../identity/router.js';
 import { renderIdentityWalk, type SnmpIdentity } from '../snmp/walk.js';
@@ -23,6 +23,7 @@ import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appen
 import type { PatchRow } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import type { Identity } from '../commands/types.js';
+import { plaintextFor } from '../../test/passwords.js';
 
 /**
  * Reading a device that belongs to somebody else, reached by the address the world
@@ -56,7 +57,7 @@ const AP_NETWORK: ApNetworkLookup = { router_machine_id: AP_GATEWAY_ID, essid: T
 
 /** The community the gateway answers its port table to, seeded from the DEFENDER's
  *  ESSID — the thing a sweep has to crack, and nothing the attacker's own world holds. */
-const COMMUNITY = seedApGatewayCommunity(TARGET_ESSID);
+const COMMUNITY = plaintextFor(seedApGatewayCommunityHash(TARGET_ESSID));
 
 /** The network the ATTACKER's card is associated with, and therefore the ESSID their
  *  client sends. Deliberately not the defender's. */

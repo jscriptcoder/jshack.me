@@ -37,7 +37,7 @@ import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
 import { resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity.js';
 import { lanAddressFor } from '../src/core/network/lanAddress.js';
 import { materializeWorkstationFs } from '../src/core/network/materializeWorkstationFs.js';
-import { workstationGuestPassword } from '../src/core/generation/workstationFs.js';
+import { workstationGuestHash } from '../src/core/generation/workstationFs.js';
 import { ownStore } from '../src/core/redis/ownStore.js';
 import { DATADIR_PATH } from '../src/core/redis/datadir.js';
 import { REDIS_LOG_PATH } from '../src/core/logging/redisLog.js';
@@ -50,6 +50,7 @@ import {
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 import { WORDLIST_PATH, formatWordlist } from '../src/core/wordlist/defaultWordlist.js';
 import { md5 } from '../src/core/generation/md5.js';
+import { plaintextFor } from '../src/test/passwords.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
@@ -162,7 +163,7 @@ const attackerOccupant = {
 
 /** The guest account on the defender's own box — drawn from the crackable pool, so it
  *  is the account a neighbour's wordlist can actually reach. */
-const DEFENDER_GUEST_PW = workstationGuestPassword(defender.publicKeyHex);
+const DEFENDER_GUEST_PW = plaintextFor(workstationGuestHash(defender.publicKeyHex));
 
 /** The store `apt install redis` writes onto the defender's box, locked to whatever
  *  `/etc/passwd` says root's password is. A bought store starts empty, so the defender

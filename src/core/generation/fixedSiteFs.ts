@@ -36,8 +36,7 @@ import {
   WEB_PAGE_FILE,
   withFiles,
 } from './baseFs.js';
-import { md5 } from './md5.js';
-import { drawPassword } from './passwordPools.js';
+import { drawPasswordHash } from './passwordPools.js';
 import { ACCESS_LOG_PERMISSIONS } from '../logging/accessLog.js';
 import { AUTH_LOG_PERMISSIONS } from '../logging/authLog.js';
 import { KERN_LOG_PERMISSIONS } from '../logging/kernLog.js';
@@ -93,7 +92,7 @@ export const buildFixedSiteFs = (site: FixedSite): Directory => {
   const passwd = generatePasswd([
     {
       username: 'root',
-      passwordHash: md5(drawPassword(prng, CRACKABLE_ROOT_CHANCE)),
+      passwordHash: drawPasswordHash(prng, CRACKABLE_ROOT_CHANCE),
       uid: 0,
       gid: 0,
       gecos: 'root',

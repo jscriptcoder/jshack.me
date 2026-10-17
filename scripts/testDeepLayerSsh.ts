@@ -35,9 +35,9 @@ import { buildDeepHostFs } from '../src/core/generation/deepHostFs.js';
 import { resolveDeepGatewayIdentity } from '../src/core/generation/lanHostIdentity.js';
 import { chainLinks, type ChainLink } from '../src/core/generation/lanTopology.js';
 import { hostMachineId } from '../src/core/generation/remoteHostId.js';
-import { ALL_GENERATED_PASSWORDS } from '../src/core/generation/passwordPools.js';
 import { md5 } from '../src/core/generation/md5.js';
 import type { Directory } from '../src/core/filesystem/types.js';
+import { ALL_GENERATED_PASSWORDS } from '../src/test/passwords.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';

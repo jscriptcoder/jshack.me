@@ -34,17 +34,17 @@ import { resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity.j
 import { readOpenPorts } from '../src/core/services/pidfile.js';
 import { lanAddressFor } from '../src/core/network/lanAddress.js';
 import { materializeWorkstationFs } from '../src/core/network/materializeWorkstationFs.js';
-import { workstationGuestPassword } from '../src/core/generation/workstationFs.js';
+import { workstationGuestHash } from '../src/core/generation/workstationFs.js';
 import { asEpochMs } from '../src/core/types.js';
 import { ownDatabase } from '../src/core/mysql/ownDatabase.js';
 import { DATADIR_PATH } from '../src/core/mysql/datadir.js';
-import { ALL_GENERATED_PASSWORDS } from '../src/core/generation/passwordPools.js';
 import { formatPidfileContent, pidfilePath, PIDFILE_PERMISSIONS } from '../src/core/services/pidfile.js';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 import { MYSQL_LOG_PATH } from '../src/core/logging/mysqlLog.js';
 import { AUTH_LOG_PATH } from '../src/core/logging/authLog.js';
 import { WORDLIST_PATH, formatWordlist } from '../src/core/wordlist/defaultWordlist.js';
 import { md5 } from '../src/core/generation/md5.js';
+import { ALL_GENERATED_PASSWORDS, plaintextFor } from '../src/test/passwords.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;
@@ -152,7 +152,7 @@ const attackerOccupant = {
 /** The guest account on the defender's own box: its password is drawn from the
  *  crackable pool and seeded from their pubkey alone, so it is the account a
  *  neighbour's wordlist can actually reach. */
-const DEFENDER_GUEST_PW = workstationGuestPassword(defender.publicKeyHex);
+const DEFENDER_GUEST_PW = plaintextFor(workstationGuestHash(defender.publicKeyHex));
 
 // The database `apt install mysql` writes onto the defender's box — drawn from their
 // own key, so it is theirs and nobody else's.

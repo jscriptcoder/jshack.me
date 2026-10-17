@@ -12,8 +12,7 @@
 
 import type { Directory, FileNode } from '../filesystem/types.js';
 import { createPrng } from './prng.js';
-import { md5 } from './md5.js';
-import { CRACK_CHANCE, drawPassword } from './passwordPools.js';
+import { CRACK_CHANCE, drawPasswordHash } from './passwordPools.js';
 import {
   createBinaryEntries,
   LOCALHOST_PREINSTALLED_TOOLS,
@@ -69,15 +68,15 @@ import { buildFixedSiteFs } from './fixedSiteFs.js';
 import { fixedSite } from './fixedSites.js';
 import { buildBranchSshDirectory } from './sshContent.js';
 
-/** The AP gateway's root account plaintext password, seeded from the ESSID alone
+/** The hash of the AP gateway's root account password, seeded from the ESSID alone
  *  (the `ap-gw-admin-` namespace) so every occupant of the access point faces the
  *  same credential and the server can recover it for cross-player auth.
  *
  *  Crackable at the gateway rate — the best root odds in the game, and a rate
  *  somebody chose: before this the answer was whatever fraction of the router
  *  pool happened to also ship in the starter wordlist. */
-export const seedApGatewayAdminPw = (essid: string): string =>
-  drawPassword(createPrng(`ap-gw-admin-${essid}`), CRACK_CHANCE.gateway);
+export const seedApGatewayAdminHash = (essid: string): string =>
+  drawPasswordHash(createPrng(`ap-gw-admin-${essid}`), CRACK_CHANCE.gateway);
 
 /** A device's read-write community, seeded in a namespace of its own.
  *
@@ -93,14 +92,14 @@ export const seedApGatewayAdminPw = (essid: string): string =>
  *  no second wordlist or second progression has to be tuned. A community then reads
  *  like a password rather than like `private`, which is the accepted cost: real
  *  communities are arbitrary strings anyway. */
-export const seedSnmpCommunity = (namespace: string): string =>
-  drawPassword(createPrng(namespace), CRACK_CHANCE.community);
+export const seedSnmpCommunityHash = (namespace: string): string =>
+  drawPasswordHash(createPrng(namespace), CRACK_CHANCE.community);
 
 /** The AP gateway's read-write community, from the ESSID alone — every occupant of one
  *  access point faces the same string, the way they face the same admin password, and
  *  the server can recover it for a cross-player walk. */
-export const seedApGatewayCommunity = (essid: string): string =>
-  seedSnmpCommunity(`ap-gw-community-${essid}`);
+export const seedApGatewayCommunityHash = (essid: string): string =>
+  seedSnmpCommunityHash(`ap-gw-community-${essid}`);
 
 /** Whether this AP's gateway runs `sshd`, seeded deterministically from the ESSID
  *  (the `ap-gw-ssh-` namespace). The rate is the router row's, read from the same
@@ -400,8 +399,8 @@ const apGatewayFs = (essid: string): Directory => {
     ? buildFixedSiteFs(site)
     : buildRouterBaseFsFromIdentity(
       {
-        adminPwHash: md5(seedApGatewayAdminPw(essid)),
-        snmpCommunityHash: md5(seedApGatewayCommunity(essid)),
+        adminPwHash: seedApGatewayAdminHash(essid),
+        snmpCommunityHash: seedApGatewayCommunityHash(essid),
         firmwareSeed: `ap-gw-${essid}`,
         hasSsh: seedApGatewayHasSsh(essid),
         // PINNED, and deliberately not read from the placement table. `ssh` can be pinned
@@ -446,8 +445,8 @@ const apGatewayRules = (essid: string): string => {
  *  lock on it; the server recovers it from the ESSID, which fixes the octet. The
  *  credential is keyed to the BOX, not to whoever cracked it: one shared machine cannot
  *  have a different root password per occupant looking at it. */
-export const seedInnerGatewayAdminPw = (essid: string, octet: number): string =>
-  drawPassword(createPrng(`inner-gw-admin-${essid}:${octet}`), CRACK_CHANCE.gateway);
+export const seedInnerGatewayAdminHash = (essid: string, octet: number): string =>
+  drawPasswordHash(createPrng(`inner-gw-admin-${essid}:${octet}`), CRACK_CHANCE.gateway);
 
 /** Build an inner gateway's base FS — the same root-only router toolkit as the edge
  *  (`buildRouterBaseFsFromIdentity`), but the admin password is the octet-seeded
@@ -456,8 +455,8 @@ export const seedInnerGatewayAdminPw = (essid: string, octet: number): string =>
 export const buildInnerGatewayBaseFs = (essid: string, octet: number): Directory =>
   buildRouterBaseFsFromIdentity(
     {
-      adminPwHash: md5(seedInnerGatewayAdminPw(essid, octet)),
-      snmpCommunityHash: md5(seedSnmpCommunity(`inner-gw-community-${essid}:${octet}`)),
+      adminPwHash: seedInnerGatewayAdminHash(essid, octet),
+      snmpCommunityHash: seedSnmpCommunityHash(`inner-gw-community-${essid}:${octet}`),
       firmwareSeed: `inner-gw-${essid}:${octet}`,
       hasSsh: true,
       hasSnmp: seedHasSnmp(`inner-gw-snmp-${essid}:${octet}`, 'router'),
@@ -477,8 +476,8 @@ export const buildInnerGatewayBaseFs = (essid: string, octet: number): Directory
  *  walking the chain, which fixes the parent + octet. One password per door, not per
  *  player: two occupants cracking the same chain door are cracking the same box.
  *  Crackable at the same gateway rate as every other depth. */
-export const seedDeepGatewayAdminPw = (parentMachineId: string, octet: number): string =>
-  drawPassword(createPrng(`deep-gw-admin-${parentMachineId}:${octet}`), CRACK_CHANCE.gateway);
+export const seedDeepGatewayAdminHash = (parentMachineId: string, octet: number): string =>
+  drawPasswordHash(createPrng(`deep-gw-admin-${parentMachineId}:${octet}`), CRACK_CHANCE.gateway);
 
 /** Build a deep gateway's base FS — the same root-only router toolkit as an inner
  *  gateway (NAT `rules.v4`, `sshd` always up: it forwards to its OWN deeper layer and
@@ -492,8 +491,8 @@ export const buildDeepGatewayBaseFs = (
 ): Directory =>
   buildRouterBaseFsFromIdentity(
     {
-      adminPwHash: md5(seedDeepGatewayAdminPw(parentMachineId, octet)),
-      snmpCommunityHash: md5(seedSnmpCommunity(`deep-gw-community-${parentMachineId}:${octet}`)),
+      adminPwHash: seedDeepGatewayAdminHash(parentMachineId, octet),
+      snmpCommunityHash: seedSnmpCommunityHash(`deep-gw-community-${parentMachineId}:${octet}`),
       firmwareSeed: `deep-gw-${parentMachineId}:${octet}`,
       hasSsh: true,
       hasSnmp: seedHasSnmp(`deep-gw-snmp-${parentMachineId}:${octet}`, 'router'),
@@ -509,7 +508,7 @@ export const buildDeepGatewayBaseFs = (
 /** Build a DEEP switch's base FS — a deep gateway seeded as a switch rather than a
  *  router. It is the deep counterpart of `buildSwitchBaseFs` (an `acl.conf` box, no NAT
  *  `rules.v4`, so it forwards nothing and caps the chain) but its admin password is the
- *  deep discriminator (parent machine_id + octet), REUSING `seedDeepGatewayAdminPw` — a
+ *  deep discriminator (parent machine_id + octet), REUSING `seedDeepGatewayAdminHash` — a
  *  given slot is one kind, so the deep namespace is unambiguous, the same way the inner
  *  switch reuses `inner-gw-admin-`. */
 export const buildDeepSwitchBaseFs = (
@@ -519,8 +518,8 @@ export const buildDeepSwitchBaseFs = (
 ): Directory =>
   buildGatewayBaseFs(
     {
-      adminPwHash: md5(seedDeepGatewayAdminPw(parentMachineId, octet)),
-      snmpCommunityHash: md5(seedSnmpCommunity(`deep-sw-community-${parentMachineId}:${octet}`)),
+      adminPwHash: seedDeepGatewayAdminHash(parentMachineId, octet),
+      snmpCommunityHash: seedSnmpCommunityHash(`deep-sw-community-${parentMachineId}:${octet}`),
       firmwareSeed: `deep-sw-${parentMachineId}:${octet}`,
       hasSsh: true,
       hasSnmp: seedHasSnmp(`deep-sw-snmp-${parentMachineId}:${octet}`, 'switch'),
@@ -542,8 +541,8 @@ export const buildDeepSwitchBaseFs = (
 export const buildSwitchBaseFs = (essid: string, octet: number): Directory =>
   buildGatewayBaseFs(
     {
-      adminPwHash: md5(seedInnerGatewayAdminPw(essid, octet)),
-      snmpCommunityHash: md5(seedSnmpCommunity(`inner-sw-community-${essid}:${octet}`)),
+      adminPwHash: seedInnerGatewayAdminHash(essid, octet),
+      snmpCommunityHash: seedSnmpCommunityHash(`inner-sw-community-${essid}:${octet}`),
       firmwareSeed: `inner-sw-${essid}:${octet}`,
       hasSsh: true,
       hasSnmp: seedHasSnmp(`inner-sw-snmp-${essid}:${octet}`, 'switch'),

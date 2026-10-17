@@ -48,11 +48,11 @@ import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 const MYSQL_PORT = SERVICE_CATALOG.mysql.defaultPort;
 import { pidfilePath } from '../src/core/services/pidfile.js';
 import { parseMysqlDatabase } from '../src/core/mysql/types.js';
-import { ALL_GENERATED_PASSWORDS } from '../src/core/generation/passwordPools.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { DATADIR_FILE } from '../src/core/generation/baseFs.js';
 import { MYSQL_LOG_PATH } from '../src/core/logging/mysqlLog.js';
 import type { Directory } from '../src/core/filesystem/types.js';
+import { ALL_GENERATED_PASSWORDS } from '../src/test/passwords.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;

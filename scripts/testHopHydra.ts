@@ -32,18 +32,18 @@ import { generateDeepLayer } from '../src/core/generation/generateDeepLayer.js';
 import { buildDeepHostFs } from '../src/core/generation/deepHostFs.js';
 import { hostMachineId } from '../src/core/generation/remoteHostId.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
-import { seedApGatewayAdminPw } from '../src/core/generation/routerFs.js';
+import { seedApGatewayAdminHash } from '../src/core/generation/routerFs.js';
 import { crackableEssidPool } from '../src/core/generation/generateWifi.js';
 import { publicAddress } from '../src/core/generation/world.js';
 import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js';
 import { AUTH_LOG_PATH } from '../src/core/logging/authLog.js';
 import { accountsIn, accountIn } from '../src/core/sessions/passwdAccount.js';
-import { ALL_GENERATED_PASSWORDS } from '../src/core/generation/passwordPools.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { WORDLIST_PATH, formatWordlist } from '../src/core/wordlist/defaultWordlist.js';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { standOnNetwork, leaveNetwork } from './standVantage.js';
+import { ALL_GENERATED_PASSWORDS, plaintextFor } from '../src/test/passwords.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const url = process.env.SUPABASE_URL;
@@ -190,7 +190,7 @@ const N_GATEWAY_ID = computeApGatewayId(N);
 
 const TARGET_PUBLIC = publicAddress(TARGET)!;
 const TARGET_GATEWAY_ID = computeApGatewayId(TARGET);
-const TARGET_ADMIN_PW = seedApGatewayAdminPw(TARGET);
+const TARGET_ADMIN_PW = plaintextFor(seedApGatewayAdminHash(TARGET));
 
 const SWEEP_PORT = SERVICE_CATALOG.ssh.defaultPort;
 const ROOT_ONLY = { read: ['root'], write: ['root'], execute: [] };

@@ -21,12 +21,13 @@ import { generateIdentity } from '../src/core/identity/identity.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
 import { machineIdForLanHost } from '../src/core/generation/lanTopology.js';
-import { workstationGuestPassword } from '../src/core/generation/workstationFs.js';
+import { workstationGuestHash } from '../src/core/generation/workstationFs.js';
 import { lanAddressFor } from '../src/core/network/lanAddress.js';
 import { formatPidfileContent } from '../src/core/services/pidfile.js';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 import { AUTH_LOG_PATH } from '../src/core/logging/authLog.js';
 import { leaveNetwork, standOnNetwork } from './standVantage.js';
+import { plaintextFor } from '../src/test/passwords.js';
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
@@ -183,7 +184,7 @@ check(
 const intoCarol = await loginFrom(
   'hop-carol-1',
   CAROL_IP,
-  workstationGuestPassword(carol.publicKeyHex),
+  plaintextFor(workstationGuestHash(carol.publicKeyHex)),
   NPC_BOX,
 );
 check(
@@ -203,7 +204,7 @@ check(
 const intoDave = await loginFrom(
   'hop-dave-1',
   DAVE_IP,
-  workstationGuestPassword(dave.publicKeyHex),
+  plaintextFor(workstationGuestHash(dave.publicKeyHex)),
   CAROL_WS,
 );
 check(
@@ -223,7 +224,7 @@ check(
 const crafted = await loginFrom(
   'hop-crafted-1',
   DAVE_IP,
-  workstationGuestPassword(dave.publicKeyHex),
+  plaintextFor(workstationGuestHash(dave.publicKeyHex)),
 );
 check(
   'a login naming this network from home is refused',
@@ -235,7 +236,7 @@ check(
 const borrowed = await loginFrom(
   'hop-borrowed-1',
   CAROL_IP,
-  workstationGuestPassword(carol.publicKeyHex),
+  plaintextFor(workstationGuestHash(carol.publicKeyHex)),
   computeWorkstationId('rig', generateIdentity().publicKeyHex),
 );
 check(

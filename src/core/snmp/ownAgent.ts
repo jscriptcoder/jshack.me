@@ -4,7 +4,7 @@
  * Every other SNMP door in the world belongs to a device the generator built, and its
  * community falls out of the ESSID or the machine that fronts it. This one belongs to a
  * box nothing generated, so it is derived from the OWNER'S PUBKEY — the same key
- * `workstationGuestPassword`, `ownDatabase` and `ownStore` are drawn from.
+ * `workstationGuestHash`, `ownDatabase` and `ownStore` are drawn from.
  *
  * The pubkey rather than anything else on the box, for three reasons. The word is the
  * owner's rather than the game's, so what one player reads off their install is not
