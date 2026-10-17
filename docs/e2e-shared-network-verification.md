@@ -280,7 +280,7 @@ both players reach the *same box* with the *same* password. Derive it offline (�
 As **A**:
 
 ```
-ssh root@192.168.<subnet>.1        → password = seedApGatewayAdminPw(X)
+ssh root@192.168.<subnet>.1        → password = plaintextFor(seedApGatewayAdminHash(X))
 cat /etc/iptables/rules.v4         → the seeded NAT table with its comment header
 cat /etc/passwd                    → root-only, exactly one line, no guest
 nano /etc/iptables/rules.v4        → add a forward to A's LAN address, Ctrl+O, Ctrl+X
@@ -300,7 +300,7 @@ services and `ssh` correctly answered `Connection refused`.
 The reliable shared non-player box is the **inner gateway / switch** (the non-`.1`
 router and switch rows in the scan — e.g. `.217 wan-rtr`, `.218 dist-rtr`). Their
 credentials derive offline exactly like the AP gateway's, via
-`seedInnerGatewayAdminPw(essid, octet)` (§7).
+`plaintextFor(seedInnerGatewayAdminHash(essid, octet))` (§7).
 
 As A, `ssh root@192.168.<subnet>.217`, `touch /tmp/alice-was-here`; as B, `ssh` the same
 address and `ls /tmp`. **Expect A's file** — but read the staleness warning below first.
@@ -1308,12 +1308,12 @@ only from there and `npx tsx -e` produces no output in this environment.
 ```bash
 cd v2
 cat > ./g.tmp.ts << 'EOF'
-import { seedApGatewayAdminPw } from './src/core/generation/routerFs.js';
+import { seedApGatewayAdminHash } from './src/core/generation/routerFs.js';
 import { seedApGatewayHostname } from './src/core/generation/gatewayHostname.js';
 import { computeApGatewayId } from './src/core/identity/router.js';
-import { workstationGuestPassword } from './src/core/generation/workstationFs.js';
+import { plaintextFor } from './src/test/passwords.js';
 const ESSID = 'SHINRA-5G';                       // ← X
-console.log('gateway admin pw =', seedApGatewayAdminPw(ESSID));
+console.log('gateway admin pw =', plaintextFor(seedApGatewayAdminHash(ESSID)));
 console.log('gateway hostname =', seedApGatewayHostname(ESSID));
 console.log('gateway id       =', computeApGatewayId(ESSID));
 EOF

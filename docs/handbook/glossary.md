@@ -54,7 +54,7 @@ here refers to a real network or system.
 | **Sample sweep**        | The fixed subset of drawn networks the whole-world content tests read; `WORLD_SWEEP=full` reads them all.                                              |
 | **`WORLD_EPOCH`**       | The fixed date all generated history ends and the vulnerability clock starts. A development anchor until launch.                                       |
 | **Budget**              | The post-build limits on bundle size and per-machine generation time.                                                                                  |
-| **Encode**              | `npm run encode`, which obfuscates spoiler pools into the git-ignored `__encoded.ts`.                                                                  |
+| **Encode**              | `npm run encode`, which writes the spoiler pools into the git-ignored `__encoded.ts`, the uncrackable one as md5s only.                                |
 
 ## Filesystem and journal
 

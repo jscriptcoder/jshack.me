@@ -231,23 +231,38 @@ where its accounts live (`accountsOn`). `services/pidfile.ts` is the **single** 
 running": every producer writes pidfiles through its formatter and every reader goes through
 `readRunningProcesses` / `readOpenPorts`.
 
-## Secrets: obfuscation, not secrecy
+## Secrets: hashes for the answer key, obfuscation for the rest
 
 Some pools would hand a player the answer key if they read the repo or searched the JavaScript bundle
 (the uncrackable passwords, the WiFi passwords). The four password pools are not in the repo: they
 arrive in the `JSHACK_SECRETS` environment variable, one JSON object of four lists (chapter 2 says
 where it comes from, chapter 12 how to change it). Before every `dev`, `build`, `typecheck` and test
 run, `npm run encode` runs `scripts/encode.ts`, which validates the value with `parseSecrets.ts` and
-writes the **git-ignored** `src/core/secrets/__encoded.ts`: each list JSON-stringified, XOR-ed with a
-fixed key and Base64-encoded, decoded at module load. Consumers import from `__encoded.js`.
+writes two **git-ignored** modules:
+
+- `src/core/secrets/__encoded.ts`, the one the game imports: each list JSON-stringified, XOR-ed with a
+  fixed key and Base64-encoded, decoded at module load. The uncrackable pool is not in it: it holds
+  `UNCRACKABLE_HASHES`, the md5 of each word in the pool's order, so a seed lands on the same index.
+  Every generator draws through `drawPasswordHash` (`generation/passwordPools.ts`) and every seeder
+  returns a hash (`seedApGatewayAdminHash`, `workstationGuestHash`, …), so the game never holds an
+  uncrackable word.
+- `src/core/secrets/__plaintext.ts`, the four raw lists, for tests and scripts that need the word
+  behind a hash. They read it through `src/test/passwords.ts` (`plaintextFor(hash)`,
+  `ALL_GENERATED_PASSWORDS`). Lint forbids both to `src/` outside tests and to `api/`.
 
 The parser is the gate for the pools' invariants (non-blank, unique, no uncrackable word in any list a
 player can read, at least 40 uncrackable words and more of them than crackable ones), so a bad paste
 fails the Vercel build instead of shipping a world with the wrong difficulty curve.
 
-The codec keeps the answers out of a `grep` of `dist/`. It is not secrecy: the key ships in the
-bundle. Changing the key only needs a re-encode; changing a pool re-rolls every password drawn from
-it.
+A player who digs through the bundle finds the uncrackable pool only as hashes, which they would
+have to crack exactly as in-game; md5 is weak on purpose, so the list is a shortcut to work a player
+could do one hash at a time, not a key. `scripts/checkSecrets.ts` runs first in `postbuild` and fails
+the build, naming the word and the file, if any uncrackable word appears in `dist/`.
+
+The other lists reach every player anyway (the wordlist prints crackable and padding, a cracked network
+prints its WiFi key), so the codec only keeps them out of a `grep` of `dist/`. That part is not
+secrecy: the key ships in the bundle. Changing the key only needs a re-encode; changing a pool re-rolls
+every password drawn from it.
 
 ## Budgets: why generation must stay fast
 
@@ -383,8 +398,12 @@ rules to `parseSecrets.ts`, run `npm run encode`, and read it from `__encoded.js
   When in doubt, read the tree with `readOpenPorts`.
 - **The access-point gateway is not returned by `generatedBaseFsForMachineId`** on purpose; build it
   with `buildApGatewayBaseFs(essid)`.
-- **`__encoded.ts` must exist.** Running `npx vitest`, `npx stryker run` or `npm run vercel:dev`
-  directly on a fresh clone fails until `npm run encode` has run, and that needs `JSHACK_SECRETS`.
+- **`__encoded.ts` and `__plaintext.ts` must exist.** Running `npx vitest`, `npx stryker run` or
+  `npm run vercel:dev` directly on a fresh clone fails until `npm run encode` has run, and that needs
+  `JSHACK_SECRETS`.
+- **A seeder returns a hash, never a word.** A test or wire-check that logs in as a generated account
+  takes `plaintextFor(seedApGatewayAdminHash(essid))` from `src/test/passwords.ts`; production code
+  compares hashes.
 - **Existing leases outrank the machine-octet exclusion.** Changing `generateHomeLan` after launch
   could place a new machine on an address a player already holds.
 - **Two template syntaxes**: content pools use `{slot}`; config and page templates use `{{hostname}}`.

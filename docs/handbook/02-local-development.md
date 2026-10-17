@@ -53,7 +53,7 @@ quotes**: the pull wraps it in double quotes without escaping the ones inside, w
 reader does not parse. Then generate the encoded pools:
 
 ```bash
-npm run encode                 # generates src/core/secrets/__encoded.ts (git-ignored)
+npm run encode                 # generates src/core/secrets/__encoded.ts and __plaintext.ts (git-ignored)
 ```
 
 Without the variable, `npm run encode` stops with `JSHACK_SECRETS: not set`, and so do `dev`, `build`,
