@@ -929,6 +929,28 @@ agreed order:
     [`wallet-architecture.md`](./wallet-architecture.md). **Pick up here (2026-10-16):** item 8's
     list and item 6, the agreed work until the owner reopens missions; the next public sites
     (news, the forum) wait in `backlog.md` for their own grill.
+13. ✅ **Script holes read the box as it stands, at the granted tier (v0.395.0, PR #692, 2026-10-17).**
+    A blind `msfconsole` script hole used to read a client-rebuilt copy of the target — stale on a
+    generated box, empty on a fellow occupant's box, a box behind a public forward or a deep-layer
+    box — so a script that read a file, edited it and wrote it back could silently restore the
+    generated version (e.g. a root password reset in `/etc/passwd`). Now a script hole runs in TWO
+    fires: step 1 carries `script_ready: true` and the server answers with the target's materialized
+    tree (journal replayed) filtered to the granted tier; the client runs the script against it;
+    step 2 carries the writes, each re-walked at the granted tier, an overwrite keeping the file's
+    own owner. Reads now land on every box a fire reaches (generated host, fellow occupant, public
+    forward, deep layer, localhost), at the tier the hole granted; both network steps leave a
+    service-axis line (two per run), `--local` leaves none; every other effect still finishes in one
+    request. Browser close-out (2026-10-17, v0.395.0, on GROUND-ZERO-COFFEE): a user-tier network
+    script on a generated box read a hand-planted file and kept it under its append (two `auth.log`
+    lines) and could not see `/root`; a guest-fired `--local systemctl` root hole appended to a box's
+    `/etc/passwd` after its root password was changed by hand, and `su root` with the new password
+    still worked. No root-tier NETWORK `script_exec` is live before ~game day 153, so the
+    `/etc/passwd` case was played through the root `--local` hole; the fellow-occupant browser case
+    is wire-check-proven and its in-browser play is deferred in `backlog.md`. As built: the
+    `script_exec` bullet in [`vulnerability-architecture.md`](./vulnerability-architecture.md) and
+    chapter 8 of the handbook. **Pick up here (2026-10-17):** item 8's list and item 6, the agreed
+    work until the owner reopens missions; the next public sites (news, the forum) wait in
+    `backlog.md` for their own grill.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

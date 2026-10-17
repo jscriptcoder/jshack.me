@@ -368,8 +368,28 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
     all but three already ask the server or read only open ports. The three were
     `aircrack-ng`/`nmcli` (the scan carries the plaintext), the player's own box (drawn from
     the uncrackable pool in the browser), and `msfconsole` scripts, which read a client-built
-    tree. The owner dropped it on the third. The script read path is being fixed on its own
-    (`plans/script-holes-read-the-box.md`), which removes that blocker if this is reopened.
+    tree. The owner dropped it on the third. The script read path was fixed at v0.395.0 (#692;
+    as-built: the `script_exec` bullet in
+    [`vulnerability-architecture.md`](./vulnerability-architecture.md)), which removes that blocker
+    if this is reopened.
+- **Script holes read the box as it stands — SHIPPED v0.395.0 (#692, 2026-10-17); one browser case
+  deferred.** A blind `msfconsole` script hole now runs in two fires and reads the target's
+  server-materialized tree (journal replayed) filtered to the granted tier, on every box a fire
+  reaches, instead of a client rebuild (as-built: the `script_exec` bullet in
+  [`vulnerability-architecture.md`](./vulnerability-architecture.md); milestone 13 in
+  [`project-status.md`](./project-status.md)). The close-out browser run (2026-10-17) played the
+  `/etc/passwd` root-password case end to end via the `--local systemctl` root hole and the network
+  two-step on a generated box (hand-planted file kept under the script's append; two `auth.log`
+  lines; `/root` not in the user-tier served tree). **Deferred to a later browser session:** the
+  second listed close-out case — a script on a FELLOW OCCUPANT's box reading a file in their home. It
+  needs a second player seated as an occupant with a staged `openssh-server 9.8.2` user-tier script
+  hole and a `~/.wallet/wallet.dat`; alice fires a user-tier `ssh` script and the served tree should
+  carry the wallet but not `/root`. It is already wire-check-proven
+  (`scripts/testScriptHolesReadTheBox.ts`, section 2); only the in-browser play is pending. Note for
+  whoever runs it: no root-tier NETWORK `script_exec` is live before ~game day 153 (nginx, openssh
+  and mysql script holes are user-tier, redis user/guest today), so a network script's writes land
+  only at user/guest tier — the root `/etc/passwd` path needs `--local systemctl` (libsystemd
+  255.4.3, staged).
 - **The password pools are in the public repo.** `src/core/secrets/secrets.ts` holds the
   uncrackable and WiFi pools in plaintext, and the repository is public, so its history
   already shows them. Taking them out means new words (human-looking, owner 2026-10-16), the
