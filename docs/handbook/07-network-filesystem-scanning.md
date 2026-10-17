@@ -411,6 +411,12 @@ routers roll it at 0.6 and switches at 0.9.
 - A plaintext `rwcommunity` line typed into the world-readable file is consumed when the daemon
   starts: hashed into the state file and removed from the config. No OID can rotate it.
 
+Generated devices draw their read-write community from the password pools at
+`CRACK_CHANCE.community` (0.6). The agent a player installs with `apt install snmp` does not: its
+community is picked from the **crackable pool only**, keyed by the owner's public key
+(`snmp/ownAgent.ts`), and the install prints it once. So every player's own agent falls to the
+shipped wordlist, and the word the owner is shown is always one the client may know.
+
 `snmpwalk` and `snmpset` go to the server, which reaches the device with `reachServiceHost`, works out
 the caller's tier from the community string (read-write, read-only, or none), and logs the contact in
 `/var/log/snmpd.log`. A wrong community answers exactly like an absent device. A read-only walk

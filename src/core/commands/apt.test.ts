@@ -3065,16 +3065,20 @@ describe('buying the SNMP package', () => {
     expect(readRwCommunityHash(boxHolding(planted?.content ?? ''))).toMatch(/^[0-9a-f]{32}$/);
   });
 
-  it('draws that community for THIS player — two owners never answer to one string', async () => {
-    // A community every box shared would make one crack open every player's agent in
-    // the game at once, and the first player to run `hydra` would own all of them.
-    const mine = aptEnv({ ownerKey: 'a'.repeat(64) });
-    const theirs = aptEnv({ ownerKey: 'c'.repeat(64) });
+  it('draws that community for THIS player, not one string for the whole game', async () => {
+    // Every own agent falls to the shipped wordlist, so this is not what keeps a box
+    // shut. It keeps the word an owner reads off their own install from being the word
+    // on every other player's agent: two owners can still share one by chance, since
+    // the crackable pool is small, but the community is drawn per owner.
+    const states = await Promise.all(
+      ['a', 'b', 'c', 'd'].map(async (keyChar) => {
+        const { env, writes } = aptEnv({ ownerKey: keyChar.repeat(64) });
+        await streamResult(await apt.execute(env, ['install', 'snmp'], NO_FLAGS));
+        return stateIn(writes);
+      }),
+    );
 
-    await streamResult(await apt.execute(mine.env, ['install', 'snmp'], NO_FLAGS));
-    await streamResult(await apt.execute(theirs.env, ['install', 'snmp'], NO_FLAGS));
-
-    expect(stateIn(mine.writes)).not.toBe(stateIn(theirs.writes));
+    expect(new Set(states).size).toBeGreaterThan(1);
   });
 
   it('hands one player the same community however often they install it', async () => {
