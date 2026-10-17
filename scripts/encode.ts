@@ -1,21 +1,37 @@
 /**
- * Build-time secret encoder. Reads the committed plaintext `secrets` map and
- * emits the gitignored `src/core/secrets/__encoded.ts`, where each value is
- * XOR+Base64 obfuscated (see `contentCodec.ts`). Run automatically by the
- * `predev`/`prebuild`/`pretest*` npm hooks so the generated file is always
- * fresh. Obfuscation, not secrecy — it only keeps spoilers out of a grep of
- * the deployed bundle.
+ * Build-time secret encoder. Reads every password pool from the `JSHACK_SECRETS`
+ * environment variable (validated by `parseSecrets`) and emits the gitignored
+ * `src/core/secrets/__encoded.ts`, where each list is JSON-stringified and XOR+Base64
+ * obfuscated (see `contentCodec.ts`). Run automatically by the `predev`/`prebuild`/
+ * `pretest*` npm hooks so the generated file is always fresh. Obfuscation, not
+ * secrecy — it only keeps spoilers out of a grep of the deployed bundle.
+ *
+ * On Vercel the variable comes from the project's environment. Locally it is read
+ * from `.env.development.local` when the shell does not set it. A missing or invalid
+ * value stops the build with every broken rule named: there is no fallback list,
+ * because a quiet fallback is exactly the wrong world this gate exists to prevent.
  */
-import { writeFileSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { encodeContent } from '../src/core/secrets/contentCodec.js';
-import { secrets } from '../src/core/secrets/secrets.js';
+import { parseSecrets } from '../src/core/secrets/parseSecrets.js';
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 
-const encodedEntries = Object.entries(secrets).map(
-  ([key, value]) => [key, encodeContent(value)] as const,
+const localEnvFile = resolve(scriptDir, '../.env.development.local');
+if (process.env['JSHACK_SECRETS'] === undefined && existsSync(localEnvFile)) {
+  process.loadEnvFile(localEnvFile);
+}
+
+const parsed = parseSecrets(process.env['JSHACK_SECRETS']);
+if (!parsed.ok) {
+  console.error(parsed.error);
+  process.exit(1);
+}
+
+const encodedEntries = Object.entries(parsed.secrets).map(
+  ([key, words]) => [key, encodeContent(JSON.stringify(words))] as const,
 );
 
 const lines = [

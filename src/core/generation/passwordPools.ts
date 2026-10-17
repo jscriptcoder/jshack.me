@@ -19,8 +19,14 @@ import type { Prng } from './prng.js';
 
 /**
  * Passwords the shipped wordlist covers completely — obvious and guessable by
- * design. Both pools are read through the build-time codec (see `secrets.ts`)
- * so a grep of the deployed bundle does not return the answer key.
+ * design, an attacker's first twenty tries. Both pools come from the
+ * `JSHACK_SECRETS` environment variable through the build-time codec
+ * (`scripts/encode.ts`), so the repo does not hold them and a grep of the
+ * deployed bundle does not return the answer key.
+ *
+ * Encoded even though every player's `passwords.txt` prints them: that file mixes
+ * them with common-list padding, so it does not say which words this world
+ * actually draws. Printed in the bundle they would.
  *
  * Obfuscation, not secrecy: `contentCodec.ts` says so plainly, and the key ships
  * with the bundle. It raises the cost of skipping the progression; it does not
@@ -33,7 +39,13 @@ export const CRACKABLE_PASSWORDS: readonly string[] = JSON.parse(
 /**
  * Passwords the shipped wordlist covers not at all — an account that draws one
  * holds against a default install until the player harvests that exact word and
- * appends it.
+ * appends it. Printed in the bundle they would be a lookup table for the whole
+ * game, and a player who grepped for them would skip the progression entirely.
+ *
+ * Long on purpose: wordlist growth is the progression, and it stays one only
+ * while each find is a real but partial gain. And deliberately idiosyncratic
+ * rather than merely long — they read like passwords somebody chose, which is
+ * exactly why a generic wordlist misses them.
  */
 export const UNCRACKABLE_PASSWORDS: readonly string[] = JSON.parse(
   secrets.UNCRACKABLE_PASSWORDS,

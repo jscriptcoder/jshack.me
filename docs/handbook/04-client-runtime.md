@@ -490,8 +490,8 @@ clears it automatically.
 - **Tailwind is off under Vitest,** and jsdom renders no CSS, so class-based visual assertions prove
   nothing in unit tests.
 - **Every `npm run dev/build/test*` runs `npm run encode` first** to generate the git-ignored
-  `src/core/secrets/__encoded.ts`. Running Vite or Vitest directly on a fresh clone fails to import
-  it.
+  `src/core/secrets/__encoded.ts` from `JSHACK_SECRETS`. Running Vite or Vitest directly on a fresh
+  clone fails to import it.
 
 ## Where it is tested
 

@@ -37,6 +37,8 @@ import { createPrng } from './prng.js';
 import { secrets } from '../secrets/__encoded.js';
 import { DECLARED_NETWORKS, RIDGEMONT } from './world.js';
 
+/** The keys a crackable AP can hold, read from `JSHACK_SECRETS` through the build-time
+ *  codec (`scripts/encode.ts`) so the bundle does not print them. */
 const wifiPasswords: readonly string[] = JSON.parse(secrets.WIFI_PASSWORDS) as readonly string[];
 
 // The crackable password is the network's IDENTITY (ESSID-seeded), like the

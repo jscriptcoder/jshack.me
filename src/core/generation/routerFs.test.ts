@@ -34,6 +34,7 @@ import { hostServices } from './remoteHostFs.js';
 import { parseAclDenies } from '../network/switchAcl.js';
 import { parseSnmpdConf, readSnmpdConf } from '../snmp/conf.js';
 import { DEFAULT_WORDLIST } from '../wordlist/defaultWordlist.js';
+import { UNCRACKABLE_PASSWORDS } from './passwordPools.js';
 
 // Two distinct valid 64-hex pubkeys — the owner-key seed source.
 // Owner keys — still what a DEEP gateway (below the shared LAN) and a workstation
@@ -172,14 +173,16 @@ describe('seedInnerGatewayAdminPw', () => {
   });
 
   it('is pinned per ESSID+octet (golden) — locks the inner-gw-admin- namespace, roll and pick', () => {
-    // Captured from the seeded generator; hardcoded (not recomputed via the fn) so a
-    // mutated namespace/pool/index shifts the value and fails here deterministically.
+    // Captured from the seeded generator; the pool position is hardcoded (not
+    // recomputed via the fn) so a mutated namespace/pool/index shifts the value and
+    // fails here deterministically. A position rather than the word, so the repo
+    // never prints an uncrackable password; it moves whenever that pool's length does.
     //
     // This network's gateway drew the UNCRACKABLE half — somebody changed the
     // factory password — which is why the value does not read like a router. It
     // also pins the roll: were the crack chance mutated to always take the
     // crackable branch, this would come back a router default instead.
-    expect(seedInnerGatewayAdminPw(ESSID_A, 25)).toBe('copperfield7');
+    expect(seedInnerGatewayAdminPw(ESSID_A, 25)).toBe(UNCRACKABLE_PASSWORDS[2]);
   });
 });
 

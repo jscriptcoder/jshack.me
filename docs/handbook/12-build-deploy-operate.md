@@ -44,8 +44,9 @@ injection is `__APP_VERSION__`.
 
 `npm run build` runs, in order:
 
-1. **`prebuild` → `npm run encode`**: writes the git-ignored `src/core/secrets/__encoded.ts` from
-   `secrets.ts` (chapter 6). The functions import it too.
+1. **`prebuild` → `npm run encode`**: writes the git-ignored `src/core/secrets/__encoded.ts` from the
+   `JSHACK_SECRETS` environment variable (chapter 6). The functions import it too. A missing or
+   malformed value fails the build, naming every broken rule.
 2. **`tsc -b`**: type-checks both project references: `tsconfig.app.json` (`src/`) and
    `tsconfig.node.json` (`vite.config.ts`, `api/`, `scripts/`). Both are strict with
    `exactOptionalPropertyTypes`, `noUnusedLocals/Parameters` and `noImplicitReturns`. A plain
@@ -118,9 +119,30 @@ it. Leaving the CLI linked risks pushing to the wrong project.
   Supabase dashboard, update the matching Vercel environment, redeploy, and refresh
   `.env.development.local` locally. There are no other server secrets: players sign with their own
   keys, and there are no third-party API keys.
-- **Game "secrets"**: the obfuscated password pools (chapter 6). Changing `secrets.ts` or the codec
-  key and re-running `npm run encode` is enough; Vercel re-encodes during `prebuild`. Changing a pool
-  changes the generated world for every player.
+- **Game "secrets"**: the password pools, in the `JSHACK_SECRETS` variable (chapter 6). It is set,
+  readable, in Production, Preview and Development, and in `.env.development.local` locally. Vercel
+  re-encodes it during `prebuild`. Changing the codec key needs only a re-encode.
+
+### Changing the secrets later
+
+Adding, removing or replacing a password re-rolls every door that drew from that list, for every
+player: harvested words stop working, and a player's own SNMP agent keeps the community it was
+installed with until it is reinstalled.
+
+1. Edit `JSHACK_SECRETS` in `.env.development.local`: one line of JSON, wrapped in single quotes.
+2. Run `npm run encode`. It names every rule the new value breaks (`parseSecrets.ts`): a blank or
+   padded word, a repeat, an uncrackable word that is also in another list, fewer than 40 uncrackable
+   words, or no more of them than crackable ones.
+3. Run the full test suite. Expect the golden pins that include an uncrackable draw to fail whenever
+   that list's words or length change: the landmark fingerprints (`landmarks.test.ts`), the database
+   box and backdoor rows (`remoteHostFs.test.ts`) and the inner gateway's pool position
+   (`routerFs.test.ts`). Each failure prints the new value; copy it in and commit it. Those tests hold
+   hashes and positions, never a word.
+4. Paste the same value into all three Vercel environments: dashboard → Settings → Environment
+   Variables → `JSHACK_SECRETS`, kept readable (not sensitive). The CLI's
+   `vercel env add JSHACK_SECRETS preview` keeps asking for a branch even when none is given.
+5. Redeploy: a variable change takes effect on the next deployment only. Push the commit from step 3,
+   or redeploy Production from the dashboard.
 
 ## Operating production
 
@@ -157,7 +179,8 @@ it. Leaving the CLI linked risks pushing to the wrong project.
 - **Local data survives `supabase stop`/`start`.** Stale bricks, leases and public IPs poison later
   wire-checks. `npx supabase db reset` is the cure.
 - **`__encoded.ts` must exist before `npm run vercel:dev`**, which has no pre-hook. On a fresh clone
-  run `npm run encode` (or any of `typecheck`, `test`, `dev`, `build`) first.
+  set `JSHACK_SECRETS` (chapter 2) and run `npm run encode` (or any of `typecheck`, `test`, `dev`,
+  `build`) first.
 - **Case-only renames on Windows** can ship import casing that fails on Linux. Check import casing
   after renaming.
 - **Do not run Stryker alongside `vercel dev`.** Its sandbox copies (`.stryker-tmp/`) can crash the
