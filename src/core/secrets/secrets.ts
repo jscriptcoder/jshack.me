@@ -9,11 +9,44 @@
  * are JSON-stringified and the consumer `JSON.parse`s after decoding.
  *
  * Scope: `WIFI_PASSWORDS` (the crackable-AP pool `generateWifi` draws from),
- * `CRACKABLE_PASSWORDS` (every password the shipped wordlist covers) and
- * `UNCRACKABLE_PASSWORDS` (every password it does NOT cover — accounts and
- * gateway admins alike). Other legacy pools port in when their feature lands.
+ * `CRACKABLE_PASSWORDS` (every password the shipped wordlist covers that a door
+ * can draw), `COMMON_PASSWORDS` (the wordlist's padding, which opens nothing) and
+ * `UNCRACKABLE_PASSWORDS` (every password the wordlist does NOT cover — accounts
+ * and gateway admins alike). Other legacy pools port in when their feature lands.
  */
 export const secrets = {
+  /**
+   * Passwords beyond the generated pools — the common-list padding that makes the
+   * shipped wordlist read like a real one rather than a key to this specific
+   * world. They crack nothing; they are what an attacker would actually try
+   * first. Encoded with the crackable pool so the bundle prints neither half of
+   * the default wordlist.
+   *
+   * `admin` used to live here and did NOT crack nothing — it is a router factory
+   * default, so the padding was quietly opening gateways. It now sits in the
+   * crackable pool, where that job is stated.
+   */
+  COMMON_PASSWORDS: JSON.stringify([
+    '123456',
+    '12345678',
+    'qwerty',
+    'abc123',
+    'monkey',
+    'dragon',
+    'master',
+    'football',
+    'iloveyou',
+    'welcome',
+    'login',
+    'passw0rd',
+    'starwars',
+    'whatever',
+    'freedom',
+    'shadow',
+    'baseball',
+    'superman',
+    'batman',
+  ]),
   /**
    * Account passwords the wordlist `apt install hydra` ships covers completely.
    * Obvious and guessable by design — an attacker's first twenty tries.

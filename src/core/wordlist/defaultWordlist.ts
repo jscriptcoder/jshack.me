@@ -23,6 +23,7 @@
 import { asAbsPath, type AbsPath } from '../types.js';
 import type { FilePermissions } from '../filesystem/types.js';
 import { CRACKABLE_PASSWORDS } from '../generation/passwordPools.js';
+import { secrets } from '../secrets/__encoded.js';
 
 /** Where the wordlist lives, and where every tool that consults one looks for it.
  *  Matches the real Debian/Kali location so a player's instinct is right. */
@@ -39,32 +40,11 @@ export const WORDLIST_PERMISSIONS: FilePermissions = {
 
 /** Passwords beyond the generated pools — the common-list padding that makes the
  *  file read like a real wordlist rather than a key to this specific world. They
- *  crack nothing; they are what an attacker would actually try first.
- *
- *  `admin` used to live here and did NOT crack nothing — it is a router factory
- *  default, so the padding was quietly opening gateways. It now sits in the
- *  crackable router pool, where that job is stated. */
-const COMMON_PASSWORDS: readonly string[] = [
-  '123456',
-  '12345678',
-  'qwerty',
-  'abc123',
-  'monkey',
-  'dragon',
-  'master',
-  'football',
-  'iloveyou',
-  'welcome',
-  'login',
-  'passw0rd',
-  'starwars',
-  'whatever',
-  'freedom',
-  'shadow',
-  'baseball',
-  'superman',
-  'batman',
-];
+ *  crack nothing. Read through the build-time codec (see `secrets.ts`), like the
+ *  pools, so the bundle does not print the default wordlist. */
+const COMMON_PASSWORDS: readonly string[] = JSON.parse(
+  secrets.COMMON_PASSWORDS,
+) as readonly string[];
 
 /** Every password the default install can crack: the crackable pool (what
  *  actually opens a door), then the common-list padding. Deduped — a repeated
