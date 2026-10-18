@@ -279,3 +279,20 @@ An inner gateway scanned as `switch-core` answers its shell prompt as `root@inne
 shows the generated hostname while the prompt shows the machine-id name part, which is keyed by
 DEVICE ROLE rather than by that hostname. Confirmed 2026-08-26 on `192.168.216.48`. Identify the
 box you landed on by the IP you typed, never by the prompt.
+
+### Then: flash the gateway's firmware, forward and back
+
+Verified 2026-10-18 (v0.403.0) on CYBERDYNE-5G, two players root on its gateway. A write that
+moves the firmware row reboots the gateway: everyone on it is dropped, the writer at once and
+anyone else on their next line.
+
+| # | Command | Trap |
+|---|---|---|
+| 1 | `apt upgrade` on the gateway | **A generated gateway always starts on its vendor's OLDEST release** (all six ESSIDs checked: 24.0.1, 15.9.3, 2.7.2 — the first entry of `packageTimeline`), so there is nothing to roll back to yet. Flash forward first: this is already a reboot, and it drops you |
+| 2 | `ssh root@<gateway>` again, then `apt install <vendor>-firmware=<old>` | The vendor is the `*-firmware` row in `/var/lib/dpkg/status`. `apt` only hands over releases backwards, so this fails until step 1 has moved the box |
+| 3 | From your own box: `su root`, `apt install snmp`, `snmpwalk <gateway>` | `snmpwalk` is NOT preinstalled (`command not found. Install with: apt install snmp`). `sysDescr` names the live image, e.g. `DD-WRT v24.0.1 fw-dmz` |
+| 4 | Back on the gateway: `tail -n 4 /var/log/dpkg.log` and `/var/log/kern.log` | `dpkg.log` gains a line for a ROLLBACK only (`downgrade <pkg> <from> <to> Client "<your LAN ip>"`); a forward flash writes none. `kern.log` gets one `[reboot]` line per flash. Both use the scan hostname (`fw-dmz`), not the prompt's `ap-gw` |
+
+A player who only holds a shell sees nothing until they type: their next command answers
+`Connection to ap-gw closed by remote host.` and leaves them at home. That is the drop, not a
+lag — the closed line names the PROMPT's hostname.
