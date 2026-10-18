@@ -1387,11 +1387,11 @@ decision, not a gap.
 - **Library-CVE privilege escalation** — `/lib/*.so` libs as a privesc vector (library CVE
   → `msfconsole --local` → root). Build the binary/availability/library model so
   versions/CVEs bolt on without rework.
-- **Player-driven service patching (defender role) — SCOPED 2026-10-18, building.** Grilled
-  down to "a firmware flash reboots the router": services and libraries already behave as on a
-  real box (every reader takes the version from the manifest), and a CVE going inert game-wide was
-  rejected because it needs a stored shared record. Slice 1 (v0.403.0) makes moving a router's
-  firmware reboot it; the close-out browser run is pending — `plans/firmware-flash-reboots.md`.
+- **Player-driven service patching (defender role) — RESOLVED 2026-10-18 (v0.403.0, #701).**
+  Grilled down to "a firmware flash reboots the router": services and libraries already behave
+  as on a real box (every reader takes the version from the manifest), and a CVE going inert
+  game-wide was rejected because it needs a stored shared record. Moving a router's firmware now
+  reboots it; see `project-status.md` item 16.
 - **Wordlist progression** — hydra as progression: a weak default wordlist, harvest
   passwords to expand coverage.
 - **Themed persistent networks** — `world_networks` infra + a findit.io directory;

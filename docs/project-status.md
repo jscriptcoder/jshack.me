@@ -680,9 +680,9 @@ agreed order:
    wire-check scripts that read `spec.package` for a generated host all pass, since none of
    their chosen hosts runs apache2; one that lands on an apache2 host needs the running
    program's package instead.
-6. **Then:** defender-side items. ✅ The `echo x > rules.v4` wipe was decided a mechanic, not a
-   gap (2026-10-08, `backlog.md`). Left: player-driven service patching (`backlog.md`), whose v2
-   remainder needs scoping first, since `apt upgrade` already patches the player's own box.
+6. ✅ Defender-side items. The `echo x > rules.v4` wipe was decided a mechanic, not a gap
+   (2026-10-08, `backlog.md`). Player-driven service patching was grilled down to one slice,
+   "a firmware flash reboots the router" (item 16).
 7. ✅ In-game tutorials (#631–#636, v0.335.0–v0.340.0, 2026-10-09): a `README` in the player's
    home walks them online and into `lynx`, and `hackademy.io` — an in-world site built like
    findit, attackable and restored by `scripts/restoreSite.ts <domain>` — teaches the world in
@@ -989,9 +989,26 @@ agreed order:
     11,086 characters, valid JSON under `cat`; on LODESTAR-PHARMACY a guest `ftp get` of
     `www-77`'s `/var/log/auth.log.1` landed 18,794 bytes, md5-identical to the generated file. No
     defect. As built: the signed-write rule in
-    [`conventions-and-gotchas.md`](./conventions-and-gotchas.md). **Pick up here (2026-10-18):**
-    item 8's list and item 6, the agreed work until the owner reopens missions; the next public
-    sites (news, the forum) wait in `backlog.md` for their own grill.
+    [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
+16. ✅ **A firmware flash reboots the router (v0.403.0, PR #701, 2026-10-18).** The defender
+    item, scoped: services and libraries already behave as on a real box (every reader takes the
+    version from the manifest), and a CVE going inert game-wide was rejected because it needs a
+    stored shared record. What was missing is a router's restart after a flash. A write to a
+    router's `/var/lib/dpkg/status` that moves its firmware row's version (`apt upgrade`, an
+    `apt install <vendor>-firmware=<old>` rollback, or a hand edit) now reboots the box in the same
+    `upsertPatch` request: every session on it ends, the boot id moves, `kern.log` names the
+    writer's login address, and a rollback first gets its `dpkg.log` line. `reboot` and a flash run
+    one sequence (`sessions/rebootSequence.ts`), and one predicate (`firmwareMoveBetween`) decides a
+    flash for `apt` and the server; `scripts/testFirmwareFlashReboot.ts` proves it live. Browser
+    close-out (2026-10-18, v0.403.0, two new players on CYBERDYNE-5G, both root on its gateway):
+    bob's `apt upgrade` flashed ddwrt-firmware 24.0.1 → 24.4.0 and dropped him, and alice was told
+    `Connection to ap-gw closed by remote host.` on her next line; the rollback to 24.0.1 dropped
+    both again, and `snmpwalk` from bob's box read `DD-WRT v24.0.1`; back in, `dpkg.log` held the
+    downgrade line and `kern.log` a reboot line per flash, each naming bob's `192.168.21.88`; a last
+    `apt upgrade` dropped him and `snmpwalk` read `DD-WRT v24.4.0`. No defect. As built:
+    [`vulnerability-architecture.md`](./vulnerability-architecture.md). **Pick up here
+    (2026-10-18):** item 8's list, the agreed work until the owner reopens missions; the next
+    public sites (news, the forum) wait in `backlog.md` for their own grill.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
