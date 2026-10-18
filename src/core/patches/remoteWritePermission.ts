@@ -110,12 +110,18 @@ const resolveTargetBaseFs = async (args: {
   return { fs: buildOccupantWorkstationFs(occupant.data), error: null };
 };
 
+/** The L2 verdict. A write let through carries the tree it was checked against — the
+ *  box as it stood BEFORE this write, which is what a caller comparing before and after
+ *  needs — or `null` for an own-workstation write, which is never rebuilt here. */
+export type L2Outcome =
+  | ({ readonly ok: false } & L2Denial)
+  | { readonly ok: true; readonly tree: Directory | null };
+
 /**
  * The shared L2 step for the write handlers (`upsertPatch`, `removePatch`). Given
  * the L1 outcome's `session` (null = own-workstation bypass; client enforces
  * own-box L2), resolve the target's tree, replay its prior patches, and ask
- * `createFsView(...).canWrite` at the session tier. Returns the denial response to
- * surface, or `null` to let the write through.
+ * `createFsView(...).canWrite` at the session tier.
  */
 export const enforceRemoteWriteL2 = async (args: {
   readonly machineId: string;
@@ -123,23 +129,23 @@ export const enforceRemoteWriteL2 = async (args: {
   readonly session: SessionTier | null;
   readonly listMachinePatches: ListMachinePatches;
   readonly findOccupantWorkstationByMachineId: FindOccupantWorkstationByMachineId;
-}): Promise<L2Denial | null> => {
-  if (args.session === null) return null;
+}): Promise<L2Outcome> => {
+  if (args.session === null) return { ok: true, tree: null };
 
   const prior = await args.listMachinePatches({ machine_id: args.machineId });
-  if (prior.error) return { status: 500, error: 'permission_check_failed' };
+  if (prior.error) return { ok: false, status: 500, error: 'permission_check_failed' };
 
   const base = await resolveTargetBaseFs({
     machineId: args.machineId,
     session: args.session,
     findOccupantWorkstationByMachineId: args.findOccupantWorkstationByMachineId,
   });
-  if (base.error) return { status: 500, error: 'permission_check_failed' };
-  if (base.fs === null) return { status: 403, error: 'permission_denied' };
+  if (base.error) return { ok: false, status: 500, error: 'permission_check_failed' };
+  if (base.fs === null) return { ok: false, status: 403, error: 'permission_denied' };
 
   const tree = applyPatches(base.fs, prior.data ?? []);
   const allowed = createFsView(tree, { userType: args.session.userType }).canWrite(
     asAbsPath(args.path),
   ).allowed;
-  return allowed ? null : { status: 403, error: 'permission_denied' };
+  return allowed ? { ok: true, tree } : { ok: false, status: 403, error: 'permission_denied' };
 };

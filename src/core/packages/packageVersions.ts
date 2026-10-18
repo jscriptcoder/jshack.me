@@ -93,6 +93,29 @@ const FIRMWARE_PACKAGE_TEMPLATES: Readonly<Record<string, VersionTemplate>> = Ob
 export const isFirmwarePackage = (key: string): boolean =>
   Object.hasOwn(FIRMWARE_PACKAGE_TEMPLATES, key);
 
+/** A router's firmware image changing between two readings of one box's manifest. */
+export type FirmwareMove = {
+  readonly pkg: string;
+  readonly from: string;
+  readonly to: string;
+};
+
+/** Whether rewriting a manifest from `before` to `after` flashes a different firmware
+ *  image — the act that reboots a real router. Read by `apt`, to say so, and by the
+ *  server, to do it, so the line a player is shown and the reboot they get cannot
+ *  disagree. Only an image the box ALREADY runs can move: a box with none is no router,
+ *  and a firmware row typed into its manifest does not make it one. */
+export const firmwareMoveBetween = (
+  before: ReadonlyMap<string, string>,
+  after: ReadonlyMap<string, string>,
+): FirmwareMove | undefined => {
+  const running = [...before].find(([key]) => isFirmwarePackage(key));
+  if (running === undefined) return undefined;
+  const [pkg, from] = running;
+  const to = after.get(pkg);
+  return to === undefined || to === from ? undefined : { pkg, from, to };
+};
+
 /** Every package that carries a version, across all three axes. */
 export const PACKAGE_TEMPLATES: Readonly<Record<string, VersionTemplate>> = {
   ...SERVICE_PACKAGE_TEMPLATES,

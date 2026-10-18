@@ -68,7 +68,7 @@ describe('enforceRemoteWriteL2 — AP gateway', () => {
   const noOccupant = () => Promise.resolve({ data: null, error: null });
 
   it("allows a root tier writing the gateway's rules.v4 on the network its session names", async () => {
-    const denial = await enforceRemoteWriteL2({
+    const outcome = await enforceRemoteWriteL2({
       machineId: computeApGatewayId('HOME-WIFI'),
       path: '/etc/iptables/rules.v4',
       session: { userType: 'root', essid: 'HOME-WIFI' },
@@ -76,11 +76,11 @@ describe('enforceRemoteWriteL2 — AP gateway', () => {
       findOccupantWorkstationByMachineId: noOccupant,
     });
 
-    expect(denial).toBeNull();
+    expect(outcome.ok).toBe(true);
   });
 
   it("denies a non-root tier writing the router's root-only rules.v4", async () => {
-    const denial = await enforceRemoteWriteL2({
+    const outcome = await enforceRemoteWriteL2({
       machineId: computeApGatewayId('HOME-WIFI'),
       path: '/etc/iptables/rules.v4',
       session: { userType: 'guest', essid: 'HOME-WIFI' },
@@ -88,7 +88,7 @@ describe('enforceRemoteWriteL2 — AP gateway', () => {
       findOccupantWorkstationByMachineId: noOccupant,
     });
 
-    expect(denial).toEqual({ status: 403, error: 'permission_denied' });
+    expect(outcome).toEqual({ ok: false, status: 403, error: 'permission_denied' });
   });
 });
 
@@ -112,11 +112,15 @@ describe("enforceRemoteWriteL2 — emailit.io's mail view", () => {
   const VIEW_PATHS = ['/var/mail/trin', '/etc/emailit/passwd'];
 
   it.each(VIEW_PATHS)('lets root write %s', async (path) => {
-    expect(await writeAs('root', path)).toBeNull();
+    expect((await writeAs('root', path)).ok).toBe(true);
   });
 
   it.each(VIEW_PATHS)("denies a guest's write to %s", async (path) => {
-    expect(await writeAs('guest', path)).toEqual({ status: 403, error: 'permission_denied' });
+    expect(await writeAs('guest', path)).toEqual({
+      ok: false,
+      status: 403,
+      error: 'permission_denied',
+    });
   });
 });
 
@@ -143,7 +147,7 @@ describe('enforceRemoteWriteL2 — own inner gateway', () => {
   it("allows a ROOT write to /etc/iptables/rules.v4 on the caller's own inner gateway", async () => {
     const octet = innerGatewayOctet();
 
-    const denial = await enforceRemoteWriteL2({
+    const outcome = await enforceRemoteWriteL2({
       machineId: computeInnerGatewayId(ESSID, octet),
       path: '/etc/iptables/rules.v4',
       session: { userType: 'root', essid: ESSID },
@@ -151,13 +155,13 @@ describe('enforceRemoteWriteL2 — own inner gateway', () => {
       findOccupantWorkstationByMachineId: noOccupant,
     });
 
-    expect(denial).toBeNull();
+    expect(outcome.ok).toBe(true);
   });
 
   it("denies a non-root tier writing the inner gateway's root-only rules.v4", async () => {
     const octet = innerGatewayOctet();
 
-    const denial = await enforceRemoteWriteL2({
+    const outcome = await enforceRemoteWriteL2({
       machineId: computeInnerGatewayId(ESSID, octet),
       path: '/etc/iptables/rules.v4',
       session: { userType: 'guest', essid: ESSID },
@@ -165,7 +169,7 @@ describe('enforceRemoteWriteL2 — own inner gateway', () => {
       findOccupantWorkstationByMachineId: noOccupant,
     });
 
-    expect(denial).toEqual({ status: 403, error: 'permission_denied' });
+    expect(outcome).toEqual({ ok: false, status: 403, error: 'permission_denied' });
   });
 });
 
@@ -190,7 +194,7 @@ describe('enforceRemoteWriteL2 — own switch', () => {
   it("allows a ROOT write to /etc/switch/acl.conf on the caller's own switch", async () => {
     const octet = switchOctet();
 
-    const denial = await enforceRemoteWriteL2({
+    const outcome = await enforceRemoteWriteL2({
       machineId: computeInnerGatewayId(ESSID, octet),
       path: '/etc/switch/acl.conf',
       session: { userType: 'root', essid: ESSID },
@@ -198,13 +202,13 @@ describe('enforceRemoteWriteL2 — own switch', () => {
       findOccupantWorkstationByMachineId: noOccupant,
     });
 
-    expect(denial).toBeNull();
+    expect(outcome.ok).toBe(true);
   });
 
   it("denies a non-root tier writing the switch's root-only acl.conf", async () => {
     const octet = switchOctet();
 
-    const denial = await enforceRemoteWriteL2({
+    const outcome = await enforceRemoteWriteL2({
       machineId: computeInnerGatewayId(ESSID, octet),
       path: '/etc/switch/acl.conf',
       session: { userType: 'guest', essid: ESSID },
@@ -212,7 +216,7 @@ describe('enforceRemoteWriteL2 — own switch', () => {
       findOccupantWorkstationByMachineId: noOccupant,
     });
 
-    expect(denial).toEqual({ status: 403, error: 'permission_denied' });
+    expect(outcome).toEqual({ ok: false, status: 403, error: 'permission_denied' });
   });
 });
 
@@ -254,7 +258,7 @@ describe('enforceRemoteWriteL2 — a deep chain gateway', () => {
   it('allows a ROOT write to /etc/iptables/rules.v4 on a deep chain ROUTER gateway', async () => {
     const door = chainDoorOfKind('router');
 
-    const denial = await enforceRemoteWriteL2({
+    const outcome = await enforceRemoteWriteL2({
       machineId: door.machineId,
       path: '/etc/iptables/rules.v4',
       session: { userType: 'root', essid: door.essid },
@@ -262,13 +266,13 @@ describe('enforceRemoteWriteL2 — a deep chain gateway', () => {
       findOccupantWorkstationByMachineId: noOccupant,
     });
 
-    expect(denial).toBeNull();
+    expect(outcome.ok).toBe(true);
   });
 
   it("denies a non-root tier writing the deep ROUTER gateway's root-only rules.v4", async () => {
     const door = chainDoorOfKind('router');
 
-    const denial = await enforceRemoteWriteL2({
+    const outcome = await enforceRemoteWriteL2({
       machineId: door.machineId,
       path: '/etc/iptables/rules.v4',
       session: { userType: 'guest', essid: door.essid },
@@ -276,7 +280,7 @@ describe('enforceRemoteWriteL2 — a deep chain gateway', () => {
       findOccupantWorkstationByMachineId: noOccupant,
     });
 
-    expect(denial).toEqual({ status: 403, error: 'permission_denied' });
+    expect(outcome).toEqual({ ok: false, status: 403, error: 'permission_denied' });
   });
 
   it("allows a ROOT write to /etc/switch/acl.conf on the caller's own deep chain SWITCH gateway", async () => {
@@ -285,7 +289,7 @@ describe('enforceRemoteWriteL2 — a deep chain gateway', () => {
     // stub resolves to nothing) — so a player can `nano` a rooted deep switch's ACL.
     const door = chainDoorOfKind('switch');
 
-    const denial = await enforceRemoteWriteL2({
+    const outcome = await enforceRemoteWriteL2({
       machineId: door.machineId,
       path: '/etc/switch/acl.conf',
       session: { userType: 'root', essid: door.essid },
@@ -293,13 +297,13 @@ describe('enforceRemoteWriteL2 — a deep chain gateway', () => {
       findOccupantWorkstationByMachineId: noOccupant,
     });
 
-    expect(denial).toBeNull();
+    expect(outcome.ok).toBe(true);
   });
 
   it("denies a non-root tier writing the deep SWITCH gateway's root-only acl.conf", async () => {
     const door = chainDoorOfKind('switch');
 
-    const denial = await enforceRemoteWriteL2({
+    const outcome = await enforceRemoteWriteL2({
       machineId: door.machineId,
       path: '/etc/switch/acl.conf',
       session: { userType: 'guest', essid: door.essid },
@@ -307,7 +311,7 @@ describe('enforceRemoteWriteL2 — a deep chain gateway', () => {
       findOccupantWorkstationByMachineId: noOccupant,
     });
 
-    expect(denial).toEqual({ status: 403, error: 'permission_denied' });
+    expect(outcome).toEqual({ ok: false, status: 403, error: 'permission_denied' });
   });
 });
 
@@ -340,7 +344,7 @@ describe('enforceRemoteWriteL2 — a host on a deep layer', () => {
   if (ESSID === undefined || OTHER_ESSID === undefined) throw new Error('the pool is empty');
 
   it('allows a root shell on the box to write a file there', async () => {
-    const denial = await enforceRemoteWriteL2({
+    const outcome = await enforceRemoteWriteL2({
       machineId: deepHostOf(ESSID),
       path: '/tmp/probe.txt',
       session: { userType: 'root', essid: ESSID },
@@ -348,11 +352,11 @@ describe('enforceRemoteWriteL2 — a host on a deep layer', () => {
       findOccupantWorkstationByMachineId: noOccupant,
     });
 
-    expect(denial).toBeNull();
+    expect(outcome.ok).toBe(true);
   });
 
   it('holds a guest shell on the box to its tier', async () => {
-    const denial = await enforceRemoteWriteL2({
+    const outcome = await enforceRemoteWriteL2({
       machineId: deepHostOf(ESSID),
       path: '/etc/probe.conf',
       session: { userType: 'guest', essid: ESSID },
@@ -360,7 +364,7 @@ describe('enforceRemoteWriteL2 — a host on a deep layer', () => {
       findOccupantWorkstationByMachineId: noOccupant,
     });
 
-    expect(denial).toEqual({ status: 403, error: 'permission_denied' });
+    expect(outcome).toEqual({ ok: false, status: 403, error: 'permission_denied' });
   });
 
   it('asks the box as its journal left it, not as it was generated', async () => {
@@ -378,7 +382,7 @@ describe('enforceRemoteWriteL2 — a host on a deep layer', () => {
       },
     };
 
-    const denial = await enforceRemoteWriteL2({
+    const outcome = await enforceRemoteWriteL2({
       machineId: deepHost,
       path: '/etc/probe.conf',
       session: { userType: 'guest', essid: ESSID },
@@ -387,11 +391,11 @@ describe('enforceRemoteWriteL2 — a host on a deep layer', () => {
       findOccupantWorkstationByMachineId: noOccupant,
     });
 
-    expect(denial).toBeNull();
+    expect(outcome.ok).toBe(true);
   });
 
   it('500s (no false deny) when the journal cannot be read', async () => {
-    const denial = await enforceRemoteWriteL2({
+    const outcome = await enforceRemoteWriteL2({
       machineId: deepHostOf(ESSID),
       path: '/tmp/probe.txt',
       session: { userType: 'root', essid: ESSID },
@@ -399,13 +403,13 @@ describe('enforceRemoteWriteL2 — a host on a deep layer', () => {
       findOccupantWorkstationByMachineId: noOccupant,
     });
 
-    expect(denial).toEqual({ status: 500, error: 'permission_check_failed' });
+    expect(outcome).toEqual({ ok: false, status: 500, error: 'permission_check_failed' });
   });
 
   it("denies a write to a deep box that is not on the session's own network", async () => {
     // The box is found from the network the session was opened on, so a shell on one
     // network cannot write another network's box by naming its id.
-    const denial = await enforceRemoteWriteL2({
+    const outcome = await enforceRemoteWriteL2({
       machineId: deepHostOf(OTHER_ESSID),
       path: '/tmp/probe.txt',
       session: { userType: 'root', essid: ESSID },
@@ -413,7 +417,7 @@ describe('enforceRemoteWriteL2 — a host on a deep layer', () => {
       findOccupantWorkstationByMachineId: noOccupant,
     });
 
-    expect(denial).toEqual({ status: 403, error: 'permission_denied' });
+    expect(outcome).toEqual({ ok: false, status: 403, error: 'permission_denied' });
   });
 });
 
@@ -421,7 +425,7 @@ describe("enforceRemoteWriteL2 — the caller's own workstation", () => {
   it('lets the write through unasked, since no session stands between a player and their box', async () => {
     const neverAsked = () => Promise.reject(new Error('the gate asked about an own-box write'));
 
-    const denial = await enforceRemoteWriteL2({
+    const outcome = await enforceRemoteWriteL2({
       machineId: 'alicebox-deadbeef',
       path: '/boot/vmlinuz',
       session: null,
@@ -429,7 +433,7 @@ describe("enforceRemoteWriteL2 — the caller's own workstation", () => {
       findOccupantWorkstationByMachineId: neverAsked,
     });
 
-    expect(denial).toBeNull();
+    expect(outcome.ok).toBe(true);
   });
 });
 
@@ -442,7 +446,7 @@ describe('enforceRemoteWriteL2 — foreign router (cross-player)', () => {
     // Standing on a gateway means having logged INTO it, and that login records the
     // gateway's own network on the session — so the ESSID that rebuilds its tree is
     // right there, with no lookup and nothing owning the box.
-    const denial = await enforceRemoteWriteL2({
+    const outcome = await enforceRemoteWriteL2({
       machineId: computeApGatewayId('HOME-WIFI'),
       path: '/etc/iptables/rules.v4',
       session: { userType: 'root', essid: 'HOME-WIFI' },
@@ -450,11 +454,11 @@ describe('enforceRemoteWriteL2 — foreign router (cross-player)', () => {
       findOccupantWorkstationByMachineId: noOccupant,
     });
 
-    expect(denial).toBeNull();
+    expect(outcome.ok).toBe(true);
   });
 
   it("denies a non-root write to the AP gateway's root-only rules.v4", async () => {
-    const denial = await enforceRemoteWriteL2({
+    const outcome = await enforceRemoteWriteL2({
       machineId: computeApGatewayId('HOME-WIFI'),
       path: '/etc/iptables/rules.v4',
       session: { userType: 'guest', essid: 'HOME-WIFI' },
@@ -462,14 +466,14 @@ describe('enforceRemoteWriteL2 — foreign router (cross-player)', () => {
       findOccupantWorkstationByMachineId: noOccupant,
     });
 
-    expect(denial).toEqual({ status: 403, error: 'permission_denied' });
+    expect(outcome).toEqual({ ok: false, status: 403, error: 'permission_denied' });
   });
 
   it("denies a write to a gateway that is not the session's own network", async () => {
     // The gateway id is a pure function of the ESSID, so a machine_id that is not this
     // session's gateway resolves to nothing — a caller cannot reach across to another
     // AP's gateway by claiming its id on a session opened somewhere else.
-    const denial = await enforceRemoteWriteL2({
+    const outcome = await enforceRemoteWriteL2({
       machineId: computeApGatewayId('HOME-WIFI'),
       path: '/etc/iptables/rules.v4',
       session: { userType: 'root', essid: 'B-WIFI' },
@@ -477,7 +481,7 @@ describe('enforceRemoteWriteL2 — foreign router (cross-player)', () => {
       findOccupantWorkstationByMachineId: noOccupant,
     });
 
-    expect(denial).toEqual({ status: 403, error: 'permission_denied' });
+    expect(outcome).toEqual({ ok: false, status: 403, error: 'permission_denied' });
   });
 });
 
@@ -504,7 +508,7 @@ describe('enforceRemoteWriteL2 — writing to a fellow occupant (cross-player)',
 
   it("rebuilds A's box from A's occupancy row, allowing B's root write to /boot", async () => {
     const owner = generateIdentity();
-    const denial = await enforceRemoteWriteL2({
+    const outcome = await enforceRemoteWriteL2({
       machineId: 'skylab-deadbeef',
       path: '/boot/vmlinuz',
       session: { userType: 'root', essid: 'SHARED-WIFI' },
@@ -512,12 +516,12 @@ describe('enforceRemoteWriteL2 — writing to a fellow occupant (cross-player)',
       findOccupantWorkstationByMachineId: occupantRow(owner),
     });
 
-    expect(denial).toBeNull();
+    expect(outcome.ok).toBe(true);
   });
 
   it("still denies a guest write to A's root-only /boot, resolved the same way", async () => {
     const owner = generateIdentity();
-    const denial = await enforceRemoteWriteL2({
+    const outcome = await enforceRemoteWriteL2({
       machineId: 'skylab-deadbeef',
       path: '/boot/vmlinuz',
       session: { userType: 'guest', essid: 'SHARED-WIFI' },
@@ -525,12 +529,12 @@ describe('enforceRemoteWriteL2 — writing to a fellow occupant (cross-player)',
       findOccupantWorkstationByMachineId: occupantRow(owner),
     });
 
-    expect(denial).toEqual({ status: 403, error: 'permission_denied' });
+    expect(outcome).toEqual({ ok: false, status: 403, error: 'permission_denied' });
   });
 
   it('fails closed (403) when the machine occupies no network at all', async () => {
 
-    const denial = await enforceRemoteWriteL2({
+    const outcome = await enforceRemoteWriteL2({
       machineId: 'unknown-machine',
       path: '/boot/vmlinuz',
       session: { userType: 'root', essid: 'SHARED-WIFI' },
@@ -538,12 +542,12 @@ describe('enforceRemoteWriteL2 — writing to a fellow occupant (cross-player)',
       findOccupantWorkstationByMachineId: noOccupant,
     });
 
-    expect(denial).toEqual({ status: 403, error: 'permission_denied' });
+    expect(outcome).toEqual({ ok: false, status: 403, error: 'permission_denied' });
   });
 
   it('500s (no false deny) when the occupancy lookup errors', async () => {
 
-    const denial = await enforceRemoteWriteL2({
+    const outcome = await enforceRemoteWriteL2({
       machineId: 'skylab-deadbeef',
       path: '/boot/vmlinuz',
       session: { userType: 'root', essid: 'SHARED-WIFI' },
@@ -552,6 +556,6 @@ describe('enforceRemoteWriteL2 — writing to a fellow occupant (cross-player)',
         Promise.resolve({ data: null, error: new Error('db down') }),
     });
 
-    expect(denial).toEqual({ status: 500, error: 'permission_check_failed' });
+    expect(outcome).toEqual({ ok: false, status: 500, error: 'permission_check_failed' });
   });
 });

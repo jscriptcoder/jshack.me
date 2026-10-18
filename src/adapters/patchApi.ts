@@ -84,6 +84,15 @@ const toPatchResult = (response: Response): PatchResult => {
   return { ok: false, error: 'network_error' };
 };
 
+/** The `error` code a failed response's body names, or undefined for a body that is
+ *  not the server's JSON. */
+const errorCodeOf = async (response: Response): Promise<string | undefined> => {
+  const body: unknown = await response.json().catch(() => null);
+  return typeof body === 'object' && body !== null && 'error' in body
+    ? String(body.error)
+    : undefined;
+};
+
 const upsert = async (
   deps: PatchClientDeps,
   fields: Readonly<Record<string, unknown>>,
@@ -94,7 +103,13 @@ const upsert = async (
     // fault, when the truth is that this file cannot be kept. Measured on the payload
     // as signed, since JSON escaping makes it longer than the content it carries.
     if (envelope.payload.length > MAX_SIGNED_PAYLOAD) return { ok: false, error: 'too_large' };
-    return toPatchResult(await send(deps, envelope));
+    const response = await send(deps, envelope);
+    // The one 500 that is not a failed write: the row landed, moved a router's firmware,
+    // and the reboot that follows did not end the box's sessions.
+    if (response.status === 500 && (await errorCodeOf(response)) === 'reboot_failed') {
+      return { ok: false, error: 'reboot_failed' };
+    }
+    return toPatchResult(response);
   } catch {
     return { ok: false, error: 'network_error' };
   }

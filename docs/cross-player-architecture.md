@@ -324,7 +324,9 @@ escalate on A's box and permanently brick it.
   box, not the remote you're standing on), and consults `canBoot`. Missing → GRUB / kernel-panic,
   **halt, no terminal, no recovery**. `reboot` (`core/commands/reboot.ts`, root-only via the binary
   gate) is the in-game trigger: it forces a cold boot of the current machine (own box via `env.fs`,
-  cross-player via the server-served tree) and then disconnects from the rebooted box.
+  cross-player via the server-served tree) and then disconnects from the rebooted box. A write
+  that moves a router's firmware row reboots the router too, server-side in `upsertPatch`
+  (`sessions/rebootSequence.ts`), so flashing a gateway whose `/boot/vmlinuz` is gone bricks it.
 - **A bricked box goes dark to others:** the two public-IP server gates materialize the target and
   ask `canBoot` BEFORE doing their work (same lookup-then-rebuild + journal replay the read path uses).
   Post-5.1.1b/5.1.2 both gates key on the **router** (`core/network/materializeRouterFs.ts`) — it

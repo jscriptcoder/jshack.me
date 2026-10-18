@@ -36,6 +36,7 @@
 import { canBoot, type BootCheck, type BootFile } from '../boot/bootFiles.js';
 import { BOOT_FAILURE } from '../boot/bootMessages.js';
 import type { Command, CommandEnv, TerminalLine } from './types.js';
+import { leaveRebootedBox } from './leaveRebootedBox.js';
 
 const text = (content: string): TerminalLine => ({ kind: 'text', content });
 
@@ -74,22 +75,6 @@ const panicTail = (missing: BootFile): readonly string[] =>
         '',
         BOOT_FAILURE.systemHalted,
       ];
-
-/** Disconnect the player from the machine just rebooted: pop every session that
- *  sits on it (the box went down), counting from the top of the hop chain but
- *  NEVER the base login (the player's own box is always reachable). On the own
- *  base box there is nothing above the base, so nothing is popped. */
-const disconnect = (env: CommandEnv): void => {
-  const rebooted = env.session.machineId;
-  // The stack from the top (active) down, minus the base login at the bottom.
-  const aboveBase = [env.session, ...[...env.hopChain].reverse()].slice(0, -1);
-  let pops = 0;
-  for (const session of aboveBase) {
-    if (session.machineId !== rebooted) break;
-    pops += 1;
-  }
-  for (let popped = 0; popped < pops; popped += 1) env.popSession();
-};
 
 /** Whether the eviction took, written by the stream and read by `exitCode` after
  *  it drains. The two are handed to the shell separately, so the outcome has to
@@ -131,7 +116,7 @@ async function* rebootSequence(
 
   // The box has come up (or halted) — drop off it. Reached only when the stream
   // runs to completion; a Ctrl-C abort stops before here, leaving the hop intact.
-  disconnect(env);
+  leaveRebootedBox(env);
 }
 
 const execute: Command['execute'] = async (env) => {

@@ -46,11 +46,11 @@ import {
   type SessionSummary,
 } from '../src/core/sessions/listSessions.js';
 import { handleEndSession, type EndSessionParams } from '../src/core/sessions/endSession.js';
-import {
-  handleRebootMachine,
-  type EndMachineSessionsParams,
-  type WriteBootIdParams,
-} from '../src/core/sessions/rebootMachine.js';
+import { handleRebootMachine } from '../src/core/sessions/rebootMachine.js';
+import type {
+  EndMachineSessionsParams,
+  WriteBootIdParams,
+} from '../src/core/sessions/rebootSequence.js';
 import type {
   EndedSession,
   EndSessionsAboveParams,

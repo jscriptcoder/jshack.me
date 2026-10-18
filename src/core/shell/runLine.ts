@@ -55,6 +55,7 @@ import { resolveAbsPath } from '../filesystem/path.js';
 import { stubName } from '../generation/binaries.js';
 import { mayExecute } from '../commands/availability.js';
 import { isOwnWorkstation, parseWorkstationId } from '../identity/workstation.js';
+import { connectionClosedLine } from '../commands/leaveRebootedBox.js';
 import { homeDirectory } from '../sessions/homeDirectory.js';
 
 const syncError = (content: string, exitCode: number): CommandResult => ({
@@ -110,10 +111,6 @@ const socketAlive = (session: Session, fs: FsView): boolean =>
   session.kind !== 'nc' ||
   session.port === undefined ||
   listenerOn(fs.root(), session.port) !== null;
-
-/** What a shell says when the box it was standing on went down underneath it —
- *  the line the real thing prints when the far end stops answering mid-session. */
-const wentDown = (hostname: string): string => `Connection to ${hostname} closed by remote host.`;
 
 /** Whether the box has rebooted since this session last looked at it. Asked of
  *  every kind, because a reboot is the one act that ends sessions it cannot see:
@@ -426,7 +423,7 @@ export const runCommandLine = async (
       kind: 'sync',
       lines: lost
         .filter((session) => session.kind !== 'su')
-        .map((session) => ({ kind: 'error', content: wentDown(hostOf(session)) })),
+        .map((session) => ({ kind: 'error', content: connectionClosedLine(hostOf(session)) })),
       exitCode: 1,
     };
   }
@@ -446,7 +443,7 @@ export const runCommandLine = async (
   // before the parse, so `su | grep x` is no more a way through than a typo is.
   if (bootIdMoved(env.session, env.fs)) {
     env.popSession();
-    return syncError(wentDown(env.hostname), 1);
+    return syncError(connectionClosedLine(env.hostname), 1);
   }
 
   const tokenized = tokenize(input, homeDirectory(env.session));

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { derivedPublicIpByEssid } from '../src/core/logging/crossPlayerSourceIp.js';
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { createClient } from '@supabase/supabase-js';
@@ -24,7 +25,14 @@ import type { OwnerPatchRow } from '../src/core/network/materializeWorkstationFs
 import type {
   ActiveSessionQuery,
   FindActiveSessionResult,
+  StandingSession,
 } from '../src/core/patches/authorizeMachineAccess.js';
+import type {
+  EndMachineSessionsParams,
+  WriteBootIdParams,
+} from '../src/core/sessions/rebootSequence.js';
+import type { EndedSession, EndSessionsAboveParams } from '../src/core/sessions/upstreamLost.js';
+import { BOOT_ID_OWNER, BOOT_ID_PATH, BOOT_ID_PERMISSIONS } from '../src/core/boot/bootId.js';
 import type {
   ListMachinePatchesResult,
   OccupantWorkstation,
@@ -121,17 +129,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return { data: data as readonly PathPatchRow[] | null, error };
   };
 
-  // L1 lookup shared by upsert/list/remove: the caller's ACTIVE session on the
-  // target machine (an ssh hop). The handler only needs its presence today; the
-  // projected `userType`/`essid` are what the remote-write L2 pass reads next.
+  // L1 lookup shared by every handler here: the caller's ACTIVE session on the target
+  // machine (an ssh hop). L2 reads its `userType`/`essid`; a firmware flash names the
+  // address its login came from, which the door stamped on the row as `source_ip`.
   // `.limit(1)` guards `maybeSingle` against a host the player re-ssh'd into.
   const findActiveSession = async ({
     player_key,
     machine_id,
-  }: ActiveSessionQuery): Promise<FindActiveSessionResult> => {
+  }: ActiveSessionQuery): Promise<FindActiveSessionResult<StandingSession>> => {
     const { data, error } = await supabase
       .from('sessions')
-      .select('credentials, essid')
+      .select('credentials, essid, source_ip')
       .eq('player_key', player_key)
       .eq('machine_id', machine_id)
       .is('ended_at', null)
@@ -140,9 +148,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .maybeSingle();
     if (error) console.error('[patches] active-session lookup error:', error);
     if (data === null) return { data: null, error };
-    const row = data as { credentials: { username: string; userType: UserType }; essid: string };
+    const row = data as {
+      credentials: { username: string; userType: UserType };
+      essid: string;
+      source_ip: string | null;
+    };
     return {
-      data: { username: row.credentials.username, userType: row.credentials.userType, essid: row.essid },
+      data: {
+        username: row.credentials.username,
+        userType: row.credentials.userType,
+        essid: row.essid,
+        sourceIp: row.source_ip,
+      },
       error,
     };
   };
@@ -518,6 +535,64 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
+  // A write that moves a router's firmware reboots the router, so the upsert carries the
+  // same session writes `rebootMachine` uses in api/sessions.ts. Machine-scoped and
+  // nothing else: every open row on the box ends, every player's. What keeps it from
+  // being a weapon is the handler's write gates, which run before this is ever called.
+  const endMachineSessions = async ({ machine_id, reason }: EndMachineSessionsParams) => {
+    const { data, error } = await supabase
+      .from('sessions')
+      .update({ ended_at: new Date().toISOString(), end_reason: reason })
+      .eq('machine_id', machine_id)
+      .is('ended_at', null)
+      .select('session_id, player_key');
+    if (error) console.error('[patches] flash reboot error:', error);
+    return { data: data as readonly EndedSession[] | null, error };
+  };
+  // One rung of a broken chain: this player's open rows standing on the ones just closed.
+  const endSessionsAbove = async ({ player_key, parent_ids, reason }: EndSessionsAboveParams) => {
+    const { data, error } = await supabase
+      .from('sessions')
+      .update({ ended_at: new Date().toISOString(), end_reason: reason })
+      .eq('player_key', player_key)
+      .in('parent_session_id', [...parent_ids])
+      .is('ended_at', null)
+      .select('session_id');
+    if (error) console.error('[patches] flash reboot cascade error:', error);
+    const rows = data as readonly { session_id: string }[] | null;
+    return { data: rows?.map((row) => row.session_id) ?? null, error };
+  };
+  // The marker a shell already standing on the box reads. The newest reboot's id is the
+  // one the box should show, so it files under whoever flashed it last.
+  const writeBootId = ({ machine_id, player_key, boot_id }: WriteBootIdParams) =>
+    upsertPatch({
+      writer_key: player_key,
+      machine_id,
+      path: BOOT_ID_PATH,
+      content: `${boot_id}\n`,
+      owner: BOOT_ID_OWNER,
+      permissions: BOOT_ID_PERMISSIONS,
+      node_type: 'file',
+    });
+  // The network an owner flashing their own box stands on. A workstation runs no
+  // firmware, so nothing reaches this today, but the reboot asks it and the honest
+  // answer is the one read off occupancy.
+  const findHomeNetworkByOwnerKey = async (ownerKey: string) => {
+    const occupancy = await supabase
+      .from('home_network_occupants')
+      .select('essid')
+      .eq('owner_key', ownerKey)
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (occupancy.error) {
+      console.error('[patches] flash trace occupancy error:', occupancy.error);
+      return { data: null, error: occupancy.error };
+    }
+    const essid = (occupancy.data as { essid: string } | null)?.essid ?? null;
+    if (essid === null) return { data: null, error: null };
+    return derivedPublicIpByEssid(essid);
+  };
   const { status, body } = await handleUpsertPatch(req.body, {
     nonceStore: noopNonceStore,
     findActiveSession,
@@ -525,6 +600,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     listPathPatches,
     findOccupantWorkstationByMachineId,
     upsertPatch,
+    endMachineSessions,
+    endSessionsAbove,
+    writeBootId,
+    now: () => Date.now(),
+    findHomeNetworkByOwnerKey,
+    readLog: listPathPatches,
+    // Unguessable on purpose: a caller able to predict the next id could keep a session
+    // alive across the reboot meant to end it.
+    newBootId: () => randomUUID(),
   });
   res.status(status).json(body);
 }

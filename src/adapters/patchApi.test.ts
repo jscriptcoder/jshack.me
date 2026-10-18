@@ -222,6 +222,17 @@ describe('createPatchApi.write and remove', () => {
     expect(result).toEqual({ ok: false, error: 'modified_since_open' });
   });
 
+  it('maps a write that landed but whose router reboot failed to reboot_failed', async () => {
+    // Not a network_error: the manifest moved, and `apt` must say the reboot did not
+    // take rather than that the write failed.
+    const fetchSpy = vi.fn(async () => jsonResponse(500, { error: 'reboot_failed' }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    const result = await createPatchApi(deps).write(asAbsPath('/var/lib/dpkg/status'), 'flashed');
+
+    expect(result).toEqual({ ok: false, error: 'reboot_failed' });
+  });
+
   it('remove sends a removePatch request (server decides delete vs tombstone)', async () => {
     const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true }));
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);

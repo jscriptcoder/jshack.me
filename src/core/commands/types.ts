@@ -245,7 +245,10 @@ export type PatchResult =
         | 'network_error'
         | 'modified_since_open'
         // Refused before it was sent: the write would sign past `MAX_SIGNED_PAYLOAD`.
-        | 'too_large';
+        | 'too_large'
+        // The write LANDED, and moved a router's firmware, but the reboot it triggers
+        // did not end the sessions on the box. Not a failed write: the file is there.
+        | 'reboot_failed';
     };
 
 /** What a failed patch READS as, for the command reporting it. One table beside
@@ -268,6 +271,7 @@ export const PATCH_ERROR_REASON: Record<Extract<PatchResult, { ok: false }>['err
   network_error: 'I/O error',
   modified_since_open: 'File changed on disk',
   too_large: 'File too large',
+  reboot_failed: 'could not end active sessions — anyone connected may still be on this machine',
 };
 
 export type NetworkView = {
