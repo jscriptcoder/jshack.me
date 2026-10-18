@@ -102,9 +102,94 @@ caller typed, nor by a box's own chosen name. The backlog item's "still open" no
 new state, no gameplay change: every command answers exactly as it does today, and a crafted field
 simply reads with its separators spelled out.
 
-### Open for the plan
+Resolved while planning:
 
-- Whether `escapeLogField` is its own module in `core/logging/` or sits beside `formatSyslogLine`
-  in `syslog.ts` (both are imported widely).
-- Whether `hostname` is escaped once inside `formatSyslogLine` (covering sshd/su/root-session/
-  snmpd) with the inline kern heads escaping it themselves, or every head escapes its own.
+- **`escapeLogField` is its own module, `src/core/logging/escapeLogField.ts`.** It is imported by
+  every formatter file and by `syslog.ts`; a leaf module everything depends on reads cleaner than
+  routing the import through `syslog.ts`.
+- **`hostname` is escaped once, inside `formatSyslogLine`** — the shared head of the sshd, su,
+  root-session and snmpd lines, so those get it for free. The three kern heads
+  (`formatRebootLine`, `formatSegfaultLine`, `formatKernelLine`) and `formatNamedXfrLine` compose
+  their head inline rather than through `formatSyslogLine`, so each escapes its own `hostname`/
+  `zone`.
+
+## Slice 1 — a caller field cannot fake a column (v0.404.0)
+
+**Value:** a defender reading `vsftpd.log`, `access.log`, `auth.log`, `mysql.log`, `dpkg.log`,
+`kern.log` or `named.log` can trust each column — the timestamp, source IP, pid and verdict the
+server stamped cannot be impersonated by a path, a username, a package name, an exploit's command
+or a box's own chosen name, however it was crafted. The line still lands; the forgery reads with
+its separators spelled out.
+**Path:** every server trace that renders a caller-text field runs it through one
+`escapeLogField` before interpolation — the fetch/sweep handlers (`access.log`), the ftp
+transfer/login (`vsftpd.log`), the cross-player and own-box login/`su`/session-opened lines
+(`auth.log`), the mysql connect/attempt lines (`mysql.log`), the service-downgrade line
+(`dpkg.log`), the segfault line (`kern.log`), the zone-transfer line (`named.log`) — then the
+existing `appendMachineLog`/`onOneLine` path lands it unchanged.
+**Class:** behavior change (the rendered log line changes for a crafted field; unchanged for every
+legitimate one). **Delivery:** independent PR against `main`.
+**Required skills:** `tdd`, `testing`, `functional` (the escape is a pure string transform),
+`refactoring` (folding the per-field calls cleanly into each formatter).
+**Acceptance criteria** (observable in the log a reader sees):
+- A `/var/log/vsftpd.log` transfer line built from a download path `/x", 0 bytes` reads the path
+  with its quote escaped (`\x22`) so the real `", <N> bytes` the server stamped is the only byte
+  count on the line; the same for the path and account in a login line.
+- A `/var/log/auth.log` line from an ssh/`su` login whose typed username is `root from 9.9.9.9`
+  names that whole string as the user with its spaces escaped, so the `from <real source IP>` the
+  server stamped is the only source on the line; the session-opened line on the player's own box
+  escapes its username the same way.
+- A `/var/log/access.log` line from a fetch or sweep whose requested path carries a `"` or a space
+  reads the path escaped, so the `" <status> <size>` the server stamped cannot be faked; a crafted
+  sweep account in a 401 line is escaped too.
+- A `/var/log/dpkg.log` service-rollback line whose package name or version carries a space or a
+  quote reads them escaped, so the `Client "<ip>"` the server stamped is the only client on the
+  line.
+- A `/var/log/kern.log` segfault line escapes a crafted command or library, and every syslog-headed
+  line escapes a box `hostname` that carries a space or bracket, so the `<service>[<pid>]:` the
+  server stamped is the only service head on the line.
+- A `named.log` zone-transfer line escapes an essid-derived `zone` that carries a separator.
+- Every legitimate field — an ordinary path, `www-data`, `openssh-server`, `7.9.7`, a plain
+  machine name, a `.lan` zone — renders exactly as it does today. A space inside a field reads as
+  `\x20`; nothing else in a normal log changes.
+- Live, against `vercel dev` + supabase (`scripts/testLogFieldEscaping.ts`): one player crafts a
+  username at a cross-player ssh login and a path at an occupant fetch against another player's
+  box; the victim's `auth.log` and `access.log` hold the attempt with every separator escaped and
+  the server's own columns intact.
+**RED:**
+1. `escapeLogField.test.ts` — a safe-set character passes; each separator (`"`, `'`, space, `[`,
+   `]`, `\t`, `@`, `\`, control) and a multibyte char render as `\xNN` (per UTF-8 byte); `\`
+   becomes `\x5c`; a realistic path/version/name is unchanged.
+2. One case per formatter in its existing `*.test.ts` (`vsftpdLog`, `accessLog`, `authLog`,
+   `mysqlLog`, `dpkgLog`, `kernLog`, `syslog`, `namedLog`): a crafted field, asserting the
+   separator is escaped and the server-stamped columns survive to the right of it.
+3. The wire-check, run first against today's code — the live probe the grill named — showing the
+   raw separators land in the victim's logs.
+**GREEN:** the `escapeLogField` module (a safe-set regex, `Array.from` over code points, UTF-8
+bytes to `\xNN` for anything outside it); then one `escapeLogField(...)` call around each
+caller-text field named in the facts — `hostname` once inside `formatSyslogLine`, the kern/named
+heads escaping their own.
+**REFACTOR:** assess whether the handful of formatters that escape several fields read better with
+the calls inline at interpolation or hoisted to named locals; keep `onOneLine` as the backstop
+(an escaped field leaves it no raw newline to touch).
+**Existing wire-checks to re-run** (each lands a line through a formatter now wrapped, with only
+safe-char fields, so each must read byte-identical): `testOccupantFetch.ts`, `testOccupantSweep.ts`,
+`testFtpCrossPlayer.ts`, `testAptDowngradeTrace.ts`, `testSharedBoxLogTruth.ts`.
+**PRE-PR MUTATION:** Stryker on `escapeLogField.ts` (the safe-set regex boundary, the hex padding,
+the per-byte loop) and one or two representative formatters, json reporter, one file at a time.
+**Docs:** `conventions-and-gotchas.md` (a one-line invariant: every caller-text field in a shared
+log goes through `escapeLogField`, beside the `onOneLine` line-break rule); `backlog.md` (close
+the "still open" trace-field note, pointing here until close-out); `project-status.md` item 8 (the
+last sub-item closed); `cross-player-architecture.md` where it records the line-break escape, to
+add the column escape beside it.
+**PR-ready when:** `npm run typecheck`, `npm run lint`, full vitest green; the new wire-check and
+the five above pass live; version bumped in `package.json` and `package-lock.json`; the owner
+approves the commit.
+
+## Close-out
+
+One browser run, two players on a shared WiFi: B attacks A's box with a crafted username at an ssh
+login and a crafted path at a `curl`/`ftp`; A (or B after rooting A) reads A's `auth.log`,
+`access.log` and `vsftpd.log` and finds the attempt recorded with every separator spelled out and
+the real source IP, byte count and verdict standing uncontradicted. A normal attack in the same run
+reads exactly as before. Then the `project-status.md` item 8 entry, the backlog note, and this file
+deleted.
