@@ -222,8 +222,9 @@ export const Lynx = (props: LynxProps) => {
 
   /**
    * A key as the field being edited takes it, or false when the field leaves it to the
-   * browser. Only the arrows up and down and Enter pass through: a field has no cursor
-   * to move, so left and right do nothing rather than going back, and Backspace deletes.
+   * browser. Only the arrows up and down, Tab and Enter pass through: a field has no
+   * cursor to move, so left and right do nothing rather than going back, and Backspace
+   * deletes.
    */
   const editKey = (event: KeyboardEvent, field: Field): boolean => {
     if (event.key === 'Escape') {
@@ -255,6 +256,13 @@ export const Lynx = (props: LynxProps) => {
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault();
       move(event.key === 'ArrowDown' ? 1 : -1);
+      return;
+    }
+    // Tab is how a reader moves between a form's fields everywhere else; left to the
+    // browser around the game, it would also carry the focus off this screen.
+    if (event.key === 'Tab') {
+      event.preventDefault();
+      move(event.shiftKey ? -1 : 1);
       return;
     }
     if (event.key === 'Enter' || event.key === 'ArrowRight') {

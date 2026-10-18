@@ -202,6 +202,26 @@ describe('following a link', () => {
     expect(selectedLink()?.textContent).toBe('[1]the notes');
   });
 
+  it('moves the selection down on Tab and back up on Shift+Tab', () => {
+    renderLynx({ content: LINKED_PAGE });
+
+    fireEvent.keyDown(browser(), { key: 'Tab' });
+    expect(selectedLink()?.textContent).toBe('[2]the status');
+
+    fireEvent.keyDown(browser(), { key: 'Tab', shiftKey: true });
+    expect(selectedLink()?.textContent).toBe('[1]the notes');
+  });
+
+  // Left to the browser around the game, Tab would carry the focus off the screen,
+  // and every key after it would land somewhere else.
+  it('keeps the keyboard when Tab is pressed', () => {
+    renderLynx({ content: LINKED_PAGE });
+
+    const browserTookTab = fireEvent.keyDown(browser(), { key: 'Tab' });
+
+    expect(browserTookTab).toBe(false);
+  });
+
   it.each(['Enter', 'ArrowRight'])('follows the selected link on %s', async (key) => {
     const { onFollow } = renderLynx({ content: LINKED_PAGE });
 
@@ -825,6 +845,39 @@ describe('a form, at its edges', () => {
       '[ada_]',
       '[2]',
     ]);
+  });
+
+  it('moves from the field being typed into to the next one on Tab, and back on Shift+Tab', () => {
+    const pages = {
+      [HOME]: '<body><form action="/find"><input name="name"><input name="floor"></form></body>',
+    };
+    renderSite({ pages });
+
+    type('ada');
+    fireEvent.keyDown(browser(), { key: 'Tab' });
+    type('2');
+
+    expect(screen.getAllByRole('textbox').map((field) => field.textContent)).toEqual([
+      '[ada]',
+      '[2_]',
+    ]);
+
+    fireEvent.keyDown(browser(), { key: 'Tab', shiftKey: true });
+    type('!');
+
+    expect(screen.getAllByRole('textbox').map((field) => field.textContent)).toEqual([
+      '[ada!_]',
+      '[2]',
+    ]);
+  });
+
+  it('keeps the keyboard when Tab is pressed in a field', () => {
+    const pages = { [HOME]: '<body><form action="/find"><input name="q"></form></body>' };
+    renderSite({ pages });
+
+    const browserTookTab = fireEvent.keyDown(browser(), { key: 'Tab' });
+
+    expect(browserTookTab).toBe(false);
   });
 
   it('labels the button as the page does, and marks it when it is selected', () => {
