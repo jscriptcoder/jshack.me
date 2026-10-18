@@ -17,6 +17,7 @@
 
 import { z } from 'zod';
 import { signRequest } from '../core/signedRequest/sign.js';
+import { MAX_SIGNED_PAYLOAD, type SignedEnvelope } from '../core/signedRequest/types.js';
 import { deserializeTree, type SerializedDirectory } from '../core/filesystem/treeCodec.js';
 import {
   asEpochMs,
@@ -85,19 +86,20 @@ export type SessionsClientDeps = {
   readonly fetchImpl?: typeof fetch;
 };
 
-const post = async (
-  deps: SessionsClientDeps,
-  action: string,
-  fields: Readonly<Record<string, unknown>>,
-): Promise<Response> => {
+const send = (deps: SessionsClientDeps, envelope: SignedEnvelope): Promise<Response> => {
   const doFetch = deps.fetchImpl ?? fetch;
-  const envelope = signRequest(deps.identity, action, fields);
   return doFetch(deps.endpoint ?? DEFAULT_ENDPOINT, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(envelope),
   });
 };
+
+const post = (
+  deps: SessionsClientDeps,
+  action: string,
+  fields: Readonly<Record<string, unknown>>,
+): Promise<Response> => send(deps, signRequest(deps.identity, action, fields));
 
 /** Map a write response to a PatchResult. 403 is the own-workstation rejection
  *  (no_session); anything else non-ok is a transport-level failure. */
@@ -504,28 +506,41 @@ const exploitPayloadFields = (params: {
   ...(params.scriptReady === true ? { script_ready: true } : {}),
 });
 
-/** Fire a CVE at a port on a host on the caller's own LAN. No credential goes out —
- *  the server recomputes the game day from its own clock, regenerates the target, and
- *  answers from that box's own manifest what is published there and what it grants. */
-export const runExploit = async (
+/** Send one exploit fire through either door and read its answer. A script's writes all
+ *  travel in this one fire, and past the cap the server answers with a 400 the player would
+ *  read as a fault rather than as a run too big to land — so the fire is measured as signed
+ *  and refused here, before it leaves. */
+const fireExploit = async (
   deps: SessionsClientDeps,
-  params: ExploitRunParams,
+  action: string,
+  fields: Readonly<Record<string, unknown>>,
 ): Promise<ExploitRunResult> => {
   try {
-    const response = await post(deps, 'exploitCreateSession', {
-      session_id: params.sessionId,
-      essid: params.essid,
-      target_ip: params.targetIp,
-      port: params.port,
-      caller_machine_id: params.callerMachineId,
-      parent_session_id: params.parentSessionId,
-      ...exploitPayloadFields(params),
-    });
+    const envelope = signRequest(deps.identity, action, fields);
+    if (envelope.payload.length > MAX_SIGNED_PAYLOAD) return { ok: false, error: 'too_large' };
+    const response = await send(deps, envelope);
     return interpretExploitResponse(response, await response.json());
   } catch {
     return { ok: false, error: 'network_error' };
   }
 };
+
+/** Fire a CVE at a port on a host on the caller's own LAN. No credential goes out —
+ *  the server recomputes the game day from its own clock, regenerates the target, and
+ *  answers from that box's own manifest what is published there and what it grants. */
+export const runExploit = (
+  deps: SessionsClientDeps,
+  params: ExploitRunParams,
+): Promise<ExploitRunResult> =>
+  fireExploit(deps, 'exploitCreateSession', {
+    session_id: params.sessionId,
+    essid: params.essid,
+    target_ip: params.targetIp,
+    port: params.port,
+    caller_machine_id: params.callerMachineId,
+    parent_session_id: params.parentSessionId,
+    ...exploitPayloadFields(params),
+  });
 
 /** Fire a library CVE on a box the player holds a session on and does not own — the
  *  passwordless `--local` the server answers. Sends the box, the command and the PATH the
@@ -533,24 +548,18 @@ export const runExploit = async (
  *  session as the authorization from the verified key, re-checks the tool is really there,
  *  and answers with the same shape the network fire returns, so the two share one
  *  interpreter. */
-export const postExploitLocalElevate = async (
+export const postExploitLocalElevate = (
   deps: SessionsClientDeps,
   params: ExploitLocalElevateParams,
-): Promise<ExploitRunResult> => {
-  try {
-    const response = await post(deps, 'exploitLocalElevate', {
-      session_id: params.sessionId,
-      machine_id: params.machineId,
-      command: params.command,
-      command_path: params.commandPath,
-      parent_session_id: params.parentSessionId,
-      ...exploitPayloadFields(params),
-    });
-    return interpretExploitResponse(response, await response.json());
-  } catch {
-    return { ok: false, error: 'network_error' };
-  }
-};
+): Promise<ExploitRunResult> =>
+  fireExploit(deps, 'exploitLocalElevate', {
+    session_id: params.sessionId,
+    machine_id: params.machineId,
+    command: params.command,
+    command_path: params.commandPath,
+    parent_session_id: params.parentSessionId,
+    ...exploitPayloadFields(params),
+  });
 
 /** Authenticate an ssh login THROUGH a NAT forward on the player's OWN inner gateway
  *  onto a deep Layer-2 host: the server regenerates the gateway from the verified key +

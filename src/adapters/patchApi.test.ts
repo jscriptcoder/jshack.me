@@ -18,6 +18,7 @@ import {
   defaultFilePermissions,
 } from '../core/filesystem/defaultPermissions.js';
 import { contentHash } from '../core/patches/contentHash.js';
+import { MAX_SIGNED_PAYLOAD } from '../core/signedRequest/types.js';
 import { asAbsPath, asMachineId, type UserType } from '../core/types.js';
 
 const ENDPOINT = 'http://test.local/api/patches';
@@ -60,7 +61,10 @@ describe('createPatchApi.mkdir', () => {
     const result = await createPatchApi(deps).mkdir(asAbsPath('/home/alice/proj'));
 
     expect(result).toEqual({ ok: true });
-    expect(fetchSpy).toHaveBeenCalledWith(ENDPOINT, expect.objectContaining({ method: 'POST' }));
+    expect(fetchSpy).toHaveBeenCalledWith(
+      ENDPOINT,
+      expect.objectContaining({ method: 'POST', headers: { 'Content-Type': 'application/json' } }),
+    );
 
     const verified = await verifyPayload(sentEnvelope(fetchSpy));
     expect(verified.ok).toBe(true);
@@ -251,6 +255,49 @@ describe('createPatchApi.write and remove', () => {
 
     expect(forbidden).toEqual({ ok: false, error: 'no_session' });
     expect(offline).toEqual({ ok: false, error: 'network_error' });
+  });
+});
+
+// The server refuses a signed request past the cap with a 400 that would read as a
+// network fault, so a file too big to keep has to be told apart before anything leaves.
+describe('createPatchApi.write past the signed-request cap', () => {
+  const PATH = asAbsPath('/home/alice/auth.log.1');
+
+  /** A client whose writes sign as one identity's do, and content that makes one of its
+   *  writes sign to exactly `length` characters. Every field but the content keeps its
+   *  length from one write to the next (a 13-digit clock, a 32-hex nonce), and an `x`
+   *  costs one character of JSON, so the padding is the length minus an empty write's. */
+  const sizedWrite = async (length: number) => {
+    const measureSpy = vi.fn(async () => jsonResponse(200, { ok: true }));
+    const deps = makeDeps(measureSpy as unknown as typeof fetch);
+    await createPatchApi(deps).write(PATH, '');
+    const { payload } = sentEnvelope(measureSpy) as { readonly payload: string };
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true }));
+    return {
+      api: createPatchApi({ ...deps, fetchImpl: fetchSpy as unknown as typeof fetch }),
+      content: 'x'.repeat(length - payload.length),
+      fetchSpy,
+    };
+  };
+
+  it('refuses a write one character past the cap as too_large and sends nothing', async () => {
+    const { api, content, fetchSpy } = await sizedWrite(MAX_SIGNED_PAYLOAD + 1);
+
+    const result = await api.write(PATH, content);
+
+    expect(result).toEqual({ ok: false, error: 'too_large' });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('still sends a write that signs to exactly the cap', async () => {
+    const { api, content, fetchSpy } = await sizedWrite(MAX_SIGNED_PAYLOAD);
+
+    const result = await api.write(PATH, content);
+
+    expect(result).toEqual({ ok: true });
+    expect((sentEnvelope(fetchSpy) as { readonly payload: string }).payload).toHaveLength(
+      MAX_SIGNED_PAYLOAD,
+    );
   });
 });
 

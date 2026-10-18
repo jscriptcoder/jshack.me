@@ -328,6 +328,19 @@ type ExploitRenderContext = {
   readonly sessionId: string;
 };
 
+/** What a fire that came to nothing says. A fire too big to send never left, so it can
+ *  say nothing about the box — neither that it held, nor that the way there failed. */
+const exploitRefusal = (
+  error: Extract<ExploitRunResult, { readonly ok: false }>['error'],
+  ctx: ExploitRenderContext,
+): string => {
+  if (error === 'not_vulnerable') {
+    return `[-] Exploit failed — no known vulnerability on ${ctx.missLabel}`;
+  }
+  if (error === 'too_large') return `[-] Exploit failed: ${PATCH_ERROR_REASON.too_large}`;
+  return ctx.refusal(error === 'host_unreachable' ? 'No route to host' : 'Network error');
+};
+
 /** Render a fired CVE's answer — the shared tail of both exploit fires. The seam has
  *  already returned; this streams the vulnerability line, every effect's outcome, and a
  *  shell's hop. A network service and the box under the player's own shell reach it by
@@ -339,11 +352,7 @@ async function* renderExploitResult(
   ctx: ExploitRenderContext,
 ): AsyncGenerator<TerminalLine, number> {
   if (!result.ok) {
-    yield errorLine(
-      result.error === 'not_vulnerable'
-        ? `[-] Exploit failed — no known vulnerability on ${ctx.missLabel}`
-        : ctx.refusal(result.error === 'host_unreachable' ? 'No route to host' : 'Network error'),
-    );
+    yield errorLine(exploitRefusal(result.error, ctx));
     return 1;
   }
 
@@ -525,6 +534,17 @@ async function* fireWithOptionalScript(
   });
   const scriptError = scriptRun.ok ? undefined : describeScriptError(scriptRun.error);
   const second = await runFire({ writes: collected });
+  // Writes too big for one fire never left, but step 1 already proved the hole: the
+  // break-in stands and the run stopped short, which is the box's own blind success with
+  // the reason it stopped.
+  if (!second.ok && second.error === 'too_large') {
+    const { cve, severity, tier } = first;
+    return yield* renderExploitResult(
+      env,
+      { ok: true, effect: 'script_exec', cve, severity, tier },
+      { ...ctx, scriptError: PATCH_ERROR_REASON.too_large },
+    );
+  }
   return yield* renderExploitResult(env, second, { ...ctx, scriptError });
 }
 

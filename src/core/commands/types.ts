@@ -243,7 +243,9 @@ export type PatchResult =
         | 'no_session'
         | 'permission_denied'
         | 'network_error'
-        | 'modified_since_open';
+        | 'modified_since_open'
+        // Refused before it was sent: the write would sign past `MAX_SIGNED_PAYLOAD`.
+        | 'too_large';
     };
 
 /** What a failed patch READS as, for the command reporting it. One table beside
@@ -257,14 +259,15 @@ export type PatchResult =
  *
  *  Two failures deliberately share a sentence. `no_session` and
  *  `permission_denied` are one fact to a player — this machine will not let you —
- *  and the difference between them is the client's, not theirs. The other two do
- *  not: a round-trip that never completed and a file that moved underneath you
- *  send a player somewhere different. */
+ *  and the difference between them is the client's, not theirs. The others do
+ *  not: a round-trip that never completed, a file that moved underneath you, and a
+ *  file too big for one write to carry send a player somewhere different. */
 export const PATCH_ERROR_REASON: Record<Extract<PatchResult, { ok: false }>['error'], string> = {
   no_session: 'Permission denied',
   permission_denied: 'Permission denied',
   network_error: 'I/O error',
   modified_since_open: 'File changed on disk',
+  too_large: 'File too large',
 };
 
 export type NetworkView = {
@@ -1404,7 +1407,9 @@ export type ExploitRunResult =
     }
   | {
       readonly ok: false;
-      readonly error: 'not_vulnerable' | 'host_unreachable' | 'network_error';
+      // `too_large` never reached the box: the fire would sign past `MAX_SIGNED_PAYLOAD`,
+      // so it is refused before it leaves and says nothing about the target.
+      readonly error: 'not_vulnerable' | 'host_unreachable' | 'network_error' | 'too_large';
     };
 
 /** What `msfconsole --local` hands the server on a box that is not the player's own:

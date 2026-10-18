@@ -81,8 +81,9 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   `auth.log.1` on 612 (max 20,878), `data.json` on 435 (max 21,772, root), `mail.log.1` on 79,
   `syslog.1` on 15, and mapit's `ridgemont.html` and `kingsford.html`. The cap is now
   `MAX_SIGNED_PAYLOAD`, 65,536, and `carryHome.test.ts` sends the world's largest generated files
-  through the real `createPatchApi`. A write still over the cap (a live log grown by sweeps, a
-  player's own huge file) reads `I/O error` until it is refused as `File too large`.
+  through the real `createPatchApi`. Since v0.400.0 a write still over the cap (a live log grown
+  by sweeps, a player's own huge file) is refused before it is sent, as `File too large` — in
+  `createPatchApi` for a write and in `sessionsApi` for an exploit fire carrying a script's writes.
   - **Whole visits would fit in `vsftpd.log.1` again.** World-content slice 8b cut each upload to
     one line (no CONNECT or OK LOGIN around it) for the old cap; whole visits were 4–13K. Left as
     it is when the cap was raised; restoring them is a content change of its own.
@@ -836,7 +837,9 @@ decision, not a gap.
     Giving it one is a decision of its own.
   - **Consequence to hold onto: the PUBLIC IP remains the primary cross-player attack surface**,
     and the shared LAN is the rare special case. `nmap <public IP>` is the headline PvP path.
-- **The patch-error map is written seven times.** `{ no_session: 'Permission denied',
+- **CLOSED (v0.400.0) — the patch-error map is written seven times.** Adding `too_large` folded
+  the last copies (`ftpShell`, `rm`, `touch`, `nano`) into `PATCH_ERROR_REASON`; `mkdir` spreads
+  it and overrides only `network_error`. Original note: `{ no_session: 'Permission denied',
   permission_denied: 'Permission denied', network_error: 'I/O error', modified_since_open: … }`
   appears verbatim in `daemon.ts`, `ftpShell.ts`, `mkdir.ts`, `rm.ts`, `touch.ts`, `systemctl.ts`
   and `shell/runLine.ts` — one piece of knowledge (how a `PatchResult` failure reads to the

@@ -733,6 +733,41 @@ describe('msfconsole', () => {
     expect(exitCode).toBe(1);
   });
 
+  it('says a script run too big to land was never sent, rather than a network fault', async () => {
+    // The box answered step 1, so the break-in stands; what the script wrote is more than
+    // one fire can carry, so none of it left. A network error would send the player to
+    // fire again at a run that can never land.
+    const { env } = exploitEnv({
+      fs: attackerBox(),
+      result: [scriptStep1(), { ok: false, error: 'too_large' }],
+    });
+
+    const { text, exitCode } = await drain(
+      await msfconsole.execute(env, [TARGET.ip, String(PORT), SCRIPT_PATH], NO_FLAGS),
+    );
+
+    expect(text).toContain('[*] Vulnerability: CVE-2026-0269486 (high)');
+    expect(text).toContain('[+] Exploit successful!');
+    expect(text).toContain('[-] Script injection failed: File too large');
+    expect(text).not.toContain('Network error');
+    expect(exitCode).toBe(1);
+  });
+
+  it('says a fire too big to send was never sent, rather than a network fault', async () => {
+    // The local half of a pair can be more than one fire carries. Nothing left, so the
+    // tool can say nothing about the box — only that the payload was too big to send.
+    const { env, pushed } = exploitEnv({ result: { ok: false, error: 'too_large' } });
+
+    const { text, exitCode } = await drain(
+      await msfconsole.execute(env, [TARGET.ip, String(PORT)], NO_FLAGS),
+    );
+
+    expect(text).toContain('[-] Exploit failed: File too large');
+    expect(text).not.toContain('Network error');
+    expect(exitCode).toBe(1);
+    expect(pushed).toEqual([]);
+  });
+
   it('lets the script read the SERVER-SERVED target rather than the box it was launched from', async () => {
     // The filesystem the script is handed is the one step 1 served — the target as it
     // STANDS, filtered to the granted tier — not the box the tool ran from and not a

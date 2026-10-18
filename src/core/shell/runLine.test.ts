@@ -690,6 +690,15 @@ describe('runCommandLine', () => {
       expect(result.lines).toEqual([errorLine('bash: out.txt: I/O error')]);
     });
 
+    it('says output too big to keep is too large, rather than an I/O error', async () => {
+      const { env } = redirectEnv({ ok: false, error: 'too_large' });
+
+      const result = expectSync(await runCommandLine(env, 'echo hi > out.txt', pipeCommands));
+
+      expect(result.exitCode).toBe(1);
+      expect(result.lines).toEqual([errorLine('bash: out.txt: File too large')]);
+    });
+
     it('surfaces a server rejection (no_session / permission_denied) as "Permission denied"', async () => {
       const denied = expectSync(
         await runCommandLine(
@@ -886,6 +895,18 @@ describe('runCommandLine', () => {
       const result = expectSync(await runCommandLine(env, 'echo b >> notes.txt', pipeCommands));
 
       expect(result.lines).toEqual([errorLine('bash: notes.txt: File changed on disk')]);
+      expect(result.exitCode).toBe(1);
+    });
+
+    it('says an append too big to keep is too large, rather than an I/O error', async () => {
+      const { env } = appendEnv({
+        held: { 'notes.txt': 'a' },
+        writeResult: { ok: false, error: 'too_large' },
+      });
+
+      const result = expectSync(await runCommandLine(env, 'echo b >> notes.txt', pipeCommands));
+
+      expect(result.lines).toEqual([errorLine('bash: notes.txt: File too large')]);
       expect(result.exitCode).toBe(1);
     });
 

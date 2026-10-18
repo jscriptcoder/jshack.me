@@ -23,6 +23,7 @@ import {
 import { generateIdentity } from '../core/identity/identity.js';
 import { computeWorkstationId } from '../core/identity/workstation.js';
 import { verifySignedRequest } from '../core/signedRequest/verify.js';
+import { MAX_SIGNED_PAYLOAD } from '../core/signedRequest/types.js';
 import { asEpochMs, asMachineId, asPlayerKeyHex } from '../core/types.js';
 import { serializeTree } from '../core/filesystem/treeCodec.js';
 import type { Directory, FilePermissions } from '../core/filesystem/types.js';
@@ -1596,6 +1597,70 @@ describe('postExploitLocalElevate', () => {
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
 
     expect(await postExploitLocalElevate(deps, params)).toEqual({ ok: false, error: 'network_error' });
+  });
+});
+
+// A script's writes all travel in one signed fire, and the server refuses a request past
+// the cap with a 400 that would read as a fault — so a run too big to land is told apart
+// before anything leaves, at either door.
+describe('an exploit fire past the signed-request cap', () => {
+  type Writes = readonly { readonly path: string; readonly content: string }[];
+  type Door = (deps: SessionsClientDeps, writes: Writes) => Promise<unknown>;
+
+  const fireOverNetwork: Door = (deps, writes) =>
+    runExploit(deps, {
+      sessionId: 'exploit-22-1700000000000',
+      essid: 'BEAN-THERE-WIFI',
+      targetIp: '192.168.1.31',
+      port: 22,
+      callerMachineId: asMachineId('skylab-9a8b7c6d'),
+      parentSessionId: 'shell-1',
+      writes,
+    });
+  const fireLocally: Door = (deps, writes) =>
+    postExploitLocalElevate(deps, {
+      sessionId: 'exploit-local-su-1700000000000',
+      machineId: 'alice-workstation-1234',
+      command: 'su',
+      commandPath: '/tmp/msfconsole',
+      parentSessionId: 'guest-1',
+      writes,
+    });
+
+  /** A fire through `door` whose script writes make it sign to exactly `length`
+   *  characters. Every field but the written content keeps its length from one fire to
+   *  the next (a 13-digit clock, a 32-hex nonce), and an `x` costs one character of
+   *  JSON, so the padding is the length minus a fire writing an empty file. */
+  const sizedFire = async (door: Door, length: number) => {
+    const measureSpy = vi.fn(async () => jsonResponse(404, { error: 'not_vulnerable' }));
+    const deps = makeDeps(measureSpy as unknown as typeof fetch);
+    await door(deps, [{ path: '/tmp/dropped.txt', content: '' }]);
+    const { payload } = sentEnvelope(measureSpy) as { readonly payload: string };
+    const fetchSpy = vi.fn(async () => jsonResponse(404, { error: 'not_vulnerable' }));
+    const writes = [{ path: '/tmp/dropped.txt', content: 'x'.repeat(length - payload.length) }];
+    return {
+      fire: () => door({ ...deps, fetchImpl: fetchSpy as unknown as typeof fetch }, writes),
+      fetchSpy,
+    };
+  };
+
+  it.each([
+    ['at a host on the network', fireOverNetwork],
+    ['on the box under the shell', fireLocally],
+  ])('refuses a fire %s one character over the cap and sends nothing', async (_door, door) => {
+    const { fire, fetchSpy } = await sizedFire(door, MAX_SIGNED_PAYLOAD + 1);
+
+    expect(await fire()).toEqual({ ok: false, error: 'too_large' });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('still sends a fire that signs to exactly the cap', async () => {
+    const { fire, fetchSpy } = await sizedFire(fireOverNetwork, MAX_SIGNED_PAYLOAD);
+
+    expect(await fire()).toEqual({ ok: false, error: 'not_vulnerable' });
+    expect((sentEnvelope(fetchSpy) as { readonly payload: string }).payload).toHaveLength(
+      MAX_SIGNED_PAYLOAD,
+    );
   });
 });
 

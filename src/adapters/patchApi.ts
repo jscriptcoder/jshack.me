@@ -15,6 +15,7 @@
  */
 
 import { signRequest } from '../core/signedRequest/sign.js';
+import { MAX_SIGNED_PAYLOAD, type SignedEnvelope } from '../core/signedRequest/types.js';
 import { contentHash } from '../core/patches/contentHash.js';
 import {
   defaultDirectoryPermissions,
@@ -57,19 +58,20 @@ type ServerPatchRow = {
   readonly node_type?: 'file' | 'directory';
 };
 
-const post = async (
-  deps: PatchClientDeps,
-  action: string,
-  fields: Readonly<Record<string, unknown>>,
-): Promise<Response> => {
+const send = (deps: PatchClientDeps, envelope: SignedEnvelope): Promise<Response> => {
   const doFetch = deps.fetchImpl ?? fetch;
-  const envelope = signRequest(deps.identity, action, fields);
   return doFetch(deps.endpoint ?? DEFAULT_ENDPOINT, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(envelope),
   });
 };
+
+const post = (
+  deps: PatchClientDeps,
+  action: string,
+  fields: Readonly<Record<string, unknown>>,
+): Promise<Response> => send(deps, signRequest(deps.identity, action, fields));
 
 /** Map an upsert response to the command contract's PatchResult. 403 is the
  *  own-workstation/L1 rejection (no_session); 409 is the refusal to overwrite
@@ -87,7 +89,12 @@ const upsert = async (
   fields: Readonly<Record<string, unknown>>,
 ): Promise<PatchResult> => {
   try {
-    return toPatchResult(await post(deps, 'upsertPatch', fields));
+    const envelope = signRequest(deps.identity, 'upsertPatch', fields);
+    // Past the cap the server answers with a 400 the player would read as a network
+    // fault, when the truth is that this file cannot be kept. Measured on the payload
+    // as signed, since JSON escaping makes it longer than the content it carries.
+    if (envelope.payload.length > MAX_SIGNED_PAYLOAD) return { ok: false, error: 'too_large' };
+    return toPatchResult(await send(deps, envelope));
   } catch {
     return { ok: false, error: 'network_error' };
   }

@@ -42,14 +42,15 @@ import { homeDirectory } from '../sessions/homeDirectory.js';
 import { readOpenPorts } from '../services/pidfile.js';
 import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import { errorLine, streamedResult, text } from './streaming.js';
-import type {
-  Command,
-  CommandEnv,
-  CommandResult,
-  PatchResult,
-  PublicAuthResult,
-  Session,
-  TerminalLine,
+import {
+  PATCH_ERROR_REASON,
+  type Command,
+  type CommandEnv,
+  type CommandResult,
+  type PatchResult,
+  type PublicAuthResult,
+  type Session,
+  type TerminalLine,
 } from './types.js';
 import type { AbsPath, UserType } from '../types.js';
 import type { Directory, FilePermissions } from '../filesystem/types.js';
@@ -191,14 +192,19 @@ const refused = (line: string): Transfer => ({ lines: [errorLine(line)], exitCod
 /** How a refused write reads back, either end of the transfer. A write that never
  *  reached its destination is OURS, exactly as a read that never did is — and the
  *  player has already been told the file was there, so blaming their tier would send
- *  them hunting a problem they do not have. Everything else collapses: the tier that
- *  could not write and the session that has gone are one refusal by the time they
- *  reach us, and naming them apart would be a guess dressed as a diagnosis. */
+ *  them hunting a problem they do not have. A file too big to keep is told as just
+ *  that: nothing failed on the way, and a dropped connection would invite a retry
+ *  that can never land. Everything else collapses: the tier that could not write and
+ *  the session that has gone are one refusal by the time they reach us, and naming
+ *  them apart would be a guess dressed as a diagnosis. */
 const writeRefusal = (
   path: AbsPath,
   error: Extract<PatchResult, { readonly ok: false }>['error'],
-): Transfer =>
-  error === 'network_error' ? refused(UNREACHABLE) : refused(`scp: ${path}: ${WRITE_REFUSAL}`);
+): Transfer => {
+  if (error === 'network_error') return refused(UNREACHABLE);
+  if (error === 'too_large') return refused(`scp: ${path}: ${PATCH_ERROR_REASON.too_large}`);
+  return refused(`scp: ${path}: ${WRITE_REFUSAL}`);
+};
 
 /** Put the file on the target: one atomic write, so a refusal moved nothing.
  *

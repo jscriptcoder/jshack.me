@@ -152,6 +152,20 @@ describe('Nano editor', () => {
       await screen.findByText('[ Error writing /home/alice/notes.txt: I/O error ]'),
     ).toBeInTheDocument();
   });
+
+  it('says a buffer too big to save is too large, and keeps it', async () => {
+    const onSave = vi.fn(async () => ({ ok: false, error: 'too_large' }) as PatchResult);
+    renderNano({ content: 'original', onSave });
+
+    fireEvent.input(editor(), { target: { value: 'grown past what one save holds' } });
+    fireEvent.keyDown(editor(), { key: 'o', ctrlKey: true });
+
+    expect(
+      await screen.findByText('[ Error writing /home/alice/notes.txt: File too large ]'),
+    ).toBeInTheDocument();
+    // Nothing was sent, so nothing is lost: the player can cut it down and save again.
+    expect(editor()).toHaveValue('grown past what one save holds');
+  });
 });
 
 /**

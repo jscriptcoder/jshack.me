@@ -760,7 +760,8 @@ work from the clear-text output. Check the file's mtime before trusting it.
 since v0.399.0, 8192 when the history below happened. JSON writes a control
 character as six (`\u0001`), so content built from them balloons: slice 8a's first document
 stubs were control-character noise, and a 2.3 KB spreadsheet became a 14 KB payload that failed
-with `400 envelope_invalid`, which the client shows as `local: <path>: I/O error`. No unit test
+with `400 envelope_invalid`, which the client then showed as `local: <path>: I/O error` (since
+v0.400.0 the client refuses an over-cap write before sending it, as `File too large`). No unit test
 and no wire-check saw it, because neither writes generated content to the patch store; the played
 run did. The rule: binary-looking content uses characters JSON writes as themselves (Latin-1
 `¡`–`ÿ` works — `strings` ignores it as well as it ignores control characters), and

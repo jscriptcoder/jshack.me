@@ -72,7 +72,7 @@ that cannot read the file, on the player's own workstation too.
 - **An interrupted redirect (`cmd > file` then Ctrl-C) is silent.**
 - **A file over 65,536 characters cannot be saved or carried home** (`MAX_SIGNED_PAYLOAD`, one
   signed write). No generated file is that large (`carryHome.test.ts`); a live log grown by play can be,
-  and the save reads `I/O error`.
+  and the save is refused before it is sent, as `File too large`.
 - **Replay order ties**: SQL `ORDER BY writer_key` (database collation) and the core sort (code points)
   can disagree on same-microsecond ties; the L2 path relies on SQL order alone.
 
