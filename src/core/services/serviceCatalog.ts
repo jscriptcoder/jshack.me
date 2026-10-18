@@ -56,8 +56,21 @@ import {
   formatSnmpdArrivalLine,
   formatSnmpdAttemptLine,
 } from '../logging/snmpdLog.js';
+import {
+  ACCESS_LOG_OWNER,
+  ACCESS_LOG_PATH,
+  ACCESS_LOG_PERMISSIONS,
+  formatHttpAuthLine,
+} from '../logging/accessLog.js';
 import { syslogExploitLine, type ExploitEvent } from '../logging/exploitLog.js';
 import { readRwCommunityHash } from '../snmp/rwCommunity.js';
+
+/** A log file on the target, as a daemon's append creates it. */
+export type LogFile = {
+  readonly path: AbsPath;
+  readonly owner: string;
+  readonly permissions: FilePermissions;
+};
 
 /** Where a credential sweep against this service is recorded on the target, and how
  *  each attempt is written there.
@@ -66,10 +79,7 @@ import { readRwCommunityHash } from '../snmp/rwCommunity.js';
  *  followed in ONE file. Sent to a fixed destination instead, a sweep against one
  *  daemon is filed under another — telling the defender a door was knocked on that
  *  never was, while the door that opened shows nothing. */
-export type SweepLog = {
-  readonly path: AbsPath;
-  readonly owner: string;
-  readonly permissions: FilePermissions;
+export type SweepLog = LogFile & {
   readonly formatAttempt: (attempt: CredentialAttempt) => string;
   /** How the daemon records a client REACHING it, before any account is named.
    *  Absent for daemons that record no such thing: sshd's first line is already the
@@ -151,13 +161,17 @@ export type ServiceSpec = {
    *  A sibling to `formatAttempt` rather than a variant of it, because the two events
    *  are not the same shape: writing "Failed password" for something that never
    *  offered one would mislead the only person who reads the file. The DESTINATION is
-   *  still `sweepLog`'s, so one service's evidence stays in one file and a defender
-   *  greps it once.
+   *  `sweepLog`'s unless the row names an `exploitLog`, so one service's evidence stays
+   *  in one file and a defender greps it once.
    *
    *  Required, on every row. A door that could be forced without leaving a line the
    *  defender would find is a door that silently costs them the box — and an optional
    *  column is how one gets added. */
   readonly formatExploit: (event: ExploitEvent) => string;
+  /** Where a break-in is written when it is not `sweepLog`'s file. Absent on every row
+   *  but the web's: a web server records a sweep as requests in its own request log, and
+   *  a syslog line naming the CVE and the program has no place among them. */
+  readonly exploitLog?: LogFile;
   /** Which of a box's accounts this door authenticates, and so which ones a sweep of
    *  it attacks.
    *
@@ -227,15 +241,19 @@ export const SERVICE_CATALOG = {
     placement: 0.3,
     altPorts: [8080, 8000],
     altPortChance: 0.25,
-    // INHERITED, NOT DESIGNED: a sweep against the web door has always been written
-    // up as sshd in auth.log, and this row preserves that byte-for-byte rather than
-    // deciding it here. A real HTTP brute-force belongs in access.log as a run of
-    // 401s — that is the web door's call to make, not the ftp door's.
-    sweepLog: SYSLOG_AUTH_SWEEP,
-    // Its own tag, though the file is shared: on the three rows that land in auth.log
-    // the daemon name is the only thing telling a defender which door was forced — and
-    // here which of the two web servers it was forced through.
+    // A web brute-force is a run of 401s in the request log, where the server writes
+    // every request it answers — not sshd lines in auth.log for a daemon nobody knocked on.
+    sweepLog: {
+      path: ACCESS_LOG_PATH,
+      owner: ACCESS_LOG_OWNER,
+      permissions: ACCESS_LOG_PERMISSIONS,
+      formatAttempt: formatHttpAuthLine,
+    },
+    // The break-in stays in auth.log, the one row whose exploit leaves its sweep's file:
+    // its tag tells a defender which of the two web servers was forced, and the CVE is
+    // their route back to whatever the shell did next.
     formatExploit: syslogExploitLine,
+    exploitLog: SYSLOG_AUTH_SWEEP,
     accountsOn: accountsIn,
   },
   // As common as the web and below ssh: a box you can log into is ordinary, and a
@@ -432,9 +450,9 @@ export const SERVICE_CATALOG = {
     // Which is where a break-in through this door lands too, placeholder and all. It is
     // the one row whose exploit trace is genuinely reachable while its sweep line is
     // not, so auth.log carries a `named[pid]:` entry a defender of a name server has no
-    // particular reason to read. One rule for every row was chosen over a carve-out
-    // here: the destination follows the sweep, and the daemon tag is what keeps the
-    // line honest about which door was forced.
+    // particular reason to read. No `exploitLog` here: the destination follows the
+    // sweep, as on every row but the web's, and the daemon tag is what keeps the line
+    // honest about which door was forced.
     formatExploit: syslogExploitLine,
     // Nothing — BIND authenticates nobody. A zone is handed to whoever asks or to no
     // one, which is the transfer's own gate rather than a credential, so a sweep of
@@ -442,6 +460,10 @@ export const SERVICE_CATALOG = {
     accountsOn: () => [],
   },
 } as const satisfies Record<string, ServiceSpec>;
+
+/** The file a break-in through this door is written to: the sweep's, unless the row
+ *  names its own. */
+export const exploitLogOf = (spec: ServiceSpec): LogFile => spec.exploitLog ?? spec.sweepLog;
 
 /** The service a caller named (`ssh`, `ftp`), or undefined for one the world has no
  *  row for. The name reaching this lookup is player input, so an unknown service is

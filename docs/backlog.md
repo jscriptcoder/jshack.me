@@ -1045,14 +1045,15 @@ decision, not a gap.
   inline. Folding them on is mechanical and behaviour-preserving; it is left for a slice that
   is already touching those blocks, because `api/` has no unit tests and only a wire-check run
   can prove the fold (and only two of the four have one).
-- **An `http` sweep is written up as `sshd`.** `hydra <host> http` is a supported attack —
-  `hydraCrackPublic.test.ts` deliberately covers reaching the web service through a forward — but
-  the web door has no login, so the trace it leaves is `Failed password for <user> from <ip>` in
-  the target's `auth.log`, tagged `sshd`, for a daemon nobody knocked on. D3.1 routed the sweep
-  trace **by service** (`SERVICE_CATALOG.<svc>.sweepLog`) and gave `ftp` its own file, but left
-  `http` pointing at `auth.log` **byte-for-byte as it was** — the row says so in a comment. It is
-  recorded here rather than fixed there because the right destination is `access.log` as a run of
-  401s, and that is the web door's decision, not the ftp door's. Fixing it is now one row.
+- **An `http` sweep was written up as `sshd` — RESOLVED 2026-10-18 (v0.401.0).** `hydra <host>
+  http` left `Failed password … sshd` lines in the target's `auth.log`, for a daemon nobody
+  knocked on. It now leaves one `access.log` request per password tried, the account in the
+  HTTP-auth field: `<ip> - <user> [...] "GET / HTTP/1.1" 401 0`, and `200` for the one that fell.
+  It was not the one row it looked like: a break-in's destination followed `sweepLog`, so moving
+  the row would have moved every `nginx[pid]`/`apache2[pid]` exploit line into the request log
+  too. Decided with the owner to split them: the web row carries an `exploitLog` (`auth.log`),
+  and `exploitLogOf(spec)` is the one reader, shared by `exploitCreateSession` and the ten
+  exploit wire-checks.
 
 - **CLOSED (v0.143.0) — `ps` on a box you have ENTERED showed nothing. It was a producer
   disagreement, and the first diagnosis recorded here was wrong.** Found 2026-08-16 by the D4 Act
