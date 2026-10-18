@@ -12,11 +12,6 @@ import { ALL_ESSIDS } from '../../test/worldContent.js';
 import type { Directory, FileNode } from '../filesystem/types.js';
 import { serializeTree } from '../filesystem/treeCodec.js';
 import { filterTreeForRead } from '../patches/readFilter.js';
-import { createPatchApi } from '../../adapters/patchApi.js';
-import { generateIdentity } from '../identity/identity.js';
-import { computeWorkstationId } from '../identity/workstation.js';
-import { signedEnvelopeSchema } from '../signedRequest/types.js';
-import { asAbsPath, asMachineId } from '../types.js';
 
 const LEASES_PATH = 'var/lib/misc/dnsmasq.leases';
 const CONFIG_PATH = 'etc/dnsmasq.conf';
@@ -320,45 +315,6 @@ describe('what a gateway costs to carry', () => {
       const wire = JSON.stringify(serializeTree(filterTreeForRead(buildApGatewayBaseFs(essid), 'root')));
       expect(wire.length, essid).toBeLessThan(AP_WIRE_CEILING);
     }
-  });
-
-  it('fits every file a gateway knows of its network into the one signed write that saves it', async () => {
-    const identity = generateIdentity();
-    const sent: string[] = [];
-    const patches = createPatchApi({
-      identity,
-      machineId: asMachineId(computeWorkstationId('deskbox', identity.publicKeyHex)),
-      owner: 'operator',
-      tier: 'user',
-      fetchImpl: async (_url, init) => {
-        sent.push(String(init?.body));
-        return new Response('{}', { status: 200 });
-      },
-    });
-    // The write's size is what the transport limits, and a file's escaped length is what
-    // decides it, so the files hardest to carry are the ones sent.
-    const files = [
-      ...routers().flatMap((router) => [LEASES_PATH, CONFIG_PATH].map((path) => [router.name, router.tree, path] as const)),
-      ...switches().map((device) => [device.name, device.tree, MAC_TABLE_PATH] as const),
-    ];
-    expect(files.length).toBeGreaterThan(0);
-    const hardest = files
-      .map(([name, tree, path]) => [`${name}:/${path}`, contentAt(tree, path)] as const)
-      .sort(([, one], [, other]) => JSON.stringify(other).length - JSON.stringify(one).length)
-      .slice(0, 20);
-
-    for (const [path, content] of hardest) {
-      await patches.write(asAbsPath(`/home/operator/${path.split('/').pop() ?? ''}`), content, {
-        isNew: true,
-      });
-    }
-    expect(sent).toHaveLength(hardest.length);
-    sent.forEach((body, index) => {
-      expect(
-        signedEnvelopeSchema.safeParse(JSON.parse(body)).success,
-        `${hardest[index]?.[0]}: ${JSON.stringify(hardest[index]?.[1]).length} escaped`,
-      ).toBe(true);
-    });
   });
 });
 

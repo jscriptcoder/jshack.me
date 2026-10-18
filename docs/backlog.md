@@ -17,8 +17,8 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   a few thousand ordinary ones, and the box then reads as unreachable to its root. Sends are held
   to 20 an hour per player, so nothing reaches it before launch. The fix when it is needed: serve
   the spool's listing (names and sizes) and fetch one mailbox only when it is read, a second read
-  path through the shell, `cat`, `grep` and `scp`. Copying a mailbox home also meets the 8,192
-  character patch cap below.
+  path through the shell, `cat`, `grep` and `scp`. Copying a mailbox home also meets the 65,536
+  character signed-write cap (`MAX_SIGNED_PAYLOAD`).
 
 - **Email — follow-ups deferred.** The email epic shipped at v0.389.0 (as-built:
   [`email-architecture.md`](./email-architecture.md)). Left out on purpose: **reporting and
@@ -73,17 +73,19 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   land on `android-164` behind INITECH-5G; 13/13 then 11/11 back to back, both orders).
   `testSharedApForwards` redraws B until the guest passwords differ (8/8, three runs).
 
-- **Generated files too big to carry home.** Saving a file a player fetched (`ftp get`, `scp`,
-  `cp` onto their own box) is one signed write whose payload `signedEnvelopeSchema` caps at 8192
-  characters of JSON, so a larger file fails with `local: <path>: I/O error`. Measured across every
-  NPC box at world-content slice 8b's close-out (v0.258.0), files over ~7.5K escaped: `auth.log.1`
-  on **102 boxes (max 19,940), readable by every tier**; `syslog.1` on 4 (max 9,717), every tier;
-  `mail.log.1` on 15 (max 19,214), root only; `/var/lib/mysql/*` on 46 (max 18,464) and
-  `/var/lib/redis/*` on 19 (max 13,708), root only. The guest-readable logs are the ones a player
-  meets first. Decide between shrinking what generation writes (as 8a did for documents and 8b for
-  the transfer log) and letting the patch write carry larger payloads (an `api/` change with its
-  own wire-check and a reason the guard can grow). `share.test.ts`'s transport tests are the
-  pattern for holding any fix.
+- **Generated files too big to carry home — RESOLVED 2026-10-18 (v0.399.0).** Saving a file a
+  player fetched (`ftp get`, `scp`, `cp` onto their own box) is one signed write, and
+  `signedEnvelopeSchema` capped its payload at 8192 characters of JSON, so a larger file failed
+  with `local: <path>: I/O error`. Measured over the whole world at v0.398.0 (619 networks, 3,812
+  boxes): 1,143 files on 943 boxes were over it, 613 of those boxes with one a guest can read —
+  `auth.log.1` on 612 (max 20,878), `data.json` on 435 (max 21,772, root), `mail.log.1` on 79,
+  `syslog.1` on 15, and mapit's `ridgemont.html` and `kingsford.html`. The cap is now
+  `MAX_SIGNED_PAYLOAD`, 65,536, and `carryHome.test.ts` sends the world's largest generated files
+  through the real `createPatchApi`. A write still over the cap (a live log grown by sweeps, a
+  player's own huge file) reads `I/O error` until it is refused as `File too large`.
+  - **Whole visits would fit in `vsftpd.log.1` again.** World-content slice 8b cut each upload to
+    one line (no CONNECT or OK LOGIN around it) for the old cap; whole visits were 4–13K. Left as
+    it is when the cap was raised; restoring them is a content change of its own.
 
 - **A script's `fs.appendFile` took the file it added to — CLOSED v0.347.0.** It composed on the
   machine and named `baseContent`, but passed neither `owner` nor `permissions`, so `patches.write`

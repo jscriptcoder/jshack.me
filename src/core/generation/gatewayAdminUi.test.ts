@@ -21,8 +21,6 @@ import { ALL_GENERATED_PASSWORDS } from '../../test/passwords.js';
 
 const IPV4 = /\b\d{1,3}(?:\.\d{1,3}){3}\b/g;
 const LOOPBACK = '127.0.0.1';
-/** The most characters one signed write carries, which is what a fetched copy costs. */
-const CARRY_CAP = 8192;
 const PASSWORD_WORDS: ReadonlySet<string> = new Set(ALL_GENERATED_PASSWORDS);
 
 /** Where each vendor's firmware keeps its admin pages. Never under `/var/www`, which
@@ -268,14 +266,6 @@ describe("a gateway's admin pages", () => {
     for (const gateway of everyGateway()) {
       for (const [name, page] of pagesOf(gateway)) {
         expect(softwareVersionsIn(page), `${gateway.name} ${name}`).toEqual([]);
-      }
-    }
-  });
-
-  it('fits each page in the single write that saves a fetched copy', () => {
-    for (const gateway of everyGateway()) {
-      for (const [name, page] of pagesOf(gateway)) {
-        expect(JSON.stringify(page).length, `${gateway.name} ${name}`).toBeLessThanOrEqual(CARRY_CAP);
       }
     }
   });

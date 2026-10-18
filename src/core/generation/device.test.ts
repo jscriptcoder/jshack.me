@@ -1,14 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { createPatchApi } from '../../adapters/patchApi.js';
-import { generateIdentity } from '../identity/identity.js';
-import { computeWorkstationId } from '../identity/workstation.js';
-import { signedEnvelopeSchema } from '../signedRequest/types.js';
-import { asMachineId } from '../types.js';
 import { deviceKindOf } from './device.js';
 import { npcUsername } from './remoteHostFs.js';
 import { createFsView } from '../filesystem/fsView.js';
 import { asAbsPath } from '../types.js';
-import { filesUnder, softwareVersionsIn } from '../../test/worldContent.js';
+import { softwareVersionsIn } from '../../test/worldContent.js';
 import {
   CAMERA_PREFIXES,
   contentOf,
@@ -240,53 +235,6 @@ describe("a device's own pages", () => {
           visited: true,
         });
       });
-    });
-  });
-});
-
-/** Where a device keeps what it is, and the pages it serves: every file a player could
- *  fetch off one and carry home. */
-const DEVICE_PATHS = [...DEVICE_ROOTS, '/var/www/html'];
-
-describe('what ftp get can carry home off a device', () => {
-  it('fits every device file into the one signed write that saves it on the player box', async () => {
-    const identity = generateIdentity();
-    const sent: string[] = [];
-    const patches = createPatchApi({
-      identity,
-      machineId: asMachineId(computeWorkstationId('deskbox', identity.publicKeyHex)),
-      owner: 'operator',
-      tier: 'user',
-      fetchImpl: async (_url, init) => {
-        sent.push(String(init?.body));
-        return new Response('{}', { status: 200 });
-      },
-    });
-    // The write's size is what the transport limits, and a file's escaped length is
-    // what decides it, so the files hardest to carry are the ones sent.
-    const hardest = devicesNamed(BUILT)
-      .flatMap(({ host, tree }) =>
-        DEVICE_PATHS.flatMap((root) => {
-          const node = createFsView(tree, { userType: 'root' }).stat(asAbsPath(root));
-          return node?.kind === 'directory'
-            ? [...filesUnder(node)].map(([path, content]) => [`${host.hostname}:${root}/${path}`, content] as const)
-            : [];
-        }),
-      )
-      .sort(([, one], [, other]) => JSON.stringify(other).length - JSON.stringify(one).length)
-      .slice(0, 20);
-
-    for (const [path, content] of hardest) {
-      await patches.write(asAbsPath(`/home/operator/${path.split('/').pop() ?? ''}`), content, {
-        isNew: true,
-      });
-    }
-    expect(sent).toHaveLength(hardest.length);
-    sent.forEach((body, index) => {
-      expect(
-        signedEnvelopeSchema.safeParse(JSON.parse(body)).success,
-        `${hardest[index]?.[0]}: ${JSON.stringify(hardest[index]?.[1]).length} escaped`,
-      ).toBe(true);
     });
   });
 });

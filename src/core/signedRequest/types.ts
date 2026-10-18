@@ -26,11 +26,17 @@ export const REPLAY_WINDOW_MS = 120_000;
 // Nonce = 16 random bytes = 32 hex chars (128 bits — collision-resistant here).
 export const NONCE_HEX_LENGTH = 32;
 
+// The largest payload any signed request may carry, in characters of JSON. Saving
+// a file is one signed write, so this is also the largest file a player can carry
+// home: three times the largest the world generates, and a terminal file rather
+// than a blob store, since nothing else bounds what one request adds to the journal.
+export const MAX_SIGNED_PAYLOAD = 65_536;
+
 // Strict wrapper shape — rejects unknown top-level fields. Only validates the
 // envelope structure; the inner payload is parsed + checked after signature
 // verification by the base schema below plus the caller's action schema.
 export const signedEnvelopeSchema = z.strictObject({
-  payload: z.string().min(1).max(8192),
+  payload: z.string().min(1).max(MAX_SIGNED_PAYLOAD),
   publicKey: z.string().regex(/^[0-9a-f]{64}$/i),
   signature: z.string().regex(/^[0-9a-f]{128}$/i),
 });

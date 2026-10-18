@@ -7,15 +7,11 @@ import {
   PLACE_DOWNLOADS,
   TABLET_MODELS,
 } from './pools/phoneFiles.js';
-import { createPatchApi } from '../../adapters/patchApi.js';
-import { generateIdentity } from '../identity/identity.js';
-import { computeWorkstationId } from '../identity/workstation.js';
-import { signedEnvelopeSchema } from '../signedRequest/types.js';
 import { peopleOn } from './networkMail.js';
 import { networkPersona } from './persona.js';
 import { WORLD_EPOCH } from '../cve/worldClock.js';
 import { createFsView } from '../filesystem/fsView.js';
-import { asAbsPath, asMachineId } from '../types.js';
+import { asAbsPath } from '../types.js';
 import type { Directory } from '../filesystem/types.js';
 import { filesUnder, lanBoxes, serialise, softwareVersionsIn } from '../../test/worldContent.js';
 import {
@@ -501,42 +497,6 @@ describe('a device keeps to the world’s rules', () => {
     ];
     const homes = placed.map((box) => [...filesUnder(homeOf(box)).keys()].sort().join('|'));
     expect(new Set(homes).size).toBe(homes.length);
-  });
-});
-
-describe('what a player can carry home from a device', () => {
-  it('fits every file into the one signed write that saves it on the player box', async () => {
-    const identity = generateIdentity();
-    const sent: string[] = [];
-    const patches = createPatchApi({
-      identity,
-      machineId: asMachineId(computeWorkstationId('deskbox', identity.publicKeyHex)),
-      owner: 'operator',
-      tier: 'user',
-      fetchImpl: async (_url, init) => {
-        sent.push(String(init?.body));
-        return new Response('{}', { status: 200 });
-      },
-    });
-    // The write's size is what the transport limits, and a file's escaped length is
-    // what decides it, so the files hardest to carry are the ones sent.
-    const hardest = devices()
-      .flatMap((box) => [...filesUnder(homeOf(box))])
-      .sort(([, one], [, other]) => JSON.stringify(other).length - JSON.stringify(one).length)
-      .slice(0, 20);
-
-    for (const [path, content] of hardest) {
-      await patches.write(asAbsPath(`/home/operator/${path.split('/').pop() ?? ''}`), content, {
-        isNew: true,
-      });
-    }
-    expect(sent).toHaveLength(hardest.length);
-    sent.forEach((body, index) => {
-      expect(
-        signedEnvelopeSchema.safeParse(JSON.parse(body)).success,
-        `${hardest[index]?.[0]}: ${JSON.stringify(hardest[index]?.[1]).length} escaped`,
-      ).toBe(true);
-    });
   });
 });
 

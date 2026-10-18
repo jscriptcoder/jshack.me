@@ -15,11 +15,7 @@ import { buildDeepHostFs } from './deepHostFs.js';
 import { generateApplication } from './generateDatabase.js';
 import { generateHomeLan } from './generateHomeLan.js';
 import { roleOfHostname } from './pools/hostnames.js';
-import { asAbsPath, asMachineId } from '../types.js';
-import { createPatchApi } from '../../adapters/patchApi.js';
-import { generateIdentity } from '../identity/identity.js';
-import { computeWorkstationId } from '../identity/workstation.js';
-import { signedEnvelopeSchema } from '../signedRequest/types.js';
+import { asAbsPath } from '../types.js';
 import { WORLD_EPOCH } from '../cve/worldClock.js';
 import { createFsView } from '../filesystem/fsView.js';
 import type { Directory } from '../filesystem/types.js';
@@ -869,42 +865,6 @@ describe('what a share holds', () => {
   });
 });
 
-describe('what ftp get can carry home', () => {
-  it('fits every file a share holds into the one signed write that saves it on the player box', async () => {
-    const identity = generateIdentity();
-    const sent: string[] = [];
-    const patches = createPatchApi({
-      identity,
-      machineId: asMachineId(computeWorkstationId('deskbox', identity.publicKeyHex)),
-      owner: 'operator',
-      tier: 'user',
-      fetchImpl: async (_url, init) => {
-        sent.push(String(init?.body));
-        return new Response('{}', { status: 200 });
-      },
-    });
-    // The write's size is what the transport limits, and a file's escaped length is
-    // what decides it, so the files hardest to carry are the ones sent.
-    const hardest = [...fileServerBoxes(), ...manyFileServers()]
-      .flatMap((box) => [...uniqueShareFiles(buildRemoteHostFs(box.essid, box.host))])
-      .sort(([, one], [, other]) => JSON.stringify(other).length - JSON.stringify(one).length)
-      .slice(0, 20);
-
-    for (const [path, content] of hardest) {
-      await patches.write(asAbsPath(`/home/operator/${path.split('/').pop() ?? ''}`), content, {
-        isNew: true,
-      });
-    }
-    expect(sent).toHaveLength(hardest.length);
-    sent.forEach((body, index) => {
-      expect(
-        signedEnvelopeSchema.safeParse(JSON.parse(body)).success,
-        `${hardest[index]?.[0]}: ${JSON.stringify(hardest[index]?.[1]).length} escaped`,
-      ).toBe(true);
-    });
-  });
-});
-
 /** A backup box's snapshots, oldest first, each as its date and its files. */
 const snapshotFilesOf = (box: Box) =>
   snapshotsOf(box).map(([date, snapshot]) => ({ date, files: filesUnder(snapshot) }));
@@ -1340,38 +1300,6 @@ describe("the file server's own record of what arrived on its share", () => {
         });
         expect(new Set(lines.map((line) => line.pid)).size, label).toBe(lines.length);
       });
-  });
-
-  it('fits every transfer log into the one signed write that saves it on the player box', async () => {
-    const identity = generateIdentity();
-    const sent: string[] = [];
-    const patches = createPatchApi({
-      identity,
-      machineId: asMachineId(computeWorkstationId('deskbox', identity.publicKeyHex)),
-      owner: 'operator',
-      tier: 'user',
-      fetchImpl: async (_url, init) => {
-        sent.push(String(init?.body));
-        return new Response('{}', { status: 200 });
-      },
-    });
-    const logs = fileServerBoxes()
-      .filter(runsFtp)
-      .map((box) => ({
-        label: `${box.essid} ${box.host.hostname}`,
-        log: transferHistoryOf(buildRemoteHostFs(box.essid, box.host)) ?? '',
-      }));
-
-    for (const { log } of logs) {
-      await patches.write(asAbsPath('/home/operator/transfers.log'), log, { isNew: true });
-    }
-    expect(sent).toHaveLength(logs.length);
-    sent.forEach((body, index) => {
-      expect(
-        signedEnvelopeSchema.safeParse(JSON.parse(body)).success,
-        `${logs[index]?.label}: ${JSON.stringify(logs[index]?.log).length} escaped`,
-      ).toBe(true);
-    });
   });
 
   it('writes the uploads in the order they happened, all before the world began', () => {

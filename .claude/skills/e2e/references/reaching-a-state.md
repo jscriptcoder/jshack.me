@@ -98,7 +98,7 @@ is drawn from their own identity** (2–3 per scan), so choose the target AFTER 
 | `ftp: command not found` | `su root`, `apt install ftp`, `exit` — the client is not preinstalled, like `nmap` and `mysql` |
 | `ftp <host>` then a user prompt | `ftp <host> <user>`, the user positional; it then asks `Password:` on its own line |
 | Looking for a `local_root` or a chroot | There is none: every login lands in its own home and can `cd` anywhere its tier allows, so `cd /srv` works for `guest` |
-| `local: <path>: I/O error` on `get` | The copy's signed write was refused — the payload is over 8192 characters of JSON. That is a content bug, not a flaky network: check the file's `JSON.stringify(content).length` |
+| `local: <path>: I/O error` on `get` | The copy's signed write was refused — the payload is over `MAX_SIGNED_PAYLOAD` (65,536) characters of JSON. A generated file that big is a content bug (`carryHome.test.ts` should have caught it); a live log grown by play can genuinely pass it. Check the file's `JSON.stringify(content).length` |
 | Reading another box's mailbox | `ftp <host> <user>` as that box's own user, then `get /var/mail/<user> inbox` — a mailbox is user-tier, so `guest` is refused |
 | `cat <path>` at `ftp> ` → `?Invalid command: cat` | There is no remote `cat`: `get <remote> <local>`, `quit`, then `cat`/`strings` the local copy |
 | A door on a non-default port | `ftp -p 2121 <host> <user>` — the port is a flag BEFORE the host, as nmap reported it |
