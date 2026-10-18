@@ -704,8 +704,10 @@ agreed order:
    `scp` carried landing `rwx------` closed at v0.345.0: the copy takes the source's mode. ✅ The
    data doors resolving `localhost` to the gateway on a deep hop closed at v0.349.0: `mysql`,
    `redis-cli`, the snmp tools, `hydra` and the exploit session reach the deep box itself, past
-   any switch. One neighbour it turned up is still in `backlog.md`: a data door over
-   `localhost` still obeys the hop's own filter. ✅ The other, `curl localhost` on a deep box
+   any switch. One neighbour it turned up, a data door over `localhost` obeying the hop's own
+   filter, closed at v0.402.0: `reachServiceHost` and the exploit session now read a loopback
+   reach unfiltered, as the login doors and the seeded filter file already promise. ✅ The other,
+   `curl localhost` on a deep box
    leaving no line in its own access log, closed at v0.351.0: loopback names the box the shell
    stands on by the machine it is, never by an address. ✅ Its own neighbour, the same fetch in
    a shell on another player's box, closed at v0.352.0: the line lands in that player's log,
@@ -835,7 +837,8 @@ agreed order:
    `root` on a switch (`backlog.md`).
    **Pick up here (2026-10-13):** the items still open in `backlog.md`. Found by reading:
    ✅ a deep box's own address behind a switch that denies the web port (closed at v0.382.0
-   with the LAN web fetch below), a data door over `localhost`, a field that spoofs the
+   with the LAN web fetch below), ✅ a data door over `localhost` obeying the hop's own filter
+   (closed at v0.402.0), a field that spoofs the
    columns after it within its own line, ✅ a leaver's
    own sessions across the network (closed at v0.381.0: leaving closes the leaver's sessions
    on every other machine too, and a shell on any box but the player's own asks on each line

@@ -154,12 +154,17 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   front of the layer no longer stands in loopback's way. Two neighbours found on the way are the
   next two items.
 
-- **A data door over `localhost` still obeys the hop's own filter. By reading, not reproduced.**
-  The login doors let loopback past the box's own `rules.v4` denies (`reachDoor`'s
-  `overLoopback`); `reachServiceHost` and the exploit session ask `portsOpenToNetwork` whatever
-  the request came over, so `redis-cli localhost` on a hop whose owner filtered the port answers
-  `service_not_running` where `ssh localhost` would log in. Only a box somebody wrote a filter on
-  shows it. Found 2026-10-10.
+- **A data door over `localhost` obeyed the hop's own filter — RESOLVED 2026-10-18
+  (v0.402.0).** Proved first on the live stack (`scripts/testLoopbackFilter.ts`): on a box whose
+  owner denied the redis port in its own `rules.v4`, `redis-cli localhost` answered
+  `service_not_running`, while the same deny correctly closed the box to the network — where the
+  box's own seeded filter file promises "localhost is never filtered" and the login doors keep
+  that promise (`reachDoor`'s `overLoopback`). `reachServiceHost` and the exploit session asked
+  `portsOpenToNetwork` whatever vantage the request arrived over; they now read the pidfiles
+  unfiltered when the reach came over loopback, carried on a new `ReachedBox.overLoopback` the
+  reach already computes. The switch ACL (`deniedPorts`) was already zeroed over loopback, so only
+  the box's own INPUT filter changed. The public and inner-gateway resolvers enforce the filter
+  upstream, so those vantages are unaffected. Found 2026-10-10.
 
 - **`curl localhost` on a deep box left no line in its own access log — RESOLVED 2026-10-10
   (v0.351.0).** Proved first on the live stack (`scripts/testLanFetchLog.ts`, on `cam-189`
