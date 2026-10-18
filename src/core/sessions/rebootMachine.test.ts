@@ -1,10 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
-import {
-  handleRebootMachine,
-  type RebootMachineDeps,
-  type WriteBootIdParams,
-} from './rebootMachine.js';
+import { handleRebootMachine, type RebootMachineDeps } from './rebootMachine.js';
+import type { WriteBootIdParams } from './rebootSequence.js';
 import { signRequest } from '../signedRequest/sign.js';
 import { generateIdentity } from '../identity/identity.js';
 import { computeWorkstationId } from '../identity/workstation.js';
@@ -160,6 +157,25 @@ describe('handleRebootMachine', () => {
       machine_id: ownBox,
       reason: 'rebooted',
     });
+  });
+
+  it('ends no chain when the close answers with no rows at all', async () => {
+    // An empty box: nothing closed, so nothing stood on anything that did.
+    const identity = generateIdentity();
+    const envelope = signRequest(identity, 'rebootMachine', { machine_id: ownBoxOf(identity) });
+    const endSessionsAbove = vi.fn<RebootMachineDeps['endSessionsAbove']>(async () => ({
+      data: [],
+      error: null,
+    }));
+    const { deps } = makeDeps({
+      endMachineSessions: async () => ({ data: null, error: null }),
+      endSessionsAbove,
+    });
+
+    const result = await handleRebootMachine(envelope, deps);
+
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    expect(endSessionsAbove).not.toHaveBeenCalled();
   });
 
   it('records the rows as rebooted even when the client asks for another reason', async () => {

@@ -12,12 +12,23 @@
  * `writer_key` is the PROVENANCE of this row (who wrote it) — multiple writers'
  * edits to one file coexist and replay chronologically. The own-box read keys on
  * `machine_id` (the machine owns the journal), not on the writer.
+ *
+ * A write that moves a router's firmware row reboots the router, in this same request:
+ * a real router flashes its new image and restarts itself, and doing it here rather than
+ * leaving it to the client means a tampered client cannot patch the box and keep its
+ * shell. The server cannot tell `apt` from an editor, so a root hand-editing the row
+ * reboots the box too.
  */
 
 import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify.js';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
-import { authorizeMachineAccess, type FindActiveSession } from './authorizeMachineAccess.js';
+import {
+  authorizeMachineAccess,
+  type FindActiveSession,
+  type StandingSession,
+} from './authorizeMachineAccess.js';
+import { appendMachineLog } from './appendMachineLog.js';
 import { contentHash } from './contentHash.js';
 import { orderPatchesForReplay } from './orderPatchesForReplay.js';
 import {
@@ -25,8 +36,25 @@ import {
   type FindOccupantWorkstationByMachineId,
   type ListMachinePatches,
 } from './remoteWritePermission.js';
+import {
+  DPKG_LOG_OWNER,
+  DPKG_LOG_PATH,
+  DPKG_LOG_PERMISSIONS,
+  formatPackageDowngradeLine,
+} from '../logging/dpkgLog.js';
+import { DPKG_STATUS_PATH, parseDpkgVersions, readDpkgStatus } from '../packages/dpkgStatus.js';
+import { firmwareMoveBetween, type FirmwareMove } from '../packages/packageVersions.js';
+import { movesForward } from '../cve/packageTimeline.js';
+import { gameDayAt } from '../cve/worldClock.js';
+import {
+  boxTraceProvenance,
+  rebootBox,
+  type RebootSequenceDeps,
+  type RebootTarget,
+} from '../sessions/rebootSequence.js';
+import type { Directory } from '../filesystem/types.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
-import type { UserType } from '../types.js';
+import { asEpochMs, asGameTime, type UserType } from '../types.js';
 
 export type FilePermissionsRow = {
   readonly read: readonly UserType[];
@@ -60,9 +88,13 @@ export type ListPathPatchesResult = {
   readonly error: unknown;
 };
 
-export type UpsertPatchDeps = {
+/** The reboot's own deps ride along because a firmware flash IS one: a write that moves
+ *  a router's image takes the box down exactly as `reboot` does. */
+export type UpsertPatchDeps = RebootSequenceDeps & {
   readonly nonceStore: NonceStore;
-  readonly findActiveSession: FindActiveSession;
+  /** The writer's live row on a box that is not theirs, read with the address its login
+   *  came from — which a flash's log lines name. */
+  readonly findActiveSession: FindActiveSession<StandingSession>;
   readonly listMachinePatches: ListMachinePatches;
   /** Every writer's rows for the ONE path being written — how the save's claimed
    *  base is checked against what the machine actually holds. Path-scoped rather
@@ -147,6 +179,65 @@ const rejectModifiedSinceOpen = async (
   return { status: 409, body: { error: 'modified_since_open' } };
 };
 
+/** The firmware image this write flashes, or undefined when it flashes none. Compared
+ *  against the box as it stood before the write — the tree L2 checked it against — so
+ *  only a box whose own manifest already runs an image can be flashed. An own-workstation
+ *  write is never rebuilt, and a workstation runs no firmware. */
+const firmwareFlashed = (
+  write: { readonly path: string; readonly content: string | null },
+  before: Directory | null,
+): FirmwareMove | undefined => {
+  if (before === null || write.path !== DPKG_STATUS_PATH || write.content === null) {
+    return undefined;
+  }
+  return firmwareMoveBetween(
+    parseDpkgVersions(readDpkgStatus(before)),
+    parseDpkgVersions(write.content),
+  );
+};
+
+/** Reboot a router onto the image just written to it. A rollback is recorded in its
+ *  `dpkg.log` FIRST, by the server from the manifest before and after: the session that
+ *  would report it is one the reboot is about to end, and the owner's only record of a
+ *  box moved backwards must not depend on a shell that no longer exists. Old release
+ *  then new, as every rollback line reads. */
+const flashRouter = async (
+  deps: UpsertPatchDeps,
+  target: RebootTarget,
+  flashed: FirmwareMove,
+): Promise<HandlerResponse> => {
+  const gameDay = gameDayAt(asEpochMs(deps.now()));
+  if (movesForward(flashed.pkg, { from: flashed.to, to: flashed.from, gameDay })) {
+    const provenance = await boxTraceProvenance(deps, target);
+    if (provenance.writerKey !== null) {
+      await appendMachineLog(
+        { readLog: deps.readLog, upsertPatch: deps.upsertPatch },
+        {
+          writerKey: provenance.writerKey,
+          machineId: target.machineId,
+          path: DPKG_LOG_PATH,
+          owner: DPKG_LOG_OWNER,
+          permissions: DPKG_LOG_PERMISSIONS,
+        },
+        formatPackageDowngradeLine({
+          packageName: flashed.pkg,
+          fromVersion: flashed.from,
+          toVersion: flashed.to,
+          fromIp: provenance.sourceIp,
+          time: asGameTime(deps.now()),
+        }),
+      );
+    }
+  }
+
+  // The row is down already and the new image is the box's, so a failure here is not a
+  // failed write: it is a reboot that did not take, and the writer has to be told so.
+  const rebooted = await rebootBox(deps, target);
+  return rebooted.ok
+    ? { status: 200, body: { ok: true } }
+    : { status: 500, body: { error: 'reboot_failed' } };
+};
+
 export const handleUpsertPatch = async (
   body: unknown,
   deps: UpsertPatchDeps,
@@ -170,15 +261,15 @@ export const handleUpsertPatch = async (
 
   // L2: a remote write is further constrained to the login's tier (own-box
   // bypasses — `access.session` is null there).
-  const denial = await enforceRemoteWriteL2({
+  const permitted = await enforceRemoteWriteL2({
     machineId: payload.machine_id,
     path: payload.path,
     session: access.session,
     listMachinePatches: deps.listMachinePatches,
     findOccupantWorkstationByMachineId: deps.findOccupantWorkstationByMachineId,
   });
-  if (denial) {
-    return { status: denial.status, body: { error: denial.error } };
+  if (!permitted.ok) {
+    return { status: permitted.status, body: { error: permitted.error } };
   }
 
   // After the permission gates, never before: a caller who may not write this
@@ -200,6 +291,17 @@ export const handleUpsertPatch = async (
   });
   if (error) {
     return { status: 500, body: { error: 'upsert_failed' } };
+  }
+
+  // Only once the row has landed: the image the router boots into is the one its
+  // manifest now names, so a write that failed flashed nothing.
+  const flashed = firmwareFlashed(payload, permitted.tree);
+  if (flashed !== undefined) {
+    return flashRouter(
+      deps,
+      { machineId: payload.machine_id, actorKey: publicKey, standing: access.session },
+      flashed,
+    );
   }
 
   return { status: 200, body: { ok: true } };

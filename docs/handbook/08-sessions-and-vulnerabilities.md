@@ -94,7 +94,9 @@ filesystem access.
 ### Reboots and boot ids
 
 `reboot` ends every open session row on the machine (for all players, reason `rebooted`) and writes
-a fresh random boot id to `/var/run/boot-id`. Each client session records the boot id it first saw
+a fresh random boot id to `/var/run/boot-id`. A router whose firmware row moves reboots the same way:
+`handleUpsertPatch` runs the shared sequence (`sessions/rebootSequence.ts`, `rebootBox`) in the
+request that wrote the manifest, so a flash and a `reboot` cannot end sessions differently. Each client session records the boot id it first saw
 (`observeBootId` in `ui/state.ts`); when the next command on that session sees a different id, the
 session has been evicted. `null` ("read, no marker yet") is distinct from `undefined` ("not read
 yet"), which is what lets the very first reboot of a box evict anyone.
@@ -202,8 +204,8 @@ vulnerability is live, its severity, and what firing it grants.
   (two per run, so neither is a silent door); a `--local` script leaves none.
 
 The defender's tools are `nmap -sV` (see the vulnerability and severity, never the effect),
-`apt list -u` (triage), `apt upgrade` (stops new exploits, does not evict), and `reboot` (evicts
-everyone).
+`apt list -u` (triage), `apt upgrade` (stops new exploits, does not evict — except on a router,
+where moving the firmware reboots it), and `reboot` (evicts everyone).
 
 > **Time-sensitive: `WORLD_EPOCH` is a development anchor** (currently 2026-07-12). A tripwire test,
 > `src/core/cve/worldClock.test.ts`, fails once the anchor is `RUNWAY_DAYS` (180) days old, which

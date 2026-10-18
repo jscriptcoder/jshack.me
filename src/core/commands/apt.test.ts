@@ -13,6 +13,7 @@ import type {
   TerminalLine,
 } from './types.js';
 import { generateHomeLan } from '../generation/generateHomeLan.js';
+import { computeWorkstationId } from '../identity/workstation.js';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
 import {
   CVE_TIMING,
@@ -309,17 +310,36 @@ const installedBoxTree = (opts: AptEnvOpts = {}): Directory =>
         }),
   });
 
+/** What the prompt names the box a hop stands on. */
+const HOP_HOSTNAME = 'dist-rtr';
+
 const aptEnv = (opts: AptEnvOpts = {}) => {
   const writes: WriteCall[] = [];
   const operations: Operation[] = [];
+  // How many hops the shell dropped off, and the rollbacks it reported: what a player
+  // sees of a box going down under them, and what its owner later reads.
+  const pops = { count: 0 };
+  const recordDowngrade = vi.fn<AptApi['recordDowngrade']>();
+  const identity = mockIdentity(
+    opts.ownerKey === undefined ? {} : { publicKeyHex: asPlayerKeyHex(opts.ownerKey) },
+  );
   const env = mockCommandEnv({
     session:
       opts.onHop === true
         ? hopSession(opts.userType ?? 'root')
-        : mockSession({ userType: opts.userType ?? 'root' }),
-    ...(opts.ownerKey === undefined
-      ? {}
-      : { identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(opts.ownerKey) }) }),
+        : // Off a hop the shell is on the player's OWN workstation, as a login at home is.
+          mockSession({
+            userType: opts.userType ?? 'root',
+            machineId: asMachineId(computeWorkstationId('workstation', identity.publicKeyHex)),
+          }),
+    // A hop is stood on FROM somewhere: the player's own login, which no reboot of the
+    // hop can take away.
+    ...(opts.onHop === true ? { hopChain: [mockSession()], hostname: HOP_HOSTNAME } : {}),
+    popSession: () => {
+      pops.count += 1;
+    },
+    apt: { recordDowngrade },
+    identity,
     fs: mockFsViewFromTree(installedBoxTree(opts)),
     network: homeCard(opts.online ?? true),
     ...(opts.gameDay === undefined
@@ -341,7 +361,7 @@ const aptEnv = (opts: AptEnvOpts = {}) => {
       },
     },
   });
-  return { env, writes, operations };
+  return { env, writes, operations, pops, recordDowngrade };
 };
 
 const syncResult = (
@@ -1046,17 +1066,11 @@ describe('apt', () => {
         expect(exitCode).toBe(100);
       });
 
-      /** A rollback the box's owner never ran is the one apt result they have to be able
-       *  to find afterwards, and after an ssh hop the person running it is not them. The
-       *  command reports only WHAT moved — which box, from which address, and at what
-       *  time are the caller's to supply, because a command cannot be trusted to say who
-       *  it is. */
-      const withRecorder = (opts: Parameters<typeof aptEnv>[0]) => {
-        const built = aptEnv(opts);
-        const recordDowngrade = vi.fn<AptApi['recordDowngrade']>();
-        const env: CommandEnv = { ...built.env, apt: { recordDowngrade } };
-        return { ...built, env, recordDowngrade };
-      };
+      // A rollback the box's owner never ran is the one apt result they have to be able
+      // to find afterwards, and after an ssh hop the person running it is not them. The
+      // command reports only WHAT moved — which box, from which address, and at what
+      // time are the caller's to supply, because a command cannot be trusted to say who
+      // it is.
 
       /** The fixture the happy path and three of the four refusals share: a box sitting on
        *  the patched release, on a day it could legitimately have upgraded. */
@@ -1070,7 +1084,7 @@ describe('apt', () => {
 
       it('reports the rollback, so the box it landed on can record who moved it', async () => {
         const { older, gameDay, patched } = rollbackFixture();
-        const { env, recordDowngrade } = withRecorder({
+        const { env, recordDowngrade } = aptEnv({
           gameDay,
           carries: { [REDIS]: patched },
         });
@@ -1089,7 +1103,7 @@ describe('apt', () => {
 
       it('reports nothing when the manifest write was refused, so no trace outlives the rollback', async () => {
         const { older, gameDay, patched } = rollbackFixture();
-        const { env, recordDowngrade } = withRecorder({
+        const { env, recordDowngrade } = aptEnv({
           gameDay,
           carries: { [REDIS]: patched },
           failWritesTo: DPKG_STATUS_PATH,
@@ -1106,7 +1120,7 @@ describe('apt', () => {
       it('reports nothing for a package the box does not carry', async () => {
         const gameDay = 300;
         const published = newestReleaseOn(REDIS, gameDay)!;
-        const { env, recordDowngrade } = withRecorder({ gameDay });
+        const { env, recordDowngrade } = aptEnv({ gameDay });
 
         await streamResult(await apt.execute(env, ['install', `${REDIS}=${published}`], NO_FLAGS));
 
@@ -1116,7 +1130,7 @@ describe('apt', () => {
       it('reports nothing for a release this world has never published', async () => {
         const { older: born, gameDay, patched } = rollbackFixture();
         const belowBorn = born.replace(/\d+$/, (last) => String(Number(last) - 1));
-        const { env, recordDowngrade } = withRecorder({
+        const { env, recordDowngrade } = aptEnv({
           gameDay,
           carries: { [REDIS]: patched },
         });
@@ -1132,7 +1146,7 @@ describe('apt', () => {
           (day) => upgradeStatusFor(REDIS, carried, day).kind === 'upgradable',
         )!;
         const newer = newestReleaseOn(REDIS, gameDay)!;
-        const { env, recordDowngrade } = withRecorder({
+        const { env, recordDowngrade } = aptEnv({
           gameDay,
           carries: { [REDIS]: carried },
         });
@@ -3239,8 +3253,175 @@ describe('apt from a hop', () => {
   });
 });
 
+/**
+ * A router runs one firmware image, and moving it is a flash: the new image only runs once
+ * the device restarts, and a real router restarts itself to run it. The server reboots
+ * the box in the request that writes the manifest, so what `apt` owes the player is to
+ * say so and to step off a box that is no longer there.
+ */
+describe('apt on a router, where moving the firmware flashes and reboots it', () => {
+  /** A gateway's image one release behind the repo's newest, on a day it may move. */
+  const firmwareFixture = () => {
+    const [older, patched] = packageTimeline(GATEWAY_FIRMWARE, 400);
+    if (older === undefined || patched === undefined) throw new Error('no firmware history');
+    const gameDay = older.publishedAt + older.patchDelay;
+    // Only a flash in both directions if the repo really holds the newer image that day.
+    expect(newestReleaseOn(GATEWAY_FIRMWARE, gameDay)).toBe(patched.version);
+    return { older: older.version, patched: patched.version, gameDay };
+  };
+
+  const FLASH_LINE = 'Firmware installed; rebooting to apply.';
+  const DROPPED_LINE = `Connection to ${HOP_HOSTNAME} closed by remote host.`;
+  const REBOOT_FAILED_LINE =
+    'E: could not end active sessions — anyone connected may still be on this machine';
+
+  const contents = (lines: readonly TerminalLine[]) => lines.map((line) => line.content);
+
+  it('flashes the image forward, says it is rebooting, and drops the player off the box', async () => {
+    const { older, patched, gameDay } = firmwareFixture();
+    const { env, pops } = aptEnv({ onHop: true, gameDay, carries: { [GATEWAY_FIRMWARE]: older } });
+
+    const { lines, exitCode } = await streamResult(
+      await apt.execute(env, ['upgrade', GATEWAY_FIRMWARE], NO_FLAGS),
+    );
+
+    expect(contents(lines).slice(-3)).toEqual([
+      `Setting up ${GATEWAY_FIRMWARE} (${patched}) ...`,
+      FLASH_LINE,
+      DROPPED_LINE,
+    ]);
+    expect(pops.count).toBe(1);
+    expect(exitCode).toBe(0);
+  });
+
+  it('rolls the image back the same way, and leaves the record of it to the router', async () => {
+    // The reboot ends the session a report would be sent from, so the server writes the
+    // rollback into the router's dpkg.log itself, before it goes down.
+    const { older, patched, gameDay } = firmwareFixture();
+    const { env, pops, recordDowngrade } = aptEnv({
+      onHop: true,
+      gameDay,
+      carries: { [GATEWAY_FIRMWARE]: patched },
+    });
+
+    const { lines, exitCode } = await streamResult(
+      await apt.execute(env, ['install', `${GATEWAY_FIRMWARE}=${older}`], NO_FLAGS),
+    );
+
+    expect(contents(lines).slice(-3)).toEqual([
+      `Setting up ${GATEWAY_FIRMWARE} (${older}) ...`,
+      FLASH_LINE,
+      DROPPED_LINE,
+    ]);
+    expect(recordDowngrade).not.toHaveBeenCalled();
+    expect(pops.count).toBe(1);
+    expect(exitCode).toBe(0);
+  });
+
+  it('stays on the box when only a service moved', async () => {
+    const { fix, shipsOn } = sshSlowFix();
+    const { env, pops } = aptEnv({ onHop: true, gameDay: shipsOn });
+
+    const { lines, exitCode } = await streamResult(
+      await apt.execute(env, ['upgrade', SSH], NO_FLAGS),
+    );
+
+    expect(contents(lines).at(-1)).toBe(`Setting up ${SSH} (${fix.version}) ...`);
+    expect(pops.count).toBe(0);
+    expect(exitCode).toBe(0);
+  });
+
+  it('reboots nothing on the player’s own box, which reports its rollback as any other', async () => {
+    const { older, patched, gameDay } = firmwareFixture();
+    const { env, pops, recordDowngrade } = aptEnv({
+      gameDay,
+      carries: { [GATEWAY_FIRMWARE]: patched },
+    });
+
+    const { lines } = await streamResult(
+      await apt.execute(env, ['install', `${GATEWAY_FIRMWARE}=${older}`], NO_FLAGS),
+    );
+
+    expect(contents(lines).at(-1)).toBe(`Setting up ${GATEWAY_FIRMWARE} (${older}) ...`);
+    expect(recordDowngrade).toHaveBeenCalledWith({
+      packageName: GATEWAY_FIRMWARE,
+      fromVersion: patched,
+      toVersion: older,
+    });
+    expect(pops.count).toBe(0);
+  });
+
+  it('says the reboot did not take when the router could not end its sessions', async () => {
+    // The image is written, so it is set up; what failed is the part the player cannot see.
+    const { older, patched, gameDay } = firmwareFixture();
+    const { env, pops } = aptEnv({
+      onHop: true,
+      gameDay,
+      carries: { [GATEWAY_FIRMWARE]: older },
+      writeResult: { ok: false, error: 'reboot_failed' },
+    });
+
+    const { lines, exitCode } = await streamResult(
+      await apt.execute(env, ['upgrade', GATEWAY_FIRMWARE], NO_FLAGS),
+    );
+
+    expect(contents(lines).slice(-2)).toEqual([
+      `Setting up ${GATEWAY_FIRMWARE} (${patched}) ...`,
+      REBOOT_FAILED_LINE,
+    ]);
+    expect(pops.count).toBe(0);
+    expect(exitCode).toBe(100);
+  });
+
+  it('says the same of a rollback whose reboot did not take', async () => {
+    const { older, patched, gameDay } = firmwareFixture();
+    const { env, pops, recordDowngrade } = aptEnv({
+      onHop: true,
+      gameDay,
+      carries: { [GATEWAY_FIRMWARE]: patched },
+      writeResult: { ok: false, error: 'reboot_failed' },
+    });
+
+    const { lines, exitCode } = await streamResult(
+      await apt.execute(env, ['install', `${GATEWAY_FIRMWARE}=${older}`], NO_FLAGS),
+    );
+
+    expect(contents(lines).slice(-2)).toEqual([
+      `Setting up ${GATEWAY_FIRMWARE} (${older}) ...`,
+      REBOOT_FAILED_LINE,
+    ]);
+    expect(recordDowngrade).not.toHaveBeenCalled();
+    expect(pops.count).toBe(0);
+    expect(exitCode).toBe(100);
+  });
+
+  it('flashes nothing when the image could not be written', async () => {
+    const { older, gameDay } = firmwareFixture();
+    const { env, pops } = aptEnv({
+      onHop: true,
+      gameDay,
+      carries: { [GATEWAY_FIRMWARE]: older },
+      writeResult: { ok: false, error: 'network_error' },
+    });
+
+    const { lines, exitCode } = await streamResult(
+      await apt.execute(env, ['upgrade', GATEWAY_FIRMWARE], NO_FLAGS),
+    );
+
+    expect(contents(lines).at(-1)).toBe(`E: Failed to write ${DPKG_STATUS_PATH} (network_error)`);
+    expect(pops.count).toBe(0);
+    expect(exitCode).toBe(100);
+  });
+});
+
 describe('man apt', () => {
   it('says it reaches the repo over the network the shell is on', () => {
     expect(apt.manual?.description).toContain('the network you are on');
+  });
+
+  it('says moving a router’s firmware reboots it', () => {
+    expect(apt.manual?.description).toContain(
+      'On a router, moving its firmware flashes the new image and reboots the device, which closes every connection to it.',
+    );
   });
 });

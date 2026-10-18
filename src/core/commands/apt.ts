@@ -40,7 +40,14 @@
 
 import { asAbsPath, type AbsPath } from '../types.js';
 import type { FilePermissions } from '../filesystem/types.js';
-import type { Command, CommandEnv, CommandResult, PatchResult, TerminalLine } from './types.js';
+import {
+  PATCH_ERROR_REASON,
+  type Command,
+  type CommandEnv,
+  type CommandResult,
+  type PatchResult,
+  type TerminalLine,
+} from './types.js';
 import { binaryStub } from '../generation/binaries.js';
 import { LIBRARY_PERMS } from '../generation/libraries.js';
 import type { SystemLibrary } from '../generation/libraries.js';
@@ -68,6 +75,9 @@ import {
   type UpgradeStatus,
 } from '../cve/packageTimeline.js';
 import { gameDayAt } from '../cve/worldClock.js';
+import { firmwareMoveBetween } from '../packages/packageVersions.js';
+import { isOwnWorkstation } from '../identity/workstation.js';
+import { connectionClosedLine, leaveRebootedBox } from './leaveRebootedBox.js';
 import { liveCve } from '../cve/liveCve.js';
 import { libraryDeps } from './libraryDeps.js';
 import { binaryExists } from './availability.js';
@@ -89,6 +99,39 @@ const USAGE = [
 
 /** Apt's exit code for a failed operation (permission, fetch, locate, …). */
 const APT_ERROR = 100;
+
+/** The shell a router's reboot takes down with it. */
+type StandingShell = Pick<CommandEnv, 'hostname' | 'session' | 'hopChain' | 'popSession'>;
+
+/** Whether rewriting this box's manifest from `before` to `after` flashes a router: a box
+ *  that is not the player's own, whose firmware image moves. The server reboots the box
+ *  on exactly this, so the line apt prints and the reboot the player gets agree. */
+const flashesRouter = (
+  env: Pick<CommandEnv, 'identity' | 'session'>,
+  before: string,
+  after: string,
+): boolean =>
+  !isOwnWorkstation(env.session.machineId, env.identity.publicKeyHex) &&
+  firmwareMoveBetween(parseDpkgVersions(before), parseDpkgVersions(after)) !== undefined;
+
+/** After a flash's rows are set up: the router restarts onto its new image, and a shell
+ *  standing on it goes with it — back to the box it came from. No boot screen: that is
+ *  console output a remote shell never sees. A reboot that did not take is said in
+ *  reboot's own words, because the image is written and only the restart failed. */
+async function* rebootOntoImage(
+  shell: StandingShell,
+  written: PatchResult,
+): AsyncGenerator<TerminalLine, number> {
+  if (!written.ok) {
+    yield errorLine(`E: ${PATCH_ERROR_REASON.reboot_failed}`);
+    return APT_ERROR;
+  }
+  yield text('Firmware installed; rebooting to apply.');
+  const hostname = shell.hostname;
+  leaveRebootedBox(shell);
+  yield text(connectionClosedLine(hostname));
+  return 0;
+}
 
 /** Where an installed binary lands. A tool you run goes to `/usr/bin`; a DAEMON
  *  you run to bring a service up goes to `/usr/sbin`, beside the `sshd` and
@@ -352,6 +395,7 @@ type Upgrade = { readonly pkg: string; readonly from: string; readonly to: strin
 async function* applyUpgrades(
   env: InstallBox,
   packageName: string | undefined,
+  shell: StandingShell | undefined,
 ): AsyncGenerator<TerminalLine, number> {
   const gameDay = gameDayAt(env.now());
   const manifest = readDpkgStatus(env.fs.root());
@@ -393,23 +437,30 @@ async function* applyUpgrades(
 
   await env.sleep(STEP_DELAY_MS);
   yield* upgrades.map(({ pkg, from, to }) => text(`Unpacking ${pkg} (${to}) over (${from}) ...`));
+  const upgraded = upgrades.reduce(
+    (content, { pkg, to }) => withPackageVersion(content, pkg, to),
+    manifest,
+  );
   const written = await env.patches.write(
     asAbsPath(DPKG_STATUS_PATH),
-    upgrades.reduce((content, { pkg, to }) => withPackageVersion(content, pkg, to), manifest),
+    upgraded,
     // Restated rather than left to the session: a rewrite at the session's defaults would
     // leave the manifest root-only, and hide it from every scan and every `list -u`.
     { owner: DPKG_STATUS_OWNER, permissions: DPKG_STATUS_PERMISSIONS },
   );
   // Nothing moved, so nothing may claim to have been set up — the manifest IS the
   // upgrade, and a box that reported one it never made would be lying about its own
-  // exposure.
-  if (!written.ok) {
+  // exposure. A reboot that failed after the write is not this: the manifest moved.
+  if (!written.ok && written.error !== 'reboot_failed') {
     yield errorLine(`E: Failed to write ${DPKG_STATUS_PATH} (${written.error})`);
     return APT_ERROR;
   }
   yield* upgrades.map(({ pkg, to }) => text(`Setting up ${pkg} (${to}) ...`));
   yield* warnings;
-  return 0;
+  return shell !== undefined &&
+    flashesRouter({ identity: env.identity, session: shell.session }, manifest, upgraded)
+    ? yield* rebootOntoImage(shell, written)
+    : 0;
 }
 
 /** The `upgrade` operation: apt's own preamble, then the work. */
@@ -423,7 +474,7 @@ async function* upgradePackages(
   await env.sleep(STEP_DELAY_MS);
   yield text('Calculating upgrade...');
   await env.sleep(STEP_DELAY_MS);
-  return yield* applyUpgrades(env, packageName);
+  return yield* applyUpgrades(env, packageName, env);
 }
 
 /** How many packages on the box a fix has shipped for — the ones `upgrade` would move.
@@ -516,25 +567,29 @@ async function* pinVersion(
     return APT_ERROR;
   }
   yield text(`Unpacking ${packageName} (${version}) over (${from}) ...`);
-  const written = await env.patches.write(
-    asAbsPath(DPKG_STATUS_PATH),
-    withPackageVersion(manifest, packageName, version),
-    { owner: DPKG_STATUS_OWNER, permissions: DPKG_STATUS_PERMISSIONS },
-  );
+  const pinned = withPackageVersion(manifest, packageName, version);
+  const written = await env.patches.write(asAbsPath(DPKG_STATUS_PATH), pinned, {
+    owner: DPKG_STATUS_OWNER,
+    permissions: DPKG_STATUS_PERMISSIONS,
+  });
   // Nothing moved, so nothing may claim to have been set up: the manifest IS the
   // downgrade, and a box reporting one it never made would lie about its own exposure.
-  if (!written.ok) {
+  // A reboot that failed after the write is not this: the manifest moved.
+  if (!written.ok && written.error !== 'reboot_failed') {
     yield errorLine(`E: Failed to write ${DPKG_STATUS_PATH} (${written.error})`);
     return APT_ERROR;
   }
+  const flashed = flashesRouter(env, manifest, pinned);
   // Only a LANDED rollback is reported, which is why this sits below the write rather
   // than beside the announcement above it. The manifest IS the downgrade, so a report
   // raised any earlier would put a rollback in the box owner's log that their manifest
   // never took — evidence of an attack that did not happen. The command names only what
   // moved: which box, from which address and at what time are the caller's to supply.
-  env.apt.recordDowngrade({ packageName, fromVersion: from, toVersion: version });
+  // A router's rollback is the exception: the server records it itself, before the
+  // reboot ends the session this report would be sent from.
+  if (!flashed) env.apt.recordDowngrade({ packageName, fromVersion: from, toVersion: version });
   yield text(`Setting up ${packageName} (${version}) ...`);
-  return 0;
+  return flashed ? yield* rebootOntoImage(env, written) : 0;
 }
 
 async function* installPackage(
@@ -560,7 +615,7 @@ async function* installPackage(
       gameDay: gameDayAt(env.now()),
     });
   }
-  return yield* installNewest(env, packageName);
+  return yield* installNewest(env, packageName, env);
 }
 
 /**
@@ -570,10 +625,13 @@ async function* installPackage(
  *
  * Shared with a workstation's first boot, which installs its starting services this
  * way so they are born exactly as a player who bought them that day would have them.
+ * A first boot has no `shell` standing on the box — and boots the player's own box,
+ * which runs no firmware to flash.
  */
 export async function* installNewest(
   env: InstallBox,
   packageName: string,
+  shell?: StandingShell,
 ): AsyncGenerator<TerminalLine, number> {
   const gameDay = gameDayAt(env.now());
   const manifest = readDpkgStatus(env.fs.root());
@@ -590,7 +648,7 @@ export async function* installNewest(
     if (version !== undefined && nothingNewerThan(upgradeStatusFor(packageName, version, gameDay))) {
       yield text(`${packageName} is already the newest version.`);
     }
-    return yield* applyUpgrades(env, packageName);
+    return yield* applyUpgrades(env, packageName, shell);
   }
 
   const contents = packageContents(packageName);
@@ -646,7 +704,7 @@ export async function* installNewest(
   // release onto a box still running last year's binary would hand out a patch nobody
   // applied.
   if (carried.has(packageName)) {
-    return yield* applyUpgrades(env, packageName);
+    return yield* applyUpgrades(env, packageName, shell);
   }
   // Anything genuinely new is BORN at what the repo holds today, in a manifest row of its
   // own. Without it a bought daemon has a binary and no version, and a scan of the box
@@ -760,7 +818,7 @@ export const apt: Command = {
     synopsis:
       'apt <install|list|upgrade|update> [--installed|--upgradable] [-y] [package[=<version>]]',
     description:
-      'Advanced Package Tool. "install" downloads a package and places its binaries where they belong — tools in /usr/bin, service daemons in /usr/sbin — making them available to run (requires root — run "su" first). Naming a release as "<package>=<version>" installs that release instead of the newest: the repo hands over only releases it already holds, and only backwards — moving a box forward is what "upgrade" is for. "upgrade" closes the holes "list --upgradable" names: it moves every package on this box whose fix has been released onto that release, or only the package you name, and reports the ones whose fix has not shipped yet rather than moving them (requires root). "update" reads the package lists and says how many packages on this box "upgrade" could move (requires root). "-y" is accepted out of habit: apt here never stops to ask. "list" shows the installable catalog; "list --installed" shows only the packages already present. "list --upgradable" (or -u) reads this box\'s package manifest and names every package with a published vulnerability, by its CVE id and severity, beside the version that fixes it, or — while the fix has not been released yet — how many days until it is. It needs no root. All of them reach the repo over the network you are on — your own at home, or the network of a box you have a shell on.',
+      'Advanced Package Tool. "install" downloads a package and places its binaries where they belong — tools in /usr/bin, service daemons in /usr/sbin — making them available to run (requires root — run "su" first). Naming a release as "<package>=<version>" installs that release instead of the newest: the repo hands over only releases it already holds, and only backwards — moving a box forward is what "upgrade" is for. "upgrade" closes the holes "list --upgradable" names: it moves every package on this box whose fix has been released onto that release, or only the package you name, and reports the ones whose fix has not shipped yet rather than moving them (requires root). "update" reads the package lists and says how many packages on this box "upgrade" could move (requires root). "-y" is accepted out of habit: apt here never stops to ask. "list" shows the installable catalog; "list --installed" shows only the packages already present. "list --upgradable" (or -u) reads this box\'s package manifest and names every package with a published vulnerability, by its CVE id and severity, beside the version that fixes it, or — while the fix has not been released yet — how many days until it is. It needs no root. All of them reach the repo over the network you are on — your own at home, or the network of a box you have a shell on. On a router, moving its firmware flashes the new image and reboots the device, which closes every connection to it.',
     arguments: [
       {
         name: 'operation',

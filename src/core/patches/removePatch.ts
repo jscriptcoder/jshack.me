@@ -99,15 +99,15 @@ export const handleRemovePatch = async (
 
   // L2: removing (unlinking) a node on a remote host needs write permission at
   // the login's tier, same as a write (own-box bypasses — session is null).
-  const denial = await enforceRemoteWriteL2({
+  const permitted = await enforceRemoteWriteL2({
     machineId: payload.machine_id,
     path: payload.path,
     session: access.session,
     listMachinePatches: deps.listMachinePatches,
     findOccupantWorkstationByMachineId: deps.findOccupantWorkstationByMachineId,
   });
-  if (denial) {
-    return { status: denial.status, body: { error: denial.error } };
+  if (!permitted.ok) {
+    return { status: permitted.status, body: { error: permitted.error } };
   }
 
   const query: PatchTreeQuery = {

@@ -6,7 +6,12 @@ import {
   type UpsertPatchDeps,
 } from './upsertPatch.js';
 import { contentHash } from './contentHash.js';
-import type { ActiveSessionQuery, FindActiveSessionResult } from './authorizeMachineAccess.js';
+import type {
+  ActiveSessionQuery,
+  FindActiveSessionResult,
+  StandingSession,
+} from './authorizeMachineAccess.js';
+import type { RebootSequenceDeps } from '../sessions/rebootSequence.js';
 import type {
   FindOccupantWorkstationByMachineId,
   ListMachinePatchesResult,
@@ -21,12 +26,30 @@ import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepL
 import { computeDeepGatewayId, computeInnerGatewayId } from '../identity/router.js';
 import { hostMachineId } from '../generation/remoteHostId.js';
 import { md5 } from '../generation/md5.js';
-import { buildEntry, DPKG_STATUS_PATH, formatDpkgStatus } from '../packages/dpkgStatus.js';
+import {
+  buildEntry,
+  DPKG_STATUS_PATH,
+  formatDpkgStatus,
+  parseDpkgVersions,
+  readDpkgStatus,
+  withPackageEntries,
+  withPackageVersion,
+} from '../packages/dpkgStatus.js';
 import { packageTimeline } from '../cve/packageTimeline.js';
+import { gameDayAt } from '../cve/worldClock.js';
+import { isFirmwarePackage } from '../packages/packageVersions.js';
+import { buildApGatewayBaseFs } from '../generation/routerFs.js';
+import { computeApGatewayId } from '../identity/router.js';
+import { KERN_LOG_PATH } from '../logging/kernLog.js';
+import { DPKG_LOG_PATH } from '../logging/dpkgLog.js';
+import { asEpochMs } from '../types.js';
 import type { UserType } from '../types.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 const freshStore: NonceStore = async () => ({ fresh: true });
+/** The server's clock for every test here: well past the world's start, so a firmware
+ *  image has releases on both sides of the one a gateway is generated on. */
+const FLASH_NOW = asEpochMs(Date.UTC(2026, 9, 18));
 const ESSID = 'BEAN-THERE-WIFI';
 /** The package behind the door every generated box opens. */
 const SSH_PACKAGE = 'openssh-server';
@@ -44,7 +67,10 @@ const remoteTarget = () => {
 
 const remoteSession =
   (userType: UserType, essid = ESSID) =>
-  async (): Promise<FindActiveSessionResult> => ({ data: { username: 'someone', userType, essid }, error: null });
+  async (): Promise<FindActiveSessionResult<StandingSession>> => ({
+    data: { username: 'someone', userType, essid, sourceIp: null },
+    error: null,
+  });
 
 /** A registered FOREIGN player workstation (A's box): A's identity → A's
  *  workstation machine_id, plus the occupancy row the L2 reverse-lookup returns so
@@ -88,9 +114,9 @@ const makeDeps = (over: Partial<UpsertPatchDeps> = {}) => {
   }));
   // Default: no active session on the queried machine. Foreign-machine tests
   // override this to simulate an ssh session being present.
-  const findActiveSession = vi.fn<(query: ActiveSessionQuery) => Promise<FindActiveSessionResult>>(
-    async () => ({ data: null, error: null }),
-  );
+  const findActiveSession = vi.fn<
+    (query: ActiveSessionQuery) => Promise<FindActiveSessionResult<StandingSession>>
+  >(async () => ({ data: null, error: null }));
   // Default: the remote machine has no prior patches (its base FS). L2 regenerates
   // the host and walks the base perms.
   const listMachinePatches = vi.fn<() => Promise<ListMachinePatchesResult>>(async () => ({
@@ -106,6 +132,17 @@ const makeDeps = (over: Partial<UpsertPatchDeps> = {}) => {
       error: null,
     }),
   );
+  // The reboot a firmware flash performs. Default: every write succeeds and the box had
+  // nobody on it, so a test that never flashes never notices these are here.
+  const endMachineSessions = vi.fn<RebootSequenceDeps['endMachineSessions']>(async () => ({
+    data: [],
+    error: null,
+  }));
+  const endSessionsAbove = vi.fn<RebootSequenceDeps['endSessionsAbove']>(async () => ({
+    data: [],
+    error: null,
+  }));
+  const writeBootId = vi.fn<RebootSequenceDeps['writeBootId']>(async () => ({ error: null }));
   const deps: UpsertPatchDeps = {
     nonceStore: freshStore,
     upsertPatch,
@@ -113,6 +150,13 @@ const makeDeps = (over: Partial<UpsertPatchDeps> = {}) => {
     listMachinePatches,
     listPathPatches,
     findOccupantWorkstationByMachineId,
+    endMachineSessions,
+    endSessionsAbove,
+    writeBootId,
+    now: () => FLASH_NOW,
+    findHomeNetworkByOwnerKey: async () => ({ data: { public_ip: '203.0.113.9' }, error: null }),
+    readLog: listPathPatches,
+    newBootId: () => 'boot-after-flash',
     ...over,
   };
   return {
@@ -122,6 +166,9 @@ const makeDeps = (over: Partial<UpsertPatchDeps> = {}) => {
     listMachinePatches,
     listPathPatches,
     findOccupantWorkstationByMachineId,
+    endMachineSessions,
+    endSessionsAbove,
+    writeBootId,
   };
 };
 
@@ -1064,5 +1111,367 @@ describe('handleUpsertPatch — a save never overwrites content its author was n
 
     expect(result).toEqual({ status: 500, body: { error: 'base_check_failed' } });
     expect(upsertPatch).not.toHaveBeenCalled();
+  });
+});
+
+describe('handleUpsertPatch — moving a router’s firmware reboots it', () => {
+  const FLASH_ESSID = 'FLASH-LAB-7';
+  // Where the flasher's login onto the gateway came from: the address both of the lines
+  // the flash leaves have to name.
+  const LOGIN_IP = '192.168.1.37';
+  const MANIFEST_PERMISSIONS = {
+    read: ['root', 'user', 'guest'],
+    write: ['root'],
+    execute: [],
+  } as const;
+
+  /** An access point gateway, the firmware image it is generated on, and the newest image
+   *  the repo holds on the server's day. */
+  const gatewayFirmware = () => {
+    const machineId = computeApGatewayId(FLASH_ESSID);
+    const manifest = readDpkgStatus(buildApGatewayBaseFs(FLASH_ESSID));
+    const row = [...parseDpkgVersions(manifest)].find(([key]) => isFirmwarePackage(key));
+    if (row === undefined) throw new Error(`no firmware on the ${FLASH_ESSID} gateway`);
+    const [firmware, generated] = row;
+    const newer = packageTimeline(firmware, gameDayAt(FLASH_NOW)).at(-1)?.version;
+    if (newer === undefined || newer === generated) throw new Error('no newer image to flash');
+    return { machineId, manifest, firmware, generated, newer };
+  };
+
+  const standingAsRoot = async (): Promise<FindActiveSessionResult<StandingSession>> => ({
+    data: { username: 'root', userType: 'root', essid: FLASH_ESSID, sourceIp: LOGIN_IP },
+    error: null,
+  });
+
+  const manifestWrite = (
+    signer: ReturnType<typeof generateIdentity>,
+    machineId: string,
+    content: string,
+    path: string = DPKG_STATUS_PATH,
+  ) =>
+    signRequest(signer, 'upsertPatch', {
+      machine_id: machineId,
+      path,
+      content,
+      owner: 'root',
+      permissions: MANIFEST_PERMISSIONS,
+    });
+
+  /** The box's journal already holding a manifest — how a gateway someone has flashed
+   *  before reads to the next write. */
+  const priorManifest = (content: string) => async (): Promise<ListMachinePatchesResult> => ({
+    data: [{ path: DPKG_STATUS_PATH, content, owner: 'root', permissions: MANIFEST_PERMISSIONS }],
+    error: null,
+  });
+
+  const rowsAt = (upsertPatch: { mock: { calls: [PatchRow][] } }, path: string) =>
+    upsertPatch.mock.calls.map(([row]) => row).filter((row) => row.path === path);
+
+  it('reboots the gateway when a write moves its firmware forward', async () => {
+    const id = generateIdentity();
+    const gateway = gatewayFirmware();
+    const { deps, upsertPatch, endMachineSessions, writeBootId } = makeDeps({
+      findActiveSession: standingAsRoot,
+    });
+
+    const result = await handleUpsertPatch(
+      manifestWrite(
+        id,
+        gateway.machineId,
+        withPackageVersion(gateway.manifest, gateway.firmware, gateway.newer),
+      ),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    expect(rowsAt(upsertPatch, DPKG_STATUS_PATH)).toHaveLength(1);
+    expect(endMachineSessions).toHaveBeenCalledWith({
+      machine_id: gateway.machineId,
+      reason: 'rebooted',
+    });
+    expect(writeBootId).toHaveBeenCalledWith({
+      machine_id: gateway.machineId,
+      player_key: id.publicKeyHex,
+      boot_id: 'boot-after-flash',
+    });
+    const kern = rowsAt(upsertPatch, KERN_LOG_PATH);
+    expect(kern).toHaveLength(1);
+    expect(kern[0]?.writer_key).toBe(`ap:${FLASH_ESSID}`);
+    expect(kern[0]?.content).toContain(`System restart requested from ${LOGIN_IP} `);
+    // Forward is a patch, not a rollback: there is nothing for the owner to be warned of.
+    expect(rowsAt(upsertPatch, DPKG_LOG_PATH)).toEqual([]);
+  });
+
+  it('ends the chains standing on every session the flash closed', async () => {
+    const id = generateIdentity();
+    const gateway = gatewayFirmware();
+    const { deps, endSessionsAbove } = makeDeps({
+      findActiveSession: standingAsRoot,
+      endMachineSessions: async () => ({
+        data: [{ session_id: 'bystander-shell', player_key: 'bystander-key' }],
+        error: null,
+      }),
+    });
+
+    await handleUpsertPatch(
+      manifestWrite(
+        id,
+        gateway.machineId,
+        withPackageVersion(gateway.manifest, gateway.firmware, gateway.newer),
+      ),
+      deps,
+    );
+
+    expect(endSessionsAbove).toHaveBeenCalledWith({
+      player_key: 'bystander-key',
+      parent_ids: ['bystander-shell'],
+      reason: 'upstream_lost',
+    });
+  });
+
+  it('records a firmware rollback in dpkg.log, before the reboot ends the session', async () => {
+    const id = generateIdentity();
+    const gateway = gatewayFirmware();
+    const flashed = withPackageVersion(gateway.manifest, gateway.firmware, gateway.newer);
+    const { deps, upsertPatch, endMachineSessions } = makeDeps({
+      findActiveSession: standingAsRoot,
+      listMachinePatches: priorManifest(flashed),
+    });
+
+    const result = await handleUpsertPatch(
+      manifestWrite(
+        id,
+        gateway.machineId,
+        withPackageVersion(flashed, gateway.firmware, gateway.generated),
+      ),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    const dpkg = rowsAt(upsertPatch, DPKG_LOG_PATH);
+    expect(dpkg).toHaveLength(1);
+    expect(dpkg[0]?.writer_key).toBe(`ap:${FLASH_ESSID}`);
+    // Old version then new, dpkg's own order — reversed it would read as an upgrade.
+    expect(dpkg[0]?.content).toContain(
+      `downgrade ${gateway.firmware} ${gateway.newer} ${gateway.generated} Client "${LOGIN_IP}"`,
+    );
+    const dpkgWrite = upsertPatch.mock.calls.findIndex(([row]) => row.path === DPKG_LOG_PATH);
+    expect(upsertPatch.mock.invocationCallOrder[dpkgWrite]).toBeLessThan(
+      endMachineSessions.mock.invocationCallOrder[0] ?? 0,
+    );
+    expect(endMachineSessions).toHaveBeenCalledTimes(1);
+  });
+
+  it('reboots nothing when a write moves only a service row', async () => {
+    const id = generateIdentity();
+    const gateway = gatewayFirmware();
+    const { deps, upsertPatch, endMachineSessions, writeBootId } = makeDeps({
+      findActiveSession: standingAsRoot,
+    });
+
+    const result = await handleUpsertPatch(
+      manifestWrite(
+        id,
+        gateway.machineId,
+        withPackageVersion(gateway.manifest, SSH_PACKAGE, '9.8.0'),
+      ),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    expect(endMachineSessions).not.toHaveBeenCalled();
+    expect(writeBootId).not.toHaveBeenCalled();
+    expect(rowsAt(upsertPatch, KERN_LOG_PATH)).toEqual([]);
+  });
+
+  it('reboots nothing when the firmware row is rewritten at the version it already holds', async () => {
+    const id = generateIdentity();
+    const gateway = gatewayFirmware();
+    const { deps, endMachineSessions } = makeDeps({ findActiveSession: standingAsRoot });
+
+    await handleUpsertPatch(
+      manifestWrite(id, gateway.machineId, `${gateway.manifest}\n# tidied by hand\n`),
+      deps,
+    );
+
+    expect(endMachineSessions).not.toHaveBeenCalled();
+  });
+
+  it('files no rollback line when it cannot tell whose log the line belongs in', async () => {
+    // A line in the wrong row is a stranger's evidence misfiled; the reboot still runs.
+    const id = generateIdentity();
+    const gateway = gatewayFirmware();
+    const flashed = withPackageVersion(gateway.manifest, gateway.firmware, gateway.newer);
+    const { deps, upsertPatch, endMachineSessions } = makeDeps({
+      findActiveSession: standingAsRoot,
+      listMachinePatches: priorManifest(flashed),
+      findOccupantWorkstationByMachineId: async () => ({
+        data: null,
+        error: { message: 'db down' },
+      }),
+    });
+
+    const result = await handleUpsertPatch(
+      manifestWrite(
+        id,
+        gateway.machineId,
+        withPackageVersion(flashed, gateway.firmware, gateway.generated),
+      ),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    expect(rowsAt(upsertPatch, DPKG_LOG_PATH)).toEqual([]);
+    expect(endMachineSessions).toHaveBeenCalledTimes(1);
+  });
+
+  it('reboots nothing when the manifest is written as a deletion marker', async () => {
+    const id = generateIdentity();
+    const gateway = gatewayFirmware();
+    const { deps, endMachineSessions } = makeDeps({ findActiveSession: standingAsRoot });
+
+    const result = await handleUpsertPatch(
+      signRequest(id, 'upsertPatch', {
+        machine_id: gateway.machineId,
+        path: DPKG_STATUS_PATH,
+        content: null,
+        owner: 'root',
+      }),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    expect(endMachineSessions).not.toHaveBeenCalled();
+  });
+
+  it('reboots nothing when the write cuts the firmware row out of the manifest', async () => {
+    // No image named is no image moved: the box keeps running the one it booted.
+    const id = generateIdentity();
+    const gateway = gatewayFirmware();
+    const { deps, endMachineSessions } = makeDeps({ findActiveSession: standingAsRoot });
+    const withoutFirmware = formatDpkgStatus(
+      [...parseDpkgVersions(gateway.manifest)]
+        .filter(([pkg]) => pkg !== gateway.firmware)
+        .map(([pkg, version]) => buildEntry(pkg, version)),
+    );
+
+    await handleUpsertPatch(manifestWrite(id, gateway.machineId, withoutFirmware), deps);
+
+    expect(endMachineSessions).not.toHaveBeenCalled();
+  });
+
+  it('reboots nothing on a box with no firmware, even when the write adds a firmware row', async () => {
+    const id = generateIdentity();
+    const { machineId } = remoteTarget();
+    const { deps, endMachineSessions } = makeDeps({ findActiveSession: remoteSession('root') });
+
+    await handleUpsertPatch(
+      manifestWrite(
+        id,
+        machineId,
+        withPackageEntries(formatDpkgStatus([buildEntry(SSH_PACKAGE, '9.7.0')]), [
+          buildEntry('cisco-firmware', '17.1.0'),
+        ]),
+      ),
+      deps,
+    );
+
+    expect(endMachineSessions).not.toHaveBeenCalled();
+  });
+
+  it('reboots nothing for a write to the writer’s own workstation', async () => {
+    const id = generateIdentity();
+    const { deps, endMachineSessions } = makeDeps();
+
+    await handleUpsertPatch(
+      manifestWrite(
+        id,
+        computeWorkstationId('skylab', id.publicKeyHex),
+        formatDpkgStatus([buildEntry('cisco-firmware', '17.1.0')]),
+      ),
+      deps,
+    );
+
+    expect(endMachineSessions).not.toHaveBeenCalled();
+  });
+
+  it('reboots nothing when a moved manifest is written somewhere other than the manifest', async () => {
+    const id = generateIdentity();
+    const gateway = gatewayFirmware();
+    const { deps, endMachineSessions } = makeDeps({ findActiveSession: standingAsRoot });
+
+    await handleUpsertPatch(
+      manifestWrite(
+        id,
+        gateway.machineId,
+        withPackageVersion(gateway.manifest, gateway.firmware, gateway.newer),
+        '/tmp/status',
+      ),
+      deps,
+    );
+
+    expect(endMachineSessions).not.toHaveBeenCalled();
+  });
+
+  it('reboots nothing when the manifest itself could not be written', async () => {
+    const id = generateIdentity();
+    const gateway = gatewayFirmware();
+    const { deps, endMachineSessions } = makeDeps({
+      findActiveSession: standingAsRoot,
+      upsertPatch: async () => ({ error: { message: 'db down' } }),
+    });
+
+    const result = await handleUpsertPatch(
+      manifestWrite(
+        id,
+        gateway.machineId,
+        withPackageVersion(gateway.manifest, gateway.firmware, gateway.newer),
+      ),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 500, body: { error: 'upsert_failed' } });
+    expect(endMachineSessions).not.toHaveBeenCalled();
+  });
+
+  it('says the reboot failed when the sessions could not be ended, the image already written', async () => {
+    const id = generateIdentity();
+    const gateway = gatewayFirmware();
+    const { deps, upsertPatch } = makeDeps({
+      findActiveSession: standingAsRoot,
+      endMachineSessions: async () => ({ data: null, error: { message: 'db down' } }),
+    });
+
+    const result = await handleUpsertPatch(
+      manifestWrite(
+        id,
+        gateway.machineId,
+        withPackageVersion(gateway.manifest, gateway.firmware, gateway.newer),
+      ),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 500, body: { error: 'reboot_failed' } });
+    expect(rowsAt(upsertPatch, DPKG_STATUS_PATH)).toHaveLength(1);
+  });
+
+  it('says the reboot failed when the boot id could not be written', async () => {
+    const id = generateIdentity();
+    const gateway = gatewayFirmware();
+    const { deps } = makeDeps({
+      findActiveSession: standingAsRoot,
+      writeBootId: async () => ({ error: { message: 'db down' } }),
+    });
+
+    const result = await handleUpsertPatch(
+      manifestWrite(
+        id,
+        gateway.machineId,
+        withPackageVersion(gateway.manifest, gateway.firmware, gateway.newer),
+      ),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 500, body: { error: 'reboot_failed' } });
   });
 });
