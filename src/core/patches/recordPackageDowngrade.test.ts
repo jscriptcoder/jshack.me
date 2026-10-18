@@ -348,7 +348,11 @@ describe('handleRecordPackageDowngrade', () => {
         await handleRecordPackageDowngrade(envelope, deps);
 
         const content = upsertPatch.mock.calls[0]![0].content;
-        expect(content).toContain(`${downgrade[field]}\\n${forged}`);
+        // The break and every separator of the forged line are spelled out, so it reads as
+        // part of the field and never as a line, or a column, of its own.
+        expect(content).toContain(
+          String.raw`${downgrade[field]}\x0a2026-08-14\x2013:50:00\x20downgrade\x20nginx\x201.2\x201.1\x20Client\x20\x2210.0.0.5\x22`,
+        );
         expect(content?.split('\n')).toEqual([expect.stringContaining('downgrade redis'), '']);
       },
     );

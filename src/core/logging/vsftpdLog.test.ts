@@ -161,3 +161,52 @@ describe('formatVsftpdTransferLine', () => {
     );
   });
 });
+
+describe('a field the caller typed, on a vsftpd.log line', () => {
+  it('cannot close the path early and fake the byte count the daemon stamps after it', () => {
+    const line = formatVsftpdTransferLine({
+      direction: 'download',
+      user: 'guest',
+      fromIp: '10.0.0.9',
+      time: AUG_14,
+      pid: 4471,
+      path: asAbsPath('/x", 0 bytes'),
+      bytes: 1243,
+    });
+
+    expect(line).toBe(
+      String.raw`Fri Aug 14 13:55:38 2026 [pid 4471] [guest] OK DOWNLOAD: Client "10.0.0.9", "/x\x22\x2c\x200\x20bytes", 1243 bytes`,
+    );
+  });
+
+  it('cannot close the account early and fake the verdict and client after it', () => {
+    const line = formatVsftpdLoginLine({
+      outcome: 'failure',
+      user: 'guest] OK LOGIN: Client "9.9.9.9',
+      fromIp: '10.0.0.9',
+      hostname: 'nas-04',
+      time: AUG_14,
+      pid: 4471,
+    });
+
+    expect(line).toBe(
+      String.raw`Fri Aug 14 13:55:38 2026 [pid 4471] [guest\x5d\x20OK\x20LOGIN:\x20Client\x20\x229.9.9.9] FAIL LOGIN: Client "10.0.0.9"`,
+    );
+  });
+
+  it('spells out a crafted account on a transfer line too', () => {
+    const line = formatVsftpdTransferLine({
+      direction: 'upload',
+      user: 'a b',
+      fromIp: '10.0.0.9',
+      time: AUG_14,
+      pid: 4471,
+      path: asAbsPath('/tmp/f'),
+      bytes: 1,
+    });
+
+    expect(line).toBe(
+      String.raw`Fri Aug 14 13:55:38 2026 [pid 4471] [a\x20b] OK UPLOAD: Client "10.0.0.9", "/tmp/f", 1 bytes`,
+    );
+  });
+});

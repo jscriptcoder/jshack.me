@@ -369,7 +369,15 @@ shipped attack loop into an attacker/defender loop.
   **A line is held to one line here**: most of it is what the caller sent (a path, an account, a
   package name), so a line break inside it is written out as `\n` / `\r` rather than left to start a
   line the caller wrote whole. A trace of several lines goes through `appendMachineLogLines` with
-  its lines apart, never already joined.
+  its lines apart, never already joined. **And a field cannot fake a column**: every field a caller
+  typed or a player chose (a path, an account, a package and its versions, a crashed command and
+  library, a box's machine name, a zone named after the network) passes `escapeLogField`
+  (`core/logging/escapeLogField.ts`) in the formatter that interpolates it, which spells out as
+  `\xNN` anything outside `[A-Za-z0-9/._:+~=?&%-]`. So the timestamp, source address, pid, byte
+  count and verdict the server stamps beside it are the only ones on the line. It lives in the
+  formatters because `appendMachineLog` only sees the joined line and cannot tell a field from the
+  separator next to it. Server-owned values (addresses, pids, closed-set verbs, the snmp oid and
+  values) and fields at the end of their line (a mysql or redis statement) are left as they are.
 - **Source IP is server-derived, never the client `source_ip`.** Forging / framing another network is
   impossible by construction; a client-supplied `source_ip` is ignored. It is the attacker's
   **operating-machine** IP — the box their shell stands on. The original cross-player handlers mapped

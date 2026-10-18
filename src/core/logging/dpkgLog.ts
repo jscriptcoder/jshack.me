@@ -29,6 +29,7 @@
 
 import { asAbsPath, type AbsPath, type GameTime } from '../types.js';
 import type { FilePermissions } from '../filesystem/types.js';
+import { escapeLogField } from './escapeLogField.js';
 
 /** The canonical `/var/log/dpkg.log` storage identity — single source of truth shared by
  *  every server-side appender, so each appended patch agrees on path, owner and perms.
@@ -87,4 +88,4 @@ export const formatPackageDowngradeLine = ({
   fromIp,
   time,
 }: PackageDowngrade): string =>
-  `${formatDpkgTimestamp(time)} downgrade ${packageName} ${fromVersion} ${toVersion} Client "${fromIp}"`;
+  `${formatDpkgTimestamp(time)} downgrade ${escapeLogField(packageName)} ${escapeLogField(fromVersion)} ${escapeLogField(toVersion)} Client "${fromIp}"`;

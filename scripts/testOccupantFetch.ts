@@ -23,6 +23,7 @@
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env.
 
 import { createClient } from '@supabase/supabase-js';
+import { escapeLogField } from '../src/core/logging/escapeLogField.js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
@@ -332,7 +333,7 @@ try {
     'a path carrying a line break stays on its one line, adding none of its own',
     r8b.status === 404 &&
       lineCount(log8b) === before8b + 1 &&
-      lastLine(log8b).includes(`"GET /missing\\n${FORGED} HTTP/1.1" 404 0`),
+      lastLine(log8b).includes(`"GET ${escapeLogField(`/missing\n${FORGED}`)} HTTP/1.1" 404 0`),
     `status=${r8b.status} added=${lineCount(log8b) - before8b} line=${lastLine(log8b)}`,
   );
 

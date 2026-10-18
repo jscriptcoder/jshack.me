@@ -24,6 +24,7 @@
 import { asAbsPath, type AbsPath, type GameTime } from '../types.js';
 import type { FilePermissions } from '../filesystem/types.js';
 import { MONTHS } from './syslog.js';
+import { escapeLogField } from './escapeLogField.js';
 
 /** The canonical `/var/log/named.log` storage identity — single source of truth
  *  shared by the boot seed (`generation/remoteHostFs`) and the server-side appender,
@@ -82,10 +83,12 @@ export const formatNamedXfrLine = ({
   zone,
   outcome,
 }: ZoneTransferLogEvent): string => {
-  const head = `${formatNamedTimestamp(time)} client ${sourceIp} (${zone}): `;
+  // The zone is named after the network, which its players chose.
+  const named = escapeLogField(zone);
+  const head = `${formatNamedTimestamp(time)} client ${sourceIp} (${named}): `;
   return outcome.verdict === 'transferred'
-    ? `${head}transfer of '${zone}/IN': AXFR ended: ${outcome.records} records`
-    : `${head}zone transfer '${zone}/IN' denied`;
+    ? `${head}transfer of '${named}/IN': AXFR ended: ${outcome.records} records`
+    : `${head}zone transfer '${named}/IN' denied`;
 };
 
 /** Render the `rndc` command an admin sent the daemon, as BIND records receiving it. */
@@ -107,4 +110,5 @@ export const formatNamedZoneLoadedLine = ({
   readonly time: GameTime;
   readonly zone: string;
   readonly serial: number;
-}): string => `${formatNamedTimestamp(time)} zone ${zone}/IN: loaded serial ${serial}`;
+}): string =>
+  `${formatNamedTimestamp(time)} zone ${escapeLogField(zone)}/IN: loaded serial ${serial}`;

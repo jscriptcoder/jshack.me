@@ -5,6 +5,7 @@ import {
   NAMED_LOG_PATH,
   NAMED_LOG_PERMISSIONS,
   formatNamedXfrLine,
+  formatNamedZoneLoadedLine,
 } from './namedLog.js';
 
 /**
@@ -85,5 +86,40 @@ describe('formatNamedXfrLine', () => {
     expect(line).toBe(
       "03-Nov-2026 09:07:05.007 client 198.51.100.2 (acme-corp.lan): transfer of 'acme-corp.lan/IN': AXFR ended: 12 records",
     );
+  });
+});
+
+describe('a zone named after the network, on a named.log line', () => {
+  // The zone is derived from the network's name, which its players chose.
+  it('cannot fake the verdict of a transfer', () => {
+    const line = formatNamedXfrLine({
+      time: SEP_05,
+      sourceIp: '203.0.113.7',
+      zone: "a b'",
+      outcome: { verdict: 'transferred', records: 8 },
+    });
+
+    expect(line).toBe(
+      String.raw`05-Sep-2026 22:13:20.456 client 203.0.113.7 (a\x20b\x27): transfer of 'a\x20b\x27/IN': AXFR ended: 8 records`,
+    );
+  });
+
+  it('cannot fake the verdict of a refusal', () => {
+    const line = formatNamedXfrLine({
+      time: SEP_05,
+      sourceIp: '203.0.113.7',
+      zone: "a b'",
+      outcome: { verdict: 'denied' },
+    });
+
+    expect(line).toBe(
+      String.raw`05-Sep-2026 22:13:20.456 client 203.0.113.7 (a\x20b\x27): zone transfer 'a\x20b\x27/IN' denied`,
+    );
+  });
+
+  it('cannot fake the serial a zone loaded with', () => {
+    const line = formatNamedZoneLoadedLine({ time: SEP_05, zone: 'a b', serial: 7 });
+
+    expect(line).toBe(String.raw`05-Sep-2026 22:13:20.456 zone a\x20b/IN: loaded serial 7`);
   });
 });

@@ -20,6 +20,7 @@
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env.
 
 import { createClient } from '@supabase/supabase-js';
+import { escapeLogField } from '../src/core/logging/escapeLogField.js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
@@ -394,7 +395,9 @@ check(
     afterDrop !== null &&
     afterForging !== null &&
     lineCount(afterForging.content) === lineCount(afterDrop.content) + 1 &&
-    latestLine(afterForging.content).includes(`"${TAKEN}\\n${FORGED}", ${TAKEN_BYTES}`),
+    latestLine(afterForging.content).includes(
+      `"${escapeLogField(`${TAKEN}\n${FORGED}`)}", ${TAKEN_BYTES}`,
+    ),
   afterForging === null || afterDrop === null
     ? 'no row'
     : `status ${forging.status}; ${lineCount(afterForging.content) - lineCount(afterDrop.content)} line(s) added; ${latestLine(afterForging.content)}`,

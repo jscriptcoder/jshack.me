@@ -21,6 +21,7 @@ import { asAbsPath, type AbsPath, type GameTime } from '../types.js';
 import type { FilePermissions } from '../filesystem/types.js';
 import { MONTHS } from './syslog.js';
 import type { CredentialAttempt } from './authLog.js';
+import { escapeLogField } from './escapeLogField.js';
 
 /** The canonical `/var/log/access.log` storage identity — single source of truth shared
  *  by the boot seed (`generation/workstationFs` + `remoteHostFs` + `routerFs`) and the
@@ -75,7 +76,7 @@ export const formatAccessLogLine = (
   { time, method = 'GET', sourceIp, path, status, size }: AccessLogEvent,
   authUser = '-',
 ): string =>
-  `${sourceIp} - ${authUser} [${formatAccessTimestamp(time)}] "${method} ${path} HTTP/1.1" ${status} ${size}`;
+  `${sourceIp} - ${escapeLogField(authUser)} [${formatAccessTimestamp(time)}] "${method} ${escapeLogField(path)} HTTP/1.1" ${status} ${size}`;
 
 /** One password tried against the web door, as the web server writes it: a request for
  *  the front page carrying the account, refused with a 401 or served with a 200. A wall

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { asGameTime } from '../types.js';
-import { formatNmapScanAggregate, formatSegfaultLine } from './kernLog.js';
+import {
+  formatKernelLine,
+  formatNmapScanAggregate,
+  formatRebootLine,
+  formatSegfaultLine,
+} from './kernLog.js';
 
 /**
  * Kernel-log (`/var/log/kern.log`) line formatting for an nmap port scan — an
@@ -113,5 +118,49 @@ describe('formatSegfaultLine', () => {
     expect(line).toContain('in libsystemd.so');
     // The tell: a crash names no CVE, unlike the service path's trace.
     expect(line).not.toMatch(/CVE-/);
+  });
+});
+
+describe('a field the caller typed, on a kern.log line', () => {
+  it('cannot fake the pid or the library after a crashed command, nor the head with a box name', () => {
+    const line = formatSegfaultLine({
+      time: JUN_7,
+      hostname: 'work station',
+      command: 'su[1]: x',
+      library: 'libpam.so x',
+      pid: 4242,
+    });
+
+    expect(line).toBe(
+      String.raw`Jun  7 14:32:01 work\x20station kernel: su\x5b1\x5d:\x20x[4242]: segfault at 0 ip 0000000000000000 sp 0000000000000000 error 4 in libpam.so\x20x.so`,
+    );
+  });
+
+  // The box's name is the player's to choose, and it heads every line the kernel writes.
+  it('spells out a box name on a scan line', () => {
+    const line = formatNmapScanAggregate({
+      time: JUN_7,
+      hostname: 'a b',
+      sourceIp: '10.0.0.9',
+      probedPorts: [22],
+    });
+
+    expect(line).toBe(
+      String.raw`Jun  7 14:32:01 a\x20b kernel: [iptables] Port scan from 10.0.0.9 — probed ports 22 (1 hits)`,
+    );
+  });
+
+  it('spells out a box name on a reboot line', () => {
+    const line = formatRebootLine({ time: JUN_7, hostname: 'a b', sourceIp: '10.0.0.9' });
+
+    expect(line).toBe(
+      String.raw`Jun  7 14:32:01 a\x20b kernel: [reboot] System restart requested from 10.0.0.9 — all sessions terminated`,
+    );
+  });
+
+  it('spells out a box name on a line the kernel writes on its own account', () => {
+    const line = formatKernelLine({ time: JUN_7, hostname: 'a b', message: 'booted' });
+
+    expect(line).toBe(String.raw`Jun  7 14:32:01 a\x20b kernel: booted`);
   });
 });

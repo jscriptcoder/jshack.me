@@ -16,6 +16,7 @@ import { asAbsPath, type AbsPath } from '../types.js';
 import type { FilePermissions } from '../filesystem/types.js';
 import { formatSyslogLine } from './syslog.js';
 import type { GameTime } from '../types.js';
+import { escapeLogField } from './escapeLogField.js';
 
 /** The canonical `/var/log/auth.log` storage identity — single source of truth
  *  shared by the boot seed (`generation/workstationFs`) and the server-side
@@ -49,8 +50,8 @@ export const formatSuAuthLine = (event: SuAuthEvent): string =>
     pid: event.pid,
     message:
       event.outcome === 'success'
-        ? `Successful su for ${event.targetUser} by ${event.fromUser}`
-        : `FAILED su for ${event.targetUser} by ${event.fromUser}`,
+        ? `Successful su for ${escapeLogField(event.targetUser)} by ${escapeLogField(event.fromUser)}`
+        : `FAILED su for ${escapeLogField(event.targetUser)} by ${escapeLogField(event.fromUser)}`,
   });
 
 /** One credential attempt as the TARGET saw it — the input every service's login
@@ -91,7 +92,7 @@ export const formatSessionOpenedLine = (event: SessionOpenedEvent): string =>
     hostname: event.hostname,
     service: 'login',
     pid: event.pid,
-    message: `session opened for user ${event.user}`,
+    message: `session opened for user ${escapeLogField(event.user)}`,
   });
 
 /** Render an ssh login attempt as the REMOTE host's `/var/log/auth.log` line —
@@ -107,8 +108,8 @@ export const formatSshdAuthLine = (event: CredentialAttempt): string =>
     pid: event.pid,
     message:
       event.outcome === 'success'
-        ? `Accepted password for ${event.user} from ${event.fromIp}`
-        : `Failed password for ${event.user} from ${event.fromIp}`,
+        ? `Accepted password for ${escapeLogField(event.user)} from ${event.fromIp}`
+        : `Failed password for ${escapeLogField(event.user)} from ${event.fromIp}`,
   });
 
 export type RootSessionEvent = {

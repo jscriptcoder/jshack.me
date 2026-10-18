@@ -154,3 +154,64 @@ describe('formatSessionOpenedLine', () => {
     expect(line).not.toMatch(/CVE-/);
   });
 });
+
+describe('a field the caller typed, on an auth.log line', () => {
+  it('cannot fake the source address sshd stamps after a typed account', () => {
+    const line = formatSshdAuthLine({
+      outcome: 'failure',
+      user: 'root from 9.9.9.9',
+      fromIp: '192.168.1.50',
+      hostname: 'fileserver-7',
+      time: JUN_7,
+      pid: 4242,
+    });
+
+    expect(line).toBe(
+      String.raw`Jun  7 14:32:01 fileserver-7 sshd[4242]: Failed password for root\x20from\x209.9.9.9 from 192.168.1.50`,
+    );
+  });
+
+  it('cannot fake who switched to whom on an su line', () => {
+    const line = formatSuAuthLine({
+      outcome: 'success',
+      targetUser: 'root by neo',
+      fromUser: 'trin ity',
+      hostname: 'workstation',
+      time: JUN_7,
+      pid: 4242,
+    });
+
+    expect(line).toBe(
+      String.raw`Jun  7 14:32:01 workstation su[4242]: Successful su for root\x20by\x20neo by trin\x20ity`,
+    );
+  });
+
+  it('spells out the account a session opened for', () => {
+    const line = formatSessionOpenedLine({
+      user: 'root guest',
+      hostname: 'workstation',
+      time: JUN_7,
+      pid: 4242,
+    });
+
+    expect(line).toBe(
+      String.raw`Jun  7 14:32:01 workstation login[4242]: session opened for user root\x20guest`,
+    );
+  });
+
+  it("cannot fake the service head with the box's own chosen name", () => {
+    // The machine name is the player's to choose, and it heads every line of this file.
+    const line = formatSshdAuthLine({
+      outcome: 'failure',
+      user: 'guest',
+      fromIp: '192.168.1.50',
+      hostname: 'box sshd[1]: Accepted',
+      time: JUN_7,
+      pid: 4242,
+    });
+
+    expect(line).toBe(
+      String.raw`Jun  7 14:32:01 box\x20sshd\x5b1\x5d:\x20Accepted sshd[4242]: Failed password for guest from 192.168.1.50`,
+    );
+  });
+});

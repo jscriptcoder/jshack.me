@@ -139,9 +139,14 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   login, a 79-attempt `hydra` run), and an ftp `get` is itemised on its one line. The game
   never sends a line break, so the escape itself is the wire-checks' to prove. The run also
   showed the ftp client greets with `220 (vsFTPd 3.0.3)` whatever release the box runs (it had
-  4.1.2); the banner is a constant in `core/commands/ftp.ts`. Still open, by reading: a field
-  can spoof the columns that follow it WITHIN its own line (a path ending `", 0 bytes`), though
-  the columns the server stamped are still there to contradict it.
+  4.1.2); the banner is a constant in `core/commands/ftp.ts`. ✅ Its neighbour, a field
+  spoofing the columns that follow it WITHIN its own line (a path ending `", 0 bytes`), closed
+  at v0.404.0: every field a caller typed or a player chose passes `escapeLogField` in its
+  formatter, which spells out anything outside `[A-Za-z0-9/._:+~=?&%-]` as `\xNN`, so the
+  timestamp, address and verdict the server stamped are the only ones on the line. A break
+  inside such a field now reads `\x0a` rather than `\n`; the three checks above assert the new
+  spelling. Proved live first (`scripts/testLogFieldEscaping.ts`, 1/4 before, 4/4 after). Grill
+  record and plan: `plans/log-field-column-spoofing.md` until close-out.
 
 - **The data doors resolved `localhost` to the gateway on a deep hop — RESOLVED 2026-10-10
   (v0.349.0).** Proved first on the live stack (`scripts/testHopDataDoors.ts`): `redis-cli

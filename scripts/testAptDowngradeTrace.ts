@@ -30,6 +30,7 @@
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env / no usable host.
 
 import { createClient } from '@supabase/supabase-js';
+import { escapeLogField } from '../src/core/logging/escapeLogField.js';
 import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
@@ -430,7 +431,9 @@ check(
   '13b. a name carrying a line break stays on its one line, adding none of its own',
   forging.status === 200 &&
     forgedLines.length === 3 &&
-    (forgedLines.at(-1) ?? '').includes(`downgrade ${PACKAGE}\\n${FORGED} ${FROM_VERSION}`),
+    (forgedLines.at(-1) ?? '').includes(
+      `downgrade ${escapeLogField(`${PACKAGE}\n${FORGED}`)} ${FROM_VERSION}`,
+    ),
   `status ${forging.status}; ${forgedLines.length} line(s); ${forgedLines.at(-1) ?? '(no line)'}`,
 );
 

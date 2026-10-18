@@ -14,6 +14,7 @@
 import { asAbsPath, type AbsPath, type GameTime } from '../types.js';
 import type { FilePermissions } from '../filesystem/types.js';
 import { formatSyslogTimestamp } from './syslog.js';
+import { escapeLogField } from './escapeLogField.js';
 
 /** The canonical `/var/log/kern.log` storage identity — single source of truth
  *  shared by the host-FS seed (`generation/remoteHostFs` + `workstationFs`) and
@@ -46,7 +47,7 @@ export type RebootLogEvent = {
  *  It names the sessions, not the machine: what the reader wants to know is whether
  *  whoever was inside is gone, and that is the fact the reboot actually settled. */
 export const formatRebootLine = ({ time, hostname, sourceIp }: RebootLogEvent): string =>
-  `${formatSyslogTimestamp(time)} ${hostname} kernel: [reboot] System restart requested from ${sourceIp} — all sessions terminated`;
+  `${formatSyslogTimestamp(time)} ${escapeLogField(hostname)} kernel: [reboot] System restart requested from ${sourceIp} — all sessions terminated`;
 
 export type NmapScanLogEvent = {
   readonly time: GameTime;
@@ -66,7 +67,7 @@ export const formatNmapScanAggregate = ({
   probedPorts,
 }: NmapScanLogEvent): string => {
   const portList = probedPorts.length === 0 ? 'none' : probedPorts.join(',');
-  return `${formatSyslogTimestamp(time)} ${hostname} kernel: [iptables] Port scan from ${sourceIp} — probed ports ${portList} (${probedPorts.length} hits)`;
+  return `${formatSyslogTimestamp(time)} ${escapeLogField(hostname)} kernel: [iptables] Port scan from ${sourceIp} — probed ports ${portList} (${probedPorts.length} hits)`;
 };
 
 export type SegfaultLogEvent = {
@@ -96,7 +97,7 @@ export const formatSegfaultLine = ({
   library,
   pid,
 }: SegfaultLogEvent): string =>
-  `${formatSyslogTimestamp(time)} ${hostname} kernel: ${command}[${pid}]: segfault at 0 ip 0000000000000000 sp 0000000000000000 error 4 in ${library}.so`;
+  `${formatSyslogTimestamp(time)} ${escapeLogField(hostname)} kernel: ${escapeLogField(command)}[${pid}]: segfault at 0 ip 0000000000000000 sp 0000000000000000 error 4 in ${escapeLogField(library)}.so`;
 
 /** Render one line the kernel writes on its own account — a boot message — in the same
  *  pid-less `kernel:` shape as the iptables and reboot lines above. */
@@ -108,4 +109,4 @@ export const formatKernelLine = ({
   readonly time: GameTime;
   readonly hostname: string;
   readonly message: string;
-}): string => `${formatSyslogTimestamp(time)} ${hostname} kernel: ${message}`;
+}): string => `${formatSyslogTimestamp(time)} ${escapeLogField(hostname)} kernel: ${message}`;
