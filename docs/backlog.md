@@ -349,10 +349,17 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   2026-10-14: a `root` shell on a generated site server closed on its next line once its
   player disconnected from a second terminal. One neighbour found on the way is the next item.
 
-- **An `ftp>` prompt across the network after its owner leaves. Not checked.** Leaving
-  closes the leaver's `ftp` rows with the rest, so the server refuses what the prompt sends
-  next. Whether the prompt tells the player, as a shell now does, was not looked at: it runs
-  beside the shell and keeps its own session rather than a hop. Found 2026-10-14.
+- **An `ftp>` prompt across the network after its owner leaves — RESOLVED 2026-10-18
+  (v0.405.0).** Leaving closed the leaver's `ftp` rows with the rest, but the prompt never
+  asked: it answered `ls`, `cd`, `pwd` and `get` from the tree fetched at login, `get`
+  reporting `226 Transfer complete.`, and a `put` failed as `Permission denied`, until the
+  player typed `quit`. The same held for every other way the server closes the row (the
+  target leaving or rebooting, a flash, a lost upstream hop). Decided with the owner: before
+  any non-empty line the prompt asks whether its row is still open, one request a line as a
+  shell on another box pays, and a closed one prints
+  `421 Service not available, remote server has closed connection.` and hands back the
+  shell with the line unrun. An ftp login to the player's own box holds no row and asks
+  nothing. No `api/` change: `listSessions` already lists open `ftp` rows.
 
 - **`nmcli connect <another network>` without a disconnect left the box on both — RESOLVED
   2026-10-14 (v0.380.0).** Proved live first (`scripts/testOneNetworkAtATime.ts` against the

@@ -652,11 +652,14 @@ const localAddress = (): string | null => wireless()?.ipv4 ?? null;
  *  says so. */
 const ftpBinding = (): Pick<
   BuildCommandEnvArgs,
-  'ftpFs' | 'onFtpCwdChange' | 'onFtpWrite' | 'onFtpTransfer'
+  'ftpSessionId' | 'ftpFs' | 'onFtpCwdChange' | 'onFtpWrite' | 'onFtpTransfer'
 > => {
   const session = ftpSession();
   if (session === null) return {};
   return {
+    // A login to the player's own box was answered here, with no server row to ask
+    // after — the same reason its transfer line goes to the own box's log below.
+    ...(session.fromIp === undefined ? { ftpSessionId: session.id } : {}),
     ftpFs: createFsView(ftpRoot(session), { userType: session.userType, cwd: ftpCwd }),
     onFtpCwdChange: setFtpCwd,
     // The SHIPPED patch client, pointed at the target and stamped with the account

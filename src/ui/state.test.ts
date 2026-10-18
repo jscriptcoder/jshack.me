@@ -1415,6 +1415,27 @@ describe('a transfer across the network', () => {
   });
 });
 
+/** The rows a fake server holds open, kept the way the real one keeps them: a login
+ *  opens one under the id the client chose, `endSession` closes it, and `listSessions`
+ *  answers with what is still open. The `ftp>` prompt asks before every line, so a fake
+ *  that listed nothing would read as a server that had closed every session. */
+const openRows = () => {
+  const open = new Set<string>();
+  return {
+    observe: (fields: Record<string, unknown>): void => {
+      const action = String(fields.action);
+      if (action.startsWith('authCreateSession')) open.add(String(fields.session_id));
+      if (action === 'endSession') open.delete(String(fields.session_id));
+    },
+    listed: () => ({ sessions: [...open].map((id) => ({ session_id: id })) }),
+    /** Close a row from the server's side, as leaving a network or a reboot does. */
+    close: (id: string): void => {
+      open.delete(id);
+    },
+    ids: (): readonly string[] => [...open],
+  };
+};
+
 /**
  * The `ftp>` prompt is a SUB-SHELL over the same terminal, not a screen. While it
  * is held, a typed line is answered by the ftp command map instead of the registry
@@ -1480,6 +1501,7 @@ describe('the ftp sub-shell', () => {
 
     const sent: Record<string, unknown>[] = [];
     const landedOnTarget = new Map<string, Patch[]>();
+    const rows = openRows();
     vi.stubGlobal(
       'fetch',
       vi.fn(async (_url: string, init?: { body?: string }) => {
@@ -1488,8 +1510,9 @@ describe('the ftp sub-shell', () => {
           unknown
         >;
         sent.push(fields);
+        rows.observe(fields);
         if (fields.action === 'listSessions') {
-          return { ok: true, status: 200, json: async () => ({ sessions: [] }) };
+          return { ok: true, status: 200, json: async () => rows.listed() };
         }
         if (fields.action === 'authCreateSession') {
           return { ok: true, status: 200, json: async () => ({ ok: true, userType: 'guest' }) };
@@ -1584,7 +1607,7 @@ describe('the ftp sub-shell', () => {
       expect(state.scrollback().some((line) => line.content.includes('ftp'))).toBe(true);
     });
 
-    return { state, sent };
+    return { state, sent, rows };
   };
 
   /** Log into a host by actually typing the command and answering both prompts —
@@ -1694,7 +1717,8 @@ describe('the ftp sub-shell', () => {
   it('lists the tree the login was served without asking the server again', async () => {
     // The tree arrives once, at the login, and again after a write that landed. A
     // change that sent EVERY ftp read to the server would alter no output at all, which
-    // is why this prices the line instead of reading it.
+    // is why this prices the line instead of reading it. The one request a line does
+    // cost is asking whether the session is still open.
     const { state, sent } = await loginOverFtp();
 
     const spentBefore = sent.length;
@@ -1702,7 +1726,28 @@ describe('the ftp sub-shell', () => {
     await state.runInput();
     await settle();
 
-    expect(sent.slice(spentBefore)).toEqual([]);
+    expect(sent.slice(spentBefore).map((payload) => payload.action)).toEqual(['listSessions']);
+  });
+
+  it('tells the player the server closed the session, and hands back the shell', async () => {
+    const { state, rows } = await loginOverFtp();
+    // The server ends the row on its own — the player's box left its network.
+    const [ftpRow] = rows.ids();
+    if (ftpRow === undefined) throw new Error('the login opened no row');
+    rows.close(ftpRow);
+
+    state.setInput('ls /etc');
+    await state.runInput();
+
+    expect(lastLine(state)).toBe('421 Service not available, remote server has closed connection.');
+    expect(state.inFtpSession()).toBe(false);
+    expect(state.promptHost()).toBe('box');
+    // The listing never ran: nothing of the target reached the screen.
+    expect(state.scrollback().some((line) => line.content.includes('remote-drop.txt'))).toBe(false);
+    // The prompt is the shell's again, so the next line runs there.
+    state.setInput('pwd');
+    await state.runInput();
+    expect(lastLine(state)).toBe('/home/tester');
   });
 
   it('starts the remote at the account’s home while the shell keeps its own directory', async () => {
@@ -2018,6 +2063,7 @@ describe('an ftp session on a box across the network', () => {
     // A tree the test releases by hand, so the moment before the server answers can be
     // held open — and, once released, arrive LATE.
     const held: ((body: unknown) => void)[] = [];
+    const rows = openRows();
     vi.stubGlobal(
       'fetch',
       vi.fn(async (_url: string, init?: { body?: string }) => {
@@ -2026,7 +2072,8 @@ describe('an ftp session on a box across the network', () => {
           unknown
         >;
         sent.push(fields);
-        if (fields.action === 'listSessions') return json({ sessions: [] });
+        rows.observe(fields);
+        if (fields.action === 'listSessions') return json(rows.listed());
         // A stranger's forward table lives on THEIR gateway: nothing about it is
         // derivable on this box, so only the server can answer what the port serves.
         if (fields.action === 'resolvePublicScan') {

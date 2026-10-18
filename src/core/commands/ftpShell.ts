@@ -194,11 +194,34 @@ const helpLines = (): readonly TerminalLine[] => [
   ...FTP_COMMANDS.map((command) => text(`  ${command.name.padEnd(8)}${command.description}`)),
 ];
 
+/** What the client prints when the server has dropped the control connection. */
+const CONNECTION_CLOSED = '421 Service not available, remote server has closed connection.';
+
+/** Whether the server has ended the row this prompt stands on. It ends one on its own —
+ *  the box leaves its network, the player's own box leaves, the box reboots, the hop
+ *  under the prompt goes — and the tree fetched at login would go on answering as if
+ *  nothing had happened. `false` when there is no row to ask after, or when the server
+ *  could not be asked: the row is the authority, and this is only how the player is
+ *  told. */
+const sessionClosed = async (env: CommandEnv): Promise<boolean> => {
+  const sessionId = env.ftp.sessionId;
+  if (sessionId === null) return false;
+  const open = await env.chain.openSessionIds();
+  return open !== null && !open.has(sessionId);
+};
+
 /** Answer one line typed at the `ftp>` prompt. */
 export const runFtpLine = async (env: CommandEnv, line: string): Promise<CommandResult> => {
   const [name, ...args] = line.trim().split(/\s+/);
   // A bare Enter at a prompt is not a mistake — say nothing back.
   if (name === undefined || name === '') return result([]);
+
+  // Every line asks first, a local one included, as a shell on another box does: one
+  // rule, and the player is told on whatever they type next.
+  if (await sessionClosed(env)) {
+    env.ftp.leave();
+    return failure(CONNECTION_CLOSED);
+  }
 
   if (name === 'quit' || name === 'bye') {
     env.ftp.leave();

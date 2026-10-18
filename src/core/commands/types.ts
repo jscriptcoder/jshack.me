@@ -696,6 +696,10 @@ export type FtpApi = {
   readonly enter: (session: Session) => void;
   /** Drop it and hand the terminal back to the shell that never moved. */
   readonly leave: () => void;
+  /** The server row the held session stands on, which the prompt asks after before each
+   *  line. `null` when there is none to ask after: no session is held, or the login was
+   *  to the player's own box, which is answered without a row. */
+  readonly sessionId: string | null;
   /** The REMOTE machine's tree, at the tier the credential bought — an ADDITIVE
    *  second binding, sitting beside `env.fs` rather than replacing it, because the
    *  ftp session runs alongside the shell instead of on top of it. Reads an empty

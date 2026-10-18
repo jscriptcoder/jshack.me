@@ -161,6 +161,8 @@ export type BuildCommandEnvArgs = {
    *  and the sub-shell dispatch both read. */
   readonly onFtpEnter?: FtpApi['enter'];
   readonly onFtpLeave?: FtpApi['leave'];
+  /** The server row the held ftp session stands on; absent when there is none. */
+  readonly ftpSessionId?: string;
   /** The REMOTE machine's tree at the ftp session's tier, plus the setter for its
    *  own working directory — the second binding `ls`/`cd`/`pwd` address while the
    *  `l`-prefixed trio keeps addressing `root`/`cwd` above. The UI builds the view
@@ -451,6 +453,7 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
     authenticateSameLan: args.onFtpAuthenticateSameLan ?? notWired('ftp.authenticateSameLan'),
     enter: args.onFtpEnter ?? (() => undefined),
     leave: args.onFtpLeave ?? (() => undefined),
+    sessionId: args.ftpSessionId ?? null,
     // No session, no remote: an empty tree, never the origin's. The `ftp>` commands
     // are the only readers and they cannot run without a session, so nothing is
     // hidden — while a fallback to `root` would answer a question about their box

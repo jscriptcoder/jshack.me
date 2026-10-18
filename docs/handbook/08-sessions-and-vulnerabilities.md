@@ -107,7 +107,12 @@ terminal drops to the deepest surviving hop, printing `Connection to <host> clos
 per closed leg, and rehydration ends any orphaned child the same way. A box leaving its network
 closes sessions both ways in the same manner (`network_left`): other players' on it, and its
 owner's on every other machine. A shell on any box but the player's own therefore asks the server
-before each line which of its sessions are still open. Nothing else re-validates an
+before each line which of its sessions are still open. So does the `ftp>` prompt, whose session
+runs beside the shell rather than as a hop: before any non-empty line it asks whether its row is
+still open, and if the server has closed it the prompt prints
+`421 Service not available, remote server has closed connection.` and hands back the shell, the
+line unrun (`runFtpLine` in `core/commands/ftpShell.ts`). An ftp login to the player's own box holds
+no row and asks nothing. Nothing else re-validates an
 open session: a changed password, a closed forward or a new ACL rule affects only new logins, as a
 real `sshd` does — so a defender evicts an intruder by rebooting.
 
