@@ -970,6 +970,24 @@ agreed order:
     ("Changing the secrets later"). **Pick up here (2026-10-18):** item 8's list and item 6, the
     agreed work until the owner reopens missions; the next public sites (news, the forum) wait in
     `backlog.md` for their own grill.
+15. ✅ **A generated file can be carried home, and one too big says so (v0.399.0–v0.400.0, PRs #697,
+    #698, 2026-10-18).** Saving a fetched file is one signed write, and its 8192-character payload
+    cap had fallen behind the world: 1,143 generated files on 943 boxes were over it, 613 boxes with
+    one a guest can read (`auth.log.1` on 612), and each failed as `I/O error`. Slice 1 (v0.399.0):
+    the cap is `MAX_SIGNED_PAYLOAD`, 65,536 characters of JSON, three times the largest generated
+    file; `carryHome.test.ts` sends the world's 20 largest through the real `createPatchApi`,
+    replacing six per-kind checks, and `scripts/testLargePatch.ts` proves a 48K log round-trips live
+    and the edge holds. Slice 2 (v0.400.0): a write that would still pass the cap is refused before
+    it is sent as `too_large`, in `createPatchApi` and in `sessionsApi` for a script hole's writes,
+    and every command says `File too large` in its own form; the per-command error tables folded
+    into `PATCH_ERROR_REASON`. Browser close-out (2026-10-18, v0.400.0, a new player): on
+    MAIN-STREET-DENTAL-SURGERY a root `scp` of `nginx-181`'s `/var/lib/redis/data.json` landed all
+    11,086 characters, valid JSON under `cat`; on LODESTAR-PHARMACY a guest `ftp get` of
+    `www-77`'s `/var/log/auth.log.1` landed 18,794 bytes, md5-identical to the generated file. No
+    defect. As built: the signed-write rule in
+    [`conventions-and-gotchas.md`](./conventions-and-gotchas.md). **Pick up here (2026-10-18):**
+    item 8's list and item 6, the agreed work until the owner reopens missions; the next public
+    sites (news, the forum) wait in `backlog.md` for their own grill.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
