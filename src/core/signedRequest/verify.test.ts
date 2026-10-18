@@ -119,6 +119,42 @@ describe('verifySignedRequest', () => {
     });
   });
 
+  // Saving a file is one signed write, so this cap is the largest file a player can
+  // carry home: a generated log or database of 20K must fit, with room for the world
+  // to grow, and a write still stays a terminal file rather than a blob.
+  describe('payload size', () => {
+    const payloadOfLength = (length: number): string => {
+      const empty = JSON.stringify({ action: 'act', ts: fixedTs, nonce: 'a'.repeat(32), pad: '' });
+      return JSON.stringify({
+        action: 'act',
+        ts: fixedTs,
+        nonce: 'a'.repeat(32),
+        pad: 'x'.repeat(length - empty.length),
+      });
+    };
+
+    it('accepts a payload of exactly 64 KiB', async () => {
+      const payload = payloadOfLength(65_536);
+      expect(payload).toHaveLength(65_536);
+
+      const result = await verifySignedRequest(signPayload(payload), anySchema, {
+        nonceStore: freshStore,
+        now: () => fixedTs,
+      });
+
+      expect(result.ok).toBe(true);
+    });
+
+    it('rejects a payload one character over 64 KiB as envelope_invalid', async () => {
+      const result = await verifySignedRequest(signPayload(payloadOfLength(65_537)), anySchema, {
+        nonceStore: freshStore,
+        now: () => fixedTs,
+      });
+
+      expect(result).toEqual({ ok: false, reason: 'envelope_invalid' });
+    });
+  });
+
   it('uses a real clock by default — an ancient ts is rejected as timestamp_skew', async () => {
     // No deps.now → the default () => Date.now() must run; a ts of 0 is ~decades
     // outside the window. Catches a default-clock mutant that returns undefined.

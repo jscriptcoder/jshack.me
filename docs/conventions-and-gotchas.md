@@ -756,22 +756,25 @@ work from the clear-text output. Check the file's mtime before trusting it.
 
 **Generated content a player can carry home must fit one signed write — measure it in JSON.**
 `ftp get`, `scp` and `cp` onto the player's own box persist through one `/api/patches` upsert, and
-`signedEnvelopeSchema` caps its payload at **8192 characters of JSON**. JSON writes a control
+`signedEnvelopeSchema` caps its payload at **`MAX_SIGNED_PAYLOAD` characters of JSON** — 65,536
+since v0.399.0, 8192 when the history below happened. JSON writes a control
 character as six (`\u0001`), so content built from them balloons: slice 8a's first document
 stubs were control-character noise, and a 2.3 KB spreadsheet became a 14 KB payload that failed
 with `400 envelope_invalid`, which the client shows as `local: <path>: I/O error`. No unit test
 and no wire-check saw it, because neither writes generated content to the patch store; the played
 run did. The rule: binary-looking content uses characters JSON writes as themselves (Latin-1
-`¡`–`ÿ` works — `strings` ignores it as well as it ignores control characters), and a test sends
-the largest generated files through the real `createPatchApi` and checks each request against
-`signedEnvelopeSchema`. `share.test.ts` holds the pattern.
+`¡`–`ÿ` works — `strings` ignores it as well as it ignores control characters), and
+`carryHome.test.ts` sends the world's largest generated files through the real `createPatchApi` and
+checks each request against `signedEnvelopeSchema` (over the sample sweep; `WORLD_SWEEP=full` reads
+every network, as the PR rule for generated content above asks).
 It came back one PR later on a **log**: slice 8b wrote each upload to `vsftpd.log.1` as a whole
 visit (CONNECT, OK LOGIN, OK UPLOAD), and a guest's `get` of it failed on most file servers at
 4–13K characters; one line per arrival brought it to 2–6K, and the same test now covers every
 transfer log. So the rule is not about binaries: **any generated file a tier can read is a file a
-player may carry home**, and a slice that makes one grow with the world (a log spanning a share, a
-spool, a data file) measures its largest instance in JSON. Measuring the whole world at 8b's
-close-out found older files already over the cap — see `backlog.md`.
+player may carry home**. Per-kind checks kept missing the files no kind owned: by v0.398.0, 1,143
+files on 943 boxes were over 8192 (`auth.log.1`, `data.json`, `mail.log.1`, `syslog.1`, two mapit
+town pages), so v0.399.0 raised the cap and replaced the per-kind checks with the one whole-world
+test. A file that grows with play (a live log) is not generated and can still pass the cap.
 
 **To prove a slice moved no existing generator stream, diff the whole world — it costs one
 minute.** "No existing stream gained a draw" is the claim every content slice makes and no unit

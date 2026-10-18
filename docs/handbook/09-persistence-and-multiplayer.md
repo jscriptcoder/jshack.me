@@ -64,7 +64,7 @@ first:
 
 | Step | Check                                                                                                | Failure (HTTP)            |
 | ---- | ---------------------------------------------------------------------------------------------------- | ------------------------- |
-| 1    | Envelope shape (strict; `payload` 1–8,192 characters; hex formats)                                   | `envelope_invalid` (400)  |
+| 1    | Envelope shape (strict; `payload` 1–65,536 characters; hex formats)                                  | `envelope_invalid` (400)  |
 | 2    | Ed25519 signature over the payload bytes                                                             | `signature_invalid` (401) |
 | 3    | `JSON.parse(payload)`                                                                                | `payload_malformed` (400) |
 | 4    | Base payload schema, then the action's own zod schema                                                | `payload_invalid` (400)   |
@@ -257,7 +257,7 @@ check your box still boots.
    (`network_error`) distinct from an answer about the target.
 4. **Wire it into `ui/state.ts`** (degrading safely before `startGame`) and expose a `CommandEnv` seam
    (chapter 4). If it changes the journal of the machine being viewed, refetch and broadcast.
-5. **Check the size**: the whole payload must fit 8,192 characters of JSON. Escaping inflates it:
+5. **Check the size**: the whole payload must fit `MAX_SIGNED_PAYLOAD` (65,536) characters of JSON. Escaping inflates it:
    newlines and tabs take two characters, and other control characters take six (`\u00XX`).
 6. **Test** the handler with fakes, the adapter with an injected `fetchImpl`, and add a wire-check
    (chapter 11).
@@ -290,7 +290,7 @@ in `localStorage`; it needs a signed endpoint.
 - **Stale views are normal.** Other players' writes and all server-written traces appear only after a
   refetch. "The log is empty" is the most common false alarm in manual testing; check the database
   row first.
-- **The 8,192-character payload cap** stops large files being saved or carried home; server-appended
+- **The 65,536-character payload cap** (`MAX_SIGNED_PAYLOAD`) stops a larger file being saved or carried home; server-appended
   logs have no cap and can outgrow what a client can re-save.
 - **`removePatch`'s descendant delete uses SQL `LIKE 'P/%'`**, so `_` or `%` in a path over-match
   (only the caller's own rows).

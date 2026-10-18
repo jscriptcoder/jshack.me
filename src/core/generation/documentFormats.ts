@@ -17,8 +17,8 @@
  * Noise is drawn from Latin-1's letters and symbols (`¡` to `ÿ`), which is also what
  * `cat` shows of a real binary. Control characters would read the same to
  * `strings`, but JSON writes each as six characters, and the one signed write
- * that saves a file `get` fetched is capped at 8192 of them: a spreadsheet of
- * control noise could not be carried home. Every size the game states is the
+ * that saves a file `get` fetched is capped in them (`MAX_SIGNED_PAYLOAD`): control
+ * noise would cost a file six times its size to carry home. Every size the game states is the
  * file's length, so a character above 0x7F counting once is consistent.
  */
 

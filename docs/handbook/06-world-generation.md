@@ -307,8 +307,8 @@ The timings are skipped on Vercel (`VERCEL=1`), whose builders are several times
 It is a script, not a test, because Stryker runs the whole test suite under instrumentation and a
 wall-clock assertion would break mutation runs.
 
-Other size limits: a file a player can carry home must fit one signed write (payload up to 8,192
-characters of JSON); the access-point gateway's root-visible tree must stay under 32,768 characters
+Other size limits: a file a player can carry home must fit one signed write (payload up to
+`MAX_SIGNED_PAYLOAD`, 65,536 characters of JSON; `carryHome.test.ts` holds every generated file to it); the access-point gateway's root-visible tree must stay under 32,768 characters
 because it is sent to every occupant.
 
 > **Headroom note (2026-09-27):** one research run measured 1.61–1.83 ms per box against the 2 ms

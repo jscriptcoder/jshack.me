@@ -460,11 +460,11 @@ build budget.
   only; the timing is a local gate, since Vercel's build machine is several times slower. At
   close-out: 221,518 B and ~0.86 ms/box. Base trees are NOT
   memoized; add memoization only when the build budget breaks, with the measurement as the reason.
-- **The 8,192-character signed-write cap.** Saving a fetched file is one signed write capped by
+- **The signed-write cap (`MAX_SIGNED_PAYLOAD`, 65,536 characters since v0.399.0; 8,192 when
+  this epic shipped).** Saving a fetched file is one signed write capped by
   `signedEnvelopeSchema`, so generated files a player can `get` must fit in JSON. Latin-1 noise
-  and UPLOAD-only transfer lines exist because of it; `share.test.ts` sends every transfer log
-  through the real `createPatchApi`. Older logs still exceed it (§9, "Generated files too big to
-  carry home").
+  and UPLOAD-only transfer lines were made for the old cap and stay. `carryHome.test.ts` sends
+  the world's largest generated files through the real `createPatchApi`.
 - **The AP gateway's wire ceiling** is 32,768 characters of its root-tier serialized tree (at most
   25,167 used at close-out).
 

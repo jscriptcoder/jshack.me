@@ -63,11 +63,14 @@ Taken on Claude's recommendation, the owner confirming them together:
    exhaustive `Record` types flag any missed). A script hole's step-2 `writes` travel
    through `sessionsApi` and get the same check. No other signed action carries file
    content.
-8. **The world test reads every network** (`WORLD_ESSIDS`, not the sample — one rare
-   network breaks the claim; the full build took ~9 s) and sends the largest 20 files per
-   tier through the real `createPatchApi`, checking each request against
-   `signedEnvelopeSchema`, as `share.test.ts` does today. Each per-kind check is confirmed
-   covered before it is deleted.
+8. **The world test reads the sample sweep (`ALL_ESSIDS`), and `WORLD_SWEEP=full` reads
+   every network before a PR that touches generated content**, the repo's existing rule
+   (`conventions-and-gotchas.md`). Revised during slice 1: always reading `WORLD_ESSIDS`
+   took 41 s under full-suite load, past the 30 s test timeout; only the cross-network
+   rules read the whole world every run. It sends the 20 largest files through the real
+   `createPatchApi` — root reads every file, so per-tier selection adds nothing — checking
+   each request against `signedEnvelopeSchema`. Each per-kind check is confirmed covered
+   before it is deleted.
 9. **Two slices, two PRs, a minor bump each** (below).
 10. **One browser run at close-out:** a guest `ftp get`s a ~20K `auth.log.1` home and `cat`s
     it; a root `scp`s a `data.json` home. The refusal is unit-proven; building a 64 KiB

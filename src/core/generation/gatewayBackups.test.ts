@@ -24,8 +24,6 @@ const BACKUPS = '/root/backups';
 const DAY_MS = 86_400_000;
 /** The longest a gateway has been in service before the world began. */
 const LONGEST_LIFE_DAYS = 4 * 365;
-/** The most characters one signed write carries, which is what a fetched copy costs. */
-const CARRY_CAP = 8192;
 
 const PASSWORD_WORDS: ReadonlySet<string> = new Set(ALL_GENERATED_PASSWORDS);
 
@@ -550,14 +548,6 @@ describe("a gateway's configuration backups", () => {
           .replace(/^<\?xml version="1\.0"\?>/, '')
           .replace(/\b[0-9a-f]{4}\.[0-9a-f]{4}\.[0-9a-f]{4}\b/g, '');
         expect(softwareVersionsIn(prose), `${gateway.name} ${name}`).toEqual([]);
-      }
-    }
-  });
-
-  it('fits each one in the single write that saves a fetched copy', () => {
-    for (const gateway of everyGateway()) {
-      for (const [name, content] of backupsOf(gateway)) {
-        expect(JSON.stringify(content).length, `${gateway.name} ${name}`).toBeLessThanOrEqual(CARRY_CAP);
       }
     }
   });

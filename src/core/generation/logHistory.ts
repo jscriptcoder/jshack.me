@@ -502,9 +502,9 @@ export const buildLogHistory = (options: LogHistoryOptions): Readonly<Record<str
    * Every file that arrived on the share, one line each, read from the share itself so
    * the log can only say what `/srv` holds, to the byte.
    *
-   * The arrivals alone, without the connect and login around each: a player carries this
-   * file home with `ftp get`, which saves it in one signed write capped at 8192
-   * characters, and a whole share's visits would not fit in it.
+   * The arrivals alone, without the connect and login around each: one line per upload
+   * is what the log reads as, and it keeps a file a player carries home with `ftp get`
+   * small, since that saves it in one signed write (`MAX_SIGNED_PAYLOAD`).
    *
    * The second rotation that spans more than a day, for the mail log's reason: a share
    * written by a handful of people never fills vsftpd's log to the size that rotates it.
