@@ -20,6 +20,7 @@
 import { asAbsPath, type AbsPath, type GameTime } from '../types.js';
 import type { FilePermissions } from '../filesystem/types.js';
 import { MONTHS } from './syslog.js';
+import type { CredentialAttempt } from './authLog.js';
 
 /** The canonical `/var/log/access.log` storage identity — single source of truth shared
  *  by the boot seed (`generation/workstationFs` + `remoteHostFs` + `routerFs`) and the
@@ -69,13 +70,24 @@ export const formatAccessTimestamp = (time: GameTime): string => {
 
 /** Render one served request as its `/var/log/access.log` line. The two `-` fields are
  *  the identd and HTTP-auth user Apache leaves blank on an unauthenticated request —
- *  which, on this door, is every request. */
-export const formatAccessLogLine = ({
-  time,
-  method = 'GET',
-  sourceIp,
-  path,
-  status,
-  size,
-}: AccessLogEvent): string =>
-  `${sourceIp} - - [${formatAccessTimestamp(time)}] "${method} ${path} HTTP/1.1" ${status} ${size}`;
+ *  which every request is, except a credential sweep's. */
+export const formatAccessLogLine = (
+  { time, method = 'GET', sourceIp, path, status, size }: AccessLogEvent,
+  authUser = '-',
+): string =>
+  `${sourceIp} - ${authUser} [${formatAccessTimestamp(time)}] "${method} ${path} HTTP/1.1" ${status} ${size}`;
+
+/** One password tried against the web door, as the web server writes it: a request for
+ *  the front page carrying the account, refused with a 401 or served with a 200. A wall
+ *  of 401s naming one account is how a defender sees a sweep in a request log. */
+export const formatHttpAuthLine = (attempt: CredentialAttempt): string =>
+  formatAccessLogLine(
+    {
+      time: attempt.time,
+      sourceIp: attempt.fromIp,
+      path: '/',
+      status: attempt.outcome === 'success' ? 200 : 401,
+      size: 0,
+    },
+    attempt.user,
+  );

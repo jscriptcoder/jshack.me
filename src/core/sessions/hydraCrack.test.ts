@@ -35,6 +35,7 @@ import {
   formatSshdAuthLine,
 } from '../logging/authLog.js';
 import { VSFTPD_LOG_PATH, formatVsftpdLoginLine } from '../logging/vsftpdLog.js';
+import { ACCESS_LOG_PATH } from '../logging/accessLog.js';
 import {
   MYSQL_LOG_OWNER,
   MYSQL_LOG_PATH,
@@ -127,6 +128,18 @@ const mysqlHostOn = (essid: string): LanHost => {
       hostServices(essid, candidate).some(({ spec }) => spec === SERVICE_CATALOG.mysql),
   );
   if (host === undefined) throw new Error('no mysql-running host on LAN');
+  return host;
+};
+
+/** A LAN host that serves the web — a door with no login of its own, whose sweep is a
+ *  run of refused requests rather than refused passwords. */
+const webHostOn = (essid: string): LanHost => {
+  const host = generateHomeLan(essid).hosts.find(
+    (candidate) =>
+      candidate.kind === 'machine' &&
+      hostServices(essid, candidate).some(({ spec }) => spec === SERVICE_CATALOG.http),
+  );
+  if (host === undefined) throw new Error('no web host on LAN');
   return host;
 };
 
@@ -1298,6 +1311,56 @@ describe('the trace a hydra sweep leaves on its target', () => {
       expect(writtenLines(upsertPatch)[0]).toBe(
         traceLine('failure', accountNamesOn(host)[0] ?? '', host),
       );
+    });
+
+    it('writes a web sweep to access.log, one refused request per password tried', async () => {
+      // A web server records a login it refused as a 401 in its request log. Filed in
+      // auth.log under sshd, the sweep told the defender a daemon was knocked on that
+      // nobody touched.
+      const identity = generateIdentity();
+      const host = webHostOn(ESSID);
+      const user = accountNamesOn(host)[0] ?? '';
+      const { deps, upsertPatch } = makeDeps({ wordlist: ['no-such-word'] });
+
+      await handleHydraCrack(
+        signedCrack(identity, { target_ip: host.ip, service: 'http', username: user }),
+        deps,
+      );
+
+      const row = upsertPatch.mock.calls[0]?.[0];
+      expect(row?.path).toBe(ACCESS_LOG_PATH);
+      expect(writtenLines(upsertPatch)).toEqual([
+        `${ATTACKER_IP} - ${user} [09/Aug/2026:11:04:07 +0000] "GET / HTTP/1.1" 401 0`,
+      ]);
+    });
+
+    it('writes the account that fell to the web door as a served request', async () => {
+      const identity = generateIdentity();
+      const host = webHostOn(ESSID);
+      const [fallen] = accountsWithPasswords(host, KNOWN_POOL);
+      if (fallen === undefined) throw new Error('no crackable account on the web host');
+      const { deps, upsertPatch } = makeDeps({ wordlist: ['no-such-word', fallen.password] });
+
+      await handleHydraCrack(
+        signedCrack(identity, { target_ip: host.ip, service: 'http', username: fallen.username }),
+        deps,
+      );
+
+      expect(writtenLines(upsertPatch)).toEqual([
+        `${ATTACKER_IP} - ${fallen.username} [09/Aug/2026:11:04:07 +0000] "GET / HTTP/1.1" 401 0`,
+        `${ATTACKER_IP} - ${fallen.username} [09/Aug/2026:11:04:07 +0000] "GET / HTTP/1.1" 200 0`,
+      ]);
+    });
+
+    it('leaves auth.log untouched when the door swept was the web', async () => {
+      const identity = generateIdentity();
+      const host = webHostOn(ESSID);
+      const { deps, upsertPatch } = makeDeps({ wordlist: ['no-such-word'] });
+
+      await handleHydraCrack(signedCrack(identity, { target_ip: host.ip, service: 'http' }), deps);
+
+      const paths = upsertPatch.mock.calls.map(([row]) => row.path);
+      expect(paths).not.toContain(AUTH_LOG_PATH);
     });
 
     it('writes a mysql sweep to mysql.log, in the database daemon own shape', async () => {

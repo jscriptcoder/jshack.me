@@ -46,7 +46,7 @@ import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js
 import { lanAddressFor } from '../src/core/network/lanAddress.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { binaryStub } from '../src/core/generation/binaries.js';
-import { SERVICE_CATALOG, type ServiceSpec } from '../src/core/services/serviceCatalog.js';
+import { exploitLogOf, SERVICE_CATALOG, type ServiceSpec } from '../src/core/services/serviceCatalog.js';
 import { formatPidfileContent, pidfilePath } from '../src/core/services/pidfile.js';
 import { exploitOutcome } from '../src/core/cve/exploitEffect.js';
 import { localExploitOutcome } from '../src/core/cve/localExploit.js';
@@ -271,7 +271,7 @@ const fireNet = (over: Record<string, unknown>) =>
     }),
   );
 
-const doorLog = () => readPatch(door.machineId, door.spec.sweepLog.path, NETWORK_KEY);
+const doorLog = () => readPatch(door.machineId, exploitLogOf(door.spec).path, NETWORK_KEY);
 
 // --- Section 2: a user-tier ssh script hole on a fellow occupant's workstation. ---
 
@@ -377,7 +377,7 @@ const main = async () => {
   console.log(`World day ${today} on ${NET_ESSID}`);
   console.log(
     `Script door: ${door.ip}:${door.port} (${door.spec.service}) → script_exec / ${door.tier}, ` +
-      `traces to ${door.spec.sweepLog.path}`,
+      `traces to ${exploitLogOf(door.spec).path}`,
   );
   console.log(`Occupant ssh hole: ${sshHole.spec.package}@${sshHole.version} (user)`);
   console.log(`Local systemctl hole: libsystemd@${systemctlHole.version} (root)\n`);

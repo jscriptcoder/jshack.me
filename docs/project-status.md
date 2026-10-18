@@ -527,7 +527,8 @@ still know before touching it:
     A wire-check that selects its own fixture can go dead silently — an exit 2 is not a failure,
     and nothing runs these in CI.
   - **Still open, and named rather than smuggled:** `ssh` does not gate on a listening sshd
-    (`backlog.md`) and the web door files its sweeps in `auth.log` (`backlog.md`).
+    (`backlog.md`), and the web door filed its sweeps in `auth.log` until v0.401.0, when they
+    moved to `access.log` (`backlog.md`).
 
 - **D3b (`scp` — the transfer without a door) ✅ COMPLETE (v0.139.0).** Three slices —
   v0.137.0 #401, v0.138.0 #402, v0.139.0 #403. One file moves between two machines in one

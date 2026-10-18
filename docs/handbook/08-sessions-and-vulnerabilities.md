@@ -240,9 +240,9 @@ planted `nc` listener leave nothing, on purpose.)
 
 | Log                                                                     | Written for                                                        | Formatter              |
 | ----------------------------------------------------------------------- | ------------------------------------------------------------------ | ---------------------- |
-| `/var/log/auth.log`                                                     | `su`, `ssh` logins (success and failure), sweeps                   | `logging/authLog.ts`   |
+| `/var/log/auth.log`                                                     | `su`, `ssh` logins (success and failure), sweeps, web break-ins    | `logging/authLog.ts`   |
 | `/var/log/kern.log`                                                     | Port scans (one aggregate line per sweep), local exploits, reboots | `logging/kernLog.ts`   |
-| `/var/log/access.log`                                                   | Web fetches and path sweeps                                        | `logging/accessLog.ts` |
+| `/var/log/access.log`                                                   | Web fetches, path sweeps, `hydra … http` sweeps (401s)             | `logging/accessLog.ts` |
 | `/var/log/vsftpd.log`                                                   | FTP logins and transfers                                           | `logging/vsftpdLog.ts` |
 | `/var/log/mysql.log`, `redis.log`, `snmpd.log`, `named.log`, `dpkg.log` | Their service's connections, refusals, zone transfers, downgrades  | one module each        |
 
