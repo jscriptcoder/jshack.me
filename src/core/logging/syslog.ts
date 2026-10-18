@@ -11,6 +11,7 @@
 
 import type { FilePermissions } from '../filesystem/types.js';
 import type { GameTime } from '../types.js';
+import { escapeLogField } from './escapeLogField.js';
 
 /** Shared with the access-log renderer, which needs the same month names in a
  *  different arrangement (`DD/MMM/YYYY`) — one table, so no log file can drift. */
@@ -52,7 +53,10 @@ export type SyslogLineOptions = {
 };
 
 /** Format a syslog header + message: `MMM DD HH:MM:SS hostname service[pid]: message`.
- *  Day is space-padded to width 2; time fields zero-padded; all UTC. */
+ *  Day is space-padded to width 2; time fields zero-padded; all UTC. The hostname is the
+ *  player's own chosen machine name on a workstation, so it is escaped here for every line
+ *  that heads with it; the message is composed by the caller, which escapes its own
+ *  fields. */
 export const formatSyslogLine = ({
   time,
   hostname,
@@ -60,7 +64,7 @@ export const formatSyslogLine = ({
   pid,
   message,
 }: SyslogLineOptions): string =>
-  `${formatSyslogTimestamp(time)} ${hostname} ${service}[${pid}]: ${message}`;
+  `${formatSyslogTimestamp(time)} ${escapeLogField(hostname)} ${service}[${pid}]: ${message}`;
 
 /** Derive a plausible, deterministic process id (1000–9999) from a numeric seed
  *  (typically `env.now()`). There is no real process model — the pid is cosmetic

@@ -110,3 +110,21 @@ describe('the mysql.log file identity', () => {
     expect(MYSQL_LOG_PATH).toBe('/var/log/mysql.log');
   });
 });
+
+describe('a field the caller typed, on a mysql.log line', () => {
+  it('cannot close the quoted account early and fake the client after it', () => {
+    expect(formatMysqlAttemptLine(attempt({ user: "x'@'9.9.9.9" }))).toBe(
+      String.raw`2026-08-20T09:14:02.000000Z	4471 Connect	Access denied for user 'x\x27\x40\x279.9.9.9'@'10.0.0.9' (using password: YES)`,
+    );
+  });
+
+  it('cannot fake the client and database after an accepted account', () => {
+    expect(
+      formatMysqlAttemptLine(
+        attempt({ outcome: 'success', user: 'a@9.9.9.9 on x', database: 'shop_prod' }),
+      ),
+    ).toBe(
+      String.raw`2026-08-20T09:14:02.000000Z	4471 Connect	a\x409.9.9.9\x20on\x20x@10.0.0.9 on shop_prod using TCP/IP`,
+    );
+  });
+});

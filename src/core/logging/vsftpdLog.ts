@@ -24,6 +24,7 @@ import type { FilePermissions } from '../filesystem/types.js';
 import type { CredentialAttempt } from './authLog.js';
 import type { ExploitEvent } from './exploitLog.js';
 import { MONTHS } from './syslog.js';
+import { escapeLogField } from './escapeLogField.js';
 
 /** The canonical `/var/log/vsftpd.log` storage identity — single source of truth shared
  *  by the boot seed (`generation/remoteHostFs`) and every server-side appender, so the
@@ -77,7 +78,7 @@ export const formatVsftpdLoginLine = ({
   time,
   pid,
 }: CredentialAttempt): string =>
-  `${formatVsftpdTimestamp(time)} [pid ${pid}] [${user}] ${outcome === 'success' ? 'OK' : 'FAIL'} LOGIN: Client "${fromIp}"`;
+  `${formatVsftpdTimestamp(time)} [pid ${pid}] [${escapeLogField(user)}] ${outcome === 'success' ? 'OK' : 'FAIL'} LOGIN: Client "${fromIp}"`;
 
 /** Which way the bytes went, from the BOX's point of view: a download left it, an
  *  upload arrived on it. Named for the daemon rather than the client because the
@@ -105,7 +106,7 @@ export const formatVsftpdTransferLine = ({
   path,
   bytes,
 }: TransferRecord): string =>
-  `${formatVsftpdTimestamp(time)} [pid ${pid}] [${user}] OK ${direction.toUpperCase()}: Client "${fromIp}", "${path}", ${bytes} bytes`;
+  `${formatVsftpdTimestamp(time)} [pid ${pid}] [${escapeLogField(user)}] OK ${direction.toUpperCase()}: Client "${fromIp}", "${escapeLogField(path)}", ${bytes} bytes`;
 
 /** Render a break-in as its `/var/log/vsftpd.log` line, in the daemon's own `OK`/`FAIL`
  *  idiom so it sits beside the logins rather than reading as something bolted on. A

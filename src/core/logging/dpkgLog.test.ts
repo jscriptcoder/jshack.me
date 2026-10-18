@@ -98,3 +98,21 @@ describe('formatPackageDowngradeLine', () => {
     expect(line).toBe('2026-08-14 13:56:02 downgrade redis 7.9.7 7.2.5 Client "192.168.4.22"');
   });
 });
+
+describe('a field the caller reported, on a dpkg.log line', () => {
+  it('cannot fake the versions or the client the server stamps after the package', () => {
+    // A service rollback's package and both versions are reported by the client, and
+    // they are bare tokens: a space is all it takes to start a column of its own.
+    const line = formatPackageDowngradeLine({
+      packageName: 'redis x',
+      fromVersion: '7.9.7 a',
+      toVersion: '7.2.5 Client "9.9.9.9"',
+      fromIp: '203.0.113.199',
+      time: AUG_14,
+    });
+
+    expect(line).toBe(
+      String.raw`2026-08-14 13:56:02 downgrade redis\x20x 7.9.7\x20a 7.2.5\x20Client\x20\x229.9.9.9\x22 Client "203.0.113.199"`,
+    );
+  });
+});

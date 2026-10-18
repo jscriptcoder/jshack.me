@@ -1420,6 +1420,15 @@ state costs you more than one wrong attempt.
   one re-rolls everything after it, including pinned passwords. Prove the last with the world
   byte-diff that doc describes.
 
+- **A field in a log line goes through `escapeLogField`; the line goes through `appendMachineLog`.**
+  Two rules, two places. A line break anywhere in a line is written out as `\n` by
+  `appendMachineLog`, the one place every trace lands. A field a caller typed or a player chose
+  is spelled out as `\xNN` outside `[A-Za-z0-9/._:+~=?&%-]` by `escapeLogField`, in the formatter
+  that interpolates it, because only there is it still a value of its own. A new formatter that
+  puts such a field before a column the server stamps must wrap it, or the field can print text
+  that reads as that column. Detail in
+  [`cross-player-architecture.md`](./cross-player-architecture.md) (the trace-append bullet).
+
 - **Spend realism where the player READS; spend legibility where the player AUTHORS.** The rule
   that settled the long-running "is `rules.v4` too simple, or is SNMP too complex" question at
   v0.195.0 — the two are not on one axis, and neither had to move toward the other. A player

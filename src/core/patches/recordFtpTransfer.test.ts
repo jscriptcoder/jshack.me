@@ -354,8 +354,11 @@ describe('handleRecordFtpTransfer', () => {
 
       await handleRecordFtpTransfer(envelope, deps);
 
+      // The break and every separator of the forged line are spelled out, so it reads as
+      // part of the path and never as a line, or a column, of its own.
       expect(upsertPatch.mock.calls[0]![0].content).toBe(
-        `Fri Aug 14 13:56:02 2026 [pid ${derivePid(STAMP)}] [guest] OK DOWNLOAD: Client "${ACTOR_HOME_IP}", "/etc/passwd\\n${forged}", 1243 bytes\n`,
+        String.raw`Fri Aug 14 13:56:02 2026 [pid ${derivePid(STAMP)}] [guest] OK DOWNLOAD: Client "${ACTOR_HOME_IP}", "/etc/passwd\x0aFri\x20Aug\x2014\x2013:50:00\x202026\x20\x5bpid\x207\x5d\x20\x5broot\x5d\x20OK\x20LOGIN:\x20Client\x20\x2210.0.0.5\x22", 1243 bytes` +
+          '\n',
       );
     });
 

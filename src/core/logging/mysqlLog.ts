@@ -23,6 +23,7 @@ import { asAbsPath, type AbsPath, type GameTime } from '../types.js';
 import type { FilePermissions } from '../filesystem/types.js';
 import type { CredentialAttempt } from './authLog.js';
 import type { ExploitEvent } from './exploitLog.js';
+import { escapeLogField } from './escapeLogField.js';
 
 /** The canonical `/var/log/mysql.log` storage identity — single source of truth shared
  *  by the boot seed (`generation/remoteHostFs`) and every server-side appender, so the
@@ -86,7 +87,7 @@ export const formatMysqlConnectLine = ({
 }: Pick<CredentialAttempt, 'user' | 'fromIp' | 'time' | 'pid'> & {
   readonly database: string;
 }): string =>
-  `${formatMysqlTimestamp(time)}\t${pid} Connect\t${user}@${fromIp} on ${database} using TCP/IP`;
+  `${formatMysqlTimestamp(time)}\t${pid} Connect\t${escapeLogField(user)}@${fromIp} on ${database} using TCP/IP`;
 
 /** Render one credential attempt as its `/var/log/mysql.log` line. A refusal names no
  *  database, for the reason in the module docstring; an acceptance IS the connect line
@@ -105,7 +106,7 @@ export const formatMysqlAttemptLine = ({
       // The fallback is never taken — a door with no database has no accounts to
       // accept, so a success here always arrived with one.
       formatMysqlConnectLine({ user, fromIp, time, pid, database: database ?? '' })
-    : `${formatMysqlTimestamp(time)}\t${pid} Connect\tAccess denied for user '${user}'@'${fromIp}' (using password: YES)`;
+    : `${formatMysqlTimestamp(time)}\t${pid} Connect\tAccess denied for user '${escapeLogField(user)}'@'${fromIp}' (using password: YES)`;
 
 /** Render a break-in as its `/var/log/mysql.log` line. `Denied` is the tag the file
  *  already uses for a refusal, so a defender greps one word and finds both the

@@ -81,3 +81,24 @@ describe('formatAccessLogLine', () => {
     );
   });
 });
+
+describe('a field the caller typed, on an access.log line', () => {
+  it('cannot close the request early and fake the status and size the server stamps after it', () => {
+    const line = formatAccessLogLine(accessEvent({ path: '/x HTTP/1.1" 200 0 "' }));
+
+    expect(line).toBe(
+      String.raw`198.51.100.22 - - [30/Jul/2026:13:55:36 +0000] "GET /x\x20HTTP/1.1\x22\x20200\x200\x20\x22 HTTP/1.1" 200 23`,
+    );
+  });
+
+  it('cannot fake the timestamp with a swept account', () => {
+    const line = formatAccessLogLine(
+      accessEvent({ path: '/', status: 401, size: 0 }),
+      'admin [01/Jan/2026',
+    );
+
+    expect(line).toBe(
+      String.raw`198.51.100.22 - admin\x20\x5b01/Jan/2026 [30/Jul/2026:13:55:36 +0000] "GET / HTTP/1.1" 401 0`,
+    );
+  });
+});

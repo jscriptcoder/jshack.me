@@ -1,6 +1,7 @@
 # A log field cannot fake the columns stamped after it — grill record + plan
 
-**Status:** Active — grilled 2026-10-18, no slice started.
+**Status:** Active — slice 1 built on `feat/log-field-escaping` (v0.404.0), in review; close-out
+browser run pending.
 
 Goal: the one item still open in the sandbox-hardening list's item 8 (`docs/project-status.md`)
 and recorded in `docs/backlog.md` under the trace-field work — "a field can spoof the columns
