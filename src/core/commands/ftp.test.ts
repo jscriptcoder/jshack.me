@@ -825,6 +825,11 @@ const transferEnv = (
     /** What the far side's write answers, when it refuses. */
     readonly refuseRemoteWrite?: Extract<PatchResult, { readonly ok: false }>['error'];
     readonly onRecord?: (transfer: FtpTransfer) => void;
+    readonly onLeave?: () => void;
+    /** The server row the prompt holds; `null` for a login answered without one. */
+    readonly sessionId?: string | null;
+    /** What the server answers when asked which of the player's sessions are open. */
+    readonly openSessionIds?: () => Promise<ReadonlySet<string> | null>;
   } = {},
 ) => {
   const remote = movableCwd(REMOTE_HOME);
@@ -889,7 +894,12 @@ const transferEnv = (
           return { ok: true };
         },
         ...(over.onRecord === undefined ? {} : { recordTransfer: over.onRecord }),
+        ...(over.onLeave === undefined ? {} : { leave: over.onLeave }),
+        sessionId: over.sessionId === undefined ? FTP_SESSION_ID : over.sessionId,
       }),
+      ...(over.openSessionIds === undefined
+        ? {}
+        : { chain: { openSessionIds: over.openSessionIds } }),
     });
 
   return {
@@ -900,6 +910,8 @@ const transferEnv = (
     remoteWrites: (): readonly { path: string; isNew: boolean | undefined }[] => remoteWrites,
   };
 };
+
+const FTP_SESSION_ID = 'ftp-row-1';
 
 const LOOT = '/home/guest/remote-loot.txt';
 
@@ -1260,6 +1272,98 @@ describe('leaving a file at the ftp> prompt', () => {
     const { run } = transferEnv();
 
     expect(linesOf(await run('help'))).toContain('put');
+  });
+});
+
+/**
+ * The server ends an ftp row on its own — the box leaves its network, its owner's box
+ * leaves, it reboots, the hop under the prompt goes — and the prompt is the last to
+ * know. It holds a tree it fetched at login, so without asking it would go on answering
+ * from a box it no longer reaches.
+ */
+describe('an ftp> prompt whose session the server has closed', () => {
+  const CLOSED = '421 Service not available, remote server has closed connection.';
+
+  const closedEnv = (
+    over: { readonly onLeave?: () => void; readonly onRecord?: () => void } = {},
+  ) => transferEnv({ ...over, openSessionIds: async () => new Set(['some-other-row']) });
+
+  it('says the far side closed the connection and drops the prompt', async () => {
+    const left = vi.fn();
+    const { run } = closedEnv({ onLeave: left });
+
+    const result = sync(await run('ls'));
+
+    expect(result.lines).toEqual([{ kind: 'error', content: CLOSED }]);
+    expect(result.exitCode).toBe(1);
+    expect(left).toHaveBeenCalledTimes(1);
+  });
+
+  it('takes no file off a box it no longer reaches', async () => {
+    const recorded = vi.fn();
+    const { run, writes } = closedEnv({ onRecord: recorded });
+
+    expect(linesOf(await run(`get ${LOOT}`))).toBe(CLOSED);
+    expect(writes()).toEqual([]);
+    expect(recorded).not.toHaveBeenCalled();
+  });
+
+  it('leaves no file on it, and blames the connection rather than the tier', async () => {
+    const { run, remoteWrites } = closedEnv();
+
+    expect(linesOf(await run(`put ${DROP}`))).toBe(CLOSED);
+    expect(remoteWrites()).toEqual([]);
+  });
+
+  it('answers a local command the same way — one rule for every line', async () => {
+    const { run } = closedEnv();
+
+    expect(linesOf(await run('lls'))).toBe(CLOSED);
+  });
+
+  it('answers quit with the closed connection, leaving once', async () => {
+    const left = vi.fn();
+    const { run } = closedEnv({ onLeave: left });
+
+    expect(linesOf(await run('quit'))).toBe(CLOSED);
+    expect(left).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs the line when the session is still open', async () => {
+    const left = vi.fn();
+    const { run, writes } = transferEnv({
+      onLeave: left,
+      openSessionIds: async () => new Set([FTP_SESSION_ID]),
+    });
+
+    expect(linesOf(await run(`get ${LOOT}`))).toContain('226 Transfer complete.');
+    expect(writes()).toHaveLength(1);
+    expect(left).not.toHaveBeenCalled();
+  });
+
+  it('runs the line when the server cannot be asked — the row is the authority', async () => {
+    const { run, writes } = transferEnv({ openSessionIds: async () => null });
+
+    expect(linesOf(await run(`get ${LOOT}`))).toContain('226 Transfer complete.');
+    expect(writes()).toHaveLength(1);
+  });
+
+  it('runs the line on a login the server holds no row for — the player’s own box', async () => {
+    const { run, writes } = transferEnv({
+      sessionId: null,
+      openSessionIds: async () => new Set(['some-other-row']),
+    });
+
+    expect(linesOf(await run(`get ${LOOT}`))).toContain('226 Transfer complete.');
+    expect(writes()).toHaveLength(1);
+  });
+
+  it('asks nothing for a bare Enter', async () => {
+    const asked = vi.fn(async () => new Set<string>());
+    const { run } = transferEnv({ openSessionIds: asked });
+
+    expect(sync(await run('   ')).lines).toEqual([]);
+    expect(asked).not.toHaveBeenCalled();
   });
 });
 

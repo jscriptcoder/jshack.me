@@ -173,6 +173,9 @@ export const mockFtpApi = (overrides: Partial<FtpApi> = {}): FtpApi => ({
   authenticateSameLan: NOT_IMPLEMENTED('ftp.authenticateSameLan'),
   enter: () => undefined,
   leave: () => undefined,
+  // No row to ask after, so the prompt runs every line without a round trip — the
+  // tests that care about a closed session name one.
+  sessionId: null,
   // An empty remote by default — the same thing production shows when no session
   // is held, so a test that browses without building a remote sees nothing rather
   // than the origin's tree wearing the remote's name.
