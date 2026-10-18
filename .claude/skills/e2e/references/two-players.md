@@ -88,3 +88,4 @@ Verified 2026-10-07 (v0.324.0) checking that a WiFi change in one tab reaches th
 | `nmcli connect <ESSID>` in the new tab → `network "<ESSID>" not found` | Each tab keeps its OWN scan list in memory; the scan in tab 1 is not tab 2's. Connect from the tab that ran `airodump-ng`, or scan in tab 2 first (which re-rolls, so the network may not show) |
 | A long `eval` that waits for the prompt dies with `os error 10060` | The command still ran; the CLI call timed out. Read the tail with a separate `eval` |
 | A background helper running several tab switches in one call | Switches can race and the commands land in the wrong tab. One tab switch, one command, one read per step |
+| Tab 1 is at `ftp>` (or `mysql>`/`redis>`) and you need a second tab | `xterm` there is an invalid sub-shell command, and opening the page again boots a tab that closes every open `ftp` row as `abandoned`. Run `xterm` FIRST, then open the sub-shell in tab 1 (verified 2026-10-18, v0.405.0) |

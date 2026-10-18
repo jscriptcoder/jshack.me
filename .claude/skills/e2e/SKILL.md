@@ -51,6 +51,12 @@ Helpers in [`scripts/`](scripts/), each taking the session name first:
    curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:3100/api/network \
      -H 'Content-Type: application/json' -d '{}'
    ```
+   **Then check a page too: `curl -s -o /dev/null -w "%{http_code}" http://localhost:3100/` must
+   be 200.** The API can answer 400 while every page is `500 FUNCTION_INVOCATION_FAILED`, and a
+   restart does not fix it: vite bound `[::1]` only and `vercel dev` proxies to it over
+   `127.0.0.1` (2026-10-18, vite 8.2.1, Node 22.17). Start the server with
+   `NODE_OPTIONS=--dns-result-order=ipv4first npm run vercel:dev` so vite binds IPv4; no tracked
+   file changes.
 4. **Confirm it is YOUR code.** The ASCII banner prints the version from `package.json`. Check it
    matches the version you just bumped — this is the cheapest guard against testing a stale
    orphaned server.

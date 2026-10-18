@@ -359,7 +359,9 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   shell on another box pays, and a closed one prints
   `421 Service not available, remote server has closed connection.` and hands back the
   shell with the line unrun. An ftp login to the player's own box holds no row and asks
-  nothing. No `api/` change: `listSessions` already lists open `ftp` rows.
+  nothing. No `api/` change: `listSessions` already lists open `ftp` rows. Played in the
+  browser 2026-10-18: one `nmcli disconnect` closed the leaver's own prompt on a generated box
+  and a visitor's prompt on the leaver's box, and each printed the `421` on its next line.
 
 - **`nmcli connect <another network>` without a disconnect left the box on both — RESOLVED
   2026-10-14 (v0.380.0).** Proved live first (`scripts/testOneNetworkAtATime.ts` against the

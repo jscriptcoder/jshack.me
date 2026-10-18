@@ -1024,10 +1024,23 @@ agreed order:
     `/tmp/x",_0_bytes` as `"/tmp/x\x22\x2c_0_bytes", 0 bytes`, each beside alice's real
     address. An ordinary ssh attempt, `curl /` and ftp `get` read exactly as before. No defect.
     As built: [`cross-player-architecture.md`](./cross-player-architecture.md) and the invariant
-    in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md) §6. **Pick up here
-    (2026-10-18):** item 8's list is done; next are the items still open in `backlog.md`, the
-    agreed work until the owner reopens missions; the next public sites (news, the forum) wait
-    in `backlog.md` for their own grill.
+    in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md) §6.
+18. ✅ **An `ftp>` prompt learns the server closed its session (v0.405.0, PR #703, 2026-10-18).**
+    The server already closed an `ftp` row with everything else when a box left its network (or
+    rebooted, was flashed, or lost the hop under it), but the prompt never asked: it answered
+    `ls`, `cd`, `pwd` and `get` from the tree fetched at login and failed a `put` as
+    `Permission denied`, until `quit`. Now, before any non-empty line, `runFtpLine` asks which of
+    the player's sessions are open, one request a line as a shell on another box pays; a closed
+    row prints `421 Service not available, remote server has closed connection.` and hands back
+    the shell with the line unrun. An ftp login to the player's own box holds no row and asks
+    nothing (`FtpApi.sessionId` is `null` there). No `api/` change. Browser close-out
+    (2026-10-18, v0.405.0, two new players on GROUND-ZERO-COFFEE): alice held `ftp>` on
+    `share-97` and bob held `ftp>` on alice's box; alice's `nmcli disconnect` from a second tab
+    closed both rows (`network_left`), and the next `ls` at each prompt printed the `421` and
+    returned to that player's shell; an own-box `ftp localhost` still answered normally. No
+    defect. As built: chapter 8 of the handbook. **Pick up here (2026-10-18):** the items still
+    open in `backlog.md`, the agreed work until the owner reopens missions; the next public sites
+    (news, the forum) wait in `backlog.md` for their own grill.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
