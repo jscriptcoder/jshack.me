@@ -68,6 +68,7 @@ const firstSeen = (key: string) => {
 | An ESSID like `r0/t0/n72` in the output | That is a drawn network's key, not its name ([reaching-a-state.md](reaching-a-state.md), "a box on a deep layer"). Take a row whose ESSID reads as a name, or map it with `essidOf(key)` |
 | The owner's `cat /var/log/access.log` is EMPTY after a visitor's requests | A command on your own box asks the server nothing, so lines another player caused show only after the owner's next action that writes (a `curl localhost` did it). Check the row first: `select content from patches where machine_id = '<name>-<id>' and path = '/var/log/access.log'` |
 | A guest's `ls /etc` on a player's box prints nothing, and ftp `get` answers `550` | The tree a guest is served is pruned to its tier. `/var/log/*` is what a guest can read and `get` there |
+| `put note '/tmp/x",y'` at the `ftp>` prompt answers `553 Could not create file: /home/guest/'/tmp/x",y'` | The ftp shell does not read quotes: the name is taken as typed, quotes and all, and resolved as relative. Type the remote name unquoted (`put note /tmp/x",y`); a `guest` upload to `/tmp` on a player's box lands (verified 2026-10-18, v0.404.0) |
 | The prompt wait ([driving-the-terminal.md](driving-the-terminal.md)) returns `prompt` and the tail shows no output | A command that answers in under a second can land AFTER the wait saw the old prompt quiet. Sleep 3 s and read the tail again before calling it empty |
 
 ### Two terminals of ONE player (`xterm`)

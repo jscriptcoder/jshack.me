@@ -145,8 +145,10 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   formatter, which spells out anything outside `[A-Za-z0-9/._:+~=?&%-]` as `\xNN`, so the
   timestamp, address and verdict the server stamped are the only ones on the line. A break
   inside such a field now reads `\x0a` rather than `\n`; the three checks above assert the new
-  spelling. Proved live first (`scripts/testLogFieldEscaping.ts`, 1/4 before, 4/4 after). Grill
-  record and plan: `plans/log-field-column-spoofing.md` until close-out.
+  spelling. Proved live first (`scripts/testLogFieldEscaping.ts`, 1/4 before, 4/4 after). ✅
+  Played in the browser 2026-10-18: a crafted ssh account, `curl` path, ftp account and ftp
+  upload path each read escaped in the owner's logs beside the visitor's real address, and
+  ordinary attempts read as before (`project-status.md` item 17).
 
 - **The data doors resolved `localhost` to the gateway on a deep hop — RESOLVED 2026-10-10
   (v0.349.0).** Proved first on the live stack (`scripts/testHopDataDoors.ts`): `redis-cli

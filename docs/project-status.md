@@ -838,8 +838,8 @@ agreed order:
    **Pick up here (2026-10-13):** the items still open in `backlog.md`. Found by reading:
    ✅ a deep box's own address behind a switch that denies the web port (closed at v0.382.0
    with the LAN web fetch below), ✅ a data door over `localhost` obeying the hop's own filter
-   (closed at v0.402.0), a field that spoofs the
-   columns after it within its own line, ✅ a leaver's
+   (closed at v0.402.0), ✅ a field that spoofs the columns after it within its own line
+   (closed at v0.404.0, item 17), ✅ a leaver's
    own sessions across the network (closed at v0.381.0: leaving closes the leaver's sessions
    on every other machine too, and a shell on any box but the player's own asks on each line
    whether its session is still open), ✅ a box joined to two networks at once (closed at
@@ -1006,9 +1006,28 @@ agreed order:
     both again, and `snmpwalk` from bob's box read `DD-WRT v24.0.1`; back in, `dpkg.log` held the
     downgrade line and `kern.log` a reboot line per flash, each naming bob's `192.168.21.88`; a last
     `apt upgrade` dropped him and `snmpwalk` read `DD-WRT v24.4.0`. No defect. As built:
-    [`vulnerability-architecture.md`](./vulnerability-architecture.md). **Pick up here
-    (2026-10-18):** item 8's list, the agreed work until the owner reopens missions; the next
-    public sites (news, the forum) wait in `backlog.md` for their own grill.
+    [`vulnerability-architecture.md`](./vulnerability-architecture.md).
+17. ✅ **A log field cannot fake the columns stamped after it (v0.404.0, PR #702, 2026-10-18).**
+    The last open entry on item 8's list. A line break in a field was already written out
+    (v0.366.0), but a field could still close its own column and forge the ones after it: a path
+    ending `", 0 bytes`, an ssh account reading `guest from 9.9.9.9`. Every field a caller typed
+    or a player chose now passes `core/logging/escapeLogField.ts` in its formatter, which spells
+    out anything outside `[A-Za-z0-9/._:+~=?&%-]` as `\xNN` per UTF-8 byte; the attempt stays on
+    record and the server's timestamp, address and verdict are the only ones on the line. The
+    box hostname is escaped once in `formatSyslogLine`. A statement at the end of a line, and the
+    fields the server sets itself, are left alone. `scripts/testLogFieldEscaping.ts` proves it
+    live (1/4 before, 4/4 after). Browser close-out (2026-10-18, v0.404.0, two new players on
+    AIRPORT-LOUNGE-VIP, alice visiting bob's box): bob's `auth.log` read
+    `Failed password for guest\x20from\x209.9.9.9 from 192.168.70.157`, his `access.log`
+    `"GET /x\x22_200_0_\x22 HTTP/1.1" 404 0`, and his `vsftpd.log` a crafted ftp account as
+    `[guest\x5d\x20OK\x20LOGIN:\x20Client\x20\x229.9.9.9] FAIL LOGIN` and an upload to
+    `/tmp/x",_0_bytes` as `"/tmp/x\x22\x2c_0_bytes", 0 bytes`, each beside alice's real
+    address. An ordinary ssh attempt, `curl /` and ftp `get` read exactly as before. No defect.
+    As built: [`cross-player-architecture.md`](./cross-player-architecture.md) and the invariant
+    in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md) §6. **Pick up here
+    (2026-10-18):** item 8's list is done; next are the items still open in `backlog.md`, the
+    agreed work until the owner reopens missions; the next public sites (news, the forum) wait
+    in `backlog.md` for their own grill.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
