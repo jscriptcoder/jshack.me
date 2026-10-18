@@ -522,6 +522,9 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   full run of 2026-10-13. Seen again on 2026-10-16 (chainit slice 1, which does not touch it):
   failed once in a full run, ~18 s and 3/3 green alone, clean in the next full run. That run's
   output went through a filter, so its error text was lost; a timeout is still the likely cause.
+  Seen again on 2026-10-18 (carry-home slice 1, which does not touch it): timed out at ~31–37 s in
+  full runs, on `main` too, and passed alone; clean in slice 2's full run the same day. Five
+  sightings in ten days, so the next full-suite failure is likely this one.
 
 - **`resolveOccupants.test.ts` fails about once in 250 runs.** "derives each occupant's LAN IP
   from THAT occupant's key+ESSID, not the caller's" draws two fresh identities and asserts their
