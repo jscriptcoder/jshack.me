@@ -11,7 +11,7 @@
  */
 
 import { createSignal, onMount, Show } from 'solid-js';
-import type { PatchResult } from '../../core/commands/types.js';
+import { PATCH_ERROR_REASON, type PatchResult } from '../../core/commands/types.js';
 
 export type NanoProps = {
   /** What the title bar names: the file's path, or who a message is to. */
@@ -27,22 +27,6 @@ export type NanoProps = {
 /** Lines written, the way nano reports them: an empty buffer is 0 lines,
  *  otherwise the count of newline-separated segments. */
 const lineCount = (content: string): number => (content === '' ? 0 : content.split('\n').length);
-
-/** Map a failed save to nano's status-line reason, reusing the same wording as
- *  the `>` redirect write path (`runLine.ts`): an auth/permission rejection reads
- *  "Permission denied", a transport failure reads "I/O error".
- *
- *  `modified_since_open` never reaches here — it becomes a question rather than a
- *  report (see `OVERWRITE_CONFIRM`), and the forced retry carries no base so it
- *  cannot come back a second time. The entry exists because the map is total over
- *  the error union, which is what makes a newly added error a compile failure
- *  here instead of a blank status line in front of a player. */
-const SAVE_ERROR_REASON: Record<Extract<PatchResult, { ok: false }>['error'], string> = {
-  no_session: 'Permission denied',
-  permission_denied: 'Permission denied',
-  network_error: 'I/O error',
-  modified_since_open: 'File was modified since you opened it',
-};
 
 /** Real GNU nano's own wording, and its own escape hatch: the player may still
  *  destroy an edit they were never shown, but only by saying so. The path is not
@@ -73,7 +57,8 @@ export const Nano = (props: NanoProps) => {
 
   // A save the server refused because the file changed underneath is a question,
   // not a failure: hold the answer instead of reporting, and let the player
-  // decide. Anything else lands on the status line as before.
+  // decide. Anything else lands on the status line in the words every other write
+  // uses for the same failure.
   const reportSave = (result: PatchResult) => {
     if (!result.ok && result.error === 'modified_since_open') {
       setStatus('');
@@ -83,7 +68,7 @@ export const Nano = (props: NanoProps) => {
     setStatus(
       result.ok
         ? `[ Wrote ${lineCount(buffer())} lines ]`
-        : `[ Error writing ${props.title}: ${SAVE_ERROR_REASON[result.error]} ]`,
+        : `[ Error writing ${props.title}: ${PATCH_ERROR_REASON[result.error]} ]`,
     );
   };
 

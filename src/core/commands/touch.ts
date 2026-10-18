@@ -16,15 +16,8 @@
  * ORIGINAL argument rather than the resolved absolute path.
  */
 
-import type { Command, CommandEnv, CommandResult, PatchResult } from './types.js';
+import { PATCH_ERROR_REASON, type Command, type CommandEnv, type CommandResult } from './types.js';
 import { resolveAbsPath, dirname } from '../filesystem/path.js';
-
-const PATCH_ERROR_MESSAGE: Record<Extract<PatchResult, { ok: false }>['error'], string> = {
-  no_session: 'Permission denied',
-  permission_denied: 'Permission denied',
-  network_error: 'I/O error',
-  modified_since_open: 'File changed on disk',
-};
 
 const cannotTouch = (target: string, reason: string): string =>
   `touch: cannot touch '${target}': ${reason}`;
@@ -48,7 +41,7 @@ const touchOnePath = async (env: CommandEnv, rawArg: string): Promise<string | n
   // Always a brand-new file (gated on absence above) → mark is_new so a later
   // `rm` deletes the row rather than leaving a tombstone.
   const result = await env.patches.write(resolved, '', { isNew: true });
-  if (!result.ok) return cannotTouch(rawArg, PATCH_ERROR_MESSAGE[result.error]);
+  if (!result.ok) return cannotTouch(rawArg, PATCH_ERROR_REASON[result.error]);
   return null;
 };
 

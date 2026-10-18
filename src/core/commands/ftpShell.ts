@@ -28,13 +28,14 @@ import { basename, resolveAbsPath } from '../filesystem/path.js';
 import { bindFlags } from '../shell/bindFlags.js';
 import type { AbsPath } from '../types.js';
 import { ls } from './ls.js';
-import type {
-  CommandEnv,
-  CommandResult,
-  FsView,
-  PatchApi,
-  PatchResult,
-  TerminalLine,
+import {
+  PATCH_ERROR_REASON,
+  type CommandEnv,
+  type CommandResult,
+  type FsView,
+  type PatchApi,
+  type PatchResult,
+  type TerminalLine,
 } from './types.js';
 
 const text = (content: string): TerminalLine => ({ kind: 'text', content });
@@ -47,16 +48,6 @@ const result = (lines: readonly TerminalLine[], exitCode = 0): CommandResult => 
 
 const failure = (content: string): CommandResult =>
   result([{ kind: 'error', content }], 1);
-
-/** How a refused write on the player's OWN machine reads back. The local half of a
- *  transfer speaks the client's plain voice, not a numbered response — the far side
- *  never heard about it. */
-const WRITE_REFUSAL: Record<Extract<PatchResult, { ok: false }>['error'], string> = {
-  no_session: 'Permission denied',
-  permission_denied: 'Permission denied',
-  network_error: 'I/O error',
-  modified_since_open: 'File changed on disk',
-};
 
 /** One of the two machines: its tree at whatever tier addresses it, and the way
  *  to move its working directory. Naming the pair is what stops a command from
@@ -128,7 +119,9 @@ const download = async (
 
   const localPath = resolveAbsPath(env.fs.cwd(), destination ?? basename(remotePath));
   const written = await land({ fs: env.fs, write: env.patches.write }, localPath, read.content);
-  if (!written.ok) return failure(`local: ${localPath}: ${WRITE_REFUSAL[written.error]}`);
+  // A refused write on the player's OWN machine speaks the client's plain voice, not a
+  // numbered response — the far side never heard about it.
+  if (!written.ok) return failure(`local: ${localPath}: ${PATCH_ERROR_REASON[written.error]}`);
 
   // Only a completed transfer is recorded. A download line for a file the player
   // does not hold would be a false entry in someone else's evidence, and nothing
@@ -162,8 +155,13 @@ const upload = async (
   const written = await land({ fs: env.ftp.fs, write: env.ftp.write }, remotePath, read.content);
   // One answer for every refusal the far side can give. A tier that cannot write here
   // and a session that has gone are the same 403 by the time it reaches us, and
-  // naming them apart would be a guess dressed as a diagnosis.
-  if (!written.ok) return failure(`553 Could not create file: ${remotePath}: Permission denied`);
+  // naming them apart would be a guess dressed as a diagnosis. A file too big to send
+  // is not the far side's answer at all — it never left — so it says so instead.
+  if (!written.ok) {
+    const reason =
+      written.error === 'too_large' ? PATCH_ERROR_REASON.too_large : 'Permission denied';
+    return failure(`553 Could not create file: ${remotePath}: ${reason}`);
+  }
 
   env.ftp.recordTransfer({ direction: 'upload', path: remotePath, bytes: read.content.length });
 

@@ -31,6 +31,7 @@ import type {
   CommandResult,
   PublicAuthParams,
   FtpTransfer,
+  PatchResult,
   PublicAuthResult,
   RemoteAuthParams,
   RemoteAuthResult,
@@ -819,8 +820,10 @@ describe('looking around from the ftp> prompt', () => {
 const transferEnv = (
   over: {
     readonly remoteTier?: UserType;
-    readonly refuseWrite?: boolean;
-    readonly refuseRemoteWrite?: boolean;
+    /** What the origin's own write answers, when it refuses. */
+    readonly refuseWrite?: Extract<PatchResult, { readonly ok: false }>['error'];
+    /** What the far side's write answers, when it refuses. */
+    readonly refuseRemoteWrite?: Extract<PatchResult, { readonly ok: false }>['error'];
     readonly onRecord?: (transfer: FtpTransfer) => void;
   } = {},
 ) => {
@@ -851,7 +854,7 @@ const transferEnv = (
       patches: {
         ...mockPatchApi(),
         write: async (path, content, options) => {
-          if (over.refuseWrite === true) return { ok: false, error: 'permission_denied' };
+          if (over.refuseWrite !== undefined) return { ok: false, error: over.refuseWrite };
           writes.push({ path, isNew: options?.isNew });
           // Owner and permissions stamped the way the real adapter stamps them, so
           // the file the next command reads is the one production would have stored.
@@ -870,7 +873,9 @@ const transferEnv = (
         // exactly why the tier claim itself belongs to the wire-check and not to this
         // file: what these tests prove is what the command does with either answer.
         write: async (path, content, options) => {
-          if (over.refuseRemoteWrite === true) return { ok: false, error: 'no_session' };
+          if (over.refuseRemoteWrite !== undefined) {
+            return { ok: false, error: over.refuseRemoteWrite };
+          }
           remoteWrites.push({ path, isNew: options?.isNew });
           remoteJournal = [
             ...remoteJournal,
@@ -1019,13 +1024,26 @@ describe('taking a file from the ftp> prompt', () => {
   });
 
   it('reports a local write the origin refused instead of claiming the transfer worked', async () => {
-    const { run } = transferEnv({ refuseWrite: true });
+    const { run } = transferEnv({ refuseWrite: 'permission_denied' });
 
     const refused = await run(`get ${LOOT}`);
 
     expect(linesOf(refused)).toContain('local: /home/alice/remote-loot.txt: Permission denied');
     // The bytes crossed and then had nowhere to go. Announcing 226 anyway would tell
     // a player they hold a file that is not on their disk.
+    expect(linesOf(refused)).not.toContain('226 Transfer complete.');
+    expect(sync(refused).exitCode).not.toBe(0);
+  });
+
+  it('says a file too big to keep is too large, rather than an I/O error', async () => {
+    const { run } = transferEnv({ refuseWrite: 'too_large' });
+
+    const refused = await run(`get ${LOOT}`);
+
+    // Nothing went wrong on the way: the file arrived and is simply bigger than one save
+    // can hold, and an I/O error would send the player to retry a transfer that cannot
+    // ever land.
+    expect(linesOf(refused)).toContain('local: /home/alice/remote-loot.txt: File too large');
     expect(linesOf(refused)).not.toContain('226 Transfer complete.');
     expect(sync(refused).exitCode).not.toBe(0);
   });
@@ -1046,7 +1064,9 @@ describe('taking a file from the ftp> prompt', () => {
     const afterRefusedWrite = vi.fn();
 
     await transferEnv({ onRecord: afterRefusedRead }).run('get /vault/sealed.txt');
-    await transferEnv({ onRecord: afterRefusedWrite, refuseWrite: true }).run(`get ${LOOT}`);
+    await transferEnv({ onRecord: afterRefusedWrite, refuseWrite: 'permission_denied' }).run(
+      `get ${LOOT}`,
+    );
 
     // A download line for a file the player does not hold is a false entry in
     // someone else's evidence — the one thing this log must never carry.
@@ -1168,7 +1188,7 @@ describe('leaving a file at the ftp> prompt', () => {
   });
 
   it('reports a remote refusal as 553 instead of claiming the transfer worked', async () => {
-    const { run, remoteFs } = transferEnv({ refuseRemoteWrite: true });
+    const { run, remoteFs } = transferEnv({ refuseRemoteWrite: 'no_session' });
 
     const refused = await run(`put ${DROP}`);
 
@@ -1184,6 +1204,19 @@ describe('leaving a file at the ftp> prompt', () => {
       ok: false,
       error: 'not_found',
     });
+  });
+
+  it('says a file too big to send is too large, rather than blaming the far side', async () => {
+    const { run } = transferEnv({ refuseRemoteWrite: 'too_large' });
+
+    const refused = await run(`put ${DROP}`);
+
+    // The far side never heard of it — the file was refused before it left — so the line
+    // must not claim the credential could not write there.
+    expect(linesOf(refused)).toContain(
+      '553 Could not create file: /home/guest/origin-drop.txt: File too large',
+    );
+    expect(sync(refused).exitCode).not.toBe(0);
   });
 
   it('tells the box what ARRIVED on it, naming the remote path and the byte count', async () => {
@@ -1206,7 +1239,9 @@ describe('leaving a file at the ftp> prompt', () => {
     const afterRefusedWrite = vi.fn();
 
     await transferEnv({ onRecord: afterRefusedRead }).run('put /home/alice/origin-sealed.txt');
-    await transferEnv({ onRecord: afterRefusedWrite, refuseRemoteWrite: true }).run(`put ${DROP}`);
+    await transferEnv({ onRecord: afterRefusedWrite, refuseRemoteWrite: 'no_session' }).run(
+      `put ${DROP}`,
+    );
 
     // An UPLOAD line for a file that is not on the box is a false entry in someone
     // else's evidence — and here it would frame the player for a change they never made.

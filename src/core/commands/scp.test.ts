@@ -609,6 +609,20 @@ describe('scp', () => {
     expect(end).toHaveBeenCalledTimes(1);
   });
 
+  it('says a file too big to carry is too large, rather than a dropped connection', async () => {
+    const { sshHost } = pickHosts();
+    const end = vi.fn<(sessionId: string) => void>();
+    const env = scpEnv({ end, write: async () => ({ ok: false, error: 'too_large' }) });
+
+    const { lines, exitCode } = await drain(await scp.execute(env, upload(sshHost), new Map()));
+
+    // The file was refused before it left, so the far side neither failed nor refused.
+    expect(lines).toContain(`scp: ${REMOTE_DEST}: File too large`);
+    expect(lines).not.toContain('Connection closed by remote host.');
+    expect(exitCode).toBe(1);
+    expect(end).toHaveBeenCalledTimes(1);
+  });
+
   it('tells the target where the transfer came from, so the login line names an address', async () => {
     const { sshHost } = pickHosts();
     const authenticate = vi.fn<(params: RemoteAuthParams) => Promise<RemoteAuthResult>>(async () => ({
@@ -875,6 +889,20 @@ describe('scp', () => {
       // question — they had already read the file.
       expect(lines).toContain('Connection closed by remote host.');
       expect(lines).not.toContain('scp: /root/stolen.txt: Permission denied');
+      expect(exitCode).toBe(1);
+    });
+
+    it('says a file too big to keep is too large, rather than a dropped connection', async () => {
+      const { sshHost } = pickHosts();
+      const env = scpEnv({ localWrite: async () => ({ ok: false, error: 'too_large' }) });
+
+      const { lines, exitCode } = await drain(
+        await scp.execute(env, download(sshHost, '/root/stolen.txt'), new Map()),
+      );
+
+      // The bytes came back whole; they are simply more than one save can hold.
+      expect(lines).toContain('scp: /root/stolen.txt: File too large');
+      expect(lines).not.toContain('Connection closed by remote host.');
       expect(exitCode).toBe(1);
     });
 

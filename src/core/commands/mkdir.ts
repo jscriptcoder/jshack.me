@@ -16,15 +16,17 @@
 
 import type { AbsPath } from '../types.js';
 import { asAbsPath } from '../types.js';
-import type { Command, CommandEnv, CommandResult, FsView, PatchResult } from './types.js';
+import {
+  PATCH_ERROR_REASON,
+  type Command,
+  type CommandEnv,
+  type CommandResult,
+  type FsView,
+} from './types.js';
 import { resolveAbsPath } from '../filesystem/path.js';
 
-const PATCH_ERROR_MESSAGE: Record<Extract<PatchResult, { ok: false }>['error'], string> = {
-  no_session: 'Permission denied',
-  permission_denied: 'Permission denied',
-  network_error: 'service unavailable',
-  modified_since_open: 'File changed on disk',
-};
+// The shared wording, except a round-trip that never completed.
+const PATCH_ERROR_MESSAGE = { ...PATCH_ERROR_REASON, network_error: 'service unavailable' };
 
 const cannotCreate = (target: string, reason: string): string =>
   `mkdir: cannot create directory '${target}': ${reason}`;
