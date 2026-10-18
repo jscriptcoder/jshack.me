@@ -564,6 +564,30 @@ describe('reaching a box on the layer behind an inner gateway', () => {
       refusal: { status: 404, body: { error: 'service_not_running' } },
     });
   });
+
+  it('refuses a forwarded box whose own filter denies the service it lands on', async () => {
+    const reach = await reachDeep(
+      makeLookup({
+        findPatches: journals({
+          [DEEP.gatewayMachineId]: [
+            patchRow(
+              '/etc/iptables/rules.v4',
+              `forward ${DEEP_FORWARD_PORT} to ${DEEP.layer.host.ip}:${DEEP_SERVICE_PORT}`,
+            ),
+          ],
+          [DEEP.machineId]: [patchRow('/etc/iptables/rules.v4', `deny ${DEEP_SERVICE_PORT}\n`)],
+        }),
+      }),
+    );
+
+    // The forward resolves and the box is up, but the daemon it lands on is filtered to
+    // the network. A reach down a forward is a network one — loopback is the box the
+    // shell stands on, never a box behind a forward — so the owner's deny closes it.
+    expect(reach).toEqual({
+      ok: false,
+      refusal: { status: 404, body: { error: 'service_not_running' } },
+    });
+  });
 });
 
 // ─── across the world: somebody else's public address ───
@@ -694,6 +718,43 @@ describe('reaching a box by its public address', () => {
     });
   });
 
+  it('refuses a forwarded port whose owner filtered the service behind it', async () => {
+    // A forward opens the public port; the box behind it still answers only what its own
+    // filter leaves open. On the public path the deny is enforced upstream, as the forward
+    // is resolved — so a filtered internal service leaves nothing for the forward to land
+    // on, and the address reads as unreachable rather than as a dark port. A public reach
+    // is never a loopback one, so the filter stands however this door reads the box.
+    const publicPort = 43306;
+    const reach = await reachHost(
+      publicLookup({
+        findPatches: journals({
+          [AP_GATEWAY_ID]: [
+            patchRow(
+              '/etc/iptables/rules.v4',
+              `forward ${publicPort} to ${PUBLIC_DEFENDER_LAN_IP}:${DEFENDER_SSH_PORT}`,
+            ),
+          ],
+          [DEFENDER_MACHINE]: [
+            defenderSshd,
+            patchRow('/etc/iptables/rules.v4', `deny ${DEFENDER_SSH_PORT}\n`),
+          ],
+        }),
+      }),
+      {
+        essid: ESSID,
+        targetIp: TARGET_PUBLIC_IP,
+        service: DEFENDER_SSH_SERVICE,
+        port: publicPort,
+        actorKey: ATTACKER.publicKeyHex,
+      },
+    );
+
+    expect(reach).toEqual({
+      ok: false,
+      refusal: { status: 404, body: { error: 'host_unreachable' } },
+    });
+  });
+
   it('refuses a public address bearing no network', async () => {
     const reach = await reachHost(
       publicLookup({ findNetworkByPublicIp: async () => ({ data: null, error: null }) }),
@@ -794,6 +855,47 @@ describe('reaching from a hop', () => {
     expect(reach.ok && reach.reached.sourceIp).toBe('127.0.0.1');
   });
 
+  it('reaches localhost on a box whose own filter denies the port, since loopback is never filtered', async () => {
+    // The box's owner denied the service port in its own `rules.v4`. A remote caller is
+    // refused — the filter closes the port to the network — but the daemon reached over
+    // loopback never leaves the box, so the box's own filter does not stand in its way.
+    // The same promise the login doors keep, and the one the seeded filter file makes.
+    const filtered = makeLookup({
+      findPatches: async () => ({
+        data: [patchRow('/etc/iptables/rules.v4', `deny ${OWN_LAN.port}\n`)],
+        error: null,
+      }),
+    });
+
+    const overLoopback = await reachHost(filtered, {
+      essid: ESSID,
+      targetIp: '127.0.0.1',
+      service: OWN_LAN.service,
+      port: OWN_LAN.port,
+      actorKey: ATTACKER.publicKeyHex,
+      callerMachineId: OWN_LAN_IDENTITY.machineId,
+      ownLanSourceIp: OWN_LAN.host.ip,
+    });
+
+    expect(overLoopback.ok && overLoopback.reached.machineId).toBe(OWN_LAN_IDENTITY.machineId);
+    expect(overLoopback.ok && overLoopback.reached.sourceIp).toBe('127.0.0.1');
+
+    // The same filtered box reached across the NETWORK stays dark, so loopback is opened
+    // without opening the port the owner closed to everyone else.
+    const overNetwork = await reachHost(filtered, {
+      essid: ESSID,
+      targetIp: OWN_LAN.host.ip,
+      service: OWN_LAN.service,
+      port: OWN_LAN.port,
+      actorKey: ATTACKER.publicKeyHex,
+    });
+
+    expect(overNetwork).toEqual({
+      ok: false,
+      refusal: { status: 404, body: { error: 'service_not_running' } },
+    });
+  });
+
   it('resolves localhost on a fellow occupant box to that box, by the lease its owner holds', async () => {
     // The network generates no place for a player's workstation, so the lease the
     // vantage carries is the only address loopback has to name it by.
@@ -809,6 +911,39 @@ describe('reaching from a hop', () => {
 
     expect(reach.ok && reach.reached.machineId).toBe(DEFENDER_MACHINE);
     expect(reach.ok && reach.reached.sourceIp).toBe('127.0.0.1');
+  });
+
+  it('reaches localhost on a fellow occupant box past that box’s own filter', async () => {
+    // The owner of a box you hold a shell on may have filtered the very service you fire
+    // over loopback. The filter closes the port to the network, not to the box itself, so
+    // standing on it the daemon still answers — while the same box across the WiFi is dark.
+    const filtered = sameLanLookup({
+      findPatches: journals({
+        [DEFENDER_MACHINE]: [
+          defenderSshd,
+          patchRow('/etc/iptables/rules.v4', `deny ${DEFENDER_SSH_PORT}\n`),
+        ],
+      }),
+    });
+
+    const overLoopback = await reachHost(filtered, {
+      essid: ESSID,
+      targetIp: '127.0.0.1',
+      service: DEFENDER_SSH_SERVICE,
+      port: DEFENDER_SSH_PORT,
+      actorKey: ATTACKER.publicKeyHex,
+      callerMachineId: DEFENDER_MACHINE,
+      ownLanSourceIp: DEFENDER_LAN_IP,
+    });
+
+    expect(overLoopback.ok && overLoopback.reached.machineId).toBe(DEFENDER_MACHINE);
+    expect(overLoopback.ok && overLoopback.reached.sourceIp).toBe('127.0.0.1');
+
+    const overLan = await reachSameLan(filtered);
+    expect(overLan).toEqual({
+      ok: false,
+      refusal: { status: 404, body: { error: 'service_not_running' } },
+    });
   });
 
   it('refuses loopback when the server cannot place the hop at an address', async () => {
@@ -947,6 +1082,46 @@ describe('reaching a box on a deep layer the caller reaches', () => {
     expect(reach.ok && reach.reached.machineId).toBe(deep.machineId);
     expect(reach.ok && reach.reached.localIp).toBe(deep.host.ip);
     expect(reach.ok && reach.reached.sourceIp).toBe('127.0.0.1');
+  });
+
+  it('reaches localhost on a deep box past that box’s own filter, where the network is refused', async () => {
+    const deep = deepSshTarget();
+    const filtered = makeLookup({
+      findPatches: journals({
+        [deep.machineId]: [patchRow('/etc/iptables/rules.v4', `deny ${deep.port}\n`)],
+      }),
+    });
+
+    // Standing on the deep box, over loopback its own filter is not in the way.
+    const overLoopback = await reachHost(filtered, {
+      essid: deep.essid,
+      targetIp: '127.0.0.1',
+      service: 'ssh',
+      port: deep.port,
+      actorKey: ATTACKER.publicKeyHex,
+      callerMachineId: deep.machineId,
+      ownLanSourceIp: seenOnLanAt(deep.essid, deep.machineId),
+    });
+
+    expect(overLoopback.ok && overLoopback.reached.machineId).toBe(deep.machineId);
+    expect(overLoopback.ok && overLoopback.reached.sourceIp).toBe('127.0.0.1');
+
+    // The same box reached across the layer by its own address stays dark: a reach from
+    // the fronting gateway is a network one, and the owner's deny closes the port to it.
+    const overNetwork = await reachHost(filtered, {
+      essid: deep.essid,
+      targetIp: deep.host.ip,
+      service: 'ssh',
+      port: deep.port,
+      actorKey: ATTACKER.publicKeyHex,
+      callerMachineId: deep.gateway.machineId,
+      ownLanSourceIp: null,
+    });
+
+    expect(overNetwork).toEqual({
+      ok: false,
+      refusal: { status: 404, body: { error: 'service_not_running' } },
+    });
   });
 
   it('refuses a port the switch in front of the layer denies', async () => {

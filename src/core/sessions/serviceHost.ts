@@ -79,6 +79,7 @@ import { resolveInnerGatewayTarget } from '../network/resolveInnerGatewayTarget.
 import { materializeMachineFs, type OwnerPatchRow } from '../network/materializeMachineFs.js';
 import { canBoot } from '../boot/bootFiles.js';
 import { portsOpenToNetwork } from '../network/portsOpenToNetwork.js';
+import { readOpenPorts } from '../services/pidfile.js';
 import { frontedSegment } from '../network/frontedSegment.js';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import { LOOPBACK_IPV4 } from '../network/interfaces.js';
@@ -171,6 +172,12 @@ export type ReachedBox = ReachedServiceHost & {
    *  unreachable here as a stopped one. Consumed by `reachServiceHost` and never handed
    *  on: the port has been judged by the time a door sees the box. */
   readonly deniedPorts: ReadonlySet<number>;
+  /** Whether this reach arrived over `localhost`, in which case the box's own `rules.v4`
+   *  filter is not in its way: a knock over loopback never leaves the box, so a port its
+   *  owner closed to the NETWORK still answers itself — the same "closed to the network,
+   *  open on localhost" the login doors already honour. Consumed by the port check below
+   *  and never handed on: the box has been judged by the time a door sees it. */
+  readonly overLoopback: boolean;
 };
 
 export type ServiceHostReach =
@@ -207,6 +214,8 @@ const openJournaledBox = async (
     /** The switch ACL in front of this box, when it sits on a deep layer; empty for a
      *  box on the caller's own LAN, which no switch fronts. */
     readonly deniedPorts?: ReadonlySet<number>;
+    /** Whether the reach came over `localhost` — every caller states it. */
+    readonly overLoopback: boolean;
   },
 ): Promise<BoxReach> => {
   const patches = await deps.findPatches({ machine_id: box.machineId });
@@ -224,6 +233,7 @@ const openJournaledBox = async (
     writerKey: box.writerKey,
     frontedSegment: box.frontedSegment,
     deniedPorts: box.deniedPorts ?? new Set(),
+    overLoopback: box.overLoopback,
   });
 };
 
@@ -402,6 +412,9 @@ export const reachBox = async (
       // request carried names the caller's network and decides nothing here.
       frontedSegment: resolved.target.frontedSegment,
       deniedPorts: new Set(),
+      // A public address never resolves from loopback — loopback is the box the shell
+      // stands on, reached by a private address — so this vantage is always a network one.
+      overLoopback: false,
     });
   }
 
@@ -433,6 +446,7 @@ export const reachBox = async (
       writerKey: occupant.owner_key,
       // A fellow occupant's workstation stands on the WiFi and fronts nothing behind it.
       frontedSegment: null,
+      overLoopback: loopback,
     });
   }
 
@@ -466,6 +480,9 @@ export const reachBox = async (
       // The layer behind the box the chain walk stopped on, which only the walk knows.
       frontedSegment: resolved.target.frontedSegment,
       deniedPorts: new Set(),
+      // A box named by a forward the caller typed is reached across the network, never
+      // over loopback — localhost resolves to the standing box, not down a forward.
+      overLoopback: false,
     });
   }
 
@@ -498,6 +515,7 @@ export const reachBox = async (
       // The caller's own ESSID genuinely IS this box's network here, so the derivation the
       // set door used to make is correct at this vantage — and only at this one.
       frontedSegment: frontedSegment({ essid: target.essid, machineId, kind: host.kind }),
+      overLoopback: loopback,
     });
   }
 
@@ -568,6 +586,8 @@ const reachDeepLayerBox = async (
       // request over loopback never leaves the box to cross it.
       deniedPorts:
         target.loopbackSource === null ? deniedPortsFor(fronting, frontingFs) : new Set(),
+      // Loopback is the one vantage the deep box's own filter does not stand in front of.
+      overLoopback: target.loopbackSource !== null,
     });
   }
   return null;
@@ -607,15 +627,22 @@ export const reachServiceHost = async (
   // REACHED: a forward to sshd is not a door to the data behind it, and neither is a
   // LAN box's own ssh port.
   //
-  // EVERY vantage the reach serves is a remote one, which is what makes a filtered
-  // port unreachable from the world, from a neighbour and from down a forward with one
-  // check rather than four. The owner's own box never arrives here at all: it is
-  // answered on the client, so a filter can never lock them out of their own service.
+  // Almost every vantage the reach serves is a remote one, which is what makes a
+  // filtered port unreachable from the world, from a neighbour and from down a forward.
+  // `localhost` is the exception: a knock over loopback never leaves the box, so its own
+  // filter is not in the way, exactly as the login doors already honour — the pidfiles
+  // alone decide, with no `rules.v4` subtracted. (The switch ACL `deniedPorts` is already
+  // empty over loopback, since loopback never crosses it.) The owner's own box never
+  // arrives here at all: it is answered on the client, so a filter can never lock them
+  // out of their own service.
   //
   // Filtered reads as `service_not_running`, word for word what an unserved port gives.
   // A refusal of its own would be an oracle telling a scanner which ports are worth
   // attacking.
-  const listening = portsOpenToNetwork(reach.reached.hostFs).some(
+  const reachablePorts = reach.reached.overLoopback
+    ? readOpenPorts(reach.reached.hostFs)
+    : portsOpenToNetwork(reach.reached.hostFs);
+  const listening = reachablePorts.some(
     (open) =>
       open.port === reach.reached.reachedPort &&
       open.service === target.service &&
