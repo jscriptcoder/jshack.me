@@ -48,6 +48,22 @@ const collidingIdentities = (essid: string) => {
   throw new Error('no colliding identity pair found');
 };
 
+/**
+ * Two identities the pure derivation puts at DIFFERENT host octets. Two fresh draws share
+ * one network's octet pool, so they collide about once in 250 runs; a test that needs
+ * them apart searches for a pair rather than trusting the draw.
+ */
+const distinctIdentities = (essid: string) => {
+  const first = generateIdentity();
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const second = generateIdentity();
+    if (derivedOctet(second.publicKeyHex, essid) !== derivedOctet(first.publicKeyHex, essid)) {
+      return { first, second };
+    }
+  }
+  throw new Error('no identity pair at distinct octets found');
+};
+
 /** Leases as the allocator seeds them: each occupant holds the octet the derivation
  *  issued. Where nothing collided the two agree, so an address moves only for an
  *  occupant the derivation actually collided — nobody else is relocated. */
@@ -134,8 +150,7 @@ describe('handleResolveOccupants', () => {
   });
 
   it("derives each occupant's LAN IP from THAT occupant's key+ESSID, not the caller's", async () => {
-    const alice = generateIdentity();
-    const bob = generateIdentity();
+    const { first: alice, second: bob } = distinctIdentities(ESSID);
     const { deps } = makeDeps([occupant(alice, 'skylab-aaaa'), occupant(bob, 'nebu-bbbb')]);
 
     const result = await handleResolveOccupants(envelope(bob), deps);

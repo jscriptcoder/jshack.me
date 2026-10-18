@@ -323,13 +323,19 @@ const sshForwardedHost = (key: string): LanHost | undefined => {
 /** Whether `host` on `key`'s LAN is somebody's phone or tablet rather than a computer. */
 const isDevice = (key: string, host: LanHost): boolean => deviceModel(key, host) !== undefined;
 
-/** The file at `path` on `host` of `key`, read as root, or `undefined` where there is none. */
-const fileOn = (key: string, host: LanHost, path: string): string | undefined => {
-  const read = createFsView(resolveLanHostIdentity(host, key).baseFs, { userType: 'root' }).read(
-    asAbsPath(path),
-  );
-  return read.ok ? read.content : undefined;
+/** A reader of `host` of `key`, as root, over a tree built once: building it is the cost,
+ *  so a test that reads many files of one box asks for one reader. */
+const readerOn = (key: string, host: LanHost) => {
+  const view = createFsView(resolveLanHostIdentity(host, key).baseFs, { userType: 'root' });
+  return (path: string): string | undefined => {
+    const read = view.read(asAbsPath(path));
+    return read.ok ? read.content : undefined;
+  };
 };
+
+/** The file at `path` on `host` of `key`, read as root, or `undefined` where there is none. */
+const fileOn = (key: string, host: LanHost, path: string): string | undefined =>
+  readerOn(key, host)(path);
 
 describe('the leads a town network keeps', () => {
   /** A lead as the line that tells it apart from every other. */
@@ -523,17 +529,22 @@ describe("an IT contractor's shortcuts", () => {
   });
 
   it('keeps no shortcut to a client on any other box of the office', () => {
-    for (const relation of contractors()) {
-      const others = generateHomeLan(relation.source).hosts.filter(
-        (host) => host.kind === 'machine' && host.ip !== relation.sourceHost.ip,
-      );
-      for (const host of others) {
-        const home = `/home/${npcUsername(relation.source, host)}/.ssh`;
+    const all = contractors();
+    // Box by box, every client of the office at once: one tree a box rather than one a
+    // client and file, which ran this past the suite's timeout on a loaded machine.
+    for (const office of new Set(all.map((relation) => relation.source))) {
+      const clients = all.filter((relation) => relation.source === office);
+      const machines = generateHomeLan(office).hosts.filter((host) => host.kind === 'machine');
+      for (const host of machines) {
+        const elsewhere = clients.filter((relation) => relation.sourceHost.ip !== host.ip);
+        if (elsewhere.length === 0) continue;
+        const read = readerOn(office, host);
+        const home = `/home/${npcUsername(office, host)}/.ssh`;
         for (const path of [`${home}/config`, `${home}/known_hosts`, '/root/.ssh/known_hosts']) {
-          expect(
-            fileOn(relation.source, host, path) ?? '',
-            `${host.hostname} ${path}`,
-          ).not.toContain(relation.address);
+          const content = read(path) ?? '';
+          for (const relation of elsewhere) {
+            expect(content, `${host.hostname} ${path}`).not.toContain(relation.address);
+          }
         }
       }
     }

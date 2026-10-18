@@ -513,7 +513,13 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   widens to the widest program plus one, header and every row together, as `nmap`'s PORT column
   does (#620). Seen in the workstation-birth browser runs (2026-10-08).
 
-- **`relations.test.ts` times out under the full suite.** "an IT contractor's shortcuts > keeps no
+- **`relations.test.ts` timed out under the full suite — RESOLVED 2026-10-18.** The test rebuilt a
+  box's whole generated tree for every file it read, three files a box, once for each client of
+  the office. It now builds each box's tree once (`readerOn`) and checks every client of the
+  office against it: 6.0 s alone became 0.28 s, with the same assertions (flipping it to look at
+  the contractor's own desk still fails). The original note follows.
+
+  "an IT contractor's shortcuts > keeps no
   shortcut to a client on any other box of the office" takes ~20s alone against the 30s
   `testTimeout` and exceeds it when the whole suite runs, on `main` as of 2026-10-08 (seen twice
   in a row, unrelated to the change at hand). Either make the test cheaper (it walks the world)
@@ -526,12 +532,13 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   full runs, on `main` too, and passed alone; clean in slice 2's full run the same day. Five
   sightings in ten days, so the next full-suite failure is likely this one.
 
-- **`resolveOccupants.test.ts` fails about once in 250 runs.** "derives each occupant's LAN IP
-  from THAT occupant's key+ESSID, not the caller's" draws two fresh identities and asserts their
-  LAN addresses differ, but both come from one network's octet pool, so the two can draw the
-  same address. Seen once in a full run on 2026-10-16 (chainit slice 1, which does not touch it),
-  3/3 green alone. Fix the test, not the code: build the two occupants from fixed keys known to
-  land on different octets.
+- **`resolveOccupants.test.ts` failed about once in 250 runs — RESOLVED 2026-10-18.** "derives
+  each occupant's LAN IP from THAT occupant's key+ESSID, not the caller's" drew two fresh
+  identities and asserted their LAN addresses differ, but both come from one network's octet
+  pool, so the two could draw the same address. Seen once in a full run on 2026-10-16. The test
+  now searches for a pair at distinct octets (`distinctIdentities`), as the file's
+  `collidingIdentities` already searches for a pair at one, rather than hard-coding keys a
+  change to the derivation could leave proving nothing.
 
 - **CLOSED v0.326.0 (#619) — `grep -c` answered `grep: unrecognized option: -c`.** Parity rather
   than a missing capability (`grep … | wc -l` worked since v0.278.0), but the game planted
