@@ -1,6 +1,6 @@
 # Carrying a file home past 8192 — grill record + plan
 
-**Status:** Active — grilled 2026-10-18, no slice started.
+**Status:** Active — grilled 2026-10-18; slice 1 merged (#697, v0.399.0); slice 2 next.
 
 Goal: a generated file any tier can read can be carried home (`ftp get`, `scp`, `cp`, a
 `nano` save), and a file that still cannot be says so truthfully instead of `I/O error`.
@@ -81,7 +81,7 @@ Taken on Claude's recommendation, the owner confirming them together:
 
 ## Slices
 
-### Slice 1 — a generated file of up to 64 KiB can be carried home (v0.399.0)
+### Slice 1 — a generated file of up to 64 KiB can be carried home (v0.399.0) — DONE (#697)
 
 **Value:** a player who reaches any generated file — a guest's `auth.log.1`, a root's
 `data.json`, a mapit town page — saves it on their own box with `ftp get`, `scp` or `cp`.
