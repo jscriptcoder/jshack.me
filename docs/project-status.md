@@ -1107,8 +1107,16 @@ agreed order:
     strict `http://` addresses (`core/talkit/playerText.ts`); the table's CHECKs refuse control
     characters. `talkit` is a reserved emailit handle, `man mail` names the forum, and
     `restoreSite.ts talkit.io` restores it with every thread kept. The bundle had 661 B left
-    after the slice (284,314 B), so slice 2 raises the ceiling as decided. **Pick up here
-    (2026-10-19):** slice 2 of `plans/talkit.md`, starting a thread.
+    after the slice (284,314 B), so slice 2 raises the ceiling as decided. Slice 2 (v0.411.0,
+    on `feat/talkit-posting`): a form POSTed to talkit's `/post` starts a thread, signed as the
+    emailit.io login in the `~/.mailrc` of the user the tool runs as, which only a POST to
+    talkit's address carries. The handler refuses control characters, a title that is not one
+    line of 1 to 80 characters and a body that is not 1 to 4,000, then `talkit_post` checks the
+    password (the throttle included) and caps a player at 20 posts an hour whatever the handle.
+    `talkit.log` names each thread's poster and address. lynx draws a `<textarea>` as a box
+    several lines tall. The bundle ceiling's code part rose by 2,000 B to 136,975 B (talkit's
+    code was 1,011 B), so the ceiling is 286,975 B. **Pick up here (2026-10-19):** slice 2's PR
+    gate in `plans/talkit.md`.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

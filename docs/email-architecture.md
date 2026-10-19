@@ -45,7 +45,9 @@ migrations build it: `20261014000000_email.sql` (accounts, the welcome mail, sig
 
 **Functions** (all `SECURITY DEFINER`, each check-and-record in one statement so parallel
 requests cannot slip past a limit): `email_signup`, `email_check_password`, `email_inbox`,
-`email_read`, `email_send`, `email_delete`, `email_passwd`.
+`email_read`, `email_send`, `email_delete`, `email_passwd`. talkit.io's `talkit_post`
+checks a poster's handle through `email_check_password` too, so a post spends the same
+guesses as a login, and a stolen password also posts as its owner.
 
 **Entry points**, all through `/api/network` on a signed envelope:
 

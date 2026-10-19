@@ -181,7 +181,7 @@ export const curl: Command = {
   manual: {
     synopsis: 'curl [-i] [-d <data>] <url>',
     description:
-      'Fetch a URL over HTTP and print what the server returns. Reaches hosts on the network you are on — your own at home, or the network of a box you have a shell on — e.g. "curl http://192.168.1.5", including your own address once you are running a web server, and any public IP that forwards its web port, by its address or by the domain an institution publishes it under, e.g. "curl http://ridgemont.edu/". The "http://" may be left off, as with real curl: "curl ridgemont.edu" fetches the same page. No login is needed: a web server publishes its document root to whoever asks, and nothing else on the target is readable this way. With -d, curl POSTs a form instead, written as name=value pairs joined by "&", e.g. curl -d "handle=neo&password=s3cret" http://emailit.io/signup; as with real curl, a "&" or "=" inside a value is written %26 or %3D. Most servers take no form and answer 405 Method Not Allowed. Requires a network connection.',
+      'Fetch a URL over HTTP and print what the server returns. Reaches hosts on the network you are on — your own at home, or the network of a box you have a shell on — e.g. "curl http://192.168.1.5", including your own address once you are running a web server, and any public IP that forwards its web port, by its address or by the domain an institution publishes it under, e.g. "curl http://ridgemont.edu/". The "http://" may be left off, as with real curl: "curl ridgemont.edu" fetches the same page. No login is needed: a web server publishes its document root to whoever asks, and nothing else on the target is readable this way. With -d, curl POSTs a form instead, written as name=value pairs joined by "&", e.g. curl -d "handle=neo&password=s3cret" http://emailit.io/signup; as with real curl, a "&" or "=" inside a value is written %26 or %3D. A form sent to talkit.io carries the emailit.io login in the ~/.mailrc of the user you are, on the box you are on, and the post is signed with it; a line break in a value is written %0A. Most servers take no form and answer 405 Method Not Allowed. Requires a network connection.',
     arguments: [
       {
         name: 'url',
@@ -208,6 +208,10 @@ export const curl: Command = {
       {
         command: 'curl -d "handle=neo&password=s3cret" http://emailit.io/signup',
         description: 'Sign up for an address at emailit.io by POSTing its form',
+      },
+      {
+        command: 'curl -d "title=Hello&body=First%20post" http://talkit.io/post',
+        description: 'Start a thread at talkit.io, signed with your ~/.mailrc login',
       },
     ],
   },

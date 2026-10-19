@@ -1589,6 +1589,18 @@ describe('curl -d sends a form, and a server that takes none answers 405', () =>
     });
   });
 
+  it('documents that a form sent to talkit.io is signed with the ~/.mailrc login', () => {
+    expect(curl.manual?.description).toContain(
+      'A form sent to talkit.io carries the emailit.io login in the ~/.mailrc of the user ' +
+        'you are, on the box you are on, and the post is signed with it; a line break in a ' +
+        'value is written %0A.',
+    );
+    expect(curl.manual?.examples).toContainEqual({
+      command: 'curl -d "title=Hello&body=First%20post" http://talkit.io/post',
+      description: 'Start a thread at talkit.io, signed with your ~/.mailrc login',
+    });
+  });
+
   it('sends no body at all when -d is not given, so a plain fetch stays a GET', async () => {
     const { askedPublic } = await typed(`curl http://${THEIR_PUBLIC_IP}/`, {
       fetchPublic: { ok: true, content: 'page', server: 'nginx' },

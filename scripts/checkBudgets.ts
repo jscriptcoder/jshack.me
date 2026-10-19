@@ -42,8 +42,11 @@ import {
   generatedBaseFsForMachineId,
 } from '../src/core/generation/lanHostIdentity.js';
 
-/** 134,975 bytes gzipped before any world content, plus the 150 KB the content may add. */
-const BUNDLE_CEILING_BYTES = 284_975;
+/** 136,975 bytes gzipped before any world content, plus the 150 KB the content may add.
+ *  The code part was 134,975 until talkit.io's forum added 1,011 B of code (pages, the
+ *  post form, lynx's box several lines tall, the login a post carries), rounded up to
+ *  2,000 so the forum costs the content none of its room. */
+const BUNDLE_CEILING_BYTES = 286_975;
 
 /** About a tenth of that before world content, so a loaded machine's noise cannot fail
  *  the check while a content change that makes boxes ten times dearer still does. */

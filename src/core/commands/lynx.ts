@@ -122,7 +122,11 @@ export const lynx: Command = {
       'and scripts are not shown. Links are numbered: use the arrow keys to select one and ' +
       'Enter to follow it, and Left Arrow or Backspace to go back. Select a field and type to ' +
       'fill in a form, and press Enter to send it; a password field never shows what is typed ' +
-      'into it, and Escape leaves a field. Going back never sends a form again. Press q or ' +
+      'into it, and Escape leaves a field. In a box several lines tall, Enter starts a new ' +
+      'line; Escape leaves the box, Enter on it goes back in, and the form is sent from its ' +
+      'button. A form sent to talkit.io carries the emailit.io login in the ~/.mailrc of the ' +
+      'user you are, on the box you are on, and the post is signed with it. ' +
+      'Going back never sends a form again. Press q or ' +
       'Escape to return ' +
       'to the terminal. Reaches hosts on the network you are on — your own at home, or the ' +
       'network of a box you have a shell on — including your own address once you ' +
@@ -147,6 +151,10 @@ export const lynx: Command = {
       {
         command: 'lynx emailit.io',
         description: 'Sign up for an email address by filling in the form',
+      },
+      {
+        command: 'lynx talkit.io',
+        description: "Read the valley's forum, or start a thread on it",
       },
       {
         command: 'lynx http://203.0.113.7',
