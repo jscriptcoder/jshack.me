@@ -85,7 +85,7 @@ false}})`, per request. The service role bypasses row-level security.
 | `resolveSameLanScan`        | `nmap` a generated machine on your LAN (journal-aware).                                                 | SIG              |
 | `resolveInnerGatewayScan`   | `nmap` an inner gateway from outside.                                                                   | SIG              |
 | `resolvePublicScan`         | `nmap` a public IP; writes a `kern.log` trace on the target gateway.                                    | SIG + REACH      |
-| `resolveHttpFetch`          | `curl`/`lynx` a public web server (findit's search, chainit's ledger views); writes `access.log`.       | SIG + REACH      |
+| `resolveHttpFetch`          | `curl`/`lynx` a public web server (findit's search, chainit's and talkit's views); writes `access.log`. | SIG + REACH      |
 | `resolveHttpSweep`          | `gobuster` against a public server; the path list is read from the caller's box.                        | SIG + L1 + REACH |
 | `resolveMail`               | `mail`: an inbox, a message to read or quote, a send, a delete or a new password, for its password.     | SIG + REACH      |
 | `resolveCrossPlayerFs`      | A box that is not yours to rebuild, pruned to your tier; root on emailit.io also gets its mail.         | SIG, tiered      |

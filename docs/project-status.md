@@ -1097,6 +1097,18 @@ agreed order:
     `127.0.0.1` replied as the gateway. No defect. **Pick up here (2026-10-19):** the items still
     open in `backlog.md`, the agreed work until the owner reopens missions; the next public sites
     (news, the forum) wait in `backlog.md` for their own grill.
+23. **A forum at talkit.io (IN FLIGHT, 2026-10-19; plan and grill in `plans/talkit.md`).** Players
+    will start threads and comment on them as their emailit.io account, the `~/.mailrc` on the box
+    the tool runs on serving as the cookie. Four slices; one browser run at close-out. Slice 1
+    (v0.410.0): talkit.io is a sixth fixed site with a defaceable front page, and `/threads` (20 a
+    page by latest activity, `older`/`newer` links) and `/thread?id=<n>` answer from the new
+    `talkit_threads` table, never a file; an id naming no thread is a plain 404. The migration
+    seeds the operator's welcome thread. Every player string is escaped, and a body links only
+    strict `http://` addresses (`core/talkit/playerText.ts`); the table's CHECKs refuse control
+    characters. `talkit` is a reserved emailit handle, `man mail` names the forum, and
+    `restoreSite.ts talkit.io` restores it with every thread kept. The bundle had 681 B left
+    after the row (284,294 B), so slice 2 raises the ceiling as decided. **Pick up here
+    (2026-10-19):** slice 2 of `plans/talkit.md`, starting a thread.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

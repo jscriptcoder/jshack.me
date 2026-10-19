@@ -636,7 +636,8 @@ export const mail: Command = {
       'with it until ~/.mailrc changes. emailit.io is reached over the network the box is ' +
       'on, as curl would reach it. From a script the list, read and delete work as typed, ' +
       'and send and reply take the body as their last argument: ' +
-      "mail('send', 'trin', 'hi', 'body'). login, passwd and logout do not work from a script.",
+      "mail('send', 'trin', 'hi', 'body'). login, passwd and logout do not work from a script. " +
+      "The same login signs your posts on talkit.io, the valley's forum.",
     arguments: [
       {
         name: 'command',
