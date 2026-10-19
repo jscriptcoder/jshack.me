@@ -1031,11 +1031,18 @@ decision, not a gap.
   which the server does not place as loopback, so it walked nothing. Played in the browser
   2026-10-19 on UMBRELLA-NET: both tiers, a wrong guess, a `deny 161`, a stopped agent, the log,
   and `localhost` from a root shell on the AP gateway.
-- **`snmpset` on your OWN box very likely has the same gap. Found by reading 2026-10-19, not
-  played.** `snmpset.ts` calls `env.snmp.set` unconditionally, so a write to your own agent's table
-  goes to the server, which excludes the caller as the walk's did; and on a hop `localhost` goes as
-  the bare name. The fix is the walk's shape: an own-box branch beside `walkOwnAgent`, and the
-  loopback rewrite.
+- **`snmpset` on your OWN box had the same gap — RESOLVED 2026-10-19 (v0.408.0, #706).** It
+  called `env.snmp.set` unconditionally, so a write to your own agent went to the server, which
+  excludes the caller, and on a hop `localhost` went as the bare name. Now answered client side by
+  `setOwnAgent` beside `walkOwnAgent`, judged by `judgeSnmpSet` in `sessions/snmpAgent.ts`, which
+  the server handler shares, and the hop sends `127.0.0.1`. Played in the browser 2026-10-19 on
+  APERTURE-WIFI: deny and permit on both addresses, the three refusals, a wrong guess, a stopped
+  agent, the log, and a set on `localhost` from a root shell on the AP gateway.
+- **The usage check in `commands/snmpset.ts` has four surviving mutants nobody has explained.
+  Found 2026-10-19 by the #706 mutation gate.** Turning the missing-argument condition into `false`,
+  or `||` into `&&`, survived a battery that included `snmpset.test.ts`. Those mutants should make
+  `assignment.includes` throw, and the usage tests look like they would catch that. Worth a
+  hand-check before trusting the usage tests.
 - **A wire-check sweep should read 585/585 across 57 scripts; `testFtpSession` spent from #394
   to v0.183.0 red at 12/14 for a FIXTURE reason.** It picked its target because the host serves
   **ftp** (`kind === 'machine' && serves(ftp)` → `babycam-26` on `VSFTPD-LAB`, `ftp:2121`), then

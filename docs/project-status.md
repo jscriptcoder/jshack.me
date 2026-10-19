@@ -1061,9 +1061,26 @@ agreed order:
     answered and listed `inputPort.161 = deny`; `snmpd.log` held a connection and a verdict line
     for each walk, from the address used; a stopped agent timed out again; and from a root shell
     on the AP gateway `snmpwalk localhost` answered as the gateway, logged there from `127.0.0.1`.
-    No defect. Its neighbour, `snmpset` on your own box, is open in `backlog.md`. **Pick up here
-    (2026-10-19):** the items still open in `backlog.md`, the agreed work until the owner reopens
-    missions; the next public sites (news, the forum) wait in `backlog.md` for their own grill.
+    No defect. Its neighbour, `snmpset` on your own box, followed as item 21.
+21. ✅ **`snmpset` answers for the agent on your own box (v0.408.0, PR #706, 2026-10-19).** The
+    set had the walk's gap: it always went to the server, which excludes the caller. At home
+    `localhost`, `127.0.0.1` and the box's own LAN address are now answered client side by
+    `setOwnAgent` in `commands/snmpOwnBox.ts`, off the machine as it stands. The decision itself
+    (community, grammar, read-only refusal, router or switch, the segment a forward may point
+    into, and the file to store) is one pure `judgeSnmpSet` in `sessions/snmpAgent.ts`, which
+    `handleSnmpSet` now calls too, so both vantages answer alike. A workstation fronts nothing, so
+    a forward on it is refused as `this device fronts no network`, as a stranger's is. The filter
+    is written first and `snmpd.log` after, so a SET line is only claimed for a write that landed.
+    On a hop `localhost` is sent as `127.0.0.1`. No `api/` change. Browser close-out (2026-10-19,
+    v0.408.0, a new player on APERTURE-WIFI at `192.168.36.104`): a set before `systemctl start
+    snmpd` timed out and logged nothing; after it, `inputPort.6379=deny` on `localhost` and
+    `permit` on the own LAN address each changed `rules.v4` and logged `SET … old -> new` from the
+    address used, and a walk showed the deny; `public`, a forward and an `aclPort` each answered
+    the agent's error frame, a wrong community timed out and logged the guess, and a stopped agent
+    timed out with the log untouched; from a root shell on the AP gateway a set on `localhost`
+    landed there, logged from `127.0.0.1`. No defect. **Pick up here (2026-10-19):** the items
+    still open in `backlog.md`, the agreed work until the owner reopens missions; the next public
+    sites (news, the forum) wait in `backlog.md` for their own grill.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

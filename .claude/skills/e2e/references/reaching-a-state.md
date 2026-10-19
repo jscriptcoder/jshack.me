@@ -280,6 +280,15 @@ shows the generated hostname while the prompt shows the machine-id name part, wh
 DEVICE ROLE rather than by that hostname. Confirmed 2026-08-26 on `192.168.216.48`. Identify the
 box you landed on by the IP you typed, never by the prompt.
 
+### Then: the gateway's read-write SNMP community
+
+Verified 2026-10-19 (v0.408.0) on APERTURE-WIFI. Skip `hydra`: in a root shell on the gateway,
+`cat /var/lib/snmp/snmpd.conf` prints `rwcommunity <md5>`, and `plaintextFor('<md5>')` turns it
+into the word ([offline-secrets.md](offline-secrets.md)). Then `snmpset localhost <rw>
+inputPort.<port>=deny` from that shell sets the gateway's own filter, and `=permit` undoes it.
+**`cat` output on the gateway is paced**: the prompt comes back before the lines arrive, so read
+the screen a few seconds later, not straight after the prompt returns.
+
 ### Then: flash the gateway's firmware, forward and back
 
 Verified 2026-10-18 (v0.403.0) on CYBERDYNE-5G, two players root on its gateway. A write that
