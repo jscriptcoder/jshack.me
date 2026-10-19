@@ -11,23 +11,16 @@ import {
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces.js';
 import { assignHomeNetwork } from '../network/homeNetwork.js';
 import { applyPatches } from '../filesystem/applyPatches.js';
-import { buildWorkstationBaseFs } from '../generation/workstationFs.js';
-import { md5 } from '../generation/md5.js';
-import {
-  LOCAL_FILTER_SEED,
-  RULES_V4_PATH,
-  RULES_V4_PERMISSIONS,
-} from '../network/iptablesRules.js';
-import { SNMPD_CONF_PATH, SNMPD_CONF_PERMISSIONS, SNMPD_CONF_SEED } from '../snmp/conf.js';
-import {
-  formatSnmpdState,
-  SNMPD_STATE_PATH,
-  SNMPD_STATE_PERMISSIONS,
-} from '../snmp/rwCommunity.js';
-import { ownAgentCommunity } from '../snmp/ownAgent.js';
+import { LOCAL_FILTER_SEED } from '../network/iptablesRules.js';
 import { SNMPD_LOG_PATH, SNMPD_LOG_PERMISSIONS } from '../logging/snmpdLog.js';
-import { SERVICE_CATALOG, type ServiceSpec } from '../services/serviceCatalog.js';
-import { formatPidfileContent, pidfilePath, PIDFILE_PERMISSIONS } from '../services/pidfile.js';
+import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
+import {
+  AGENT_BOX_HOSTNAME,
+  agentBoxCommunity,
+  agentBoxTree,
+  withAgentStopped,
+  withDaemonOn,
+} from '../../test/factories/snmpAgentBox.js';
 import { asAbsPath, asMachineId, asPlayerKeyHex } from '../types.js';
 import type { Directory } from '../filesystem/types.js';
 import type { CommandEnv, CommandResult, PatchApi, SnmpApi, SnmpWalkResult } from './types.js';
@@ -309,9 +302,9 @@ describe('walking from a hop', () => {
  * `snmpd.log`, all read off the machine as it stands.
  */
 describe('the player own box, once it runs an agent', () => {
-  const HOSTNAME = 'workstation';
+  const HOSTNAME = AGENT_BOX_HOSTNAME;
   const OWN_IP = assignHomeNetwork(PUBKEY, ESSID).localIp;
-  const RW_COMMUNITY = ownAgentCommunity(PUBKEY);
+  const RW_COMMUNITY = agentBoxCommunity(PUBKEY);
 
   /** The server door, deliberately unreachable. A walk of your own box that took the
    *  network path would throw here rather than quietly pass. */
@@ -319,49 +312,7 @@ describe('the player own box, once it runs an agent', () => {
     throw new Error('own-box snmpwalk must not reach the server');
   };
 
-  /** Their box after `apt install snmp` with the agent running. Every file comes from the
-   *  production code that writes it, so a change to any format arrives here. */
-  const ownBoxRunningAgent = (rules: string = LOCAL_FILTER_SEED): Directory =>
-    applyPatches(
-      buildWorkstationBaseFs(PUBKEY, {
-        machineName: HOSTNAME,
-        username: 'alice',
-        rootPassword: 'hunter2',
-      }),
-      [
-        {
-          path: SNMPD_CONF_PATH,
-          content: SNMPD_CONF_SEED,
-          owner: 'root',
-          permissions: SNMPD_CONF_PERMISSIONS,
-        },
-        {
-          path: SNMPD_STATE_PATH,
-          content: formatSnmpdState(md5(RW_COMMUNITY)),
-          owner: 'root',
-          permissions: SNMPD_STATE_PERMISSIONS,
-        },
-        { path: RULES_V4_PATH, content: rules, owner: 'root', permissions: RULES_V4_PERMISSIONS },
-        {
-          path: pidfilePath(SERVICE_CATALOG.snmp),
-          content: formatPidfileContent(SERVICE_CATALOG.snmp, SERVICE_CATALOG.snmp.defaultPort),
-          owner: 'root',
-          permissions: PIDFILE_PERMISSIONS,
-        },
-      ],
-    );
-
-  /** The same box with the agent stopped — the pidfile gone, which is the whole of what
-   *  `systemctl stop` leaves behind. */
-  const withAgentStopped = (tree: Directory): Directory =>
-    applyPatches(tree, [
-      {
-        path: pidfilePath(SERVICE_CATALOG.snmp),
-        content: null,
-        owner: 'root',
-        permissions: PIDFILE_PERMISSIONS,
-      },
-    ]);
+  const ownBoxRunningAgent = (rules?: string): Directory => agentBoxTree(PUBKEY, rules);
 
   const viewOf = (tree: Directory) =>
     mockFsViewFromTree(tree, { userType: 'root', cwd: () => asAbsPath('/') });
@@ -393,17 +344,6 @@ describe('the player own box, once it runs an agent', () => {
 
   const snmpdLogOf = (writes: readonly Write[]): string =>
     writes.find((write) => write.path === SNMPD_LOG_PATH)?.content ?? '';
-
-  /** A daemon other than the agent holding a port, as its own pidfile says. */
-  const withDaemonOn = (tree: Directory, spec: ServiceSpec, port: number): Directory =>
-    applyPatches(tree, [
-      {
-        path: pidfilePath(spec),
-        content: formatPidfileContent(spec, port),
-        owner: 'root',
-        permissions: PIDFILE_PERMISSIONS,
-      },
-    ]);
 
   it('answers a walk of localhost without asking the server', async () => {
     const { env } = ownBoxEnv(ownBoxRunningAgent());

@@ -7,9 +7,10 @@
  * there was never anywhere to be.
  *
  * The assignment travels to the agent AS TYPED. This command does not know what a
- * forward is and must not learn: the grammar and every refusal belong to the server,
- * because a client that parsed them would be a second authority on what a rule is —
- * standing beside the file's own parser — and a client that could be told what to send.
+ * forward is and must not learn: the grammar and every refusal belong to the agent's
+ * judgement — the server's, or on your own box the same function run here — because a
+ * command that parsed them would be a second authority on what a rule is, standing
+ * beside the file's own parser, and a client that could be told what to send.
  * The one thing checked here is whether the player handed over an assignment at all,
  * which is argument shape rather than grammar, and saves a round trip on a typo.
  *
@@ -26,6 +27,8 @@
 import { vantageOf } from '../network/vantage.js';
 import { renderSetEcho, renderSetRefusal } from '../snmp/set.js';
 import { parseAgentAddress } from '../snmp/agentAddress.js';
+import { ownBoxSource, LOOPBACK_IPV4, LOOPBACK_NAMES } from '../network/interfaces.js';
+import { setOwnAgent } from './snmpOwnBox.js';
 import { errorLine, text } from './streaming.js';
 import type { Command, CommandResult } from './types.js';
 
@@ -50,14 +53,28 @@ const execute: Command['execute'] = async (env, args) => {
   const vantage = vantageOf(env.session, env.network);
   if (vantage === null) return errorResult(`snmpset: ${target}: Network is unreachable`);
 
-  const applied = await env.snmp.set({
-    essid: vantage.essid,
-    ...parseAgentAddress(target),
-    community,
-    assignment,
-    // The box the set ran from; the server derives the source address from it.
-    callerMachineId: env.session.machineId,
-  });
+  const address = parseAgentAddress(target);
+
+  // Your own box is answered HERE, and only at home, where `env.fs` IS that box — for
+  // the walk's reason: the server's same-LAN vantage excludes the caller. Any loopback
+  // name left after that is a hop's, sent on as 127.0.0.1 because the server places
+  // loopback by its address, never by its name.
+  const ownSource =
+    vantage.kind === 'home'
+      ? ownBoxSource({ target: address.targetIp, ownIp: vantage.address })
+      : null;
+  const applied =
+    ownSource !== null
+      ? await setOwnAgent(env, { fromIp: ownSource, port: address.port, community, assignment })
+      : await env.snmp.set({
+          essid: vantage.essid,
+          ...address,
+          targetIp: LOOPBACK_NAMES.includes(address.targetIp) ? LOOPBACK_IPV4 : address.targetIp,
+          community,
+          assignment,
+          // The box the set ran from; the server derives the source address from it.
+          callerMachineId: env.session.machineId,
+        });
 
   if (!applied.ok) {
     return applied.refusal === null
