@@ -17,9 +17,16 @@
 //   - THE FORUM IS NOT A FILE. A root's `/var/www/html/threads` or `thread` changes no
 //     view; a stopped or bricked talkit answers none; the operator's real
 //     `scripts/restoreSite.ts talkit.io` brings them back with every thread untouched.
+//   - A PLAYER STARTS A THREAD. A form POSTed to `/post` with an emailit.io login beside
+//     it goes up through api/network.ts's `talkit_post` call, signed with the handle, its
+//     line breaks kept; the list shows it first, talkit.log names who posted from where,
+//     and access.log has the POST but never the form. No login, a wrong password, a bad
+//     title or body, or a 21st post in the hour stores nothing; five wrong passwords in a
+//     minute throttle every post; the store itself refuses a control character.
 //
 // It needs the forum to hold only its welcome thread, as a fresh database does: the
-// threads it seeds are signed `wirecheck`, and it deletes them before and after.
+// threads it seeds are signed `wirecheck`, the ones it posts `wirepost` and `wirepost2`,
+// and it deletes them, and those two accounts, before and after.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testTalkit.ts
@@ -67,6 +74,11 @@ const logKey = apGatewayLogWriterKey(site.key);
 /** Who signs the threads this check seeds, so it can find and delete them. */
 const SEEDER = 'wirecheck';
 const SEEDED = 44;
+
+/** The emailit.io accounts this check posts as, and the password both hold. */
+const POSTER = 'wirepost';
+const OTHER_POSTER = 'wirepost2';
+const POSTER_PASSWORD = 'wire-pass-123';
 
 const PAYLOADS = [
   '<script>alert(1)</script>',
@@ -139,7 +151,10 @@ const threadCount = async (): Promise<number | null> => {
 };
 
 const cleanup = async () => {
-  await sr.from('talkit_threads').delete().eq('author', SEEDER);
+  await sr.from('talkit_threads').delete().in('author', [SEEDER, POSTER, OTHER_POSTER]);
+  await sr.from('talkit_writes').delete().eq('player_key', visitor.publicKeyHex);
+  await sr.from('email_login_failures').delete().eq('player_key', visitor.publicKeyHex);
+  await sr.from('email_accounts').delete().in('handle', [POSTER, OTHER_POSTER]);
   await sr.from('sessions').delete().eq('player_key', visitor.publicKeyHex);
   await sr.from('home_network_occupants').delete().eq('owner_key', visitor.publicKeyHex);
   await sr.from('patches').delete().eq('machine_id', machineId);
@@ -272,11 +287,12 @@ const main = async () => {
   // The first thread is the latest active; the rest go newest first, which also puts the
   // later of the two that share a second ahead of the earlier.
   const expected = [idOf(0), ...ids.slice(1).reverse(), 1];
-  const pages = await Promise.all(
-    ['/threads', '/threads?page=2', '/threads?page=3'].map(async (path) =>
-      contentOf((await fetchPath(path)).body),
-    ),
-  );
+  // One after another: each look appends to talkit's access.log by reading it and writing
+  // it back, so looks in parallel can drop each other's line, which check 7 reads.
+  const pages: string[] = [];
+  for (const path of ['/threads', '/threads?page=2', '/threads?page=3']) {
+    pages.push(contentOf((await fetchPath(path)).body));
+  }
   const [page1 = '', page2 = '', page3 = ''] = pages;
   check(
     'page 1 lists the 20 latest active, with only an older link',
@@ -457,6 +473,241 @@ const main = async () => {
     `restore exit ${restored.status}; views ${viewsAfterRestore
       .map((view) => view.status)
       .join(', ')}; ${seededAfterRestore} seeded thread(s)`,
+  );
+
+  // 10. A PLAYER STARTS A THREAD. The seeded threads are dated ahead of now, so they go
+  //     first, and a new post leads the list.
+  await sr.from('talkit_threads').delete().eq('author', SEEDER);
+  const { error: accountError } = await sr.from('email_accounts').insert(
+    [POSTER, OTHER_POSTER].map((handle) => ({
+      handle,
+      password_md5: md5(POSTER_PASSWORD),
+      signed_up_by: visitor.publicKeyHex,
+    })),
+  );
+  if (accountError) {
+    console.error(`Could not open the posting accounts: ${accountError.message}`);
+    process.exit(2);
+  }
+  type Login = { readonly handle: string; readonly password: string };
+  const loginAs = (handle: string, password: string = POSTER_PASSWORD): Login => ({
+    handle,
+    password,
+  });
+  const postForm = (
+    fields: Readonly<Record<string, string>>,
+    login: Login | null = loginAs(POSTER),
+    path: string = '/post',
+  ) =>
+    post(
+      NETWORK,
+      signRequest(visitor, 'resolveHttpFetch', {
+        target: SITE_IP,
+        port: 80,
+        path,
+        body: new URLSearchParams(Object.entries(fields)).toString(),
+        ...(login === null ? {} : { login }),
+      }),
+    );
+  /** The thread a "Posted" page links to, or 0 when the page is no such answer. */
+  const postedId = (body: unknown): number =>
+    Number(/<a href="\/thread\?id=(\d+)">Read your thread<\/a>/.exec(contentOf(body))?.[1] ?? 0);
+  /** The reason a "Not posted" page gives. */
+  const refusalOf = (body: unknown): string =>
+    /<hr>\s*<p>([^<]*)<\/p>/.exec(contentOf(body))?.[1] ?? contentOf(body).slice(0, 80);
+  const threadRow = async (id: number) => {
+    const { data } = await sr
+      .from('talkit_threads')
+      .select('author, title, body')
+      .eq('id', id)
+      .maybeSingle();
+    return data as { author: string; title: string; body: string } | null;
+  };
+  const talkitLog = async (): Promise<string> => {
+    const { data } = await sr
+      .from('patches')
+      .select('content')
+      .eq('machine_id', machineId)
+      .eq('path', '/var/log/talkit.log')
+      .eq('writer_key', logKey)
+      .maybeSingle();
+    return (data as { content?: string } | null)?.content ?? '';
+  };
+
+  const first = await postForm({ title: 'My new router', body: 'It blinks.\r\nAll night.' });
+  const firstId = postedId(first.body);
+  const firstRow = await threadRow(firstId);
+  check(
+    'a form posted with a login goes up, signed with its handle, its CRLF a line break',
+    first.status === 200 &&
+      contentOf(first.body).includes(`<p>Posted as ${POSTER}.</p>`) &&
+      firstRow?.author === POSTER &&
+      firstRow.title === 'My new router' &&
+      firstRow.body === 'It blinks.\nAll night.',
+    `status ${first.status}; ${JSON.stringify(firstRow)}`,
+  );
+  const listWithPost = contentOf((await fetchPath('/threads')).body);
+  check(
+    'the new thread leads the list, by its poster, with no comments',
+    listedIds(listWithPost)[0] === firstId &&
+      listWithPost.includes(`>My new router</a><br>by ${POSTER}, 0 comments, last `),
+    JSON.stringify(listedIds(listWithPost).slice(0, 3)),
+  );
+  check(
+    'its page shows the body with the line break where it was typed',
+    contentOf((await fetchPath(`/thread?id=${firstId}`)).body).includes(
+      '<p>It blinks.<br>All night.</p>',
+    ),
+    `/thread?id=${firstId}`,
+  );
+  const postLine = (await talkitLog()).split('\n')[0] ?? '';
+  check(
+    'talkit.log names the thread, its poster and the address it came from',
+    /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} /.test(postLine) &&
+      postLine.endsWith(` post #${firstId} by ${POSTER} from ${visitorIp}`),
+    postLine || '(no line)',
+  );
+  const logAfterPost = await accessLog();
+  check(
+    'access.log has the POST from the visitor, and never the form or the password',
+    logAfterPost
+      .split('\n')
+      .some((line) => line.includes(visitorIp) && line.includes('"POST /post HTTP/1.1" 200 ')) &&
+      !logAfterPost.includes(POSTER_PASSWORD) &&
+      !logAfterPost.includes('blinks'),
+    logAfterPost.split('\n').find((line) => line.includes('POST')) ?? '(no line)',
+  );
+
+  const storedBefore = await threadCount();
+  for (const [what, fields, login, said] of [
+    ['with no login', { title: 'Hi', body: 'there' }, null, 'Not logged in to emailit.io.'],
+    [
+      'with a wrong password',
+      { title: 'Hi', body: 'there' },
+      loginAs(POSTER, 'not-the-password'),
+      `Login failed for ${POSTER}@emailit.io.`,
+    ],
+    ['with a blank title', { title: '  ', body: 'b' }, loginAs(POSTER), 'A title is 1 to 80'],
+    [
+      'with an 81-character title',
+      { title: 'x'.repeat(81), body: 'b' },
+      loginAs(POSTER),
+      'A title is 1 to 80',
+    ],
+    [
+      'with a title of two lines',
+      { title: 'one\ntwo', body: 'b' },
+      loginAs(POSTER),
+      'A title is 1 to 80',
+    ],
+    [
+      'with a 4,001-character body',
+      { title: 'Hi', body: 'x'.repeat(4001) },
+      loginAs(POSTER),
+      'A post is 1 to 4,000',
+    ],
+    ['with a NUL in the body', { title: 'Hi', body: 'a\u0000b' }, loginAs(POSTER), 'control'],
+    ['with an ESC in the body', { title: 'Hi', body: 'a\u001b[31mb' }, loginAs(POSTER), 'control'],
+    ['with a DEL in the title', { title: 'a\u007fb', body: 'b' }, loginAs(POSTER), 'control'],
+  ] as const) {
+    const refused = await postForm(fields, login);
+    check(
+      `a post ${what} is refused`,
+      refused.status === 200 &&
+        contentOf(refused.body).includes('<title>Not posted - talkit.io</title>') &&
+        refusalOf(refused.body).includes(said),
+      refusalOf(refused.body),
+    );
+  }
+  check(
+    'nothing refused was stored',
+    (await threadCount()) === storedBefore,
+    `${storedBefore} → ${await threadCount()}`,
+  );
+
+  for (const payload of PAYLOADS) {
+    const id = postedId((await postForm({ title: payload, body: payload })).body);
+    const row = await threadRow(id);
+    const shown = contentOf((await fetchPath(`/thread?id=${id}`)).body);
+    const escaped = escapeHtml(payload);
+    check(
+      `${payload.slice(0, 40)} is stored as typed and shown as text`,
+      row?.title === payload &&
+        row.body === payload &&
+        shown.includes(`<h2>${escaped}</h2>`) &&
+        (escaped === payload || !shown.includes(payload)),
+      `thread ${id}; ${JSON.stringify(row?.title)}`,
+    );
+  }
+
+  const wideBody = '📡'.repeat(4000);
+  const wideForm = new URLSearchParams({ title: 'Wide', body: wideBody }).toString();
+  const wideRow = await threadRow(
+    postedId((await postForm({ title: 'Wide', body: wideBody })).body),
+  );
+  check(
+    'a 4,000-character body of four-byte characters posts, its form far past 4,096',
+    wideForm.length > 4096 && wideRow?.body === wideBody,
+    `form ${wideForm.length} characters; stored ${[...(wideRow?.body ?? '')].length}`,
+  );
+
+  const comment = await postForm({ title: 'Hi', body: 'there' }, loginAs(POSTER), '/comment');
+  check(
+    'a form at /comment still gets the 405',
+    comment.status === 405 && errorOf(comment.body) === 'method_not_allowed',
+    `status ${comment.status}`,
+  );
+
+  // Eight posts went up this hour; twelve more under the other handle make twenty.
+  const filling = await Promise.all(
+    Array.from({ length: 12 }, (_unused, index) =>
+      postForm({ title: `Filler ${index}`, body: 'b' }, loginAs(OTHER_POSTER)),
+    ),
+  );
+  check(
+    'twenty posts in the hour all go up, under either handle',
+    filling.every((answer) => postedId(answer.body) > 0),
+    `${filling.filter((answer) => postedId(answer.body) > 0).length}/12`,
+  );
+  const cappedBefore = await threadCount();
+  const capped = await Promise.all(
+    [POSTER, OTHER_POSTER].map((handle) =>
+      postForm({ title: 'One more', body: 'b' }, loginAs(handle)),
+    ),
+  );
+  check(
+    'the 21st post in the hour is refused, whichever handle it is signed with',
+    capped.every(
+      (answer) =>
+        refusalOf(answer.body) === 'You have posted 20 times in the last hour. Wait a while.',
+    ) && (await threadCount()) === cappedBefore,
+    capped.map((answer) => refusalOf(answer.body)).join(' / '),
+  );
+
+  // The table's CHECKs hold whatever calls the store. A fresh player key, so neither the
+  // cap nor the throttle answers first.
+  const { error: guarded } = await sr.rpc('talkit_post', {
+    post_handle: POSTER,
+    post_password_md5: md5(POSTER_PASSWORD),
+    post_player_key: 'c'.repeat(64),
+    post_title: 'esc',
+    post_body: 'a\u001bb',
+  });
+  check(
+    'the store refuses a control character the handler would have caught',
+    guarded !== null && (await threadCount()) === cappedBefore,
+    guarded?.message ?? 'stored',
+  );
+
+  // Five wrong passwords in the minute, whatever the earlier one left.
+  for (let i = 0; i < 5; i += 1) {
+    await postForm({ title: 'Hi', body: 'b' }, loginAs(POSTER, 'nope'));
+  }
+  const throttled = await postForm({ title: 'Hi', body: 'b' }, loginAs(POSTER));
+  check(
+    'five wrong passwords in a minute throttle even the right one',
+    refusalOf(throttled.body) === 'Too many failed logins. Wait a minute.',
+    refusalOf(throttled.body),
   );
 
   await cleanup();
