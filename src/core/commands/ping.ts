@@ -16,6 +16,9 @@
  * generated hosts of every segment it reaches, the deep layer it stands on, and the
  * fellow players on its LAN. Reaching across networks by public IP is a server
  * round-trip and belongs with the cross-player slice.
+ *
+ * Loopback is answered before any of that: `localhost` and every address in
+ * 127.0.0.0/8 reply from the box itself, with no network needed, as on a real box.
  */
 
 import type { Command, CommandEnv, CommandResult, TerminalLine } from './types.js';
@@ -23,6 +26,7 @@ import { generateHomeLan } from '../generation/generateHomeLan.js';
 import { createPrng } from '../generation/prng.js';
 import { errorLine, streamedResult, text } from './streaming.js';
 import { vantageOf, type Vantage } from '../network/vantage.js';
+import { LOOPBACK_IPV4, LOOPBACK_NAMES } from '../network/interfaces.js';
 import { addressForTarget } from '../network/resolveName.js';
 import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
 import type { OccupantProjection } from '../network/resolveOccupants.js';
@@ -53,32 +57,52 @@ const TTL = 64;
 /** Pause between echoes, so the replies arrive one at a time rather than at once. */
 const INTERVAL_MS = 300;
 
+/** The range a round trip falls in, in milliseconds. */
+type RoundTrip = { readonly floorMs: number; readonly spreadMs: number };
+
+const LAN_ROUND_TRIP: RoundTrip = { floorMs: 0.2, spreadMs: 1.8 };
+
+/** An echo to loopback never leaves the box, so it is back in hundredths of a millisecond. */
+const LOOPBACK_ROUND_TRIP: RoundTrip = { floorMs: 0.02, spreadMs: 0.06 };
+
 /** The round-trip time for one echo — seeded per (address, sequence), so a host's
  *  latency is a stable property of that host rather than fresh noise each run. */
-const replyTimeMs = (ip: string, sequence: number): string =>
-  (0.2 + createPrng(`ping-${ip}-${sequence}`).next() * 1.8).toFixed(3);
+const replyTimeMs = (ip: string, sequence: number, roundTrip: RoundTrip): string =>
+  (roundTrip.floorMs + createPrng(`ping-${ip}-${sequence}`).next() * roundTrip.spreadMs).toFixed(3);
+
+const LOOPBACK_RANGE = /^127\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+
+/** The loopback address `target` names, or null when it names something else. The
+ *  whole of 127.0.0.0/8 is loopback, so `127.5.5.5` answers as `127.0.0.1` does. */
+const loopbackAddress = (target: string): string | null => {
+  if (LOOPBACK_NAMES.includes(target)) return LOOPBACK_IPV4;
+  const octets = LOOPBACK_RANGE.exec(target);
+  if (octets === null) return null;
+  return octets.slice(1).every((octet) => Number(octet) <= 255) ? target : null;
+};
 
 /** Echoes `address`, under the name the player typed — real `ping` heads its output
- *  and its statistics with what was asked for, and replies come from the address. */
+ *  and its statistics with what was asked for, and replies come from the address.
+ *  `roundTrip` is null when nothing at the address answers. */
 async function* echoes(
   env: CommandEnv,
   target: string,
   address: string,
-  reachable: boolean,
+  roundTrip: RoundTrip | null,
   count: number,
 ): AsyncGenerator<TerminalLine, number> {
   yield text(`PING ${target} (${address}) ${PAYLOAD_BYTES}(${PAYLOAD_BYTES + 28}) bytes of data.`);
 
   for (let sequence = 1; sequence <= count; sequence++) {
     await env.sleep(INTERVAL_MS);
-    if (reachable) {
+    if (roundTrip !== null) {
       yield text(
-        `${REPLY_BYTES} bytes from ${address}: icmp_seq=${sequence} ttl=${TTL} time=${replyTimeMs(address, sequence)} ms`,
+        `${REPLY_BYTES} bytes from ${address}: icmp_seq=${sequence} ttl=${TTL} time=${replyTimeMs(address, sequence, roundTrip)} ms`,
       );
     }
   }
 
-  const received = reachable ? count : 0;
+  const received = roundTrip !== null ? count : 0;
   const loss = Math.round(((count - received) / count) * 100);
   yield text('');
   yield text(`--- ${target} ping statistics ---`);
@@ -122,6 +146,13 @@ const execute: Command['execute'] = async (env, args, flags) => {
   }
   const count = typeof countFlag === 'string' ? Number(countFlag) : DEFAULT_ECHO_COUNT;
 
+  // Loopback needs no network, and no filter stands in its way: real firewalls accept
+  // `lo` before anything else, so the box's own rules.v4 is not consulted.
+  const loopback = loopbackAddress(target);
+  if (loopback !== null) {
+    return streamedResult(echoes(env, target, loopback, LOOPBACK_ROUND_TRIP, count));
+  }
+
   const vantage = vantageOf(env.session, env.network);
   if (vantage === null) {
     return error(UNREACHABLE);
@@ -142,7 +173,7 @@ const execute: Command['execute'] = async (env, args, flags) => {
 
   // The exit code IS the answer here (0 only when something replied), so it comes from
   // the stream's own return value rather than being assumed up front.
-  return streamedResult(echoes(env, target, address, reachable, count));
+  return streamedResult(echoes(env, target, address, reachable ? LAN_ROUND_TRIP : null, count));
 };
 
 export const ping: Command = {
@@ -157,7 +188,7 @@ export const ping: Command = {
   manual: {
     synopsis: 'ping [-c count] <host>',
     description:
-      'Send ICMP echo requests to a host on the network you are on — your own at home, or the network of a box you have a shell on — and report which came back. Takes an address or a name. Answers reachability only — a host that replies may still be running nothing. Sends 4 packets unless -c says how many.',
+      'Send ICMP echo requests to a host on the network you are on — your own at home, or the network of a box you have a shell on — and report which came back. Takes an address or a name. localhost, and any 127.x.x.x address, answers from the box itself, with or without a network. Answers reachability only — a host that replies may still be running nothing. Sends 4 packets unless -c says how many.',
     arguments: [
       {
         name: 'host',
