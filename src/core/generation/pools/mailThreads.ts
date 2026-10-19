@@ -1240,18 +1240,6 @@ export const PERSONAL_THREADS: Readonly<Record<NetworkCategory, readonly MailThr
         ['Found it. It had been washed, which is more than I ever do to it.'],
       ],
     },
-    {
-      subject: 'Cycling in',
-      opener: [
-        'Is anybody else cycling in now the mornings are lighter?',
-        'There is room for three bikes behind the back door and only mine is there.',
-        'It is drier than the rack at the front.',
-      ],
-      replies: [
-        ['I will start again next week if the weather holds.'],
-        ['Two of us behind the back door now.'],
-      ],
-    },
   ],
   cafe: [
     {
@@ -1337,18 +1325,6 @@ export const PERSONAL_THREADS: Readonly<Record<NetworkCategory, readonly MailThr
         ['Swapped over. The old one has gone in the bin, with respect.'],
       ],
     },
-    {
-      subject: 'Somebody is feeding the birds out front',
-      opener: [
-        'Somebody has been putting bread out on the front tables.',
-        'The birds have worked it out and they are there before we open.',
-        'It is charming right up until a customer sits down.',
-      ],
-      replies: [
-        ['I will ask around. It is probably one of the morning regulars.'],
-        ['It was, and they have stopped. The birds took a week to give up.'],
-      ],
-    },
   ],
   residential: [
     {
@@ -1432,18 +1408,6 @@ export const PERSONAL_THREADS: Readonly<Record<NetworkCategory, readonly MailThr
       replies: [
         ['I am out this afternoon. I will pick up a packet of four.'],
         ['In and working. Three spares in the drawer.'],
-      ],
-    },
-    {
-      subject: 'Sunday afternoon',
-      opener: [
-        'I am cooking properly on Sunday rather than eating standing up.',
-        'There is room at the table for whoever is in.',
-        'About two, and nobody has to bring anything.',
-      ],
-      replies: [
-        ['I am in. I will bring something anyway.'],
-        ['Then we are four. Two it is.'],
       ],
     },
   ],
@@ -1532,18 +1496,6 @@ export const PERSONAL_THREADS: Readonly<Record<NetworkCategory, readonly MailThr
         ['Noticeably quicker. Thank you.'],
       ],
     },
-    {
-      subject: 'A bike in the stairwell',
-      opener: [
-        'There is a bike chained to the rail in the stairwell again.',
-        'It blocks half the landing and that is a fire door.',
-        'The racks outside are half empty.',
-      ],
-      replies: [
-        ['I will put a note on it before anybody cuts the lock.'],
-        ['The note worked. It was gone by the afternoon.'],
-      ],
-    },
   ],
   public: [
     {
@@ -1630,18 +1582,6 @@ export const PERSONAL_THREADS: Readonly<Record<NetworkCategory, readonly MailThr
         ['Two replaced, all three watered on Mondays now.'],
       ],
     },
-    {
-      subject: 'A wallet was handed in',
-      opener: [
-        'A wallet was handed in this morning with cards in it and no name I can read.',
-        'It is in the drawer and written in the book.',
-        'If nobody comes for it by Friday it goes to the police station.',
-      ],
-      replies: [
-        ['Somebody came for it at lunchtime and was very relieved.'],
-        ['Written up as returned. That is the second this month.'],
-      ],
-    },
   ],
   iot: [
     {
@@ -1725,18 +1665,6 @@ export const PERSONAL_THREADS: Readonly<Record<NetworkCategory, readonly MailThr
       replies: [
         ['Hold the two on the right together until it beeps twice.'],
         ['That was it. Thank you, that has annoyed me for a month.'],
-      ],
-    },
-    {
-      subject: 'Windows open upstairs',
-      opener: [
-        'Two of the upstairs windows were open all day while it rained.',
-        'Nothing is damaged, the sills took it.',
-        'Worth a look round before we go out from now on.',
-      ],
-      replies: [
-        ['That was mine and I am sorry.'],
-        ['No harm done. It is an easy one to do.'],
       ],
     },
   ],
@@ -1827,18 +1755,6 @@ export const PERSONAL_THREADS: Readonly<Record<NetworkCategory, readonly MailThr
         ['Sorted. The bin is half the weight it was.'],
       ],
     },
-    {
-      subject: 'Somebody has fixed the tap',
-      opener: [
-        'The tap in the workshop has stopped dripping and I did not do it.',
-        'It has dripped for as long as I have been coming here.',
-        'Whoever it was, thank you.',
-      ],
-      replies: [
-        ['It needed a washer, which cost nothing and took five minutes.'],
-        ['Five minutes, and a year of that noise gone.'],
-      ],
-    },
   ],
   government: [
     {
@@ -1923,18 +1839,6 @@ export const PERSONAL_THREADS: Readonly<Record<NetworkCategory, readonly MailThr
       replies: [
         ['Mine is the big one. Sorry, I will take it at lunch.'],
         ['Desk is clear. A shelf in the back has been found for anything that does arrive.'],
-      ],
-    },
-    {
-      subject: 'The shared calendar',
-      opener: [
-        'Half the office keeps leave in the calendar and half on paper.',
-        'That means the rota is wrong about once a fortnight.',
-        'Could we settle on the calendar, since that is the one people check?',
-      ],
-      replies: [
-        ['Fine by me, as long as somebody puts the old paper list in first.'],
-        ['All of it is in. The rota has matched for three weeks now.'],
       ],
     },
   ],
@@ -2023,18 +1927,6 @@ export const PERSONAL_THREADS: Readonly<Record<NetworkCategory, readonly MailThr
         ['Rule is on the wall now. Peace has broken out.'],
       ],
     },
-    {
-      subject: 'Parking behind the store',
-      opener: [
-        'Staff cars are blocking the loading bay again.',
-        'The delivery lorry could not get in this morning and waited on the road.',
-        'Please use the far end of the car park before ten.',
-      ],
-      replies: [
-        ['That was me. Moved, and it will not happen again.'],
-        ['Bay was clear all week. The driver even said thank you.'],
-      ],
-    },
   ],
   healthcare: [
     {
@@ -2119,18 +2011,6 @@ export const PERSONAL_THREADS: Readonly<Record<NetworkCategory, readonly MailThr
       replies: [
         ['The engineer is booked for tomorrow morning.'],
         ['Fixed. Both lifts are running and the corridor is quiet again.'],
-      ],
-    },
-    {
-      subject: 'Tea fund',
-      opener: [
-        'The tea fund tin is nearly empty.',
-        'It has paid for milk and biscuits for everybody on the ward since the summer.',
-        'If you have been drinking the tea, a coin or two would help.',
-      ],
-      replies: [
-        ['Put some in this morning. The good biscuits were worth it.'],
-        ['Tin is full again. Thank you, everybody.'],
       ],
     },
   ],
