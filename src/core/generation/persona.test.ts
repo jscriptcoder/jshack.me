@@ -94,6 +94,15 @@ describe('networkPersona', () => {
     });
   });
 
+  it('keeps talkit the town square, however many kinds of place the world grows', () => {
+    expect(networkPersona('talkit.io')).toEqual({
+      category: 'hacker',
+      place: 'the town square',
+      domain: 'talkit-io.lan',
+      town: 'Ridgemont',
+    });
+  });
+
   it('does not put every network outside the catalog in the same kind of place', () => {
     const categories = new Set(
       Array.from({ length: 40 }, (_unused, index) => networkPersona(`Uncatalogued-${index}`).category),

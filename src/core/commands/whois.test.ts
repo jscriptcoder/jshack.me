@@ -264,6 +264,24 @@ describe('whois', () => {
     });
   });
 
+  it('names talkit, the forum, by its domain spelt as a network name', async () => {
+    const address = addressOf('talkit.io');
+
+    const { lines, exitCode } = await run(address);
+
+    expect({ lines, exitCode }).toEqual({
+      lines: [
+        '% Harrow Valley registry',
+        '',
+        `inetnum:        ${address} - ${address}`,
+        'netname:        TALKIT-IO',
+        'org-name:       talkit.io',
+        'domain:         talkit.io',
+      ],
+      exitCode: 0,
+    });
+  });
+
   it.each([
     ['Millbrook', 'millbrook.gov'],
     ['Ashby', 'ashby.gov'],

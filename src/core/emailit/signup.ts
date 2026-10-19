@@ -27,6 +27,7 @@ const RESERVED_HANDLES: ReadonlySet<string> = new Set([
   'noreply',
   'support',
   'emailit',
+  'talkit',
 ]);
 
 /** The system sender every welcome comes from. Nobody can log in as it. */

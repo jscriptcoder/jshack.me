@@ -38,6 +38,7 @@ import {
   FIXED_SITES,
   HACKADEMY_NETWORK,
   MAPIT_NETWORK,
+  TALKIT_NETWORK,
 } from './fixedSites.js';
 
 /** How much stands behind a network's gateway: one machine, a few, or today's inner
@@ -776,6 +777,8 @@ const ADDRESS_BY_KEY: ReadonlyMap<string, string> = new Map([
   [EMAILIT_NETWORK, placelessAddress(3 + LANDMARK_CORPORATIONS.length + CORPORATIONS.length)],
   // chainit came after emailit, and takes the next address.
   [CHAINIT_NETWORK, placelessAddress(4 + LANDMARK_CORPORATIONS.length + CORPORATIONS.length)],
+  // talkit came after chainit, and takes the next address.
+  [TALKIT_NETWORK, placelessAddress(5 + LANDMARK_CORPORATIONS.length + CORPORATIONS.length)],
   ...DRAWN_TOWNS.flatMap((drawn) => townAddresses(drawn.town, drawn.networks)),
   // Ridgemont's drawn networks answer after its landmarks, at the places their keys hold.
   ...RIDGEMONT_DRAWN.map((network, index): [string, string] => [
