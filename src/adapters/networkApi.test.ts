@@ -745,7 +745,27 @@ describe('fetchPublicPage', () => {
     });
   });
 
-  it('sends no body for a plain fetch', async () => {
+  it('sends the login a form carries beside it', async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, { ok: true, content: '<p>Posted as neo.</p>', server: 'nginx' }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    await fetchPublicPage(deps, {
+      ...PARAMS,
+      body: 'title=Hi&body=there',
+      login: { handle: 'neo', password: 's3cret' },
+    });
+
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected verified envelope');
+    expect(verified.payload).toMatchObject({
+      body: 'title=Hi&body=there',
+      login: { handle: 'neo', password: 's3cret' },
+    });
+  });
+
+  it('sends no body and no login for a plain fetch', async () => {
     const fetchSpy = vi.fn(async () =>
       jsonResponse(200, { ok: true, content: '<h1>hi</h1>', server: 'nginx' }),
     );
@@ -756,6 +776,7 @@ describe('fetchPublicPage', () => {
     const verified = await verifyPayload(sentEnvelope(fetchSpy));
     if (!verified.ok) throw new Error('expected verified envelope');
     expect(verified.payload).not.toHaveProperty('body');
+    expect(verified.payload).not.toHaveProperty('login');
   });
 
   it('reports a 405 as the server refusing the POST, naming the program that refused it', async () => {

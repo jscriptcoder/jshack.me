@@ -69,6 +69,14 @@ export const TALKIT_FRONT_PAGE = talkitDocument({
   body: [
     '<p>The forum for the whole valley: WiFi, jobs, new routers, and anything else on your mind.</p>',
     '<p><a href="/threads">Read the threads</a></p>',
+    // No handle and no password: the login the reader keeps for emailit.io goes with
+    // the form, and the form is the same file for everybody.
+    '<h2>Start a thread</h2>',
+    '<form action="/post" method="post">',
+    '<p>Title<br><input type="text" name="title"></p>',
+    '<p>Post<br><textarea name="body" rows="4"></textarea></p>',
+    '<p><input type="submit" value="Post"></p>',
+    '</form>',
   ],
 });
 
@@ -113,6 +121,27 @@ export const threadPage = (thread: Thread): string =>
       `<p>${playerText(thread.body)}</p>`,
       '<p>No comments yet.</p>',
     ],
+  });
+
+const BACK_TO_FRONT = '<p><a href="/">Back to talkit.io</a></p>';
+
+/** What a post answers with once the thread is up: who it went up as, and the way to it. */
+export const postedPage = ({ handle, id }: { readonly handle: string; readonly id: number }) =>
+  talkitDocument({
+    title: 'Posted - talkit.io',
+    body: [
+      `<p>Posted as ${escapeHtml(handle)}.</p>`,
+      `<p><a href="/thread?id=${id}">Read your thread</a></p>`,
+      BACK_TO_FRONT,
+    ],
+  });
+
+/** What a refused post answers with: why, in a sentence that may name the handle the
+ *  login gave, which is escaped as everything a player sent is. */
+export const notPostedPage = (reason: string): string =>
+  talkitDocument({
+    title: 'Not posted - talkit.io',
+    body: [`<p>${escapeHtml(reason)}</p>`, BACK_TO_FRONT],
   });
 
 export const NO_SUCH_PAGE = talkitDocument({

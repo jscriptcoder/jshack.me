@@ -6,7 +6,7 @@ import { getOrCreateIdentity } from '../core/identity/identity.js';
 import { contentHash } from '../core/patches/contentHash.js';
 import { CONNECTED_ESSID_KEY } from './connectionPersistence.js';
 import { buildRemoteHostFs } from '../core/generation/remoteHostFs.js';
-import { publisherIp } from '../core/generation/publisher.js';
+import { publisherIp, siteAddress } from '../core/generation/publisher.js';
 import {
   PIDFILE_PERMISSIONS,
   daemonName,
@@ -3185,6 +3185,45 @@ describe('full-screen apps a command opens', () => {
 
     expect(asked).toHaveLength(1);
     expect(asked[0]).toContain(SIGN_UP_FORM);
+  });
+
+  /** What a signed request asked the server for, read out of its envelope. */
+  const payloadOf = (request: string): Record<string, unknown> =>
+    JSON.parse(JSON.parse(request).payload) as Record<string, unknown>;
+
+  /** The player's `~/.mailrc`, as `mail login` saves it. */
+  const MAILRC = {
+    path: '/home/tester/.mailrc',
+    content: 'set from=neo@emailit.io\nset password=s3cret\n',
+    owner: 'tester',
+    permissions: { read: ['root', 'user'], write: ['root', 'user'], execute: [] },
+  };
+
+  it("posts a form to talkit.io with the login in the reader's ~/.mailrc, and asks for its pages without it", async () => {
+    const talkit = siteAddress('talkit.io') ?? '';
+    const asked: string[] = [];
+    const state = await startBrowsingGame({
+      published: [MAILRC],
+      across: (request) => {
+        asked.push(request);
+        return { ok: true, content: '<p>Posted as neo.</p>', server: 'nginx' };
+      },
+    });
+    state.setInput('lynx http://talkit.io/');
+    await state.runInput();
+
+    const outcome = await state.followLink('http://talkit.io/post', 'title=Hi&body=one%0Atwo');
+
+    expect(outcome).toEqual({ ok: true });
+    expect(asked.map(payloadOf)).toEqual([
+      expect.not.objectContaining({ login: expect.anything() }),
+      expect.objectContaining({
+        target: talkit,
+        path: '/post',
+        body: 'title=Hi&body=one%0Atwo',
+        login: { handle: 'neo', password: 's3cret' },
+      }),
+    ]);
   });
 
   // A server that takes no form still answered, and logged it: the reader moves to its

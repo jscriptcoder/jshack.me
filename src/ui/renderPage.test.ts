@@ -3,6 +3,7 @@ import { renderPage } from './renderPage.js';
 import { pickWebPage } from '../core/generation/pools/webPages.js';
 import { MAPIT_PAGES } from '../core/mapit/pages.js';
 import { EMAILIT_FRONT_PAGE } from '../core/emailit/pages.js';
+import { TALKIT_FRONT_PAGE } from '../core/talkit/pages.js';
 
 /** The page a test renders from, when where it came from does not matter. Links
  *  resolve against it, so it has to be a real address. */
@@ -729,6 +730,115 @@ describe('what a form offers, at its edges', () => {
   });
 });
 
+describe('a box several lines tall, on a form', () => {
+  const selectablesOn = (html: string) =>
+    renderPage({ html, url: PAGE_URL }).flatMap((line) =>
+      line.segments.filter((segment) => segment.kind !== 'text'),
+    );
+
+  /** One row of the box as a reader sees it: 40 columns between its brackets. */
+  const row = (written: string = '') => `[${written.padEnd(40)}]`;
+
+  it('offers a box to type into, knowing its name, how many rows it has and where its form sends it', () => {
+    expect(
+      selectablesOn(
+        '<body><form action="/post" method="post"><textarea name="body" rows="2"></textarea></form></body>',
+      ),
+    ).toEqual([
+      {
+        kind: 'field',
+        text: [row(), row()].join('\n'),
+        name: 'body',
+        value: '',
+        placeholder: '',
+        masked: false,
+        rows: 2,
+        form: { id: 0, action: 'http://192.168.1.5/post', method: 'post' },
+      },
+    ]);
+  });
+
+  it.each([
+    ['', 4],
+    [' rows="1"', 1],
+    [' rows="12"', 12],
+    [' rows="13"', 12],
+    [' rows="0"', 4],
+    [' rows="-3"', 4],
+    [' rows="two"', 4],
+  ])('draws a box written with%s as %i rows', (attribute, rows) => {
+    const [box] = selectablesOn(`<body><textarea name="body"${attribute}></textarea></body>`);
+
+    expect(box).toMatchObject({ rows, text: Array.from({ length: rows }, () => row()).join('\n') });
+  });
+
+  it('holds what the page wrote inside it, a row for each line', () => {
+    const [box] = selectablesOn('<body><textarea name="body" rows="3">one\ntwo</textarea></body>');
+
+    expect(box).toMatchObject({
+      value: 'one\ntwo',
+      text: [row('one'), row('two'), row()].join('\n'),
+    });
+  });
+
+  it('keeps a blank line between two as an empty row', () => {
+    const [box] = selectablesOn('<body><textarea name="body" rows="1">one\n\ntwo</textarea></body>');
+
+    expect(box).toMatchObject({ text: [row('one'), row(), row('two')].join('\n') });
+  });
+
+  it('decodes what the page wrote inside it, and draws none of it as markup', () => {
+    const [box] = selectablesOn(
+      '<body><textarea name="body" rows="1">&lt;b&gt;hi&lt;/b&gt; <i>x</i></textarea></body>',
+    );
+
+    expect(box).toMatchObject({ value: '<b>hi</b> <i>x</i>', text: row('<b>hi</b> <i>x</i>') });
+  });
+
+  it('keeps the spacing of what it holds, as a reader typed it', () => {
+    const [box] = selectablesOn('<body><textarea name="body" rows="1">a   b</textarea></body>');
+
+    expect(box).toMatchObject({ text: row('a   b') });
+  });
+
+  it('grows past its rows to show every line it holds', () => {
+    const [box] = selectablesOn('<body><textarea name="body" rows="1">one\ntwo</textarea></body>');
+
+    expect(box).toMatchObject({ text: [row('one'), row('two')].join('\n') });
+  });
+
+  it('carries a line longer than the box on to the next row', () => {
+    const long = 'x'.repeat(41);
+    const [box] = selectablesOn(`<body><textarea name="body" rows="1">${long}</textarea></body>`);
+
+    expect(box).toMatchObject({ text: [row('x'.repeat(40)), row('x')].join('\n') });
+  });
+
+  it('fills a line exactly as wide as the box, and starts no row after it', () => {
+    const full = 'x'.repeat(40);
+    const [box] = selectablesOn(`<body><textarea name="body" rows="1">${full}</textarea></body>`);
+
+    expect(box).toMatchObject({ text: row(full) });
+  });
+
+  it('shows what it suggests while it is empty', () => {
+    const [box] = selectablesOn(
+      '<body><textarea name="body" rows="2" placeholder="Say something"></textarea></body>',
+    );
+
+    expect(box).toMatchObject({
+      placeholder: 'Say something',
+      text: [row('Say something'), row()].join('\n'),
+    });
+  });
+
+  it('draws on the page as rows of its own', () => {
+    expect(
+      asLines('<body><p>Body<br><textarea name="body" rows="2">hi</textarea></p></body>'),
+    ).toEqual(['Body', [row('hi'), row()].join('\n')]);
+  });
+});
+
 describe("emailit.io's front page, as a reader of it sees it", () => {
   it('offers a handle to type, a password to type unseen and a button, all sent to /signup', () => {
     const form = { id: 0, action: 'http://emailit.io/signup', method: 'post' };
@@ -740,6 +850,23 @@ describe("emailit.io's front page, as a reader of it sees it", () => {
       expect.objectContaining({ kind: 'field', name: 'handle', masked: false, form }),
       expect.objectContaining({ kind: 'field', name: 'password', masked: true, form }),
       { kind: 'submit', text: '[ Sign up ]', form },
+    ]);
+  });
+});
+
+describe("talkit.io's front page, as a reader of it sees it", () => {
+  it('offers a title to type, a box four rows tall for the post and a button, all sent to /post', () => {
+    const form = { id: 0, action: 'http://talkit.io/post', method: 'post' };
+    const selectables = renderPage({ html: TALKIT_FRONT_PAGE, url: 'http://talkit.io/' }).flatMap(
+      (line) => line.segments.filter((segment) => segment.kind !== 'text'),
+    );
+
+    expect(selectables).toEqual([
+      expect.objectContaining({ kind: 'link', url: 'http://talkit.io/threads' }),
+      expect.objectContaining({ kind: 'link', url: 'http://talkit.io/threads' }),
+      expect.objectContaining({ kind: 'field', name: 'title', form }),
+      expect.objectContaining({ kind: 'field', name: 'body', rows: 4, form }),
+      { kind: 'submit', text: '[ Post ]', form },
     ]);
   });
 });

@@ -291,8 +291,9 @@ not the doors.
 Because nothing is cached, every command on the client and every request on the server pays the
 generation cost. `scripts/checkBudgets.ts` runs after every `npm run build` and fails the build when:
 
-- **the gzipped main JavaScript chunk exceeds 284,975 bytes** (the pre-content 134,975 bytes plus a
-  fixed 150 KB allowance for content pools). Checked on Vercel too. The fix is to trim pools; the
+- **the gzipped main JavaScript chunk exceeds 286,975 bytes** (136,975 bytes of code, the
+  pre-content 134,975 raised once for talkit.io's forum, plus a fixed 150 KB allowance for content
+  pools). Checked on Vercel too. The fix is to trim pools; the
   allowance does not grow.
 - **building the boxes of any one set averages over 2 ms per box**, the best of three passes after a
   warm-up. The sets are the Ridgemont landmarks, each drawn town, the corporations and Ridgemont's

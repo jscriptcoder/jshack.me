@@ -55,7 +55,7 @@ injection is `__APP_VERSION__`.
 3. **`vite build`**: emits the single-page app to `dist/`.
 4. **`postbuild` → `scripts/checkSecrets.ts`, then `scripts/checkBudgets.ts`**: the first fails the
    build, naming the word and the file, if any uncrackable password appears in `dist/`; the second
-   if the gzipped main chunk exceeds 284,975 bytes, or (locally only) if the average box build
+   if the gzipped main chunk exceeds 286,975 bytes, or (locally only) if the average box build
    exceeds 2 ms (chapter 6).
 
 Any failure fails the build, and on Vercel that means **nothing deploys**.

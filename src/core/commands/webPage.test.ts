@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { fetchWebPage } from './webPage.js';
-import type { AccessLogFetch, OccupantFetchParams, OccupantFetchResult } from './types.js';
+import { fetchPageAcrossNetwork, fetchWebPage } from './webPage.js';
+import type {
+  AccessLogFetch,
+  MailLogin,
+  OccupantFetchParams,
+  OccupantFetchResult,
+  PublicFetchParams,
+} from './types.js';
 import { applyPatches, type Patch } from '../filesystem/applyPatches.js';
 import type { Directory } from '../filesystem/types.js';
 import { buildWorkstationBaseFs } from '../generation/workstationFs.js';
@@ -14,6 +20,7 @@ import { lanZoneName } from '../network/resolveName.js';
 import { machineIdForLanHost } from '../generation/lanTopology.js';
 import { vantageOf, type Vantage } from '../network/vantage.js';
 import { asMachineId } from '../types.js';
+import { siteAddress } from '../generation/publisher.js';
 import { mockNetworkViewFromConnectivity, mockSession } from '../../test/factories/commandEnv.js';
 import { buildColdStartConnectivity } from '../network/interfaces.js';
 
@@ -388,5 +395,92 @@ describe('fetching from a shell on a box the network generates', () => {
     expect(result).toEqual({ kind: 'page', content: '<h1>owned</h1>', server: 'nginx' });
     expect(asked.map((params) => params.target)).toEqual([target]);
     expect(logged).toEqual([]);
+  });
+});
+
+describe('a POST to talkit.io carries the login the reader keeps for emailit.io', () => {
+  const TALKIT_IP = siteAddress('talkit.io') ?? '';
+  const EMAILIT_IP = siteAddress('emailit.io') ?? '';
+  const NEO: MailLogin = { handle: 'neo', password: 's3cret' };
+
+  /** One fetch across the network, every request it made captured. */
+  const fetchAcross = async ({
+    url,
+    body,
+    mailLogin,
+  }: {
+    readonly url: string;
+    readonly body?: string;
+    readonly mailLogin?: () => MailLogin | null;
+  }) => {
+    const asked: PublicFetchParams[] = [];
+    const parsed = parseHttpUrl(url);
+    if (parsed === null) throw new Error(`not a URL: ${url}`);
+    await fetchPageAcrossNetwork({
+      program: 'curl',
+      url: parsed,
+      ...(body === undefined ? {} : { body }),
+      callerMachineId: asMachineId('m-home'),
+      ...(mailLogin === undefined ? {} : { mailLogin }),
+      fetchPublic: async (params) => {
+        asked.push(params);
+        return { ok: true, content: '<p>Posted as neo.</p>', server: 'nginx' };
+      },
+    });
+    return asked;
+  };
+
+  it('sends the login with a form posted to talkit.io', async () => {
+    const asked = await fetchAcross({
+      url: `http://${TALKIT_IP}/post`,
+      body: 'title=Hi&body=there',
+      mailLogin: () => NEO,
+    });
+
+    expect(asked).toEqual([
+      {
+        target: TALKIT_IP,
+        port: HTTP_DEFAULT_PORT,
+        path: '/post',
+        body: 'title=Hi&body=there',
+        login: NEO,
+        callerMachineId: asMachineId('m-home'),
+      },
+    ]);
+  });
+
+  it('sends no login with a page asked for from talkit.io', async () => {
+    const asked = await fetchAcross({ url: `http://${TALKIT_IP}/threads`, mailLogin: () => NEO });
+
+    expect(asked.map((params) => 'login' in params)).toEqual([false]);
+  });
+
+  it('sends no login with a form posted anywhere else', async () => {
+    const asked = await fetchAcross({
+      url: `http://${EMAILIT_IP}/signup`,
+      body: 'handle=neo&password=s3cret',
+      mailLogin: () => NEO,
+    });
+
+    expect(asked.map((params) => 'login' in params)).toEqual([false]);
+  });
+
+  it('sends no login when the reader keeps none', async () => {
+    const asked = await fetchAcross({
+      url: `http://${TALKIT_IP}/post`,
+      body: 'title=Hi&body=there',
+      mailLogin: () => null,
+    });
+
+    expect(asked.map((params) => 'login' in params)).toEqual([false]);
+  });
+
+  it('sends no login from a caller that has none to offer', async () => {
+    const asked = await fetchAcross({
+      url: `http://${TALKIT_IP}/post`,
+      body: 'title=Hi&body=there',
+    });
+
+    expect(asked.map((params) => 'login' in params)).toEqual([false]);
   });
 });

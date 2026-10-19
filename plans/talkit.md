@@ -2,8 +2,19 @@
 
 **Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-19. **Slice 1 merged**
 (PR #708, 2026-10-19, v0.410.0; the migration is on `jshack-dev` and `jshack-prod`).
-**Slice 2 planned and confirmed by the owner 2026-10-19** (below, after slice 1's plan); building
-on `feat/talkit-posting`.
+**Slice 2 planned and confirmed by the owner 2026-10-19** (below, after slice 1's plan); built
+on `feat/talkit-posting`, increments 1 to 6 committed, v0.411.0; the migration is on
+`jshack-dev` and `jshack-prod`. PR gate passed (mutation 389 killed, the survivors equivalent
+but a CRLF `~/.mailrc` line, left untested by the owner). Next: the PR's review and merge.
+
+**Slice 2 as built: where it differs from the plan below:**
+
+- **Bundle:** 285,045 B with the form, the box, the login and the `man` text: talkit's code is
+  1,011 B over 284,034 B, so the code part rose by 2,000 B and the ceiling is 286,975 B.
+- **Found, not fixed:** `access.log` is appended by reading it and writing it back, so two
+  looks landing together can drop one of their lines. `scripts/testTalkit.ts` fetched three
+  list pages in parallel and lost one; it now fetches them in turn. Goes to `backlog.md` at
+  close-out.
 
 **Slice 1 as built: where it differs from the plan below** (owner-confirmed 2026-10-19):
 

@@ -1040,6 +1040,154 @@ describe('sending a form that posts', () => {
   });
 });
 
+describe('typing into a box several lines tall', () => {
+  const FORUM = 'http://talkit.io/';
+  const POST = 'http://talkit.io/post';
+
+  /** A form with a title to type, a body box two rows tall and a button that posts it. */
+  const POST_FORM =
+    '<body><form action="/post" method="post"><input name="title"><br>' +
+    '<textarea name="body" rows="2"></textarea><br><input type="submit" value="Post"></form></body>';
+
+  const renderForum = () =>
+    renderSite({
+      start: FORUM,
+      pages: { [FORUM]: POST_FORM, [POST]: '<body><p>Posted as neo.</p></body>' },
+    });
+
+  /** One row of the box as a reader sees it: 40 columns between its brackets. */
+  const row = (written: string = '') => `[${written.padEnd(40)}]`;
+
+  const box = () => screen.getAllByRole('textbox')[1];
+
+  const type = (text: string) => {
+    for (const key of text) fireEvent.keyDown(browser(), { key });
+  };
+
+  /** Into the box, from the title field the page opens on. */
+  const intoTheBox = () => fireEvent.keyDown(browser(), { key: 'ArrowDown' });
+
+  it('starts a new line on Enter, with the cursor after what was typed', async () => {
+    const { onFollow } = renderForum();
+    intoTheBox();
+
+    type('hi');
+    await press('Enter');
+    type('there');
+
+    expect(box()?.textContent).toBe([row('hi'), row('there_')].join('\n'));
+    expect(onFollow).not.toHaveBeenCalled();
+  });
+
+  it('joins a line back on to the one above on Backspace', async () => {
+    renderForum();
+    intoTheBox();
+
+    type('hi');
+    await press('Enter');
+    fireEvent.keyDown(browser(), { key: 'Backspace' });
+    type('!');
+
+    expect(box()?.textContent).toBe([row('hi!_'), row()].join('\n'));
+  });
+
+  it.each([
+    ['Tab', false, 'the button'],
+    ['ArrowDown', false, 'the button'],
+    ['Tab', true, 'the title'],
+    ['ArrowUp', false, 'the title'],
+  ])('leaves the box on %s (Shift held: %s), for %s', (key, shiftKey, landing) => {
+    renderForum();
+    intoTheBox();
+    type('hi');
+
+    fireEvent.keyDown(browser(), { key, shiftKey });
+
+    const selected =
+      landing === 'the button' ? screen.getByRole('button') : screen.getAllByRole('textbox')[0];
+    expect(selected).toHaveAttribute('aria-current', 'true');
+    expect(box()?.textContent).toBe([row('hi'), row()].join('\n'));
+  });
+
+  it('leaves the box on Escape, and stays open', () => {
+    const { onExit } = renderForum();
+    intoTheBox();
+    type('hi');
+
+    fireEvent.keyDown(browser(), { key: 'Escape' });
+
+    expect(onExit).not.toHaveBeenCalled();
+    expect(box()).toHaveAttribute('aria-current', 'true');
+    expect(box()?.textContent).toBe([row('hi'), row()].join('\n'));
+  });
+
+  // The form goes from its button: Enter on a box the reader stepped out of puts them
+  // back in it, never sends what is half written.
+  it('goes back into the box on Enter once the reader has left it', async () => {
+    const { onFollow } = renderForum();
+    intoTheBox();
+    type('hi');
+    fireEvent.keyDown(browser(), { key: 'Escape' });
+
+    await press('Enter');
+    type('!');
+
+    expect(onFollow).not.toHaveBeenCalled();
+    expect(box()?.textContent).toBe([row('hi!_'), row()].join('\n'));
+  });
+
+  it('sends what was typed, line breaks and all, from the button', async () => {
+    const { onFollow } = renderForum();
+    type('Hi');
+    intoTheBox();
+    type('one');
+    await press('Enter');
+    type('two');
+    fireEvent.keyDown(browser(), { key: 'Tab' });
+
+    await press('Enter');
+
+    expect(onFollow).toHaveBeenCalledWith(POST, 'title=Hi&body=one%0Atwo');
+    expect(screen.getByText('Posted as neo.')).toBeInTheDocument();
+  });
+
+  // A field with no name has nothing to be sent as, a box as much as a one-line field.
+  it('leaves a box with no name out of what the form sends', async () => {
+    const { onFollow } = renderSite({
+      start: FORUM,
+      pages: {
+        [FORUM]:
+          '<body><form action="/post" method="post"><input name="title"><br>' +
+          '<textarea rows="2"></textarea><br><input type="submit" value="Post"></form></body>',
+        [POST]: '<body><p>Posted as neo.</p></body>',
+      },
+    });
+    type('Hi');
+    intoTheBox();
+    type('unsent');
+    fireEvent.keyDown(browser(), { key: 'Tab' });
+
+    await press('Enter');
+
+    expect(onFollow).toHaveBeenCalledWith(POST, 'title=Hi');
+  });
+
+  it('says Enter starts a new line while the reader is in the box', () => {
+    renderForum();
+    intoTheBox();
+
+    expect(screen.getByText('↑↓ Select ⏎ New line Esc Leave field')).toBeInTheDocument();
+  });
+
+  it('says Enter goes back into the box once the reader has left it', () => {
+    renderForum();
+    intoTheBox();
+    fireEvent.keyDown(browser(), { key: 'Escape' });
+
+    expect(screen.getByText('↑↓ Select ⏎ Edit q Quit')).toBeInTheDocument();
+  });
+});
+
 describe('one request at a time', () => {
   /** A browser whose every follow waits until the test lets it answer. */
   const renderWaiting = () => {

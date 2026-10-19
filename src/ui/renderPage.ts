@@ -55,6 +55,9 @@ type Control =
       readonly placeholder: string;
       /** A password: drawn empty whatever it holds, typed into or not. */
       readonly masked: boolean;
+      /** How many rows a box several lines tall is drawn at, at the least. A one-line
+       *  field has none. */
+      readonly rows?: number;
       readonly form: FormTarget | null;
     }
   | { readonly kind: 'submit'; readonly text: string; readonly form: FormTarget | null };
@@ -138,6 +141,50 @@ export const fieldBox = ({
   readonly placeholder: string;
 }): string => `[${value === '' ? placeholder : value}]`;
 
+/** How many characters wide a box several lines tall is drawn, between its brackets. */
+const BOX_WIDTH = 40;
+
+/** The rows a box is drawn at when its page says no number of them, or one that is not
+ *  a count. */
+const DEFAULT_BOX_ROWS = 4;
+
+/** The most rows a page can ask a box to be drawn at: a page that asks for a hundred
+ *  still has to fit on a screen around it. */
+const MOST_BOX_ROWS = 12;
+
+/** One line of a box, cut into the rows it takes: a line wider than the box carries on
+ *  to the next row, as it does in a browser's box, and an empty line is one empty row. */
+const rowsOfLine = (line: string): readonly string[] => {
+  const characters = [...line];
+  if (characters.length === 0) return [''];
+  return Array.from({ length: Math.ceil(characters.length / BOX_WIDTH) }, (_, index) =>
+    characters.slice(index * BOX_WIDTH, (index + 1) * BOX_WIDTH).join(''),
+  );
+};
+
+/** A box several lines tall as a reader sees it: a row for each line of what it holds,
+ *  or of the hint the page offers while it holds nothing, and empty rows below to make
+ *  it as tall as the page asked. It grows past that to show every line. */
+export const textBox = ({
+  value,
+  placeholder,
+  rows,
+}: {
+  readonly value: string;
+  readonly placeholder: string;
+  readonly rows: number;
+}): string => {
+  const written = (value === '' ? placeholder : value).split('\n').flatMap(rowsOfLine);
+  const empty = Array.from({ length: Math.max(0, rows - written.length) }, () => '');
+  return [...written, ...empty].map((row) => `[${row.padEnd(BOX_WIDTH)}]`).join('\n');
+};
+
+/** How many rows the page asks `box` to be drawn at, held to what a screen can show. */
+const rowsAskedFor = (box: Element): number => {
+  const asked = Number.parseInt(box.getAttribute('rows') ?? '', 10);
+  return Number.isNaN(asked) || asked < 1 ? DEFAULT_BOX_ROWS : Math.min(asked, MOST_BOX_ROWS);
+};
+
 /**
  * Where the form around `control` sends it, or null when nowhere will answer.
  *
@@ -195,6 +242,29 @@ const fieldPieces = (field: Element, base: string): readonly Piece[] => {
   ];
 };
 
+/**
+ * A box several lines tall, to type a message into. What the page wrote inside the tag
+ * is what it holds, read as text and never as markup, as a browser fills one; spacing
+ * and line breaks are kept, since they are what the writer typed.
+ */
+const boxPieces = (box: Element, base: string): readonly Piece[] => {
+  const value = box.textContent ?? '';
+  const placeholder = box.getAttribute('placeholder') ?? '';
+  const rows = rowsAskedFor(box);
+  return [
+    {
+      kind: 'field',
+      text: textBox({ value, placeholder, rows }),
+      name: box.getAttribute('name') ?? '',
+      value,
+      placeholder,
+      masked: false,
+      rows,
+      form: formTargetOf(box, base),
+    },
+  ];
+};
+
 /** The pieces a preformatted block contributes, whitespace and newlines as written:
  *  in a `<pre>` a source newline IS a line break, since keeping the author's layout
  *  is the whole point of the element. */
@@ -213,6 +283,7 @@ const piecesOf = (
   if (SILENT_TAGS.has(tag)) return [];
   if (tag === 'br') return [text('\n')];
   if (tag === 'input') return fieldPieces(node, base);
+  if (tag === 'textarea') return boxPieces(node, base);
   const inner = Array.from(node.childNodes).flatMap((child) => piecesOf(child, base, readText));
   // A button is drawn as something to press, spaced inside its brackets so it cannot be
   // mistaken for the box beside it that a reader types into. Only one that submits is
@@ -245,10 +316,12 @@ const merged = (pieces: readonly Piece[]): readonly Piece[] =>
 /** A piece with its internal whitespace collapsed, and a link's text tightened to
  *  what it says — a link whose markup was written across indented lines must not
  *  render with the indentation inside its highlight. */
-const squeezed = (piece: Piece): Piece =>
-  piece.kind === 'text'
-    ? text(piece.text.replace(/\s+/g, ' '))
-    : { ...piece, text: piece.text.replace(/\s+/g, ' ').trim() };
+const squeezed = (piece: Piece): Piece => {
+  if (piece.kind === 'text') return text(piece.text.replace(/\s+/g, ' '));
+  // A box is drawn row by row, as typed: squeezing it would fold it onto one line.
+  if (piece.kind === 'field' && piece.rows !== undefined) return piece;
+  return { ...piece, text: piece.text.replace(/\s+/g, ' ').trim() };
+};
 
 /** One finished line: whitespace collapsed, the line's own ends trimmed, and runs
  *  that ended up saying nothing dropped. A numbered link survives an empty text —

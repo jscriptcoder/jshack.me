@@ -448,6 +448,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         logFailure('http-fetch email sign-up', error);
         return { data: data as unknown, error };
       },
+      // Only a form POSTed to talkit.io's /post reaches this. The password check, the
+      // hourly cap and the insert are one transaction inside the function, and its answer
+      // is handed over as it came off the wire for the handler to read.
+      postThread: async ({ handle, passwordMd5, playerKey, title, body }) => {
+        const { data, error } = await supabase.rpc('talkit_post', {
+          post_handle: handle,
+          post_password_md5: passwordMd5,
+          post_player_key: playerKey,
+          post_title: title,
+          post_body: body,
+        });
+        logFailure('http-fetch talkit post', error);
+        return { data: data as unknown, error };
+      },
       // Only a lookup at chainit.io's /address reaches these two: the public ledger, read
       // exactly as api/wallet.ts reads it for `wallet balance` and `wallet history` (an
       // api/ file is an endpoint of its own, so the reads are written here again). The

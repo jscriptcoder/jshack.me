@@ -115,6 +115,7 @@ import {
 } from '../core/network/interfaces.js';
 import { parseHttpUrl } from '../core/network/http.js';
 import { fetchPageAcrossNetwork, fetchWebPage } from '../core/commands/webPage.js';
+import { loginOn } from '../core/emailit/mailrc.js';
 import { vantageOf } from '../core/network/vantage.js';
 import { isPublicIp } from '../core/generation/ip.js';
 import { addressForTarget } from '../core/network/resolveName.js';
@@ -1673,6 +1674,9 @@ export const followLink = async (url: string, body?: string): Promise<FollowOutc
         url: target,
         body,
         callerMachineId: session.machineId,
+        // Read as the user the browser runs as, on the box it runs on, as `curl` reads it.
+        mailLogin: () =>
+          loginOn(createFsView(activeRoot(), { userType: session.userType }), session),
         fetchPublic: fetchPublicPageFn,
       })
     : await fetchWebPage({

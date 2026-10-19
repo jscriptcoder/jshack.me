@@ -335,6 +335,9 @@ export type PublicFetchParams = {
   readonly path: string;
   /** A form to POST, exactly as typed after `curl -d`. Absent, the request is a GET. */
   readonly body?: string;
+  /** The emailit.io login a form posted to talkit.io carries, as a browser carries a
+   *  cookie to the site it belongs to. Absent on every other request. */
+  readonly login?: MailLogin;
   /** The box the fetch ran from. The server reads the network off its session row to
    *  trace the hit to the hop rather than the caller's home, and refuses a box the caller
    *  does not hold. Absent names the caller's own workstation (a fetch from home). */

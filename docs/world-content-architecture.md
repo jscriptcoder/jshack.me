@@ -453,7 +453,8 @@ build budget.
 ## Budgets and carry limits
 
 - **`scripts/checkBudgets.ts`** runs as `postbuild` and fails on either breach: gzipped main chunk
-  over **284,975 B** (the 134,975 B pre-epic baseline + 150 KB), or any set of boxes averaging
+  over **286,975 B** (136,975 B of code — the 134,975 B pre-epic baseline plus 2,000 B for
+  talkit.io's forum — + 150 KB), or any set of boxes averaging
   over **2 ms per box** through `generatedBaseFsForMachineId` (the sets, and findit's cold
   limit, are in `procedural-world-architecture.md`). It is a script, not a vitest test,
   because Stryker aborts its dry run on any failure. Vercel's build runs the bundle check

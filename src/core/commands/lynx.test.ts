@@ -705,4 +705,19 @@ describe('the lynx manual', () => {
       description: 'Sign up for an email address by filling in the form',
     });
   });
+
+  it('says how a box several lines tall is written in, and who a post to talkit.io is from', () => {
+    expect(lynx.manual?.description).toContain(
+      'In a box several lines tall, Enter starts a new line; Escape leaves the box, Enter ' +
+        'on it goes back in, and the form is sent from its button.',
+    );
+    expect(lynx.manual?.description).toContain(
+      'A form sent to talkit.io carries the emailit.io login in the ~/.mailrc of the user ' +
+        'you are, on the box you are on, and the post is signed with it.',
+    );
+    expect(lynx.manual?.examples).toContainEqual({
+      command: 'lynx talkit.io',
+      description: "Read the valley's forum, or start a thread on it",
+    });
+  });
 });
