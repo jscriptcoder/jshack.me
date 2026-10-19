@@ -178,3 +178,152 @@ players comment on it, which makes it a thread. Backlog origin: "More public web
 - **To `backlog.md` at the close-out**: authors deleting their own posts (decision 12),
   townsfolk threads (decision 13), and lazy-loading a large client piece so features stop
   meeting the bundle ceiling (decision 5).
+
+## Slice 1 plan: the forum opens, read-only
+
+**Branch**: `feat/talkit-reading` · **Version**: 0.409.0 → 0.410.0 · **Class**: behaviour change
+· **Delivery**: one PR against `main`; one migration, applied to `jshack-dev` then `jshack-prod`
+before merge.
+
+**Value.** A player opens `talkit.io` in lynx or curl, follows the link to the thread list, and
+reads the welcome thread, on a forum whose pages show what players wrote and nothing a root on
+the box can forge.
+
+**Path.** `lynx`/`curl` → the signed `resolveHttpFetch` → `handleResolveHttpFetch` resolves
+`talkit.io`'s address to its one box, as for every fixed site → a GET to `/threads` or `/thread`
+on talkit's network reads the forum table and answers with a page; every other path is a file
+under `/var/www/html` → the hit is a line in talkit's `access.log` either way.
+
+### Facts read while planning (2026-10-19)
+
+- **A fixed site's address is its place in a list** (`ADDRESS_BY_KEY`, `generation/world.ts`):
+  chainit holds `placelessAddress(4 + …)`, so talkit takes `5 + …` and nobody moves.
+- **These follow from the row, unchanged:** the findit listing (`FIXED_LISTINGS`,
+  `findit/webIndex.ts`), `whois`, the persona, the gateway's hostname, the router's fs and
+  `scripts/restoreSite.ts` (chainit's slice 1 found the same).
+- **A view is dispatched by network and path** (`CHAINIT_VIEWS` in
+  `network/resolveHttpFetch.ts`), reached only after the target resolved, so a dark site answers
+  none; a view that returns `null` is a 500 with no log line (`ledger_lookup_failed`).
+- **`escapeHtml` (`findit/page.ts`) already escapes `& < > " '`**, decision 10's set.
+- **The game's web is `http://` only.** `parseHttpUrl` (`network/http.ts`) accepts no other
+  scheme, and `renderPage` draws a link it cannot follow as plain text.
+- **`ledgerTime` (`wallet/historyLine.ts`) prints an ISO instant as `2026-10-11 22:07`** (UTC).
+- **lynx re-flows a `<p>` and breaks a line at `<br>`**; a `<pre>` keeps its spacing and does
+  not wrap (`ui/renderPage.ts`).
+- **emailit's tables set the database pattern** (`20261014000000_email.sql`): RLS on with no
+  policies, CHECKs for the rules that must hold whatever writes, the service role the only
+  caller. Reads in `api/network.ts` are plain selects at module scope (an `api/` file is an
+  endpoint, conventions §4).
+- **`RESERVED_HANDLES`** is in `emailit/signup.ts`.
+
+### Choices made while planning (owner to confirm with the plan)
+
+- **The comments table waits for slice 3.** Slice 1 seeds no comment and has nothing to show
+  under a thread, and slice 3 owns comment numbering; a table nobody writes or reads has no test
+  that can fail. `talkit_threads` carries `comment_count` (0 until slice 3 writes it) and
+  `last_activity_at`, so the list needs no join. This narrows decision 18's slice 1 wording.
+- **One table, slice 1's columns.** `talkit_threads`: `id` (an identity primary key), `author`
+  (CHECK the handle shape), `title` (CHECK 1–80 characters, no control character), `body` (CHECK
+  1–4000, no control character but `\n`), `created_at`, `last_activity_at` and `comment_count`
+  (default 0), indexed on `(last_activity_at DESC, id DESC)`. The CHECKs repeat decision 10's
+  inbound rules as the last guard, as emailit's do. `author` is no foreign key: `talkit` holds
+  no account, and accounts are never deleted. RLS on, no policies.
+- **The migration seeds the welcome thread**, `author` `talkit`, id 1, title
+  `Welcome to talkit.io`, body: "This is the forum for the whole valley. Start a thread from the
+  front page, or comment on someone else's. You post as your emailit.io account. Each of us gets
+  20 posts and comments an hour. Posts are permanent: nobody can edit or delete what you write."
+  The posting it names arrives in slices 2 and 3, before multiplayer is announced.
+- **Links: `http://` only, matched on the raw text and escaped piece by piece.** The text is
+  split on `http://[^\s<>"']+`; trailing `.,;:!?)` stays text; each plain piece is escaped, and
+  each URL becomes `<a href="${escapeHtml(url)}">${escapeHtml(url)}</a>`. Matching the raw text
+  rather than the escaped one (decision 10's wording) keeps entity fragments such as `&quot;` out
+  of a URL, and `https://` stays text because no browser here can follow it. One function,
+  `playerText`, is the only way player text reaches a page.
+- **A body is a `<p>` with a `<br>` per line break**, so lynx wraps prose to the screen; a
+  `<pre>` would run a 4,000-character line off it.
+- **Pages open, like chainit's, with `<h1>talkit.io</h1>` and a nav line** (`Threads`), then an
+  `<hr>`. Front page: the welcome paragraph and the link to `/threads`; no form until slice 2.
+  Titles: front `talkit.io - the Harrow Valley forum` with the findit description as its meta
+  description, list `Threads - talkit.io`, thread `<title> - talkit.io`.
+- **`/threads` lines** are a `<p>` each: the title as a link to `/thread?id=<n>`, then
+  `by <handle>, <n> comments, last <time>` (`1 comment` singular). An absent `page` means 1; a
+  page that is not `^[1-9][0-9]{0,5}$` answers "No such page." with a link to `/threads`; a page
+  past the end says "No threads here." with the same link. 21 rows are read, so `older` appears
+  only when a further page exists; page 2 onwards also shows `newer`.
+- **`/thread?id=<n>`**: the title as `<h2>`, `by <handle>, <time>`, the body, then "No comments
+  yet." until slice 3. An `id` that is not `^[1-9][0-9]{0,17}$`, or names no thread, answers
+  **404** "No such thread.": an absent page, logged as the 404 it is (chainit's 200s answer a
+  valid question with an empty answer).
+- **Only `GET /threads` and `GET /thread` exactly are the forum's**, as `/address` is chainit's;
+  `/threads/`, `/thread.html` and every other path are files, and a POST anywhere still gets the
+  405 until slice 2.
+- **A failed read is `500 forum_lookup_failed` with no log line**, as chainit's is.
+- **Bundle:** the row, `index.html` and the `man mail` sentence are client bytes. Measured at
+  increment 3; if the 941 B left do not hold them, decision 5's raise lands in this slice
+  instead of slice 2.
+
+### Acceptance criteria
+
+1. `curl http://talkit.io/` prints the front page: its title and meta description, the `<h1>`,
+   the welcome paragraph and a link to `/threads`. In `lynx talkit.io` the link opens the list.
+2. A findit search for `forum` or `talkit` lists `talkit.io` with its description;
+   `whois talkit.io` answers; talkit's address is in the 193 block and no other network's
+   address changed.
+3. `/threads` on the fresh database lists the welcome thread: `Welcome to talkit.io` linking to
+   `/thread?id=1`, then `by talkit, 0 comments, last <its time>`.
+4. With 45 threads seeded, `/threads` shows the 20 most recently active, newest first and equal
+   times by id descending, with an `older` link; `?page=2` the next 20 with `newer` and `older`;
+   `?page=3` the last 5 with only `newer`; `?page=9` "No threads here."; `?page=0`, `?page=x`
+   and `?page=-1` "No such page."
+5. `/thread?id=1` shows the welcome thread's title, `by talkit, <time>`, its body with each line
+   break a `<br>`, and "No comments yet." `?id=999999`, `?id=abc`, `?id=` and no `id` answer 404
+   "No such thread."
+6. **No player text becomes markup.** Threads seeded with `<script>alert(1)</script>`,
+   `"><form action=/comment method=post><input type=submit>`, `</textarea>`, `&lt;b&gt;`,
+   `javascript:alert(1)` and `http://x.io/a"onmouseover="1` as title and body show each one
+   escaped, character for character as written, on both `/threads` and `/thread`, and the page
+   holds no element but the forum's own. `http://findit.io/?q=router.` is a link to
+   `http://findit.io/?q=router` with the dot outside it; `https://x.io` is text.
+7. A thread whose body holds a CR, a NUL or an ESC cannot be stored (the table's CHECK refuses
+   it), nor one whose title holds `\n`.
+8. Every `/threads` and `/thread` hit is a line in talkit's `access.log` with the query and the
+   visitor's address, a 404 included.
+9. A root on talkit who writes `/var/www/html/threads` or `/var/www/html/thread` does not change
+   the views; a rewritten `index.html` is served at `/`.
+10. A talkit whose web server is stopped, or whose box is bricked, answers no view;
+    `restoreSite.ts talkit.io` brings back the front page and the views, and the thread rows are
+    untouched. The script's comment names talkit.io.
+11. When the forum cannot be read, a view is a 500 and nothing is logged.
+12. `talkit` cannot be signed up for at emailit.io ("a reserved system name").
+13. `man mail` ends with: "The same login signs your posts on talkit.io, the valley's forum."
+14. Every other fixed site, and every other path, is served exactly as before; the bundle check
+    passes.
+
+### Increments (each RED → GREEN → REFACTOR; commit on approval)
+
+1. **Player text** (`core/talkit/playerText.ts`): escape and link; criterion 6 at the function,
+   with the whole corpus.
+2. **talkit's pages** (`core/talkit/pages.ts`): the front, list (paging links, the empty and
+   bad-page answers), thread and not-found pages, pure. Criteria 1 and 3–6 at the page.
+3. **talkit.io is a fixed site**: the `TALKIT` row last in `FIXED_SITES`, its address after
+   chainit's, `index.html` in `WEB_ROOTS`, `talkit` reserved. Criteria 2, 12 and 14 in the
+   `fixedSiteFs`, `webIndex`, `world`, `whois` and `signup` tests; the bundle measured.
+4. **The fetch answers the views**: `findThreads(offset, limit)` and `findThread(id)` in
+   `ResolveHttpFetchDeps`, `core/talkit/answerViews.ts` with the row schemas, the dispatch
+   beside chainit's. Criteria 3–5 and 8–11 at the handler, with fake deps.
+5. **The migration, the adapter and the wire-check**: `talkit_threads` with its CHECKs, index
+   and welcome row, to `jshack-dev`; the two selects in `api/network.ts`; a new
+   `scripts/testTalkit.ts` seeding through the service role (criteria 3–11 live, 7 as refused
+   inserts); `testRestoreSite.ts talkit.io`.
+6. **`man mail`, docs, version 0.410.0**: criterion 13; `restoreSite.ts`'s comment; the
+   handbook's codebase map and glossary; `docs/project-status.md`; the migration to
+   `jshack-prod` before merge.
+
+### Evidence
+
+- Unit and jsdom tests under `npm test`; `npm run typecheck`; `npm run lint`; the bundle check.
+- Wire-check `scripts/testTalkit.ts` against `vercel dev` + local supabase, and
+  `testRestoreSite.ts talkit.io`.
+- Mutation gate at PR readiness over `core/talkit/` and the dispatch, with no mutant left
+  standing in `playerText`.
+- No browser run: one at the epic's close-out.
