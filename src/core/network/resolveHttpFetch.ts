@@ -49,6 +49,7 @@ import {
   TALKIT_NETWORK,
 } from '../generation/fixedSites.js';
 import { answerSignup, type SignUp } from '../emailit/signup.js';
+import { answerPost, type PostThread } from '../talkit/answerPost.js';
 import { indexedWeb, siteOn, type MachinePatchRow } from '../findit/webIndex.js';
 import { rankPages } from '../findit/search.js';
 import { searchResultsPage } from '../findit/page.js';
@@ -73,6 +74,12 @@ import {
   type FindPublicIpByEssid,
 } from '../logging/crossPlayerSourceIp.js';
 import { standingVantage, type FindActiveSession } from '../patches/authorizeMachineAccess.js';
+import {
+  TALKIT_LOG_OWNER,
+  TALKIT_LOG_PATH,
+  TALKIT_LOG_PERMISSIONS,
+  formatTalkitPostLine,
+} from '../logging/talkitLog.js';
 import {
   appendMachineLog,
   type MachineLogReadQuery,
@@ -153,6 +160,8 @@ export type ResolveHttpFetchDeps = WebTargetDeps & {
   ) => Promise<{ readonly data: readonly MachinePatchRow[] | null; readonly error: unknown }>;
   /** Open an emailit.io account. Only a form POSTed to emailit's `/signup` reaches it. */
   readonly signUp: SignUp;
+  /** Start a thread at talkit.io. Only a form POSTed to talkit's `/post` reaches it. */
+  readonly postThread: PostThread;
 } & LedgerReads &
   ChainReads &
   ForumReads;
@@ -174,6 +183,9 @@ const resolveHttpFetchSchema = z
      *  Long enough for a post to talkit.io: 4,000 characters, each up to 4 UTF-8 bytes
      *  and each byte sent as `%XX`, with the title and the field names. */
     body: z.string().max(49_152).optional(),
+    /** The emailit.io login a form posted to talkit.io carries, as `mail` sends one. Read
+     *  by talkit's `/post` alone; never logged. */
+    login: z.object({ handle: z.string().min(1), password: z.string() }).optional(),
     /** The box the caller fetched FROM, when they stand on a hop. Absent at home. The
      *  server reads the network off its session row to trace the hit to where it came
      *  from, and refuses a box the caller does not hold. */
@@ -311,13 +323,14 @@ const logFetch = async (
     readonly status: number;
     readonly size: number;
   },
-): Promise<void> => {
+): Promise<string> => {
+  // The box the caller fetched from decides the origin: a hop traces to that network's
+  // public IP, home to the caller's own — derived server-side either way.
+  const sourceIp = await resolveVantageSourceIp(deps, { actorKey, standingEssid });
   const line = formatAccessLogLine({
     time: asGameTime(deps.now()),
     ...(hit.method === undefined ? {} : { method: hit.method }),
-    // The box the caller fetched from decides the origin: a hop traces to that network's
-    // public IP, home to the caller's own — derived server-side either way.
-    sourceIp: await resolveVantageSourceIp(deps, { actorKey, standingEssid }),
+    sourceIp,
     path: hit.path,
     status: hit.status,
     size: hit.size,
@@ -337,6 +350,7 @@ const logFetch = async (
   } catch {
     // best-effort: the served page stands regardless of a logging failure.
   }
+  return sourceIp;
 };
 
 /**
@@ -410,6 +424,9 @@ const searchedFor = (requestPath: string): string | null => {
 
 /** Where emailit.io takes a sign-up. */
 const SIGNUP_PATH = '/signup';
+
+/** Where talkit.io takes a new thread. */
+const POST_PATH = '/post';
 
 /** The paths chainit.io answers from the ledger, and how each is answered: a lookup of
  *  one address, the latest transfers on the chain, the richest addresses. A view is never
@@ -516,6 +533,52 @@ export const handleResolveHttpFetch = async (
       size: page.length,
     });
     return { status: 200, body: { ok: true, content: page, server: target.server } };
+  }
+
+  // talkit.io's `/post` takes a new thread, signed with the login that came beside the
+  // form, and like `/signup` answers from a function: a root on talkit can deface the
+  // front page's form, but never post as anybody or stop the forum taking posts.
+  if (
+    payload.body !== undefined &&
+    target.essid === TALKIT_NETWORK &&
+    pathOf(payload.path) === POST_PATH
+  ) {
+    const answer = await answerPost({
+      form: payload.body,
+      login: payload.login ?? null,
+      playerKey: publicKey,
+      postThread: deps.postThread,
+    });
+    if (answer === null) return { status: 500, body: { error: 'post_failed' } };
+    const sourceIp = await logFetch(deps, target, publicKey, standing.standingEssid, {
+      method: 'POST',
+      path: payload.path,
+      status: 200,
+      size: answer.page.length,
+    });
+    if (answer.posted !== null) {
+      const line = formatTalkitPostLine({
+        time: asGameTime(deps.now()),
+        sourceIp,
+        ...answer.posted,
+      });
+      try {
+        await appendMachineLog(
+          { readLog: deps.readLog, upsertPatch: deps.upsertPatch },
+          {
+            writerKey: target.logWriterKey,
+            machineId: target.machineId,
+            path: TALKIT_LOG_PATH,
+            owner: TALKIT_LOG_OWNER,
+            permissions: TALKIT_LOG_PERMISSIONS,
+          },
+          line,
+        );
+      } catch {
+        // best-effort: the thread is up regardless of a logging failure.
+      }
+    }
+    return { status: 200, body: { ok: true, content: answer.page, server: target.server } };
   }
 
   // No other server takes a form. It still answered, with its 405 page, so the refusal is

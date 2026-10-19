@@ -43,6 +43,7 @@ import {
   TALKIT_NETWORK,
 } from '../generation/fixedSites.js';
 import type { SignUp } from '../emailit/signup.js';
+import type { PostThread } from '../talkit/answerPost.js';
 import { FINDIT_FRONT_PAGE } from '../findit/page.js';
 import { EMAILIT_FRONT_PAGE } from '../emailit/pages.js';
 import { CHAINIT_FRONT_PAGE } from '../chainit/pages.js';
@@ -210,6 +211,7 @@ type FetchOverrides = {
   findLargestBalances?: ChainReads['findLargestBalances'];
   findThreads?: ForumReads['findThreads'];
   findThread?: ForumReads['findThread'];
+  postThread?: PostThread;
 };
 
 const makeDeps = (over: FetchOverrides = {}) => {
@@ -268,6 +270,10 @@ const makeDeps = (over: FetchOverrides = {}) => {
   const findThread = vi.fn<ForumReads['findThread']>(
     over.findThread ?? (async () => ({ data: null, error: null })),
   );
+  // Default: every post goes up as thread 12. Only talkit's `/post` ever asks.
+  const postThread = vi.fn<PostThread>(
+    over.postThread ?? (async () => ({ data: { outcome: 'posted', id: 12 }, error: null })),
+  );
   const deps: ResolveHttpFetchDeps = {
     nonceStore: freshStore,
     findPatchesForMachines,
@@ -288,9 +294,11 @@ const makeDeps = (over: FetchOverrides = {}) => {
     findLargestBalances,
     findThreads,
     findThread,
+    postThread,
   };
   return {
     deps,
+    postThread,
     signUp,
     findBalance,
     findTransfers,
@@ -2254,6 +2262,234 @@ describe('talkit.io answers the forum from its table', () => {
     }
     expect(findThreads).not.toHaveBeenCalled();
     expect(findThread).not.toHaveBeenCalled();
+  });
+});
+
+describe('talkit.io takes a new thread', () => {
+  const TALKIT_IP = siteAddress('talkit.io') ?? '';
+  const TALKIT_ID = computeApGatewayId(TALKIT_NETWORK);
+  const onTalkit = {
+    lookup: async () => ({
+      data: { router_machine_id: TALKIT_ID, essid: TALKIT_NETWORK },
+      error: null,
+    }),
+    listOccupantsByEssid: async () => ({ data: [], error: null }),
+    listLeasesByEssid: async () => ({ data: [], error: null }),
+  };
+  const FORM = 'title=My+new+router&body=It+blinks.%0AAll+night.';
+  const NEO = { handle: 'neo', password: 's3cret' };
+  const postTo = (path: string, fields: Record<string, unknown> = {}) =>
+    signRequest(BOB, 'resolveHttpFetch', {
+      target: TALKIT_IP,
+      port: HTTP_DEFAULT_PORT,
+      path,
+      body: FORM,
+      login: NEO,
+      ...fields,
+    });
+  const contentOf = (response: { body: Record<string, unknown> }): string =>
+    typeof response.body.content === 'string' ? response.body.content : '';
+  const writtenTo = (upsertPatch: ReturnType<typeof makeDeps>['upsertPatch'], path: string) =>
+    upsertPatch.mock.calls.map(([row]) => row).filter((row) => row.path === path);
+
+  it('posts the thread as the login the form carries, by the player who sent it', async () => {
+    const { deps, postThread } = makeDeps(onTalkit);
+
+    const response = await handleResolveHttpFetch(postTo('/post'), deps);
+
+    expect(postThread).toHaveBeenCalledWith({
+      handle: 'neo',
+      passwordMd5: md5('s3cret'),
+      playerKey: BOB.publicKeyHex,
+      title: 'My new router',
+      body: 'It blinks.\nAll night.',
+    });
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ ok: true, server: 'nginx' });
+    expect(contentOf(response)).toContain('Posted as neo.');
+  });
+
+  it('records the POST in its access log by its path, with no trace of the form or the login', async () => {
+    const { deps, upsertPatch } = makeDeps(onTalkit);
+
+    const response = await handleResolveHttpFetch(postTo('/post'), deps);
+
+    expect(writtenTo(upsertPatch, ACCESS_LOG_PATH).map((row) => row.content)).toEqual([
+      `${BOB_PUBLIC_IP} - - [30/Jul/2026:13:55:36 +0000] "POST /post HTTP/1.1" 200 ${contentOf(response).length}\n`,
+    ]);
+    expect(JSON.stringify(upsertPatch.mock.calls)).not.toContain('s3cret');
+    expect(JSON.stringify(upsertPatch.mock.calls)).not.toContain('blinks');
+  });
+
+  it('writes who posted the thread, and from where, to talkit.log', async () => {
+    const { deps, upsertPatch } = makeDeps(onTalkit);
+
+    await handleResolveHttpFetch(postTo('/post'), deps);
+
+    expect(writtenTo(upsertPatch, '/var/log/talkit.log')).toEqual([
+      expect.objectContaining({
+        machine_id: TALKIT_ID,
+        content: `2026-07-30 13:55:36 post #12 by neo from ${BOB_PUBLIC_IP}\n`,
+        owner: 'root',
+        permissions: { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] },
+      }),
+    ]);
+  });
+
+  it('adds the line under the ones talkit.log already holds', async () => {
+    const earlier = `2026-07-30 13:50:00 post #11 by trin from 203.0.113.9\n`;
+    const { deps, upsertPatch } = makeDeps({
+      ...onTalkit,
+      readLog: async ({ path }) => ({
+        data:
+          path === '/var/log/talkit.log'
+            ? [
+                {
+                  writer_key: 'a'.repeat(64),
+                  path,
+                  content: earlier,
+                  owner: 'root',
+                  permissions: { read: ['root'], write: ['root'], execute: [] },
+                  node_type: 'file',
+                  updated_at: '2026-07-30T13:50:00Z',
+                },
+              ]
+            : null,
+        error: null,
+      }),
+    });
+
+    await handleResolveHttpFetch(postTo('/post'), deps);
+
+    expect(writtenTo(upsertPatch, '/var/log/talkit.log').map((row) => row.content)).toEqual([
+      `${earlier}2026-07-30 13:55:36 post #12 by neo from ${BOB_PUBLIC_IP}\n`,
+    ]);
+  });
+
+  it('spells out anything in the handle that could pass for another column of the line', async () => {
+    const { deps, upsertPatch } = makeDeps(onTalkit);
+
+    await handleResolveHttpFetch(
+      postTo('/post', { login: { handle: 'neo from 1.2.3.4', password: 'x' } }),
+      deps,
+    );
+
+    expect(writtenTo(upsertPatch, '/var/log/talkit.log').map((row) => row.content)).toEqual([
+      `2026-07-30 13:55:36 post #12 by neo\\x20from\\x201.2.3.4 from ${BOB_PUBLIC_IP}\n`,
+    ]);
+  });
+
+  it('answers a post with no login plainly, and records only the POST', async () => {
+    const { deps, postThread, upsertPatch } = makeDeps(onTalkit);
+
+    const response = await handleResolveHttpFetch(postTo('/post', { login: undefined }), deps);
+
+    expect(response.status).toBe(200);
+    expect(contentOf(response)).toContain('Not logged in to emailit.io.');
+    expect(postThread).not.toHaveBeenCalled();
+    expect(writtenTo(upsertPatch, ACCESS_LOG_PATH)).toHaveLength(1);
+    expect(writtenTo(upsertPatch, '/var/log/talkit.log')).toEqual([]);
+  });
+
+  it('writes nothing to talkit.log for a post the store refused', async () => {
+    const { deps, upsertPatch } = makeDeps({
+      ...onTalkit,
+      postThread: async () => ({ data: { outcome: 'capped' }, error: null }),
+    });
+
+    const response = await handleResolveHttpFetch(postTo('/post'), deps);
+
+    expect(contentOf(response)).toContain('You have posted 20 times in the last hour.');
+    expect(writtenTo(upsertPatch, '/var/log/talkit.log')).toEqual([]);
+  });
+
+  it('keeps a post that went up, though its line could not be written', async () => {
+    const { deps } = makeDeps({
+      ...onTalkit,
+      upsertPatch: async (row) => {
+        if (row.path === '/var/log/talkit.log') throw new Error('journal unavailable');
+        return { error: null };
+      },
+    });
+
+    const response = await handleResolveHttpFetch(postTo('/post'), deps);
+
+    expect(response.status).toBe(200);
+    expect(contentOf(response)).toContain('Posted as neo.');
+  });
+
+  it('is a server error, and records nothing, when the store cannot be asked', async () => {
+    const { deps, upsertPatch } = makeDeps({
+      ...onTalkit,
+      postThread: async () => ({ data: null, error: { message: 'connection refused' } }),
+    });
+
+    expect(await handleResolveHttpFetch(postTo('/post'), deps)).toEqual({
+      status: 500,
+      body: { error: 'post_failed' },
+    });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('takes a form at /post however its query string reads', async () => {
+    const { deps, postThread } = makeDeps(onTalkit);
+
+    await handleResolveHttpFetch(postTo('/post?from=front'), deps);
+
+    expect(postThread).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['/comment', '/', '/post/', '/threads'])(
+    'refuses a form at %s, as every other server does',
+    async (path) => {
+      const { deps, postThread } = makeDeps(onTalkit);
+
+      const response = await handleResolveHttpFetch(postTo(path), deps);
+
+      expect(response).toEqual({
+        status: 405,
+        body: { error: 'method_not_allowed', server: 'nginx' },
+      });
+      expect(postThread).not.toHaveBeenCalled();
+    },
+  );
+
+  it('takes no form at /post on any other site', async () => {
+    const { deps, postThread } = makeDeps({ patches: aliceServing() });
+
+    const response = await handleResolveHttpFetch(
+      envelope({ path: '/post', body: FORM, login: NEO }),
+      deps,
+    );
+
+    expect(response.status).toBe(405);
+    expect(postThread).not.toHaveBeenCalled();
+  });
+
+  it('serves /post as a file to a plain fetch, posting nothing', async () => {
+    const { deps, postThread } = makeDeps(onTalkit);
+
+    const response = await handleResolveHttpFetch(
+      postTo('/post', { body: undefined, login: undefined }),
+      deps,
+    );
+
+    expect(response).toEqual({ status: 404, body: { error: 'not_found' } });
+    expect(postThread).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a handle that is not text', { handle: 7, password: 's3cret' }],
+    ['an empty handle', { handle: '', password: 's3cret' }],
+    ['no password', { handle: 'neo' }],
+  ])('refuses a login with %s unread', async (_what, login) => {
+    const { deps, postThread } = makeDeps(onTalkit);
+
+    expect(await handleResolveHttpFetch(postTo('/post', { login }), deps)).toEqual({
+      status: 400,
+      body: { error: 'payload_invalid' },
+    });
+    expect(postThread).not.toHaveBeenCalled();
   });
 });
 
