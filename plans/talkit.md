@@ -2,7 +2,8 @@
 
 **Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-19. **Slice 1 merged**
 (PR #708, 2026-10-19, v0.410.0; the migration is on `jshack-dev` and `jshack-prod`).
-Slice 2 is next and has no plan yet.
+**Slice 2 planned and confirmed by the owner 2026-10-19** (below, after slice 1's plan); building
+on `feat/talkit-posting`.
 
 **Slice 1 as built: where it differs from the plan below** (owner-confirmed 2026-10-19):
 
@@ -346,4 +347,201 @@ under `/var/www/html` → the hit is a line in talkit's `access.log` either way.
   `testRestoreSite.ts talkit.io`.
 - Mutation gate at PR readiness over `core/talkit/` and the dispatch, with no mutant left
   standing in `playerText`.
+- No browser run: one at the epic's close-out.
+
+## Slice 2 plan: a player starts a thread
+
+**Branch**: `feat/talkit-posting` · **Version**: 0.410.0 → 0.411.0 · **Class**: behaviour change
+· **Delivery**: one PR against `main`; one migration, applied to `jshack-dev` then `jshack-prod`
+before merge.
+
+**Value.** A player logged in to emailit.io opens `talkit.io` in lynx, types a title and a
+several-line body into the front page's form, and sends it. The thread is at the top of
+`/threads`, signed with the handle in their `~/.mailrc`. A root on talkit sees who posted and
+from where. `curl -d` does the same from a prompt or a script.
+
+**Path.** lynx's form or `curl -d` → `fetchPageAcrossNetwork`, which attaches the current
+user's `~/.mailrc` login to a POST bound for talkit's address → the signed `resolveHttpFetch` →
+`handleResolveHttpFetch` resolves talkit's box as for any fetch → `POST /post` on talkit's
+network checks the form, then asks the store, which checks the password (guess throttle
+included) and the 20-an-hour cap and inserts the thread → the answer page; a line in
+`access.log` (path only), and on success a line in `/var/log/talkit.log`.
+
+### Facts read while planning (2026-10-19)
+
+- **curl and lynx already share the public POST path.** `curl -d` and a lynx POST form (via
+  `followLink` in `ui/state.ts`) both call `fetchPageAcrossNetwork` (`commands/webPage.ts`)
+  with the form as `body`. curl holds a `CommandEnv` (`env.fs` as the current user);
+  `followLink` holds the active session and builds no env.
+- **`mail` reads the login in `savedLogin` (`commands/mail.ts`)**: the current user's
+  `~/.mailrc` on the current box, two `set from=`/`set password=` lines. A missing file, one
+  the user cannot read, one without both lines, or an address not at emailit.io is no login.
+  It is private to `mail` today.
+- **The client can name talkit's address**: `siteAddress(domain)` (`generation/publisher.ts`)
+  is what `handleResolveMail` uses for emailit's.
+- **The envelope caps a form at 4,096 characters** (`body: z.string().max(4096)` in
+  `resolveHttpFetchSchema`). A 4,000-character body percent-encodes to up to 48,000 characters
+  (4 UTF-8 bytes, each `%XX`), so the cap has to rise. `resolveOccupantFetch`'s cap is a
+  different door and stays.
+- **POST answers are 200 pages, refusals included**: `answerSignup` answers a refused sign-up
+  with its front page at 200, and a store that failed is a 500 `signup_failed` with no log line.
+  Every other POST is logged and answered 405.
+- **emailit's store sets the write pattern** (`20261015010000_email_sending.sql`):
+  `email_check_password(handle, md5, player_key)` checks the password and the guess throttle
+  (5 failures a minute per key) and is callable from another function; `email_send` takes an
+  advisory lock on the key, clears rows older than an hour, refuses at 20, then inserts. Both
+  are `STRICT`, `service_role` only.
+- **Characters are counted as a reader counts them**: `[...text].length` in TypeScript (mail,
+  `handleResolveMail`), `char_length` in the table's CHECKs.
+- **`appendMachineLog` (`patches/appendMachineLog.ts`) writes a line break in a line as `\n`
+  spelled out**, and `logFetch` already works out the visitor's source address for
+  `access.log` (`resolveVantageSourceIp`). Trace files such as `named.log` are root-owned,
+  world-readable and root-written; `escapeLogField` (`logging/escapeLogField.ts`) spells out
+  anything unsafe in a field.
+- **lynx fields are one line.** `renderPage` turns `<input>` into a `field` segment and draws a
+  `<textarea>`'s content as plain text; in `Lynx.tsx`, a field takes typed characters and Backspace,
+  Esc steps out, and Tab, Shift+Tab, the up and down arrows and Enter pass through to the
+  browser, so Enter submits. A line is a `whitespace-pre-wrap` div, so a `\n` inside a segment
+  already draws as a line break.
+- **Bundle:** 284,314 B against 284,975 B; talkit started from 284,034 B (v0.409.0).
+
+### Choices made while planning (owner-confirmed 2026-10-19)
+
+- **"Posting as `<handle>`" lands on the answer page, not on the form.** The front page is a
+  static file a root can deface (decision 7), and every form talkit serves is static (decision
+  10), so the form cannot know who is reading it. A post answers with a page that says
+  "Posted as `<handle>`." and links to the new thread (`/thread?id=<n>`). This narrows decision
+  4's wording.
+- **The login rides only a POST to talkit's own address.** `fetchPageAcrossNetwork` attaches
+  `{ handle, password }` when the request is a POST and its host is `siteAddress('talkit.io')`,
+  as a browser scopes a cookie to its site; no other server is ever handed it, and a GET
+  carries none. The server reads it only on talkit's `POST /post`. The reading of `~/.mailrc`
+  moves out of `mail` into one shared function, so `mail` and the web read a login the same
+  way (`mail`'s own tests keep it honest).
+- **The envelope's form cap rises from 4,096 to 49,152 characters** (48 KiB): a full title and
+  body, every character 4 UTF-8 bytes, each byte `%XX`, and room for the field names. The cap
+  on what is stored is decision 9's, checked after decoding.
+- **The inbound checks are a pure function in `core/talkit/`**, run before the store is
+  asked, in decision 10's order: decode the form; `\r\n` and a lone `\r` become `\n`; any
+  other control character (a C0 control or DEL, including NUL and ESC) refuses the post; a
+  title holding `\n` refuses it; both are trimmed; then the lengths are checked (title 1–80,
+  body 1–4,000, counted as a reader counts). The text is passed on exactly as checked, never
+  pre-escaped. The table's CHECKs stay as the last guard.
+- **Answers, each a page at 200 with a link back to the front page, and nothing typed echoed
+  into a field:**
+  - posted: "Posted as `<handle>`." and a link to the thread;
+  - no login: "Not logged in to emailit.io." with no hint about `~/.mailrc`;
+  - the password does not match: "Login failed for `<handle>`@emailit.io.";
+  - throttled: "Too many failed logins. Wait a minute.";
+  - over the cap: "You have posted 20 times in the last hour. Wait a while.";
+  - a bad title: "A title is 1 to 80 characters on one line.";
+  - a bad body: "A post is 1 to 4,000 characters.";
+  - a control character: "A post cannot hold control characters.";
+  - a form with no `title` or `body` field: the bad title or bad body answer.
+  A store that failed, or answered with a word nobody taught it, is a 500 `post_failed` with
+  no log line, as a sign-up is. A refused post writes nothing, and the typed text is gone: the
+  front page is static, so going back shows an empty form.
+- **The store is one function, `talkit_post(handle, password_md5, player_key, title, body)`**,
+  shaped as `email_send`: `email_check_password` first; then an advisory lock on the key,
+  clearing rows of `talkit_writes (player_key, written_at)` older than an hour, `capped` at 20;
+  then the insert into `talkit_threads` (`created_at` and `last_activity_at` both `now()`) and
+  a `talkit_writes` row. It answers `{"outcome":"posted","id":<n>}`, `login_failed`,
+  `throttled` or `capped`. `talkit_writes` is the one count slice 3's comments join, by key and
+  never by handle. RLS on, no policies, `EXECUTE` for `service_role` alone. A failed or
+  throttled login counts nothing toward the cap; it counts toward the guess throttle, as
+  mail's does.
+- **`POST /post` is the forum's only form until slice 3.** It is dispatched beside emailit's
+  `/signup`, on talkit's network and path `/post` exactly; `/comment` and every other POST
+  still get the 405.
+- **`/var/log/talkit.log` line, written only for a thread that was posted**:
+  `2026-10-19 14:37:02 post #12 by neo from 203.0.113.7`. UTC, with seconds, as the forum
+  prints times plus the seconds a log needs; the handle through `escapeLogField`; the address
+  is the one `access.log` records. Root-owned, world-readable, root-written, like `named.log`.
+  No boot seed: the file appears with the first post. `appendMachineLog` is best-effort, as
+  `logFetch` is: the post stands if the log line fails.
+- **lynx's `<textarea>`**: a `field` segment with `multiline` set. It draws as its text in a
+  box, a row per line, at least `rows` rows tall (default 4, at most 12); a `_` cursor at the
+  end while typing; its placeholder while empty; content the page put inside the tag fills it
+  as a value, as in a browser (talkit's never has any). Inside it Enter adds a line break and
+  the hint reads `⏎ New line`; Tab, Shift+Tab, the up and down arrows and Esc leave it, as
+  decision 3 says; Backspace deletes, across a line break too. The form goes from its own
+  button, its value encoded as `encodeForm` already encodes (`%0A` for a line break).
+- **The front page gains the form**: under the welcome paragraph, a "Start a thread" heading
+  and `<form action="/post" method="post">` holding a title `<input>`, a `<textarea>` for the
+  body and a `[ Post ]` button. No handle or password field.
+- **Bundle:** measured once the form, the textarea and the login are in. The ceiling's code
+  part rises by talkit's growth over 284,034 B, rounded up to the next 1,000 B, so talkit costs
+  the headroom nothing; `BUNDLE_CEILING_BYTES`' comment gives the reason.
+
+### Acceptance criteria
+
+1. In `lynx talkit.io`, the front page shows a "Start a thread" form: a title field, a body box
+   four rows tall and a `[ Post ]` button. In the body box Enter breaks the line, Backspace
+   joins two lines back up, and Tab, Shift+Tab, the up and down arrows and Esc leave it.
+2. A player with a `~/.mailrc` for `neo` who fills in the form and presses `[ Post ]` gets
+   "Posted as neo." with a link to the new thread. The thread is first on `/threads`,
+   `by neo, 0 comments`, and its page shows the body with each line break where it was typed.
+3. `curl -d "title=Hi&body=line%0Aline" http://talkit.io/post` does the same from the prompt,
+   and from a script.
+4. Who posts is whoever's `~/.mailrc` is read: the current user on the box the tool runs on. A
+   shell as B's user posts as B; with no `~/.mailrc`, or one that user cannot read, or one
+   without a login, the answer is "Not logged in to emailit.io." and nothing is stored.
+5. A `~/.mailrc` whose password no longer matches answers "Login failed for
+   `<handle>`@emailit.io.", stores nothing, and counts toward the guess throttle; with 5
+   failures in a minute every post is "Too many failed logins. Wait a minute."
+6. A player's 21st post or comment in a rolling hour answers "You have posted 20 times in the
+   last hour. Wait a while." and stores nothing, whichever handles they posted as.
+7. An empty or 81-character title, a title holding a line break, an empty or 4,001-character
+   body, and a title or body holding a NUL, an ESC or a DEL each answer their refusal and store
+   nothing. Blanks at either end are trimmed first, so a title of spaces is empty; an
+   80-character title and a 4,000-character body, multi-byte characters counted as one each,
+   are stored. A CRLF or a lone CR in a body is stored as `\n`.
+8. **No player text becomes markup, on the way in.** Each payload of the corpus (`<script>`,
+   `"><form action=/comment method=post>`, `</textarea>`, `&lt;b&gt;`, `javascript:alert(1)`,
+   `http://x.io/a"onmouseover="1`), posted as a title and as a body, is stored exactly as typed
+   and shown escaped, character for character, on `/threads` and `/thread`; a handle that
+   would need escaping cannot exist, as sign-up refuses it.
+9. A successful post adds `<time> post #<id> by <handle> from <address>` to talkit's
+   `/var/log/talkit.log`, the address the one `access.log` records for the same POST. A refused
+   post adds no `talkit.log` line. Every POST to `/post` is an `access.log` line with the path
+   and never the form.
+10. The login is sent only with a POST to talkit's address: no GET carries it, and a POST to
+    emailit's `/signup` or to any other server does not either.
+11. A form longer than 4,096 characters reaches talkit (a 4,000-character body of multi-byte
+    characters posts).
+12. `POST /comment`, and a POST to any other path or server, still answers 405.
+13. When the store cannot be asked, the post is a 500 and nothing is logged.
+14. `mail` reads its login exactly as before. Every other site, path and form is served as
+    before, and the bundle check passes.
+
+### Increments (each RED → GREEN → REFACTOR; commit on approval)
+
+1. **lynx's textarea** (`ui/renderPage.ts`, `ui/screens/Lynx.tsx`): criterion 1, and the
+   box's value sent with its line breaks, in `renderPage` and `Lynx` tests against a fixture
+   page.
+2. **The login rides a POST to talkit**: the shared `~/.mailrc` reader (moved out of `mail`,
+   with `mail`'s tests as the preservation check), `fetchPageAcrossNetwork` attaching it, curl
+   and `followLink` passing it, `fetchPublic` carrying it, and the envelope taking `login` with
+   the 49,152-character form cap. Criteria 4 (the client half), 10 and 11 in the `webPage`,
+   `curl`, `state` and handler tests.
+3. **The post's checks and answers** (`core/talkit/answerPost.ts`, `core/talkit/pages.ts`):
+   the inbound checks, the store's outcomes as pages, the front page's form. Criteria 2 and
+   4–8 at the function, with a fake store and the whole corpus.
+4. **The fetch takes `POST /post`**: the dispatch beside `/signup`, `access.log`, the
+   `talkit.log` line, the 500. Criteria 9, 12 and 13 at the handler, with fake deps.
+5. **The migration, the adapter and the wire-check**: `talkit_writes` and `talkit_post` to
+   `jshack-dev`; `postThread` in `api/network.ts`; `scripts/testTalkit.ts` grown to post live
+   through the signed endpoint (criteria 2 and 4–13, the cap and the throttle included); the
+   other talkit and emailit wire-checks re-run.
+6. **Bundle, docs, version 0.411.0**: the measured ceiling raise; lynx's and curl's `man` text
+   naming the body box and a talkit POST; the handbook glossary and `docs/project-status.md`;
+   the migration to `jshack-prod` before merge.
+
+### Evidence
+
+- Unit and jsdom tests under `npm test`; `npm run typecheck`; `npm run lint`; the bundle check.
+- Wire-check `scripts/testTalkit.ts` against `vercel dev` + local supabase, and the
+  `testEmailitSignup` and `testRestoreSite.ts talkit.io` checks again.
+- Mutation gate at PR readiness over `core/talkit/`, the textarea's keys, the login attach and
+  the dispatch; no mutant left standing in the inbound checks.
 - No browser run: one at the epic's close-out.
