@@ -170,8 +170,10 @@ const resolveHttpFetchSchema = z
     /** The URL path as written by the client, NOT a filesystem path. Resolved
      *  server-side — see the module doc. */
     path: z.string().min(1),
-    /** A form, which makes the request a POST. Never logged: a form can hold a password. */
-    body: z.string().max(4096).optional(),
+    /** A form, which makes the request a POST. Never logged: a form can hold a password.
+     *  Long enough for a post to talkit.io: 4,000 characters, each up to 4 UTF-8 bytes
+     *  and each byte sent as `%XX`, with the title and the field names. */
+    body: z.string().max(49_152).optional(),
     /** The box the caller fetched FROM, when they stand on a hop. Absent at home. The
      *  server reads the network off its session row to trace the hit to where it came
      *  from, and refuses a box the caller does not hold. */

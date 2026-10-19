@@ -32,10 +32,10 @@ import {
 import { vantageOf } from '../network/vantage.js';
 import { hasTty } from '../sessions/hasTty.js';
 import { mayExecute, resolveBinary } from './availability.js';
-import { homeDirectory } from '../sessions/homeDirectory.js';
+import { handleOf, mailrcPath, savedLogin as savedLoginOn } from '../emailit/mailrc.js';
 import { EMAILIT_DOMAIN } from '../generation/fixedSites.js';
 import { MIN_PASSWORD_LENGTH, validatePassword } from '../gameConfig/gameConfig.js';
-import { asAbsPath, type AbsPath } from '../types.js';
+import type { AbsPath } from '../types.js';
 
 const SYNOPSIS =
   'mail [read <n>] | send <to> <subject> | reply <n> | delete <n> | passwd | login | logout';
@@ -63,25 +63,6 @@ const refusal = (message: string): CommandResult => ({
   exitCode: 1,
 });
 
-/** The address and password a `~/.mailrc` holds, or null when it is missing either. Each
- *  is a `set` line whose value runs to the end of the line, as in a real one; blank lines
- *  and `#` comments are skipped. */
-const loginIn = (
-  content: string,
-): { readonly address: string; readonly password: string } | null => {
-  const settings = new Map<string, string>();
-  for (const line of content.split('\n')) {
-    const setting = /^\s*set (from|password)=(.*)$/.exec(line);
-    if (setting !== null) settings.set(setting[1] as string, setting[2] as string);
-  }
-  const address = settings.get('from');
-  const password = settings.get('password');
-  return address === undefined || password === undefined ? null : { address, password };
-};
-
-/** The file that is the login: the current user's `~/.mailrc` on the current box. */
-const mailrcPath = (env: CommandEnv): AbsPath => asAbsPath(`${homeDirectory(env.session)}/.mailrc`);
-
 /** A login as `~/.mailrc` keeps it. */
 const formatMailrc = (address: string, password: string): string =>
   `set from=${address}\nset password=${password}\n`;
@@ -100,14 +81,6 @@ const saveLogin = (
   });
 };
 
-/** The handle of an address at emailit.io, or null for an address anywhere else. Callers
- *  fold the address to lowercase first: one address whatever case it was written in, as
- *  a sign-up folds a handle. */
-const handleOf = (address: string): string | null => {
-  const at = address.lastIndexOf('@');
-  return at === -1 || address.slice(at + 1) !== EMAILIT_DOMAIN ? null : address.slice(0, at);
-};
-
 /** An address as the player typed it, in full: lowercased, and a bare handle taken to
  *  be at emailit.io. */
 const typedAddress = (typed: string): string => {
@@ -122,21 +95,16 @@ const savedLogin = (
 ):
   | { readonly address: string; readonly login: MailLogin; readonly content: string }
   | { readonly refused: string } => {
-  const path = mailrcPath(env);
-  const stored = env.fs.read(path);
-  if (!stored.ok && stored.error === 'not_found') {
-    return { refused: 'mail: not logged in — run mail login' };
+  const saved = savedLoginOn(env.fs, env.session);
+  if (saved.ok) return saved;
+  if (saved.reason === 'not_found') return { refused: 'mail: not logged in — run mail login' };
+  if (saved.reason === 'permission_denied') {
+    return { refused: `mail: can't read '${mailrcPath(env.session)}': Permission denied` };
   }
-  if (!stored.ok && stored.error === 'permission_denied') {
-    return { refused: `mail: can't read '${path}': Permission denied` };
+  if (saved.reason === 'unknown_domain') {
+    return { refused: `mail: ${saved.address}: unknown domain` };
   }
-  const saved = stored.ok ? loginIn(stored.content) : null;
-  if (!stored.ok || saved === null) return { refused: 'mail: ~/.mailrc has no login' };
-
-  const address = saved.address.toLowerCase();
-  const handle = handleOf(address);
-  if (handle === null) return { refused: `mail: ${address}: unknown domain` };
-  return { address, login: { handle, password: saved.password }, content: stored.content };
+  return { refused: 'mail: ~/.mailrc has no login' };
 };
 
 /** When a message was delivered, as the list shows it: `Oct 15 09:12`, in UTC like
@@ -259,7 +227,7 @@ const login = async (env: CommandEnv): Promise<CommandResult> => {
   // Asked of the machine rather than of what this terminal last pulled: a file written a
   // moment ago in another terminal is one this replaces, not one it creates.
   const fs = await env.fs.reload();
-  const path = mailrcPath(env);
+  const path = mailrcPath(env.session);
   if (!fs.canWrite(path).allowed) return refusal(`mail: can't create '${path}': Permission denied`);
   if (vantageOf(env.session, env.network) === null) return refusal(UNREACHABLE);
 
@@ -291,7 +259,7 @@ const login = async (env: CommandEnv): Promise<CommandResult> => {
 const passwd = async (env: CommandEnv): Promise<CommandResult> => {
   const saved = savedLogin(env);
   if ('refused' in saved) return refusal(saved.refused);
-  const path = mailrcPath(env);
+  const path = mailrcPath(env.session);
   const fs = await env.fs.reload();
   if (!fs.canWrite(path).allowed) return refusal(`mail: can't write '${path}': Permission denied`);
   if (vantageOf(env.session, env.network) === null) return refusal(UNREACHABLE);
@@ -317,7 +285,7 @@ const passwd = async (env: CommandEnv): Promise<CommandResult> => {
 
 /** Log out by deleting `~/.mailrc`. emailit.io is not asked: it keeps no session to end. */
 const logout = async (env: CommandEnv): Promise<CommandResult> => {
-  const path = mailrcPath(env);
+  const path = mailrcPath(env.session);
   const fs = await env.fs.reload();
   if (fs.stat(path) === null) return refusal('mail: not logged in');
   const removed = await env.patches.remove(path);

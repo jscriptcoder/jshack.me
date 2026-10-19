@@ -1597,3 +1597,76 @@ describe('curl -d sends a form, and a server that takes none answers 405', () =>
     expect(askedPublic[0]).not.toHaveProperty('body');
   });
 });
+
+describe('curl -d to talkit.io posts as whoever the ~/.mailrc it can read names', () => {
+  const NEO_MAILRC = 'set from=neo@emailit.io\nset password=s3cret\n';
+
+  /** alice's `~/.mailrc`, readable by alice and by root alone, as `mail login` saves it. */
+  const alicesMailrc = (content: string): Patch => ({
+    path: '/home/alice/.mailrc',
+    content,
+    owner: 'alice',
+    permissions: { read: ['root', 'user'], write: ['root', 'user'], execute: [] },
+  });
+
+  /** `curl -d` at talkit.io's post form by the user `userType` on a box holding `patches`,
+   *  and what it asked the server. */
+  const postAs = async (userType: 'root' | 'user' | 'guest', ...patches: readonly Patch[]) => {
+    const askedPublic: PublicFetchParams[] = [];
+    const env = mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+      session: mockSession({ userType }),
+      fs: mockFsViewFromTree(ownBox(...patches), { userType, cwd: () => asAbsPath('/') }),
+      remote: {
+        ...mockRemoteApi(),
+        fetchPublic: async (params) => {
+          askedPublic.push(params);
+          return { ok: true, content: '<p>Posted as neo.</p>', server: 'nginx' };
+        },
+      },
+    });
+    await drain(
+      await runCommandLine(
+        env,
+        'curl -d "title=Hi&body=one%0Atwo" http://talkit.io/post',
+        new Map([['curl', curl]]),
+      ),
+    );
+    return askedPublic;
+  };
+
+  it('sends the login in the ~/.mailrc of the user it runs as', async () => {
+    const asked = await postAs('user', alicesMailrc(NEO_MAILRC));
+
+    expect(asked.map((params) => params.login)).toEqual([{ handle: 'neo', password: 's3cret' }]);
+    expect(asked.map((params) => params.body)).toEqual(['title=Hi&body=one%0Atwo']);
+  });
+
+  it('sends no login for a user with no ~/.mailrc', async () => {
+    const asked = await postAs('user');
+
+    expect(asked.map((params) => 'login' in params)).toEqual([false]);
+  });
+
+  it("sends no login for a guest, who cannot read another user's ~/.mailrc", async () => {
+    const asked = await postAs('guest', alicesMailrc(NEO_MAILRC));
+
+    expect(asked.map((params) => 'login' in params)).toEqual([false]);
+  });
+
+  it('sends no login from a ~/.mailrc that holds none', async () => {
+    const asked = await postAs('user', alicesMailrc('set from=neo@emailit.io\n'));
+
+    expect(asked.map((params) => 'login' in params)).toEqual([false]);
+  });
+
+  it('sends no login from a ~/.mailrc for an address somewhere other than emailit.io', async () => {
+    const asked = await postAs(
+      'user',
+      alicesMailrc('set from=neo@gmail.com\nset password=s3cret\n'),
+    );
+
+    expect(asked.map((params) => 'login' in params)).toEqual([false]);
+  });
+});

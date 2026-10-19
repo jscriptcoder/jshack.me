@@ -98,3 +98,4 @@ export const EMAILIT_DOMAIN = EMAILIT.domain;
 export const CHAINIT_NETWORK = CHAINIT.key;
 
 export const TALKIT_NETWORK = TALKIT.key;
+export const TALKIT_DOMAIN = TALKIT.domain;

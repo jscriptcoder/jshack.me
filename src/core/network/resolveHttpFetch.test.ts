@@ -1139,13 +1139,15 @@ describe('a form POSTed across the network', () => {
     expect(upsertPatch).not.toHaveBeenCalled();
   });
 
-  it('takes a form of up to 4,096 characters and refuses a longer one unread', async () => {
+  // A post to talkit.io may hold 4,000 characters, each up to 4 UTF-8 bytes and each byte
+  // sent as `%XX`, so a form runs to 48 KiB before anyone can call it too long.
+  it('takes a form of up to 49,152 characters and refuses a longer one unread', async () => {
     const { deps, findNetworkByPublicIp } = makeDeps({ patches: aliceServing() });
 
-    const atTheLimit = await handleResolveHttpFetch(envelope({ body: 'a'.repeat(4096) }), deps);
+    const atTheLimit = await handleResolveHttpFetch(envelope({ body: 'a'.repeat(49_152) }), deps);
     expect(atTheLimit.status).toBe(405);
     findNetworkByPublicIp.mockClear();
-    expect(await handleResolveHttpFetch(envelope({ body: 'a'.repeat(4097) }), deps)).toEqual({
+    expect(await handleResolveHttpFetch(envelope({ body: 'a'.repeat(49_153) }), deps)).toEqual({
       status: 400,
       body: { error: 'payload_invalid' },
     });

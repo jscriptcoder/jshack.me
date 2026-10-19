@@ -29,6 +29,7 @@ import { isPublicIp } from '../generation/ip.js';
 import { addressForTarget } from '../network/resolveName.js';
 import { vantageOf } from '../network/vantage.js';
 import { fetchPageAcrossNetwork, fetchWebPage } from './webPage.js';
+import { loginOn } from '../emailit/mailrc.js';
 
 const error = (message: string): CommandResult => ({
   kind: 'sync',
@@ -139,6 +140,7 @@ const execute: Command['execute'] = async (env, args, flags) => {
         url,
         body,
         callerMachineId: env.session.machineId,
+        mailLogin: () => loginOn(env.fs, env.session),
         fetchPublic: (params) => env.remote.fetchPublic(params),
       })
     : await fetchWebPage({

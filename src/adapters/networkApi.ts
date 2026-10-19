@@ -242,6 +242,7 @@ export const fetchPublicPage = async (
       port: params.port,
       path: params.path,
       ...(params.body === undefined ? {} : { body: params.body }),
+      ...(params.login === undefined ? {} : { login: params.login }),
       caller_machine_id: params.callerMachineId,
     });
     const body: unknown = await response.json();

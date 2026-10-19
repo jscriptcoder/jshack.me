@@ -29,7 +29,7 @@
  * browser has both to hand and no environment to build.
  */
 
-import type { AccessLogFetch, RemoteApi } from './types.js';
+import type { AccessLogFetch, MailLogin, RemoteApi } from './types.js';
 import type { Directory } from '../filesystem/types.js';
 import type { MachineId } from '../types.js';
 import type { Vantage } from '../network/vantage.js';
@@ -37,6 +37,8 @@ import type { ParsedUrl } from '../network/http.js';
 import { createFsView } from '../filesystem/fsView.js';
 import { METHOD_NOT_ALLOWED_PAGE, resolveWebPath } from '../network/http.js';
 import { connectError, reachWebHost, type ErrorResult, type Reach } from './webHost.js';
+import { siteAddress } from '../generation/publisher.js';
+import { TALKIT_DOMAIN } from '../generation/fixedSites.js';
 
 export type PageResult =
   /** The box answered with a page — logged. `server` is the program that answered. */
@@ -218,6 +220,7 @@ export const fetchPageAcrossNetwork = async ({
   url,
   body,
   callerMachineId,
+  mailLogin,
   fetchPublic,
 }: {
   readonly program: string;
@@ -225,13 +228,21 @@ export const fetchPageAcrossNetwork = async ({
   /** A form to POST, sent as typed. Whether anything takes it is the far server's call. */
   readonly body?: string | undefined;
   readonly callerMachineId: MachineId;
+  /** The emailit.io login the reader keeps, or null for none; read only when a form is
+   *  posted to talkit.io. Absent, the caller has none to offer. */
+  readonly mailLogin?: () => MailLogin | null;
   readonly fetchPublic: RemoteApi['fetchPublic'];
 }): Promise<PageResult> => {
+  // talkit.io's forms ask for no login: the one the reader keeps for emailit.io goes with
+  // the form, as a browser sends a cookie to its own site and to no other.
+  const login =
+    body !== undefined && url.host === siteAddress(TALKIT_DOMAIN) ? (mailLogin?.() ?? null) : null;
   const fetched = await fetchPublic({
     target: url.host,
     port: url.port,
     path: url.path,
     ...(body === undefined ? {} : { body }),
+    ...(login === null ? {} : { login }),
     callerMachineId,
   });
   if (fetched.ok) {
