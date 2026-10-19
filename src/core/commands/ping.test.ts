@@ -543,6 +543,85 @@ describe('ping by name', () => {
   });
 });
 
+describe('ping on loopback', () => {
+  const offlineEnv = () =>
+    mockCommandEnv({
+      identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
+      network: mockNetworkView({ isOnline: () => false, interfaces: () => [] }),
+    });
+
+  it('answers localhost from 127.0.0.1, as a real box does', async () => {
+    const { text, exitCode } = await run('localhost');
+
+    expect(exitCode).toBe(0);
+    const lines = text.split('\n');
+    expect(lines[0]).toBe('PING localhost (127.0.0.1) 56(84) bytes of data.');
+    expect(lines[1]).toMatch(/^64 bytes from 127\.0\.0\.1: icmp_seq=1 ttl=64 /);
+    expect(text).toContain('4 packets transmitted, 4 received, 0% packet loss');
+  });
+
+  it('answers 127.0.0.1', async () => {
+    const { text, exitCode } = await run('127.0.0.1');
+
+    expect(exitCode).toBe(0);
+    expect(text).toContain('4 received');
+  });
+
+  it('answers any address in 127.0.0.0/8, which is all loopback', async () => {
+    const { text, exitCode } = await run('127.10.200.255');
+
+    expect(exitCode).toBe(0);
+    expect(text).toMatch(/^64 bytes from 127\.10\.200\.255: icmp_seq=1 /m);
+  });
+
+  it.each(['10127.0.0.1', '127.0.0.1.5'])(
+    'does not take %s, which only contains a loopback address, for loopback',
+    async (address) => {
+      const { text, exitCode } = await run(address);
+
+      expect(exitCode).toBe(1);
+      expect(text).toContain('0 received');
+    },
+  );
+
+  it('does not take an address with an octet past 255 for loopback', async () => {
+    const { text, exitCode } = await run('127.256.0.1');
+
+    expect(exitCode).toBe(1);
+    expect(text).toContain('0 received');
+  });
+
+  it('answers with no network at all — loopback never leaves the box', async () => {
+    const { text, exitCode } = await drain(
+      await ping.execute(offlineEnv(), ['localhost'], new Map()),
+    );
+
+    expect(exitCode).toBe(0);
+    expect(text).toContain('4 received');
+  });
+
+  it('replies in well under a tenth of a millisecond, since the echo never leaves the box', async () => {
+    const { text } = await drain(
+      await ping.execute(onlineEnv(), ['localhost'], new Map([['-c', '20']])),
+    );
+
+    const times = [...text.matchAll(/time=([\d.]+) ms/g)].map((match) => Number(match[1]));
+    expect(times).toHaveLength(20);
+    for (const time of times) {
+      expect(time).toBeGreaterThan(0);
+      expect(time).toBeLessThan(0.1);
+    }
+  });
+
+  it('answers on a hop, where loopback is the hop itself', async () => {
+    const hop = machineOn(HOP_ESSID);
+
+    const { exitCode } = await pingFrom(hopEnv(hop), 'localhost');
+
+    expect(exitCode).toBe(0);
+  });
+});
+
 describe('man ping', () => {
   it('says it reaches the network the shell is on', () => {
     expect(ping.manual?.description).toContain('the network you are on');
