@@ -109,6 +109,30 @@ describe("talkit.io's pages", () => {
         { text: 'Read the threads', href: '/threads' },
       ]);
     });
+
+    it('offers a form to start a thread: a title, a body four rows tall and a button', () => {
+      const document = parsed(TALKIT_FRONT_PAGE);
+      const form = document.querySelector('form');
+
+      expect(document.querySelector('h2')?.textContent).toBe('Start a thread');
+      expect([form?.getAttribute('action'), form?.getAttribute('method')]).toEqual([
+        '/post',
+        'post',
+      ]);
+      expect(
+        [...(form?.querySelectorAll('input, textarea') ?? [])].map((control) => [
+          control.tagName,
+          control.getAttribute('type'),
+          control.getAttribute('name') ?? control.getAttribute('value'),
+        ]),
+      ).toEqual([
+        ['INPUT', 'text', 'title'],
+        ['TEXTAREA', null, 'body'],
+        ['INPUT', 'submit', 'Post'],
+      ]);
+      expect(form?.querySelector('textarea')?.getAttribute('rows')).toBe('4');
+      expect(form?.querySelector('textarea')?.textContent).toBe('');
+    });
   });
 
   describe('the thread list', () => {

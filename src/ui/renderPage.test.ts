@@ -3,6 +3,7 @@ import { renderPage } from './renderPage.js';
 import { pickWebPage } from '../core/generation/pools/webPages.js';
 import { MAPIT_PAGES } from '../core/mapit/pages.js';
 import { EMAILIT_FRONT_PAGE } from '../core/emailit/pages.js';
+import { TALKIT_FRONT_PAGE } from '../core/talkit/pages.js';
 
 /** The page a test renders from, when where it came from does not matter. Links
  *  resolve against it, so it has to be a real address. */
@@ -843,6 +844,23 @@ describe("emailit.io's front page, as a reader of it sees it", () => {
       expect.objectContaining({ kind: 'field', name: 'handle', masked: false, form }),
       expect.objectContaining({ kind: 'field', name: 'password', masked: true, form }),
       { kind: 'submit', text: '[ Sign up ]', form },
+    ]);
+  });
+});
+
+describe("talkit.io's front page, as a reader of it sees it", () => {
+  it('offers a title to type, a box four rows tall for the post and a button, all sent to /post', () => {
+    const form = { id: 0, action: 'http://talkit.io/post', method: 'post' };
+    const selectables = renderPage({ html: TALKIT_FRONT_PAGE, url: 'http://talkit.io/' }).flatMap(
+      (line) => line.segments.filter((segment) => segment.kind !== 'text'),
+    );
+
+    expect(selectables).toEqual([
+      expect.objectContaining({ kind: 'link', url: 'http://talkit.io/threads' }),
+      expect.objectContaining({ kind: 'link', url: 'http://talkit.io/threads' }),
+      expect.objectContaining({ kind: 'field', name: 'title', form }),
+      expect.objectContaining({ kind: 'field', name: 'body', rows: 4, form }),
+      { kind: 'submit', text: '[ Post ]', form },
     ]);
   });
 });
