@@ -52,7 +52,7 @@ is the authority** — when a call is rejected, print it (`redis-cli` with no ar
 | `nmap 192.168.x.0/24` → `nmap: usage: ...` | CIDR is not a target. One host, or a range: `nmap 192.168.x.1-254` |
 | `redis-cli -h <ip>` → `unrecognized option: -h` | There are no `-h`/`-a` flags: `redis-cli [-p port] <host> [password]`, the password positional |
 | `mysql: command not found` | `apt install mysql` and `apt install redis` — the clients are not preinstalled, and neither is `nmap` |
-| `apt install snmpd` → `E: Unable to locate package snmpd` | The package is `snmp`. It starts the agent and prints its read-write community once, always a word from the stock wordlist |
+| `apt install snmpd` → `E: Unable to locate package snmpd` | The package is `snmp`. It prints its read-write community once, always a word from the stock wordlist, but does NOT start the agent: `systemctl start snmpd` first, or every walk of it times out (verified 2026-10-19) |
 | `mysql -u root -p` | `mysql [-p port] <host> [user]`, then it prompts `Enter password:` on its own line |
 | `SELECT * FROM t WHERE id = 6;` → `ERROR 1064 (42000)` | **Quote every WHERE value and drop the semicolon**: `SELECT * FROM t WHERE id = '6'`. `CONDITION` is `/^(\w+)\s*=\s*'([^']*)'\s*$/` |
 | `SELECT ... LIMIT 3` → `ERROR 1064` | There is no `LIMIT`, `ORDER BY`, `JOIN` or operator but `=`; conditions join with `AND` only |

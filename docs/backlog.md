@@ -529,6 +529,14 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   whether "no fix yet" should still move a box to the newest release, with a test in
   `apt.test.ts` beside the upgrade-status ones.
 
+- **`apt install` of a package the box already carries prints `Setting up` twice. Seen in the
+  browser 2026-10-19, cosmetic.** On the AP gateway, `apt install snmp` printed a bare
+  `Setting up snmp ...` and the `already exists, keeping your copy` lines, then
+  `The following packages will be upgraded:`, `Unpacking snmp (5.9.15) over (5.9.4) ...` and
+  `Setting up snmp (5.9.15) ...`. The install path in `commands/apt.ts` writes its unversioned
+  line before handing a carried package to `applyUpgrades`, which writes its own. Real apt prints
+  the upgrade block once.
+
 - **CLOSED v0.346.0 — `ps` ran a 12-character command into the PORT column.** `redis-server` is
   exactly as wide as the COMMAND column was, so its row read `redis-server6379`. The column now
   widens to the widest program plus one, header and every row together, as `nmap`'s PORT column
@@ -1012,12 +1020,22 @@ decision, not a gap.
   operative guard. Left that way on purpose: making it load-bearing would mean wiring real machine
   materialization into this handler to produce a value that must never be displayed. If anyone ever
   passes a real resolver here, the vantage becomes load-bearing that moment and needs its own test.
-- **`snmpwalk` of your OWN address has no client-side own-box path.** `snmpwalk.ts` calls the server
-  unconditionally, and the server answers a walk for the box a player is NOT standing on — so
-  walking your own agent times out (`No Response`) even while it runs and a STRANGER's walk of the
-  same box answers. Every other own-box door (`ps`, `cat`, `rediscli 127.0.0.1`) reads locally; the
-  walk is the one that does not, so a player cannot read their own device over SNMP. Surfaced at D8
-  boundary 1, re-confirmed live 2026-08-31; a fix is an own-box branch in `snmpwalk`, deferred.
+- **`snmpwalk` of your OWN address had no client-side own-box path — RESOLVED 2026-10-19
+  (v0.407.0, #705).** The walk always went to the server, whose same-LAN vantage excludes the
+  caller, so walking your own agent timed out while a stranger's walk of the same box answered.
+  At home `localhost`, `127.0.0.1` and the box's own LAN address are now answered client side
+  (`commands/snmpOwnBox.ts`), off the machine as it stands: the same community judgement,
+  identity and port tables as `handleSnmpWalk` (`platformOf` and `portTablesOf` moved into
+  `sessions/snmpAgent.ts` so both read one copy), the same two `snmpd.log` lines, and no filter in
+  the owner's way. On a hop `localhost` is now sent as `127.0.0.1`; it had gone as the bare name,
+  which the server does not place as loopback, so it walked nothing. Played in the browser
+  2026-10-19 on UMBRELLA-NET: both tiers, a wrong guess, a `deny 161`, a stopped agent, the log,
+  and `localhost` from a root shell on the AP gateway.
+- **`snmpset` on your OWN box very likely has the same gap. Found by reading 2026-10-19, not
+  played.** `snmpset.ts` calls `env.snmp.set` unconditionally, so a write to your own agent's table
+  goes to the server, which excludes the caller as the walk's did; and on a hop `localhost` goes as
+  the bare name. The fix is the walk's shape: an own-box branch beside `walkOwnAgent`, and the
+  loopback rewrite.
 - **A wire-check sweep should read 585/585 across 57 scripts; `testFtpSession` spent from #394
   to v0.183.0 red at 12/14 for a FIXTURE reason.** It picked its target because the host serves
   **ftp** (`kind === 'machine' && serves(ftp)` → `babycam-26` on `VSFTPD-LAB`, `ftp:2121`), then

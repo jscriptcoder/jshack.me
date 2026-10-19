@@ -1038,9 +1038,32 @@ agreed order:
     `share-97` and bob held `ftp>` on alice's box; alice's `nmcli disconnect` from a second tab
     closed both rows (`network_left`), and the next `ls` at each prompt printed the `421` and
     returned to that player's shell; an own-box `ftp localhost` still answered normally. No
-    defect. As built: chapter 8 of the handbook. **Pick up here (2026-10-18):** the items still
-    open in `backlog.md`, the agreed work until the owner reopens missions; the next public sites
-    (news, the forum) wait in `backlog.md` for their own grill.
+    defect. As built: chapter 8 of the handbook.
+19. ✅ **Tab moves between a lynx page's links and fields (v0.406.0, PR #704, 2026-10-18).** Only
+    the arrows moved the selection, and a Tab press fell through to the browser around the game,
+    which carried the focus off the lynx screen so the keys after it landed nowhere. Tab now moves
+    down and Shift+Tab up, exactly as the arrows do (clamped at either end), including from inside
+    a field being typed into, and the browser never sees it. Client only (`ui/screens/Lynx.tsx`).
+20. ✅ **`snmpwalk` answers for the agent on your own box (v0.407.0, PR #705, 2026-10-19).** The
+    walk always went to the server, whose same-LAN vantage excludes the caller, so a player's own
+    agent timed out while a stranger's walk of it answered. At home `localhost`, `127.0.0.1` and
+    the box's own LAN address are now answered client side by `commands/snmpOwnBox.ts`, read off
+    the machine as it stands, as the redis and mysql own-box doors are: the same community
+    judgement, identity and port tables as `handleSnmpWalk` (whose `platformOf` and `portTablesOf`
+    moved into `sessions/snmpAgent.ts` so both read one copy), the same two `snmpd.log` lines, and
+    the box's own filter never in its owner's way. On a hop `localhost` is now sent as
+    `127.0.0.1`, which is how the server places loopback; the bare name had walked nothing. No
+    `api/` change. Browser close-out (2026-10-19, v0.407.0, a new player on UMBRELLA-NET at
+    `192.168.170.53`): a walk before `systemctl start snmpd` timed out and left no log; after it,
+    `public` on `localhost` answered `Linux alicebox` with the box's own address, the community
+    the install printed (`qwerty123`) answered read-write on `127.0.0.1`, the own LAN address
+    answered, a wrong community timed out, and with `deny 161` in `rules.v4` the owner's walk still
+    answered and listed `inputPort.161 = deny`; `snmpd.log` held a connection and a verdict line
+    for each walk, from the address used; a stopped agent timed out again; and from a root shell
+    on the AP gateway `snmpwalk localhost` answered as the gateway, logged there from `127.0.0.1`.
+    No defect. Its neighbour, `snmpset` on your own box, is open in `backlog.md`. **Pick up here
+    (2026-10-19):** the items still open in `backlog.md`, the agreed work until the owner reopens
+    missions; the next public sites (news, the forum) wait in `backlog.md` for their own grill.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
