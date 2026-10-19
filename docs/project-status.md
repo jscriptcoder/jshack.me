@@ -1078,9 +1078,25 @@ agreed order:
     address used, and a walk showed the deny; `public`, a forward and an `aclPort` each answered
     the agent's error frame, a wrong community timed out and logged the guess, and a stopped agent
     timed out with the log untouched; from a root shell on the AP gateway a set on `localhost`
-    landed there, logged from `127.0.0.1`. No defect. **Pick up here (2026-10-19):** the items
-    still open in `backlog.md`, the agreed work until the owner reopens missions; the next public
-    sites (news, the forum) wait in `backlog.md` for their own grill.
+    landed there, logged from `127.0.0.1`. No defect.
+22. ✅ **`ping` answers on loopback (v0.409.0, PR #707, 2026-10-19).** `ping localhost` and
+    `ping 127.0.0.1` got `0 received` on your own box: `ping` had no loopback step and looked for a
+    neighbour at that address. Decided by the owner from what a real box does: `localhost` and the
+    whole of `127.0.0.0/8` reply from the box itself, before any network check, so loopback
+    answers with no network and on a hop is the hop; `rules.v4` is never consulted, as real
+    firewalls accept `lo` first. Replies take 0.008–0.08 ms. **The bundle had about 100 B left
+    before this** (284,872 B of the fixed 284,975 B gzipped ceiling), so the fix alone failed the
+    preview's `checkBudgets`; at the owner's choice each of the ten kinds of place now keeps seven
+    ordinary mail threads instead of eight, leaving 941 B (284,034 B). Landmark mailboxes are
+    written from those threads, so `landmarks.test.ts`'s fingerprints moved. The next content
+    change to the main chunk will meet the ceiling again soon. Browser close-out (2026-10-19,
+    v0.409.0, a new player): before any WiFi, `ping localhost` and `ping -c 2 127.5.5.5` replied
+    while `ping 192.168.1.5` still said the network is unreachable; on NAKATOMI-PLAZA at
+    `192.168.91.197`, `localhost` replied, `127.256.0.1` lost every packet and the own LAN address
+    replied at its LAN timing (about 1 ms); from a root shell on the AP gateway `localhost` and
+    `127.0.0.1` replied as the gateway. No defect. **Pick up here (2026-10-19):** the items still
+    open in `backlog.md`, the agreed work until the owner reopens missions; the next public sites
+    (news, the forum) wait in `backlog.md` for their own grill.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

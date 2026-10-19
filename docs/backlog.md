@@ -271,12 +271,11 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   localhost.buy-n-large.lan` fetched the neighbour's page. One thing the run showed is the
   next item.
 
-- **`ping localhost` and `ping 127.0.0.1` get no reply on your own box. Seen in the browser
-  2026-10-12, not a regression.** Both answer `4 packets transmitted, 0 received`, while the
-  box's own LAN address replies. `ping` has no loopback step: it takes the shared name step
-  and then looks for a neighbour at that address. Before v0.364.0 a neighbour named
-  `localhost` would have answered instead. Whether `ping` should answer on loopback is the
-  owner's call; no other command depends on it.
+- **`ping localhost` and `ping 127.0.0.1` got no reply on your own box — RESOLVED 2026-10-19
+  (v0.409.0, #707).** `ping` had no loopback step. The owner decided from what a real box does:
+  `localhost` and all of `127.0.0.0/8` reply from the box itself, with or without a network, and
+  `rules.v4` cannot block it. Left as it is: pinging the box's OWN LAN address still takes a LAN
+  round trip (about 1 ms), where a real box routes it through `lo` at loopback speed.
 
 - **In a visitor's shell on a player's box, `localhost` served less than the box does —
   RESOLVED 2026-10-12 (v0.363.0).** Seen in the browser 2026-10-11. The owner had published
