@@ -7,37 +7,29 @@
  * refused before anything else is looked at, with no word about where one comes from.
  *
  * What was typed is checked here before the store is asked, so a post that is refused
- * spends neither a password check nor a place under the hourly cap. Line endings are made
- * one kind first, then any other control character refuses the post: the forum is plain
- * text, and a character a terminal would act on has no place in it. Then the title must
- * be one line, both are trimmed, and their lengths are counted as a reader counts them.
- * What passes is handed on exactly as typed, never escaped: every page escapes it, the
- * same way, every time it is shown.
+ * spends neither a password check nor a place under the hourly cap. The checks are a
+ * comment's too (`writing.ts`), and a title must also be one line. What passes is handed
+ * on exactly as typed, never escaped: every page escapes it, the same way, every time it
+ * is shown.
  *
  * The store is handed the md5 of the password, never the password, as emailit.io's is.
  */
 
 import { z } from 'zod';
 import { md5 } from '../generation/md5.js';
-import { EMAILIT_DOMAIN } from '../generation/fixedSites.js';
 import type { MailLogin } from '../commands/types.js';
 import { notPostedPage, postedPage } from './pages.js';
+import {
+  BODY_LIMIT,
+  NOT_LOGGED_IN,
+  STORE_REFUSALS,
+  charactersIn,
+  holdsControl,
+  storeRefusal,
+  withLineBreaks,
+} from './writing.js';
 
 const TITLE_LIMIT = 80;
-const BODY_LIMIT = 4000;
-
-/** The first character a terminal prints rather than acts on, and DEL, the one after the
- *  printable run that it acts on too. */
-const FIRST_PRINTABLE = 0x20;
-const DEL = 0x7f;
-
-/** Whether `text` holds a C0 control or DEL: a character a terminal acts on rather than
- *  prints. A line break is one too, so a body's line breaks are taken out before asking. */
-const holdsControl = (text: string): boolean =>
-  [...text].some((character) => {
-    const code = character.codePointAt(0) ?? FIRST_PRINTABLE;
-    return code < FIRST_PRINTABLE || code === DEL;
-  });
 
 /** The thread the store is asked to post. */
 export type NewThread = {
@@ -58,9 +50,7 @@ export type PostThread = (
 /** The store's word for what it did. `posted` names the new thread. */
 const postOutcomeSchema = z.discriminatedUnion('outcome', [
   z.object({ outcome: z.literal('posted'), id: z.number().int().positive() }),
-  z.object({ outcome: z.literal('login_failed') }),
-  z.object({ outcome: z.literal('throttled') }),
-  z.object({ outcome: z.literal('capped') }),
+  ...STORE_REFUSALS,
 ]);
 
 /** The page a post answers with, and the thread it posted, for the log; null when
@@ -72,16 +62,14 @@ export type PostAnswer = {
 
 const refused = (reason: string): PostAnswer => ({ page: notPostedPage(reason), posted: null });
 
-const charactersIn = (text: string): number => [...text].length;
-
 /** What is wrong with a title and a body as typed, or the two as they are to be kept. */
 const checked = (
   typedTitle: string,
   typedBody: string,
 ): { readonly refusal: string } | { readonly title: string; readonly body: string } => {
-  const title = typedTitle.replace(/\r\n?/g, '\n');
-  const body = typedBody.replace(/\r\n?/g, '\n');
-  if (holdsControl(title.replace(/\n/g, '')) || holdsControl(body.replace(/\n/g, ''))) {
+  const title = withLineBreaks(typedTitle);
+  const body = withLineBreaks(typedBody);
+  if (holdsControl(title) || holdsControl(body)) {
     return { refusal: 'A post cannot hold control characters.' };
   }
   const trimmedTitle = title.trim();
@@ -109,7 +97,7 @@ export const answerPost = async ({
   readonly playerKey: string;
   readonly postThread: PostThread;
 }): Promise<PostAnswer | null> => {
-  if (login === null) return refused('Not logged in to emailit.io.');
+  if (login === null) return refused(NOT_LOGGED_IN);
 
   const fields = new URLSearchParams(form);
   const thread = checked(fields.get('title') ?? '', fields.get('body') ?? '');
@@ -133,9 +121,5 @@ export const answerPost = async ({
       posted: { id: outcome.id, handle: login.handle },
     };
   }
-  if (outcome.outcome === 'login_failed') {
-    return refused(`Login failed for ${login.handle}@${EMAILIT_DOMAIN}.`);
-  }
-  if (outcome.outcome === 'throttled') return refused('Too many failed logins. Wait a minute.');
-  return refused('You have posted 20 times in the last hour. Wait a while.');
+  return refused(storeRefusal(outcome.outcome, login.handle));
 };

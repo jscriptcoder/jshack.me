@@ -158,7 +158,25 @@ export const postedPage = ({ handle, id }: { readonly handle: string; readonly i
     ],
   });
 
-/** What a refused post answers with: why, in a sentence that may name the handle the
+/** What a comment answers with once it is up: who it went up as, and the way back to the
+ *  thread it is under. */
+export const commentedPage = ({
+  handle,
+  threadId,
+}: {
+  readonly handle: string;
+  readonly threadId: number;
+}) =>
+  talkitDocument({
+    title: 'Commented - talkit.io',
+    body: [
+      `<p>Commented as ${escapeHtml(handle)}.</p>`,
+      `<p><a href="/thread?id=${threadId}">Back to the thread</a></p>`,
+      BACK_TO_FRONT,
+    ],
+  });
+
+/** What a refused post or comment answers with: why, in a sentence that may name the handle the
  *  login gave, which is escaped as everything a player sent is. */
 export const notPostedPage = (reason: string): string =>
   talkitDocument({

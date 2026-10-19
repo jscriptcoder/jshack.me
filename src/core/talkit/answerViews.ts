@@ -17,7 +17,7 @@ const PAGE_LENGTH = 20;
 const PAGE_NUMBER = /^[1-9][0-9]{0,5}$/;
 
 /** A thread id: no sign, no leading zero, and short enough to stay exact as a number. */
-const THREAD_ID = /^[1-9][0-9]{0,14}$/;
+export const THREAD_ID = /^[1-9][0-9]{0,14}$/;
 
 /** A read off the forum's table. Typed as unknown because the rows come off the wire,
  *  and are parsed before they are used. */
