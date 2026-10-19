@@ -42,13 +42,24 @@ import { createFsView } from '../filesystem/fsView.js';
 import { HTTP_DEFAULT_PORT, METHOD_NOT_ALLOWED_PAGE, resolveWebPath } from './http.js';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import { generatedLanBox } from './generatedLanBox.js';
-import { CHAINIT_NETWORK, EMAILIT_NETWORK, FINDIT_NETWORK } from '../generation/fixedSites.js';
+import {
+  CHAINIT_NETWORK,
+  EMAILIT_NETWORK,
+  FINDIT_NETWORK,
+  TALKIT_NETWORK,
+} from '../generation/fixedSites.js';
 import { answerSignup, type SignUp } from '../emailit/signup.js';
 import { indexedWeb, siteOn, type MachinePatchRow } from '../findit/webIndex.js';
 import { rankPages } from '../findit/search.js';
 import { searchResultsPage } from '../findit/page.js';
 import { answerAddress, type LedgerReads } from '../chainit/answerAddress.js';
 import { answerRecent, answerRich, type ChainReads } from '../chainit/chainViews.js';
+import {
+  answerThread,
+  answerThreads,
+  type ForumReads,
+  type ViewAnswer,
+} from '../talkit/answerViews.js';
 import {
   ACCESS_LOG_OWNER,
   ACCESS_LOG_PATH,
@@ -143,7 +154,8 @@ export type ResolveHttpFetchDeps = WebTargetDeps & {
   /** Open an emailit.io account. Only a form POSTed to emailit's `/signup` reaches it. */
   readonly signUp: SignUp;
 } & LedgerReads &
-  ChainReads;
+  ChainReads &
+  ForumReads;
 
 const UNREACHABLE: HandlerResponse = { status: 404, body: { error: 'host_unreachable' } };
 const NOT_FOUND: HandlerResponse = { status: 404, body: { error: 'not_found' } };
@@ -409,6 +421,16 @@ const CHAINIT_VIEWS = new Map<
   ['/rich', (_requestPath, ledger) => answerRich(ledger)],
 ]);
 
+/** The paths talkit.io answers from the forum's table: the thread list, and one thread.
+ *  Like chainit's views, never a file, whatever a root writes at their paths. */
+const TALKIT_VIEWS = new Map<
+  string,
+  (requestPath: string, forum: ForumReads) => Promise<ViewAnswer>
+>([
+  ['/threads', answerThreads],
+  ['/thread', answerThread],
+]);
+
 /** A request path without its query string. */
 const pathOf = (requestPath: string): string => requestPath.split('?')[0] ?? requestPath;
 
@@ -522,6 +544,26 @@ export const handleResolveHttpFetch = async (
       size: page.length,
     });
     return { status: 200, body: { ok: true, content: page, server: target.server } };
+  }
+
+  // talkit answers its views from the forum's table: a root on talkit can deface its
+  // front page or plant a file at a view's path, but cannot change what a player wrote.
+  // Reached only after the target resolved, so a dark talkit answers no view at all.
+  const forumView =
+    target.essid === TALKIT_NETWORK ? TALKIT_VIEWS.get(pathOf(payload.path)) : undefined;
+  if (forumView !== undefined) {
+    const answer = await forumView(payload.path, deps);
+    // No page was served, so nothing is recorded — as for chainit's failed read.
+    if (answer === null) return { status: 500, body: { error: 'forum_lookup_failed' } };
+    const content = answer.status === 200 ? answer.page : '';
+    await logFetch(deps, target, publicKey, standing.standingEssid, {
+      path: payload.path,
+      status: answer.status,
+      size: content.length,
+    });
+    return answer.status === 200
+      ? { status: 200, body: { ok: true, content, server: target.server } }
+      : NOT_FOUND;
   }
 
   // findit answers a search from a function; every other address, and every other path

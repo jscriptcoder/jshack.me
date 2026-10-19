@@ -2031,6 +2031,12 @@ describe('mail — what the manual promises', () => {
     expect(description).toContain('says once that the login failed, and stops asking with it');
   });
 
+  it('ends by naming the forum the same login signs posts on', () => {
+    expect(mail.manual?.description ?? '').toMatch(
+      / The same login signs your posts on talkit\.io, the valley's forum\.$/,
+    );
+  });
+
   it('shows examples that each run as a mail with a saved login runs them', async () => {
     const shown = (mail.manual?.examples ?? [])
       .map((example) => example.command.split(' '))

@@ -990,6 +990,24 @@ describe('chainit.io, on the web findit searches', () => {
   });
 });
 
+describe('talkit.io, on the web findit searches', () => {
+  it('comes first for anybody who asks for a forum', async () => {
+    expect(rankPages(await indexWith(), 'forum')[0]?.address).toBe('talkit.io');
+  });
+
+  it('is found by its own name', async () => {
+    expect(rankPages(await indexWith(), 'talkit').map((page) => page.address)).toContain(
+      'talkit.io',
+    );
+  });
+
+  it('is listed by what it says of itself: a forum, and how to sign in', async () => {
+    expect((await found('talkit.io'))?.description).toBe(
+      'A forum for the whole valley: start a thread, or join one. Sign in with your emailit.io account.',
+    );
+  });
+});
+
 describe('the map of the world, on the web findit searches', () => {
   it('comes first for anybody who asks for a map', async () => {
     expect(rankPages(await indexWith(), 'map')[0]?.address).toBe('mapit.io');

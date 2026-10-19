@@ -40,12 +40,15 @@ import {
   FINDIT_DOMAIN,
   FINDIT_NETWORK,
   HACKADEMY_NETWORK,
+  TALKIT_NETWORK,
 } from '../generation/fixedSites.js';
 import type { SignUp } from '../emailit/signup.js';
 import { FINDIT_FRONT_PAGE } from '../findit/page.js';
 import { EMAILIT_FRONT_PAGE } from '../emailit/pages.js';
 import { CHAINIT_FRONT_PAGE } from '../chainit/pages.js';
 import type { ChainReads } from '../chainit/chainViews.js';
+import { TALKIT_FRONT_PAGE } from '../talkit/pages.js';
+import type { ForumReads } from '../talkit/answerViews.js';
 import type { WalletBalanceDeps } from '../wallet/handleWalletBalance.js';
 import type { WalletHistoryDeps } from '../wallet/handleWalletHistory.js';
 import type { MachinePatchRow } from '../findit/webIndex.js';
@@ -205,6 +208,8 @@ type FetchOverrides = {
   findTransfers?: WalletHistoryDeps['findTransfers'];
   findLatestTransfers?: ChainReads['findLatestTransfers'];
   findLargestBalances?: ChainReads['findLargestBalances'];
+  findThreads?: ForumReads['findThreads'];
+  findThread?: ForumReads['findThread'];
 };
 
 const makeDeps = (over: FetchOverrides = {}) => {
@@ -256,6 +261,13 @@ const makeDeps = (over: FetchOverrides = {}) => {
   const findLargestBalances = vi.fn<ChainReads['findLargestBalances']>(
     over.findLargestBalances ?? (async () => ({ data: [], error: null })),
   );
+  // Default: nobody has started a thread. Only talkit's `/threads` and `/thread` ever ask.
+  const findThreads = vi.fn<ForumReads['findThreads']>(
+    over.findThreads ?? (async () => ({ data: [], error: null })),
+  );
+  const findThread = vi.fn<ForumReads['findThread']>(
+    over.findThread ?? (async () => ({ data: null, error: null })),
+  );
   const deps: ResolveHttpFetchDeps = {
     nonceStore: freshStore,
     findPatchesForMachines,
@@ -274,6 +286,8 @@ const makeDeps = (over: FetchOverrides = {}) => {
     findTransfers,
     findLatestTransfers,
     findLargestBalances,
+    findThreads,
+    findThread,
   };
   return {
     deps,
@@ -282,6 +296,8 @@ const makeDeps = (over: FetchOverrides = {}) => {
     findTransfers,
     findLatestTransfers,
     findLargestBalances,
+    findThreads,
+    findThread,
     findNetworkByPublicIp,
     findPatches,
     listOccupantsByEssid,
@@ -1873,6 +1889,370 @@ describe('chainit.io lists the whole chain from the ledger', () => {
       expect(findLargestBalances).not.toHaveBeenCalled();
     },
   );
+});
+
+describe('talkit.io answers the forum from its table', () => {
+  const TALKIT_IP = siteAddress('talkit.io') ?? '';
+  const TALKIT_ID = computeApGatewayId(TALKIT_NETWORK);
+  const onTalkit = {
+    lookup: async () => ({
+      data: { router_machine_id: TALKIT_ID, essid: TALKIT_NETWORK },
+      error: null,
+    }),
+    listOccupantsByEssid: async () => ({ data: [], error: null }),
+    listLeasesByEssid: async () => ({ data: [], error: null }),
+  };
+  const listRow = (id: number, overrides: Record<string, unknown> = {}) => ({
+    id,
+    title: `Thread ${id}`,
+    author: 'neo',
+    comment_count: 0,
+    last_activity_at: '2026-10-19T08:30:12+00:00',
+    ...overrides,
+  });
+  const WELCOME = {
+    id: 1,
+    title: 'Welcome to talkit.io',
+    author: 'talkit',
+    body: 'This is the forum for the whole valley.\nPosts are permanent.',
+    created_at: '2026-10-19T08:30:12+00:00',
+  };
+  /** A forum of `count` threads, the most recently active first, read the way the
+   *  table is: `limit` rows from `offset`. */
+  const forumOf = (count: number) => {
+    const rows = Array.from({ length: count }, (_unused, index) => listRow(count - index));
+    return {
+      findThreads: async (offset: number, limit: number) => ({
+        data: rows.slice(offset, offset + limit),
+        error: null,
+      }),
+      findThread: async (id: number) => ({ data: id === 1 ? WELCOME : null, error: null }),
+    };
+  };
+  const fetchPath = (path: string, fields: Record<string, unknown> = {}) =>
+    signRequest(BOB, 'resolveHttpFetch', {
+      target: TALKIT_IP,
+      port: HTTP_DEFAULT_PORT,
+      path,
+      ...fields,
+    });
+  const contentOf = (response: { body: Record<string, unknown> }): string =>
+    typeof response.body.content === 'string' ? response.body.content : '';
+  const accessLogOf = (upsertPatch: ReturnType<typeof makeDeps>['upsertPatch']) =>
+    upsertPatch.mock.calls.map(([row]) => row).find((row) => row.path === ACCESS_LOG_PATH);
+  /** talkit's access log, a line at a time: a line's last field is the size served. */
+  const loggedLines = (upsertPatch: ReturnType<typeof makeDeps>['upsertPatch']) =>
+    (accessLogOf(upsertPatch)?.content ?? '').split('\n');
+  const threadLinks = (page: string): readonly string[] =>
+    [...page.matchAll(/href="\/thread\?id=(\d+)"/g)].map((match) => match[1] ?? '');
+  const pagingLinks = (page: string): readonly string[] =>
+    [...page.matchAll(/<a href="(\/threads\?page=\d+)">(newer|older)<\/a>/g)].map(
+      (match) => `${match[2]} ${match[1]}`,
+    );
+
+  it('lists the welcome thread on a fresh forum', async () => {
+    const { deps, findThreads } = makeDeps({ ...onTalkit, ...forumOf(1) });
+
+    const response = await handleResolveHttpFetch(fetchPath('/threads'), deps);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ ok: true, server: 'nginx' });
+    expect(contentOf(response)).toContain(
+      '<a href="/thread?id=1">Thread 1</a><br>by neo, 0 comments, last 2026-10-19 08:30',
+    );
+    expect(findThreads).toHaveBeenCalledWith(0, 21);
+  });
+
+  it('shows the 20 most recently active threads first, with the way to older ones', async () => {
+    const { deps } = makeDeps({ ...onTalkit, ...forumOf(45) });
+
+    const page = contentOf(await handleResolveHttpFetch(fetchPath('/threads'), deps));
+
+    expect(threadLinks(page)).toEqual(
+      Array.from({ length: 20 }, (_unused, index) => String(45 - index)),
+    );
+    expect(pagingLinks(page)).toEqual(['older /threads?page=2']);
+  });
+
+  it('shows the next 20 on page 2, both ways linked', async () => {
+    const { deps, findThreads } = makeDeps({ ...onTalkit, ...forumOf(45) });
+
+    const page = contentOf(await handleResolveHttpFetch(fetchPath('/threads?page=2'), deps));
+
+    expect(threadLinks(page)).toEqual(
+      Array.from({ length: 20 }, (_unused, index) => String(25 - index)),
+    );
+    expect(pagingLinks(page)).toEqual(['newer /threads?page=1', 'older /threads?page=3']);
+    expect(findThreads).toHaveBeenCalledWith(20, 21);
+  });
+
+  it('shows the last 5 on page 3, with no way further back', async () => {
+    const { deps } = makeDeps({ ...onTalkit, ...forumOf(45) });
+
+    const page = contentOf(await handleResolveHttpFetch(fetchPath('/threads?page=3'), deps));
+
+    expect(threadLinks(page)).toEqual(['5', '4', '3', '2', '1']);
+    expect(pagingLinks(page)).toEqual(['newer /threads?page=2']);
+  });
+
+  it('shows no way back when a page is exactly full', async () => {
+    const { deps } = makeDeps({ ...onTalkit, ...forumOf(40) });
+
+    const page = contentOf(await handleResolveHttpFetch(fetchPath('/threads?page=2'), deps));
+
+    expect(threadLinks(page)).toHaveLength(20);
+    expect(pagingLinks(page)).toEqual(['newer /threads?page=1']);
+  });
+
+  it('says a page past the end holds no threads', async () => {
+    const { deps } = makeDeps({ ...onTalkit, ...forumOf(45) });
+
+    const response = await handleResolveHttpFetch(fetchPath('/threads?page=9'), deps);
+
+    expect(response.status).toBe(200);
+    expect(contentOf(response)).toContain('<p>No threads here.</p>');
+  });
+
+  it('reads the farthest page a reader can ask for', async () => {
+    const { deps, findThreads } = makeDeps({ ...onTalkit, ...forumOf(1) });
+
+    await handleResolveHttpFetch(fetchPath('/threads?page=999999'), deps);
+
+    expect(findThreads).toHaveBeenCalledWith(19_999_960, 21);
+  });
+
+  it.each(['0', 'x', '-1', '', '01', '1.5', '1000000'])(
+    'answers page "%s" with no such page, and reads nothing',
+    async (asked) => {
+      const { deps, findThreads, upsertPatch } = makeDeps({ ...onTalkit, ...forumOf(45) });
+
+      const response = await handleResolveHttpFetch(fetchPath(`/threads?page=${asked}`), deps);
+
+      expect(response.status).toBe(200);
+      expect(contentOf(response)).toContain('<p>No such page.</p>');
+      expect(findThreads).not.toHaveBeenCalled();
+      expect(accessLogOf(upsertPatch)?.content).toContain('HTTP/1.1" 200 ');
+    },
+  );
+
+  it('shows a thread: its title, its author and time, and its body', async () => {
+    const { deps, findThread } = makeDeps({ ...onTalkit, ...forumOf(1) });
+
+    const response = await handleResolveHttpFetch(fetchPath('/thread?id=1'), deps);
+
+    expect(response.status).toBe(200);
+    expect(contentOf(response)).toContain('<h2>Welcome to talkit.io</h2>');
+    expect(contentOf(response)).toContain('<p>by talkit, 2026-10-19 08:30</p>');
+    expect(contentOf(response)).toContain(
+      '<p>This is the forum for the whole valley.<br>Posts are permanent.</p>',
+    );
+    expect(findThread).toHaveBeenCalledWith(1);
+  });
+
+  it('answers a thread nobody started as a page that is not there', async () => {
+    const { deps, findThread, upsertPatch } = makeDeps({ ...onTalkit, ...forumOf(1) });
+
+    const response = await handleResolveHttpFetch(fetchPath('/thread?id=999999'), deps);
+
+    expect(response).toEqual({ status: 404, body: { error: 'not_found' } });
+    expect(findThread).toHaveBeenCalledWith(999999);
+    // A 404 is a served response, and the one a defender most needs to see.
+    expect(loggedLines(upsertPatch)).toContainEqual(
+      expect.stringMatching(/"GET \/thread\?id=999999 HTTP\/1\.1" 404 0$/),
+    );
+  });
+
+  it('reads the longest id a thread can have', async () => {
+    const { deps, findThread } = makeDeps({ ...onTalkit, ...forumOf(1) });
+
+    await handleResolveHttpFetch(fetchPath('/thread?id=999999999999999'), deps);
+
+    expect(findThread).toHaveBeenCalledWith(999_999_999_999_999);
+  });
+
+  it.each([
+    '/thread?id=abc',
+    '/thread?id=',
+    '/thread',
+    '/thread?id=0',
+    '/thread?id=01',
+    '/thread?id=1000000000000000',
+  ])('answers %s as a page that is not there, and reads nothing', async (path) => {
+    const { deps, findThread, upsertPatch } = makeDeps({ ...onTalkit, ...forumOf(1) });
+
+    const response = await handleResolveHttpFetch(fetchPath(path), deps);
+
+    expect(response).toEqual({ status: 404, body: { error: 'not_found' } });
+    expect(findThread).not.toHaveBeenCalled();
+    expect(
+      loggedLines(upsertPatch).some((line) => line.endsWith(`"GET ${path} HTTP/1.1" 404 0`)),
+    ).toBe(true);
+  });
+
+  it.each(['/threads', '/threads?page=2', '/thread?id=1'])(
+    'records a look at %s in its own log, as asked, traced to the visitor',
+    async (path) => {
+      const { deps, upsertPatch } = makeDeps({ ...onTalkit, ...forumOf(45) });
+
+      await handleResolveHttpFetch(fetchPath(path), deps);
+
+      const logged = accessLogOf(upsertPatch);
+      expect(logged?.machine_id).toBe(TALKIT_ID);
+      expect(logged?.content).toContain(`${BOB_PUBLIC_IP} `);
+      expect(logged?.content).toContain(`"GET ${path} HTTP/1.1" 200 `);
+    },
+  );
+
+  it('serves its front page from its disk', async () => {
+    const { deps } = makeDeps(onTalkit);
+
+    expect(contentOf(await handleResolveHttpFetch(fetchPath('/'), deps))).toBe(TALKIT_FRONT_PAGE);
+  });
+
+  it('serves a front page a root rewrote, as the file it is', async () => {
+    const { deps } = makeDeps({
+      ...onTalkit,
+      patches: patchesByMachine({ [TALKIT_ID]: [publishedPage('<html>DEFACED</html>')] }),
+    });
+
+    expect(contentOf(await handleResolveHttpFetch(fetchPath('/'), deps))).toBe(
+      '<html>DEFACED</html>',
+    );
+  });
+
+  it.each([
+    ['/threads', 'threads', 'Thread 1'],
+    ['/thread?id=1', 'thread', 'Welcome to talkit.io'],
+  ])('answers %s from the table whatever a root has written there', async (path, planted, said) => {
+    const { deps } = makeDeps({
+      ...onTalkit,
+      ...forumOf(1),
+      patches: patchesByMachine({ [TALKIT_ID]: [publishedPage('<html>FORGED</html>', planted)] }),
+    });
+
+    const page = contentOf(await handleResolveHttpFetch(fetchPath(path), deps));
+
+    expect(page).toContain(said);
+    expect(page).not.toContain('FORGED');
+  });
+
+  it.each([
+    ['/threads/', 'threads/index.html'],
+    ['/thread.html', 'thread.html'],
+  ])('serves %s from its disk, like any other path', async (path, planted) => {
+    const { deps, findThreads, findThread } = makeDeps({
+      ...onTalkit,
+      ...forumOf(1),
+      patches: patchesByMachine({ [TALKIT_ID]: [publishedPage('<html>OWNED</html>', planted)] }),
+    });
+
+    expect(contentOf(await handleResolveHttpFetch(fetchPath(path), deps))).toBe(
+      '<html>OWNED</html>',
+    );
+    expect(findThreads).not.toHaveBeenCalled();
+    expect(findThread).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['/threads', 'bricked', '/boot/vmlinuz'],
+    ['/thread?id=1', 'bricked', '/boot/vmlinuz'],
+    ['/threads', 'whose web server was stopped', `/var/run/${SERVICE_CATALOG.http.pidfile}`],
+    ['/thread?id=1', 'whose web server was stopped', `/var/run/${SERVICE_CATALOG.http.pidfile}`],
+  ])('answers nothing at %s when the box is %s', async (path, _case, removed) => {
+    const { deps, findThreads, findThread } = makeDeps({
+      ...onTalkit,
+      ...forumOf(1),
+      patches: patchesByMachine({
+        [TALKIT_ID]: [{ ...publishedPage(''), path: removed, content: null, node_type: null }],
+      }),
+    });
+
+    expect(await handleResolveHttpFetch(fetchPath(path), deps)).toEqual({
+      status: 404,
+      body: { error: 'host_unreachable' },
+    });
+    expect(findThreads).not.toHaveBeenCalled();
+    expect(findThread).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      '/threads',
+      'cannot be read',
+      // Rows that would parse, beside the error: the error alone has to fail the view.
+      { findThreads: async () => ({ data: [listRow(1)], error: new Error('down') }) },
+    ],
+    [
+      '/threads',
+      'hands back a row that is not a thread',
+      {
+        findThreads: async () => ({
+          data: [listRow(2), listRow(1, { last_activity_at: 'never' })],
+          error: null,
+        }),
+      },
+    ],
+    [
+      '/thread?id=1',
+      'cannot be read',
+      { findThread: async () => ({ data: WELCOME, error: new Error('down') }) },
+    ],
+    [
+      '/thread?id=1',
+      'hands back a row that is not a thread',
+      { findThread: async () => ({ data: { ...WELCOME, body: 42 }, error: null }) },
+    ],
+  ])('fails %s, and records nothing, when the forum %s', async (path, _case, broken) => {
+    const { deps, upsertPatch } = makeDeps({ ...onTalkit, ...forumOf(1), ...broken });
+
+    const response = await handleResolveHttpFetch(fetchPath(path), deps);
+
+    expect(response).toEqual({ status: 500, body: { error: 'forum_lookup_failed' } });
+    expect(accessLogOf(upsertPatch)).toBeUndefined();
+  });
+
+  it.each(['/threads', '/thread?id=1'])('takes no form at %s yet', async (path) => {
+    const { deps, findThreads, findThread } = makeDeps({ ...onTalkit, ...forumOf(1) });
+
+    const response = await handleResolveHttpFetch(fetchPath(path, { body: 'a=1' }), deps);
+
+    expect(response).toEqual({
+      status: 405,
+      body: { error: 'method_not_allowed', server: 'nginx' },
+    });
+    expect(findThreads).not.toHaveBeenCalled();
+    expect(findThread).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [CHAINIT_NETWORK, 'chainit.io'],
+    [HACKADEMY_NETWORK, 'hackademy.io'],
+  ])('leaves %s to serve the forum paths from its own disk', async (network, domain) => {
+    const { deps, findThreads, findThread } = makeDeps({
+      ...forumOf(1),
+      lookup: async () => ({
+        data: { router_machine_id: computeApGatewayId(network), essid: network },
+        error: null,
+      }),
+      listOccupantsByEssid: async () => ({ data: [], error: null }),
+      listLeasesByEssid: async () => ({ data: [], error: null }),
+    });
+
+    for (const path of ['/threads', '/thread?id=1']) {
+      expect(
+        await handleResolveHttpFetch(
+          signRequest(BOB, 'resolveHttpFetch', {
+            target: siteAddress(domain) ?? '',
+            port: HTTP_DEFAULT_PORT,
+            path,
+          }),
+          deps,
+        ),
+      ).toEqual({ status: 404, body: { error: 'not_found' } });
+    }
+    expect(findThreads).not.toHaveBeenCalled();
+    expect(findThread).not.toHaveBeenCalled();
+  });
 });
 
 describe('hackademy.io serves its pages to anybody who asks', () => {

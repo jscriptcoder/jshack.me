@@ -47,12 +47,14 @@ import { HACKADEMY_PAGES } from '../hackademy/pages.js';
 import { MAPIT_PAGES } from '../mapit/pages.js';
 import { EMAILIT_FRONT_PAGE } from '../emailit/pages.js';
 import { CHAINIT_FRONT_PAGE } from '../chainit/pages.js';
+import { TALKIT_FRONT_PAGE } from '../talkit/pages.js';
 import {
   CHAINIT_NETWORK,
   EMAILIT_NETWORK,
   FINDIT_NETWORK,
   HACKADEMY_NETWORK,
   MAPIT_NETWORK,
+  TALKIT_NETWORK,
   type FixedSite,
 } from './fixedSites.js';
 
@@ -74,6 +76,7 @@ const WEB_ROOTS: ReadonlyMap<string, Readonly<Record<string, string>>> = new Map
   [MAPIT_NETWORK, MAPIT_PAGES],
   [EMAILIT_NETWORK, { 'index.html': EMAILIT_FRONT_PAGE, signup: EMAILIT_FRONT_PAGE }],
   [CHAINIT_NETWORK, { 'index.html': CHAINIT_FRONT_PAGE }],
+  [TALKIT_NETWORK, { 'index.html': TALKIT_FRONT_PAGE }],
 ]);
 
 /** The site whose box keeps everybody's mail. Its files are not generated: the server lays
