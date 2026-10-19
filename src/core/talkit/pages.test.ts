@@ -51,12 +51,13 @@ const links = (elements: readonly Element[]) =>
     })),
   );
 
-const PAGES = {
-  front: TALKIT_FRONT_PAGE,
-  list: threadsPage({ page: 1, threads: [listing()], hasOlder: false }),
-  thread: threadPage(thread()),
-  'no such page': NO_SUCH_PAGE,
-};
+/** Every kind of page, each built when a test asks for it. */
+const PAGES: readonly (readonly [string, () => string])[] = [
+  ['front', () => TALKIT_FRONT_PAGE],
+  ['list', () => threadsPage({ page: 1, threads: [listing()], hasOlder: false })],
+  ['thread', () => threadPage(thread())],
+  ['no such page', () => NO_SUCH_PAGE],
+];
 
 const INJECTIONS = [
   '<script>alert(1)</script>',
@@ -68,15 +69,26 @@ const INJECTIONS = [
 ] as const;
 
 describe("talkit.io's pages", () => {
-  it.each(Object.entries(PAGES))(
-    'the %s page opens with the forum and a link to the threads',
-    (_name, page) => {
-      const document = parsed(page);
-      expect(document.querySelector('h1')?.textContent).toBe('talkit.io');
-      expect(links([...document.body.children].slice(1, 2))).toEqual([
-        { text: 'Threads', href: '/threads' },
-      ]);
-      expect(document.body.children[2]?.tagName).toBe('HR');
+  it.each(PAGES)('the %s page opens with the forum and a link to the threads', (_name, build) => {
+    const document = parsed(build());
+    expect(document.querySelector('h1')?.textContent).toBe('talkit.io');
+    expect(links([...document.body.children].slice(1, 2))).toEqual([
+      { text: 'Threads', href: '/threads' },
+    ]);
+    expect(document.body.children[2]?.tagName).toBe('HR');
+  });
+
+  it.each(PAGES)('the %s page is a whole document, as curl prints it', (_name, build) => {
+    const page = build();
+    expect(page).toMatch(/^<html>\n<head>\n<title>[^\n]*<\/title>\n/);
+    expect(page).toContain('\n</head>\n<body>\n<h1>talkit.io</h1>\n');
+    expect(page).toMatch(/\n<\/body>\n<\/html>\n$/);
+  });
+
+  it.each(PAGES.filter(([name]) => name !== 'front'))(
+    'only the front page describes itself to a search engine, not the %s page',
+    (_name, build) => {
+      expect(build()).toMatch(/^<html>\n<head>\n<title>[^\n]*<\/title>\n<\/head>\n/);
     },
   );
 
@@ -160,6 +172,12 @@ describe("talkit.io's pages", () => {
         { text: 'newer', href: '/threads?page=1' },
         { text: 'older', href: '/threads?page=3' },
       ]);
+      expect(contentText(page).at(-1)).toBe('newer | older');
+    });
+
+    it('ends a lone page with its last thread, and no paging line', () => {
+      const page = threadsPage({ page: 1, threads: [listing()], hasOlder: false });
+      expect(page).toContain('last 2026-10-19 08:30</p>\n</body>');
     });
 
     it('says when a page holds no threads', () => {

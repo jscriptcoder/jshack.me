@@ -1940,6 +1940,9 @@ describe('talkit.io answers the forum from its table', () => {
     typeof response.body.content === 'string' ? response.body.content : '';
   const accessLogOf = (upsertPatch: ReturnType<typeof makeDeps>['upsertPatch']) =>
     upsertPatch.mock.calls.map(([row]) => row).find((row) => row.path === ACCESS_LOG_PATH);
+  /** talkit's access log, a line at a time: a line's last field is the size served. */
+  const loggedLines = (upsertPatch: ReturnType<typeof makeDeps>['upsertPatch']) =>
+    (accessLogOf(upsertPatch)?.content ?? '').split('\n');
   const threadLinks = (page: string): readonly string[] =>
     [...page.matchAll(/href="\/thread\?id=(\d+)"/g)].map((match) => match[1] ?? '');
   const pagingLinks = (page: string): readonly string[] =>
@@ -2054,7 +2057,9 @@ describe('talkit.io answers the forum from its table', () => {
     expect(response).toEqual({ status: 404, body: { error: 'not_found' } });
     expect(findThread).toHaveBeenCalledWith(999999);
     // A 404 is a served response, and the one a defender most needs to see.
-    expect(accessLogOf(upsertPatch)?.content).toContain('"GET /thread?id=999999 HTTP/1.1" 404 ');
+    expect(loggedLines(upsertPatch)).toContainEqual(
+      expect.stringMatching(/"GET \/thread\?id=999999 HTTP\/1\.1" 404 0$/),
+    );
   });
 
   it('reads the longest id a thread can have', async () => {
@@ -2079,7 +2084,9 @@ describe('talkit.io answers the forum from its table', () => {
 
     expect(response).toEqual({ status: 404, body: { error: 'not_found' } });
     expect(findThread).not.toHaveBeenCalled();
-    expect(accessLogOf(upsertPatch)?.content).toContain(`"GET ${path} HTTP/1.1" 404 `);
+    expect(
+      loggedLines(upsertPatch).some((line) => line.endsWith(`"GET ${path} HTTP/1.1" 404 0`)),
+    ).toBe(true);
   });
 
   it.each(['/threads', '/threads?page=2', '/thread?id=1'])(
