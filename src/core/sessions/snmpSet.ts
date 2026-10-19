@@ -31,34 +31,13 @@ import { resolveCallerVantageOn, type CallerVantageDeps } from './callerVantage.
 import {
   agentStamp,
   appendSnmpdLog,
-  communityTier,
   contactLines,
-  deviceKind,
+  judgeSnmpSet,
   type SnmpTraceDeps,
 } from './snmpAgent.js';
 import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import { formatSnmpdSetLine } from '../logging/snmpdLog.js';
-import {
-  parseForwardRules,
-  parseInputDenies,
-  readRulesV4,
-  withForward,
-  withInputDeny,
-  RULES_V4_OWNER,
-  RULES_V4_PATH,
-  RULES_V4_PERMISSIONS,
-} from '../network/iptablesRules.js';
-import {
-  parseAclDenies,
-  readAclConf,
-  withDeny,
-  ACL_CONF_OWNER,
-  ACL_CONF_PATH,
-  ACL_CONF_PERMISSIONS,
-} from '../network/switchAcl.js';
-import { describeSet, parseSnmpSet, type SnmpSetRefusal, type SnmpSetTarget } from '../snmp/set.js';
-import type { SnmpDeviceKind } from '../snmp/walk.js';
-import type { Directory } from '../filesystem/types.js';
+import type { SnmpSetRefusal } from '../snmp/set.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 export type SnmpSetDeps = ServiceHostLookup &
@@ -99,100 +78,6 @@ const refused = (refusal: SnmpSetRefusal): HandlerResponse => ({
   body: { ok: false, refusal },
 });
 
-/** What a target is CALLED, for the refusal that says the device has no such thing.
- *  The object's own name rather than the MIB module it used to sit under: a walk prints
- *  no module and a set takes none, so naming one here would point a player at a word
- *  they can find nowhere else. */
-const OBJECT_OF: Readonly<Record<SnmpSetTarget['kind'], string>> = {
-  nat: 'forward',
-  acl: 'aclPort',
-  filter: 'inputPort',
-};
-
-const objectOf = (target: SnmpSetTarget): string => OBJECT_OF[target.kind];
-
-/** The kind of device a target's object belongs on. A switch keeps an access list and
- *  keeps no `rules.v4` at all; every other box keeps that file and both of its chains.
- *  So the access list is the special case here exactly as it is for the walk, and
- *  offering a device the other's OID is naming something that is not on it. */
-const kindFor = (target: SnmpSetTarget): SnmpDeviceKind =>
-  target.kind === 'acl' ? 'switch' : 'router';
-
-/** The /24 an address sits on. A router forwards INTO the segment behind it, so a
- *  destination anywhere else names a host this device has no route to — and the rule
- *  would sit in the file looking like it worked. Taken from the DEVICE's own address so
- *  it stays true for a gateway on a layer nobody has walked yet. */
-const segmentOf = (ip: string): string => ip.split('.').slice(0, 3).join('.');
-
-/** Why a forward may not point where it was aimed, or `null` when it may.
- *
- *  TWO refusals, because they are two different facts about the device. A box that
- *  fronts no network — a workstation, or an occupant's box behind somebody's NAT —
- *  cannot hold a routable forward at all, whatever address it names; a box that DOES
- *  front one was simply handed an address outside it. Telling the first that a
- *  destination "is not on this device's segment" describes a segment the device does not
- *  have, and reads as a near miss when nothing about the write could have worked. */
-const forwardRefusal = (destination: string, fronted: string | null): string | null => {
-  if (fronted === null) return 'this device fronts no network';
-  return segmentOf(destination) === fronted
-    ? null
-    : `${destination} is not on this device's segment`;
-};
-
-/** The state a port is in NOW, rendered the way the echo renders the state it will be
- *  in. One function for both ends of `old -> new`, so the two can never disagree about
- *  how a forward is spelled. */
-const currentState = (hostFs: Directory, target: SnmpSetTarget): SnmpSetTarget => {
-  if (target.kind === 'nat') {
-    return {
-      kind: 'nat',
-      publicPort: target.publicPort,
-      forward:
-        parseForwardRules(readRulesV4(hostFs)).find(
-          (forward) => forward.publicPort === target.publicPort,
-        ) ?? null,
-    };
-  }
-
-  // Each read from the chain that HOLDS this fact. A filter read out of the access
-  // list — or out of the forwards sharing its own file — would report every port open
-  // and log every close as though it had changed nothing.
-  return target.kind === 'acl'
-    ? { kind: 'acl', port: target.port, denied: parseAclDenies(readAclConf(hostFs)).includes(target.port) }
-    : {
-        kind: 'filter',
-        port: target.port,
-        denied: parseInputDenies(readRulesV4(hostFs)).includes(target.port),
-      };
-};
-
-/** The file this target lives in, with the target's state written into it. */
-const storedFile = (hostFs: Directory, target: SnmpSetTarget) => {
-  const rulesV4 = {
-    path: RULES_V4_PATH,
-    owner: RULES_V4_OWNER,
-    permissions: RULES_V4_PERMISSIONS,
-  };
-
-  if (target.kind === 'nat') {
-    return {
-      ...rulesV4,
-      content: withForward(readRulesV4(hostFs), target.publicPort, target.forward),
-    };
-  }
-
-  // Two writers over one file, each blind to the other's lines, so a deny cannot eat a
-  // forward its owner opened and a forward cannot lift a deny they set.
-  return target.kind === 'acl'
-    ? {
-        path: ACL_CONF_PATH,
-        owner: ACL_CONF_OWNER,
-        permissions: ACL_CONF_PERMISSIONS,
-        content: withDeny(readAclConf(hostFs), target.port, target.denied),
-      }
-    : { ...rulesV4, content: withInputDeny(readRulesV4(hostFs), target.port, target.denied) };
-};
-
 export const handleSnmpSet = async (
   body: unknown,
   deps: SnmpSetDeps,
@@ -227,76 +112,41 @@ export const handleSnmpSet = async (
   if (!reach.ok) return reach.refusal;
   const { hostname, hostFs, machineId, sourceIp, writerKey, frontedSegment } = reach.reached;
 
-  const tier = communityTier(hostFs, payload.community);
+  const judgement = judgeSnmpSet(hostFs, {
+    community: payload.community,
+    assignment: payload.assignment,
+    // The segment the DEVICE fronts, resolved by the vantage that found it and never
+    // derived here. Through a forward the typed address is the gateway the caller came
+    // in through; addressed directly, an inner gateway forwards into the layer BEHIND
+    // it rather than the LAN it stands on; and across the world the ESSID on the
+    // request names the ATTACKER's own network, so a bound taken from it refuses every
+    // address inside the LAN under attack and accepts only ones that resolve to nothing.
+    frontedSegment,
+  });
   // The TARGET's key once the box has an owner, so a device keeps one file and one log
   // however many callers set on it.
   const target = { writerKey, machineId };
   const contact = contactLines({
-    accepted: tier !== null,
+    accepted: judgement.kind !== 'silent',
     // The ROUTE decides the address whenever it can; on the caller's own LAN it knows
     // nothing and the claim stands.
     fromIp: sourceIp ?? 'unknown',
     ...agentStamp(deps, hostname),
   });
 
-  if (tier === null) {
+  if (judgement.kind !== 'write') {
     await appendSnmpdLog(deps, target, contact);
-    return UNREACHABLE;
+    return judgement.kind === 'silent' ? UNREACHABLE : refused(judgement.refusal);
   }
 
-  const parsed = parseSnmpSet(payload.assignment);
-  if (!parsed.ok) {
-    await appendSnmpdLog(deps, target, contact);
-    return refused(parsed.refusal);
-  }
-
-  const { oid, value } = describeSet(parsed.target);
-  const answer = (refusal: Omit<SnmpSetRefusal, 'failedObject'>): HandlerResponse =>
-    refused({ ...refusal, failedObject: oid });
-
-  if (tier === 'read-only') {
-    await appendSnmpdLog(deps, target, contact);
-    // `public` is a community the device DOES answer, so silence here would read as the
-    // device being down while a walk with the same string works. Naming the tier is
-    // also the lesson: the other string is the one to go and crack.
-    return answer({
-      reason: 'notWritable',
-      detail: `the community "${payload.community}" is read-only`,
-    });
-  }
-
-  const kind = deviceKind(hostFs);
-  if (kind !== kindFor(parsed.target)) {
-    await appendSnmpdLog(deps, target, contact);
-    return answer({
-      reason: 'noSuchName',
-      detail: `${objectOf(parsed.target)} is not implemented on this device`,
-    });
-  }
-
-  // The segment the DEVICE fronts, resolved by the vantage that found it and never
-  // derived here. Through a forward the typed address is the gateway the caller came in
-  // through; addressed directly, an inner gateway forwards into the layer BEHIND it
-  // rather than the LAN it stands on; and across the world the ESSID on the request
-  // names the ATTACKER's own network, so a bound taken from it refuses every address
-  // inside the LAN under attack and accepts only ones that resolve to nothing.
-  if (parsed.target.kind === 'nat' && parsed.target.forward !== null) {
-    const detail = forwardRefusal(parsed.target.forward.internalIp, frontedSegment);
-    if (detail !== null) {
-      await appendSnmpdLog(deps, target, contact);
-      return answer({ reason: 'wrongValue', detail });
-    }
-  }
-
-  const previous = describeSet(currentState(hostFs, parsed.target)).value;
-  const stored = storedFile(hostFs, parsed.target);
+  const { oid, value, previous, file } = judgement;
   const { error } = await deps.upsertPatch({
     writer_key: target.writerKey,
     machine_id: machineId,
-    path: stored.path,
-    content: stored.content,
-    owner: stored.owner,
-    permissions: stored.permissions,
+    path: file.path,
+    content: file.content,
+    owner: file.owner,
+    permissions: file.permissions,
     node_type: 'file',
   });
 

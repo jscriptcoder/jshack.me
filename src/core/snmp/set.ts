@@ -8,10 +8,11 @@
  * adding, overwriting and removing, and why there is no verb anywhere in it. An
  * imperative would sit in the one position the protocol reserves for a value.
  *
- * Parsed SERVER-side and nowhere else. A client that parsed it would be a second
- * authority on what a rule is — standing next to the file's own parser, which is the
- * one thing this whole door was shaped to avoid — and a client that could be told what
- * to send.
+ * Parsed by the AGENT's judgement and nowhere else — the server's for somebody else's
+ * device, and the same function on the client for the player's own box. A command that
+ * parsed it for itself would be a second authority on what a rule is — standing next to
+ * the file's own parser, which is the one thing this whole door was shaped to avoid —
+ * and a client that could be told what to send.
  *
  * The DESTINATION is not validated here. It is handed to `parseForwardRules`, the same
  * function the scan path and the ssh router read the file with, and accepted only if it
