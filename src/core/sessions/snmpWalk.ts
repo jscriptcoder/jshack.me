@@ -33,17 +33,14 @@ import {
   communityTier,
   contactLines,
   deviceKind,
+  platformOf,
+  portTablesOf,
   type SnmpTraceDeps,
 } from './snmpAgent.js';
 import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import { computeApGatewayId } from '../identity/router.js';
-import { parseAclDenies, readAclConf } from '../network/switchAcl.js';
-import { parseForwardRules, parseInputDenies, readRulesV4 } from '../network/iptablesRules.js';
-import { parseDpkgVersions, readDpkgStatus } from '../packages/dpkgStatus.js';
-import { displayVersion, isFirmwarePackage } from '../packages/packageVersions.js';
 import { parseSnmpdConf, readSnmpdConf } from '../snmp/conf.js';
-import type { SnmpDeviceKind, SnmpIdentity, SnmpPortTable } from '../snmp/walk.js';
-import type { Directory } from '../filesystem/types.js';
+import type { SnmpIdentity } from '../snmp/walk.js';
 import type { FindPublicIpByEssid } from '../logging/crossPlayerSourceIp.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 
@@ -83,39 +80,6 @@ const snmpWalkSchema = z
  *  from a box that is not there. Built here rather than imported because the point is
  *  that this door emits the reach's own refusal, not a second one that resembles it. */
 const UNREACHABLE: HandlerResponse = { status: 404, body: { error: 'host_unreachable' } };
-
-/** Every table the device's files hold, read from the files it actually routes by. A
- *  switch keeps ONE — its access list. Anything else keeps `rules.v4`, which carries two
- *  chains: what it forwards INTO a segment behind it, and what it refuses ON itself.
- *
- *  Both of those are reported whichever box this is, because nothing a walk can read
- *  tells a filtering workstation from a forwarding gateway — they carry the same file
- *  and neither carries the switch's. A device with no segment behind it simply has no
- *  forwards to show, and one that has never filtered anything shows no denies.
- *
- *  Rendered from the files on EVERY walk, never cached and never copied: the whole point
- *  of the door is one fact behind two interfaces, and a second copy could tell a player
- *  a port was forwarded that the box does not honour. */
-/** What the device calls itself in `sysDescr`: the display form of the firmware its own
- *  manifest names, so a MikroTik switch says MikroTik and a switch running someone else's
- *  image no longer claims to be a Cisco. A box carrying no firmware row — a workstation
- *  that installed an agent of its own — answers `Linux`, the plain machine it is; every
- *  generator-built router-class box carries firmware, so that fallback reaches only it. */
-const platformOf = (hostFs: Directory): string => {
-  const versions = parseDpkgVersions(readDpkgStatus(hostFs));
-  const firmware = [...versions].find(([key]) => isFirmwarePackage(key));
-  return firmware === undefined ? 'Linux' : displayVersion(firmware[0], firmware[1]);
-};
-
-const portTablesOf = (hostFs: Directory, kind: SnmpDeviceKind): readonly SnmpPortTable[] => {
-  if (kind === 'switch') return [{ kind: 'acl', denies: parseAclDenies(readAclConf(hostFs)) }];
-
-  const rules = readRulesV4(hostFs);
-  return [
-    { kind: 'nat', forwards: parseForwardRules(rules) },
-    { kind: 'filter', denies: parseInputDenies(rules) },
-  ];
-};
 
 /** Every address the device holds, in interface order: its own, then the one the access
  *  point wears outside when this IS the access point's gateway. Nothing behind that

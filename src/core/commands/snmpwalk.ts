@@ -26,6 +26,8 @@
 import { vantageOf } from '../network/vantage.js';
 import { renderIdentityWalk, renderReadWriteWalk } from '../snmp/walk.js';
 import { parseAgentAddress } from '../snmp/agentAddress.js';
+import { ownBoxSource, LOOPBACK_IPV4, LOOPBACK_NAMES } from '../network/interfaces.js';
+import { walkOwnAgent } from './snmpOwnBox.js';
 import { errorLine, text } from './streaming.js';
 import type { Command, CommandResult } from './types.js';
 
@@ -57,13 +59,33 @@ const execute: Command['execute'] = async (env, args) => {
   // The typed string keeps its port for every line printed below — a tool echoes the
   // argument it was given, and a header that quietly dropped the port would describe a
   // different request than the one made.
-  const walked = await env.snmp.walk({
-    essid: vantage.essid,
-    ...parseAgentAddress(target),
-    community: asked,
-    // The box the walk ran from; the server derives the source address from it.
-    callerMachineId: env.session.machineId,
-  });
+  const address = parseAgentAddress(target);
+
+  // Your own box is answered HERE, and only at home, where `env.fs` IS that box. The
+  // server's same-LAN vantage excludes the caller, so a walk of your own address that
+  // went out found nothing standing there. Any loopback name left after that is a hop's,
+  // sent on as 127.0.0.1 because the server places loopback by its address, never by
+  // its name.
+  const ownSource =
+    vantage.kind === 'home'
+      ? ownBoxSource({ target: address.targetIp, ownIp: vantage.address })
+      : null;
+  const walked =
+    ownSource !== null && vantage.kind === 'home'
+      ? await walkOwnAgent(env, {
+          fromIp: ownSource,
+          ownIp: vantage.address,
+          port: address.port,
+          community: asked,
+        })
+      : await env.snmp.walk({
+          essid: vantage.essid,
+          ...address,
+          targetIp: LOOPBACK_NAMES.includes(address.targetIp) ? LOOPBACK_IPV4 : address.targetIp,
+          community: asked,
+          // The box the walk ran from; the server derives the source address from it.
+          callerMachineId: env.session.machineId,
+        });
 
   // The real tool's own words for an agent that said nothing back. It is the truth for
   // a box that is not there and a lie of omission for one that refused you — which is
