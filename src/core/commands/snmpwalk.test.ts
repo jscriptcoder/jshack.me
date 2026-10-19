@@ -2,14 +2,35 @@ import { describe, expect, it, vi } from 'vitest';
 import { snmpwalk } from './snmpwalk.js';
 import {
   mockCommandEnv,
+  mockFsViewFromTree,
   mockNetworkViewFromConnectivity,
+  mockPatchApi,
   mockSession,
   mockSnmpApi,
 } from '../../test/factories/commandEnv.js';
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces.js';
 import { assignHomeNetwork } from '../network/homeNetwork.js';
-import { asMachineId, asPlayerKeyHex } from '../types.js';
-import type { CommandEnv, CommandResult, SnmpApi, SnmpWalkResult } from './types.js';
+import { applyPatches } from '../filesystem/applyPatches.js';
+import { buildWorkstationBaseFs } from '../generation/workstationFs.js';
+import { md5 } from '../generation/md5.js';
+import {
+  LOCAL_FILTER_SEED,
+  RULES_V4_PATH,
+  RULES_V4_PERMISSIONS,
+} from '../network/iptablesRules.js';
+import { SNMPD_CONF_PATH, SNMPD_CONF_PERMISSIONS, SNMPD_CONF_SEED } from '../snmp/conf.js';
+import {
+  formatSnmpdState,
+  SNMPD_STATE_PATH,
+  SNMPD_STATE_PERMISSIONS,
+} from '../snmp/rwCommunity.js';
+import { ownAgentCommunity } from '../snmp/ownAgent.js';
+import { SNMPD_LOG_PATH, SNMPD_LOG_PERMISSIONS } from '../logging/snmpdLog.js';
+import { SERVICE_CATALOG, type ServiceSpec } from '../services/serviceCatalog.js';
+import { formatPidfileContent, pidfilePath, PIDFILE_PERMISSIONS } from '../services/pidfile.js';
+import { asAbsPath, asMachineId, asPlayerKeyHex } from '../types.js';
+import type { Directory } from '../filesystem/types.js';
+import type { CommandEnv, CommandResult, PatchApi, SnmpApi, SnmpWalkResult } from './types.js';
 
 /**
  * `snmpwalk <host> [community]` — the first thing a player can DO with a device.
@@ -255,5 +276,309 @@ describe('walking from a hop', () => {
       community: 'public',
       callerMachineId: asMachineId('hop-box'),
     });
+  });
+
+  it('names the box the shell stands on by its loopback address', async () => {
+    // The server places loopback by its address, so a name it does not resolve would
+    // walk nothing at all.
+    const walk = vi.fn<SnmpApi['walk']>(async () => ANSWERED);
+    const env = mockCommandEnv({
+      network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+      snmp: mockSnmpApi({ walk }),
+      session: mockSession({ essid: 'HOP-NET', machineId: asMachineId('hop-box') }),
+    });
+
+    const result = await snmpwalk.execute(env, ['localhost'], new Map());
+
+    expect(walk.mock.calls[0]![0]).toMatchObject({ targetIp: '127.0.0.1' });
+    // The header still echoes what the player typed.
+    expect(linesOf(result)).toContain('[READ-ONLY] Community "public" accepted on localhost.');
+  });
+});
+
+/**
+ * The agent on your OWN box.
+ *
+ * Answered here rather than through the server, for the reason every other own-box door
+ * gives: the server's same-LAN vantage excludes the caller, so a walk of your own
+ * address that went out found nothing there and timed out, while a stranger's walk of
+ * the very same agent answered. A player could not read their own device over SNMP.
+ *
+ * What differs is WHERE the decision runs, never what it decides: the same community
+ * judgement, the same identity and port tables, and the same two lines in the box's own
+ * `snmpd.log`, all read off the machine as it stands.
+ */
+describe('the player own box, once it runs an agent', () => {
+  const HOSTNAME = 'workstation';
+  const OWN_IP = assignHomeNetwork(PUBKEY, ESSID).localIp;
+  const RW_COMMUNITY = ownAgentCommunity(PUBKEY);
+
+  /** The server door, deliberately unreachable. A walk of your own box that took the
+   *  network path would throw here rather than quietly pass. */
+  const NOT_WIRED = () => {
+    throw new Error('own-box snmpwalk must not reach the server');
+  };
+
+  /** Their box after `apt install snmp` with the agent running. Every file comes from the
+   *  production code that writes it, so a change to any format arrives here. */
+  const ownBoxRunningAgent = (rules: string = LOCAL_FILTER_SEED): Directory =>
+    applyPatches(
+      buildWorkstationBaseFs(PUBKEY, {
+        machineName: HOSTNAME,
+        username: 'alice',
+        rootPassword: 'hunter2',
+      }),
+      [
+        {
+          path: SNMPD_CONF_PATH,
+          content: SNMPD_CONF_SEED,
+          owner: 'root',
+          permissions: SNMPD_CONF_PERMISSIONS,
+        },
+        {
+          path: SNMPD_STATE_PATH,
+          content: formatSnmpdState(md5(RW_COMMUNITY)),
+          owner: 'root',
+          permissions: SNMPD_STATE_PERMISSIONS,
+        },
+        { path: RULES_V4_PATH, content: rules, owner: 'root', permissions: RULES_V4_PERMISSIONS },
+        {
+          path: pidfilePath(SERVICE_CATALOG.snmp),
+          content: formatPidfileContent(SERVICE_CATALOG.snmp, SERVICE_CATALOG.snmp.defaultPort),
+          owner: 'root',
+          permissions: PIDFILE_PERMISSIONS,
+        },
+      ],
+    );
+
+  /** The same box with the agent stopped — the pidfile gone, which is the whole of what
+   *  `systemctl stop` leaves behind. */
+  const withAgentStopped = (tree: Directory): Directory =>
+    applyPatches(tree, [
+      {
+        path: pidfilePath(SERVICE_CATALOG.snmp),
+        content: null,
+        owner: 'root',
+        permissions: PIDFILE_PERMISSIONS,
+      },
+    ]);
+
+  const viewOf = (tree: Directory) =>
+    mockFsViewFromTree(tree, { userType: 'root', cwd: () => asAbsPath('/') });
+
+  /** What this client walked in holding, and what the machine has become since. They are
+   *  the same box unless a test says otherwise. */
+  type Write = {
+    readonly path: string;
+    readonly content: string | null;
+    readonly options: Parameters<PatchApi['write']>[2];
+  };
+
+  const ownBoxEnv = (held: Directory, machine: Directory = held) => {
+    const writes: Write[] = [];
+    const env = mockCommandEnv({
+      snmp: mockSnmpApi({ walk: NOT_WIRED }),
+      network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+      hostname: HOSTNAME,
+      fs: { ...viewOf(held), reload: async () => viewOf(machine) },
+      patches: mockPatchApi({
+        write: async (path, content, options) => {
+          writes.push({ path, content, options });
+          return { ok: true };
+        },
+      }),
+    });
+    return { env, writes };
+  };
+
+  const snmpdLogOf = (writes: readonly Write[]): string =>
+    writes.find((write) => write.path === SNMPD_LOG_PATH)?.content ?? '';
+
+  /** A daemon other than the agent holding a port, as its own pidfile says. */
+  const withDaemonOn = (tree: Directory, spec: ServiceSpec, port: number): Directory =>
+    applyPatches(tree, [
+      {
+        path: pidfilePath(spec),
+        content: formatPidfileContent(spec, port),
+        owner: 'root',
+        permissions: PIDFILE_PERMISSIONS,
+      },
+    ]);
+
+  it('answers a walk of localhost without asking the server', async () => {
+    const { env } = ownBoxEnv(ownBoxRunningAgent());
+
+    const result = await run(env, ['localhost']);
+
+    // One address: a workstation fronts nothing, so it has no outside face to show.
+    expect(linesOf(result)).toBe(
+      [
+        '[READ-ONLY] Community "public" accepted on localhost.',
+        '',
+        `sysDescr    = Linux ${HOSTNAME}`,
+        `sysName     = ${HOSTNAME}`,
+        'sysContact  = netops@corp.local',
+        `interface.1 = eth0 (${OWN_IP})`,
+        '',
+        '4 OIDs returned. Community "public" is READ-ONLY.',
+        "Retry with a read-write community to see this device's port table.",
+      ].join('\n'),
+    );
+    expect(sync(result).exitCode).toBe(0);
+  });
+
+  it('answers a walk of the box own LAN address the same way', async () => {
+    const { env } = ownBoxEnv(ownBoxRunningAgent());
+
+    const result = await run(env, [OWN_IP]);
+
+    expect(linesOf(result)).toContain(`[READ-ONLY] Community "public" accepted on ${OWN_IP}.`);
+    expect(linesOf(result)).toContain(`interface.1 = eth0 (${OWN_IP})`);
+  });
+
+  it('shows the port tables to the read-write community the install printed', async () => {
+    const { env } = ownBoxEnv(ownBoxRunningAgent(`${LOCAL_FILTER_SEED}deny 6379\n`));
+
+    const result = await run(env, ['127.0.0.1', RW_COMMUNITY]);
+
+    expect(linesOf(result)).toContain(
+      `[READ-WRITE] Community "${RW_COMMUNITY}" accepted on 127.0.0.1.`,
+    );
+    expect(linesOf(result)).toMatch(/inputPort\.6379 += deny/);
+    expect(linesOf(result)).toContain(`snmpset 127.0.0.1 ${RW_COMMUNITY} inputPort.<port>=deny`);
+  });
+
+  it('answers its owner even with its own port denied to the network', async () => {
+    // The filter closes a port to the NETWORK. The box's own addresses never cross it,
+    // which is what the seeded file promises its owner.
+    const { env } = ownBoxEnv(ownBoxRunningAgent(`${LOCAL_FILTER_SEED}deny 161\n`));
+
+    const result = await run(env, [OWN_IP]);
+
+    expect(sync(result).exitCode).toBe(0);
+  });
+
+  it('times out when the agent is stopped', async () => {
+    const { env } = ownBoxEnv(withAgentStopped(ownBoxRunningAgent()));
+
+    const result = await run(env, ['localhost']);
+
+    expect(linesOf(result)).toBe('Timeout: No Response from localhost');
+    expect(sync(result).exitCode).toBe(1);
+  });
+
+  it('times out when the agent was stopped since this client last looked', async () => {
+    // A `systemctl stop` in another tab: the copy held still shows the daemon up, the
+    // machine itself does not, and the machine is the authority.
+    const running = ownBoxRunningAgent();
+    const { env } = ownBoxEnv(running, withAgentStopped(running));
+
+    const result = await run(env, ['localhost']);
+
+    expect(linesOf(result)).toBe('Timeout: No Response from localhost');
+  });
+
+  it('times out on a community the agent does not answer', async () => {
+    const { env } = ownBoxEnv(ownBoxRunningAgent());
+
+    const result = await run(env, ['localhost', 'wrong-guess']);
+
+    expect(linesOf(result)).toBe('Timeout: No Response from localhost');
+    expect(sync(result).exitCode).toBe(1);
+  });
+
+  it('times out on a port the agent is not holding', async () => {
+    const { env } = ownBoxEnv(ownBoxRunningAgent());
+
+    const result = await run(env, ['localhost:1161']);
+
+    expect(linesOf(result)).toBe('Timeout: No Response from localhost:1161');
+  });
+
+  it('times out when another daemon holds the agent port and the agent is stopped', async () => {
+    // An open port is not an agent: a box serving the store on 161 has nothing there
+    // that speaks SNMP.
+    const { env } = ownBoxEnv(
+      withDaemonOn(withAgentStopped(ownBoxRunningAgent()), SERVICE_CATALOG.redis, 161),
+    );
+
+    const result = await run(env, ['localhost']);
+
+    expect(linesOf(result)).toBe('Timeout: No Response from localhost');
+  });
+
+  it('starts the box own snmpd.log with the two lines a visit leaves', async () => {
+    const { env, writes } = ownBoxEnv(ownBoxRunningAgent());
+
+    await run(env, ['localhost']);
+
+    // An arrival and a verdict, in the shape and the file the server writes for a
+    // stranger, and created root's at the permissions every snmpd.log carries.
+    expect(snmpdLogOf(writes).split('\n')).toEqual([
+      expect.stringMatching(
+        /^[A-Z][a-z]{2} [ \d]\d [\d:]{8} workstation snmpd\[\d+\]: Connection from UDP: \[127\.0\.0\.1\]$/,
+      ),
+      expect.stringMatching(
+        /^[A-Z][a-z]{2} [ \d]\d [\d:]{8} workstation snmpd\[\d+\]: Authentication succeeded from UDP: \[127\.0\.0\.1\]$/,
+      ),
+      '',
+    ]);
+    expect(writes).toEqual([
+      expect.objectContaining({
+        options: { owner: 'root', permissions: SNMPD_LOG_PERMISSIONS, isNew: true },
+      }),
+    ]);
+  });
+
+  it('writes nothing over a log path it cannot read as a file', async () => {
+    // Replacing whatever stands there with two lines is worse than dropping them.
+    const blocked = applyPatches(ownBoxRunningAgent(), [
+      {
+        path: asAbsPath(`${SNMPD_LOG_PATH}/rotated`),
+        content: 'an old log somebody moved here',
+        owner: 'root',
+        permissions: SNMPD_LOG_PERMISSIONS,
+      },
+    ]);
+    const { env, writes } = ownBoxEnv(blocked);
+
+    const result = await run(env, ['localhost']);
+
+    expect(writes).toEqual([]);
+    expect(sync(result).exitCode).toBe(0);
+  });
+
+  it('records a refused community too, which is somebody guessing', async () => {
+    const { env, writes } = ownBoxEnv(ownBoxRunningAgent());
+
+    await run(env, [OWN_IP, 'wrong-guess']);
+
+    expect(snmpdLogOf(writes)).toContain(
+      `Authentication failure (incorrect community name) from UDP: [${OWN_IP}]`,
+    );
+  });
+
+  it('records nothing on a box whose agent never answered', async () => {
+    const { env, writes } = ownBoxEnv(withAgentStopped(ownBoxRunningAgent()));
+
+    await run(env, ['localhost']);
+
+    expect(writes).toEqual([]);
+  });
+
+  it('appends to the history the machine holds, not the copy this client walked in with', async () => {
+    const earlier =
+      'Oct 18 09:00:00 workstation snmpd[100]: Authentication succeeded from UDP: [10.0.0.9]\n';
+    const withHistory = applyPatches(ownBoxRunningAgent(), [
+      { path: SNMPD_LOG_PATH, content: earlier, owner: 'root', permissions: SNMPD_LOG_PERMISSIONS },
+    ]);
+    const { env, writes } = ownBoxEnv(ownBoxRunningAgent(), withHistory);
+
+    await run(env, ['localhost']);
+
+    expect(snmpdLogOf(writes).startsWith(earlier)).toBe(true);
+    expect(snmpdLogOf(writes)).toContain('from UDP: [127.0.0.1]');
+    // An existing file is appended to, not created again.
+    expect(writes[0]?.options).toEqual({ owner: 'root', permissions: SNMPD_LOG_PERMISSIONS });
   });
 });
