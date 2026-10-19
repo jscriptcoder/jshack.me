@@ -2,10 +2,10 @@
 
 **Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-19. **Slice 1 merged**
 (PR #708, 2026-10-19, v0.410.0; the migration is on `jshack-dev` and `jshack-prod`).
-**Slice 2 planned and confirmed by the owner 2026-10-19** (below, after slice 1's plan); built
-on `feat/talkit-posting`, increments 1 to 6 committed, v0.411.0; the migration is on
-`jshack-dev` and `jshack-prod`. PR gate passed (mutation 389 killed, the survivors equivalent
-but a CRLF `~/.mailrc` line, left untested by the owner). Next: the PR's review and merge.
+**Slice 2 merged** (PR #709, 2026-10-19, v0.411.0; the migration is on `jshack-dev` and
+`jshack-prod`; mutation 389 killed, the survivors equivalent but a CRLF `~/.mailrc` line, left
+untested by the owner). **Slice 3 planned and confirmed by the owner 2026-10-19** (below, after slice 2's plan); to be
+built on `feat/talkit-comments`.
 
 **Slice 2 as built: where it differs from the plan below:**
 
@@ -555,4 +555,164 @@ included) and the 20-an-hour cap and inserts the thread → the answer page; a l
   `testEmailitSignup` and `testRestoreSite.ts talkit.io` checks again.
 - Mutation gate at PR readiness over `core/talkit/`, the textarea's keys, the login attach and
   the dispatch; no mutant left standing in the inbound checks.
+- No browser run: one at the epic's close-out.
+
+## Slice 3 plan: a player comments
+
+**Branch**: `feat/talkit-comments` · **Version**: 0.411.0 → 0.412.0 · **Class**: behaviour change
+· **Delivery**: one PR against `main`; one migration, applied to `jshack-dev` then `jshack-prod`
+before merge.
+
+**Value.** A player reading a thread in lynx types a comment into the box under it and sends
+it. The comment shows under the thread as `#<n>`, signed with the handle in their
+`~/.mailrc`. The thread goes to the top of `/threads`, and its comment count goes up by one. A
+root on talkit sees who commented and from where. `curl -d` does the same from a prompt or a
+script.
+
+**Path.** The thread page's form, or `curl -d`, → `fetchPageAcrossNetwork`, which already
+attaches the `~/.mailrc` login to any POST bound for talkit's address → the signed
+`resolveHttpFetch` → `POST /comment` on talkit's network checks the form, then asks the store.
+The store checks the password (the guess throttle included) and the shared 20-an-hour cap,
+numbers the comment, bumps the thread and inserts → the answer page. A line goes in
+`access.log` (path only), and on success a line in `/var/log/talkit.log`.
+
+### Facts read while planning (2026-10-19)
+
+- **The client needs nothing new.** `fetchPageAcrossNetwork` attaches the login to every POST
+  whose host is talkit's address, whatever the path, so a POST to `/comment` already carries
+  it. lynx already sends a `hidden` `<input>` and a `<textarea>`. `man curl` and `man lynx`
+  already say that a form sent to talkit.io carries the login. Only the server changes.
+- **`/comment` answers 405 today**: the dispatch in `network/resolveHttpFetch.ts` takes
+  talkit's `/post` exactly, beside emailit's `/signup`, and every other POST gets the 405.
+- **`answerPost`'s checks are private** (`checked` in `core/talkit/answerPost.ts`). The body
+  half is what a comment needs: line endings made one kind, no other control character, trim,
+  1 to 4,000 characters.
+- **`talkit_post` sets the pattern**: `email_check_password`, then an advisory lock on the
+  player's key, rows older than an hour cleared, `capped` at 20 rows in `talkit_writes`, then
+  the insert. Comments join the same count, as decision 9 says.
+- **`talkit_threads` already carries `comment_count` and `last_activity_at`**, and
+  `/threads` reads down `last_activity_at DESC, id DESC`. Nothing writes either column yet.
+- **A thread page is built by the server for each visit** (`threadPage` in
+  `core/talkit/pages.ts`). It ends with "No comments yet." `findThread` reads one row.
+- **A thread id is `^[1-9][0-9]{0,14}$`** (`THREAD_ID` in `core/talkit/answerViews.ts`).
+- **The bundle is 285,045 B against 286,975 B.** This slice adds no client code.
+
+### Choices made while planning (owner-confirmed 2026-10-19)
+
+- **The thread page gains the comments and a form, all built by the server.** Under the body
+  come the comments, oldest first. Each is `<p>#<n> by <handle>, <time></p>` with its body
+  through `playerText`, as a thread's body is. "No comments yet." stays while there are none.
+  Then come a "Comment" heading and `<form action="/comment" method="post">` holding
+  `<input type="hidden" name="id" value="<n>">`, a `<textarea name="body" rows="4">` and a
+  `[ Comment ]` button. The id is the server's own number, never player text, so decision 10's
+  "every form is static" still holds: nothing a player wrote lands in a form.
+- **Every comment shows on the one page; there is no paging.** The 20-an-hour cap is what
+  bounds a thread's growth. Paging a long thread goes to `backlog.md` if a thread ever needs
+  it.
+- **The comments are a second read, `findComments(threadId)`, made only once the thread is
+  found.** It reads `number, author, body, created_at` ordered by `number`. A failed read is
+  the 500 `forum_lookup_failed`, as a failed thread read is.
+- **`answerComment` in `core/talkit/`, beside `answerPost`, the body check shared.** The order
+  is no login, then the id, then the body, then the store:
+  - no login: "Not logged in to emailit.io.", as a post answers;
+  - an `id` that is absent or not a thread id: "No such thread.", without asking the store;
+  - a control character: "A comment cannot hold control characters.";
+  - an empty or over-long body: "A comment is 1 to 4,000 characters.".
+  A form with no `body` field gets the length answer. Each refusal is the "Not posted" page,
+  as a refused post is: a comment is posted too. The store's answers:
+  - commented: "Commented as `<handle>`." and a link back to the thread;
+  - `login_failed`, `throttled` and `capped`: a post's three sentences, word for word;
+  - `no_thread`: "No such thread.".
+  A store that failed, or answered with a word nobody taught it, is a 500 `comment_failed`
+  with no log line.
+- **The table is `talkit_comments (thread_id, number, author, body, created_at)`**, with
+  primary key `(thread_id, number)` and `thread_id` referencing `talkit_threads`. `author` and
+  `body` have the same CHECKs as a thread's, and `number` must be at least 1. RLS is on with no
+  policies. The foreign key has no `ON DELETE` rule: how a removed thread goes is slice 4's
+  decision.
+- **The store is one function, `talkit_comment(handle, password_md5, player_key, thread_id,
+  body)`**, shaped as `talkit_post`. First `email_check_password`. Then the lock on the key,
+  the old rows cleared and the cap. Then
+  `UPDATE talkit_threads SET comment_count = comment_count + 1, last_activity_at = now()
+  WHERE id = thread_id RETURNING comment_count`. No row is `no_thread`: nothing is written, and
+  nothing is counted. The row lock the `UPDATE` takes makes two comments on one thread number
+  themselves one after the other. Then the comment goes in with that number, and a
+  `talkit_writes` row. It answers `{"outcome":"commented","number":<n>}`, `login_failed`,
+  `throttled`, `capped` or `no_thread`. `EXECUTE` is granted to `service_role` alone.
+  Numbering from `comment_count` holds only while nothing lowers the count, and slice 4's
+  `[removed]` keeps it.
+- **The dispatch takes `POST /comment` beside `/post`**, on talkit's network and the path
+  exactly. Every other POST still gets the 405.
+- **The `/var/log/talkit.log` line**, written only for a comment that was posted:
+  `2026-10-19 14:37:02 comment #3 on #12 by neo from 203.0.113.7`. It is formatted as a post's
+  line and written in the same best-effort way.
+- **No `man` change, so the bundle does not move.** The thread page's form names its own
+  fields for anyone who reads it with curl.
+
+### Acceptance criteria
+
+1. In `lynx talkit.io`, a thread's page ends with a "Comment" form: a box four rows tall and a
+   `[ Comment ]` button. Before any comment it says "No comments yet." above the form.
+2. A player with a `~/.mailrc` for `neo` who types into the box and presses `[ Comment ]` gets
+   "Commented as neo." with a link back to the thread. The thread's page shows
+   `#1 by neo, <time>` and the comment's body, each line break where it was typed. A second
+   comment, by anyone, is `#2` and shows under `#1`.
+3. After a comment, the thread is first on `/threads` and reads `1 comment`, then
+   `2 comments`.
+4. `curl -d "id=1&body=line%0Aline" http://talkit.io/comment` does the same from the prompt and
+   from a script.
+5. Whoever's `~/.mailrc` is read is who comments. No login answers "Not logged in to
+   emailit.io." A password that no longer matches answers "Login failed for
+   `<handle>`@emailit.io." and counts toward the guess throttle. With 5 failures in a minute,
+   every comment answers "Too many failed logins. Wait a minute." None of these stores
+   anything.
+6. Posts and comments share the cap: a player who has written 20 of them in a rolling hour,
+   in any mix and under any handles, gets "You have posted 20 times in the last hour. Wait a
+   while." for the next comment, and nothing is stored.
+7. An absent `id`, `id=abc`, `id=0` and an `id` naming no thread each answer "No such thread."
+   and store nothing. Neither moves a thread on the list.
+8. An empty or 4,001-character body, a body of blanks only, and a body holding a NUL, an ESC
+   or a DEL each answer their refusal and store nothing. A 4,000-character body is stored,
+   multi-byte characters counted as one each. A CRLF or a lone CR is stored as `\n`.
+9. **No player text becomes markup.** Each payload in the corpus, sent as a comment, is
+   stored exactly as typed and shown escaped, character for character, on the thread's page.
+   The corpus is `<script>`, `"><form action=/comment method=post>`, `</textarea>`,
+   `&lt;b&gt;`, `javascript:alert(1)` and `http://x.io/a"onmouseover="1`.
+10. A comment that is posted adds `<time> comment #<n> on #<id> by <handle> from <address>` to
+    `talkit.log`, the address the one `access.log` records. A refused comment adds no line.
+    Every POST to `/comment` is an `access.log` line with the path and never the form.
+11. When the store cannot be asked, the comment is a 500 and nothing is logged. When the
+    comments cannot be read, the thread page is a 500.
+12. A POST to any other path or server still answers 405. `/post`, the views and every other
+    site are served as before, and the bundle check passes.
+
+### Increments (each RED → GREEN → REFACTOR; commit on approval)
+
+1. **The thread page shows its comments and the form** (`core/talkit/pages.ts`,
+   `core/talkit/answerViews.ts`): `findComments` in `ForumReads`, the comment rows parsed and
+   shown, the form, the 500. Criteria 1, 2 (the page half), 9 (the read half) and 11 (the
+   read half), at the function with fake reads. The dispatch's deps and `api/network.ts`'s
+   select land here too, since `ResolveHttpFetchDeps` does not typecheck without them.
+2. **The comment's checks and answers** (`core/talkit/answerComment.ts`, the body check
+   shared with `answerPost`): criteria 2, 5–8 and 9 (the write half) at the function, with a
+   fake store and the whole corpus. `answerPost`'s tests serve as the preservation check for
+   the shared body check.
+3. **The fetch takes `POST /comment`**: the dispatch, `access.log`, the `talkit.log` line and
+   the 500. Criteria 10, 11 and 12 at the handler, with fake deps.
+4. **The migration, the adapter and the wire-check**: `talkit_comments` and `talkit_comment`
+   to `jshack-dev`; `postComment` in `api/network.ts`; `scripts/testTalkit.ts` grown to
+   comment live through the signed endpoint. That covers criteria 2–12, with numbering under
+   parallel comments, the shared cap and the throttle included, and the cleanup deleting
+   `talkit_comments`. The other talkit and emailit wire-checks are re-run.
+5. **Docs, version 0.412.0**: the handbook glossary, `email-architecture.md`'s line about
+   `talkit_post` extended to `talkit_comment`, and `docs/project-status.md`. The migration
+   goes to `jshack-prod` before merge.
+
+### Evidence
+
+- Unit tests under `npm test`; `npm run typecheck`; `npm run lint`; the bundle check.
+- Wire-check `scripts/testTalkit.ts` against `vercel dev` + local supabase, and the
+  `testEmailitSignup` and `testRestoreSite.ts talkit.io` checks again.
+- Mutation gate at PR readiness over `core/talkit/`, the talkit log line and the dispatch; no
+  mutant left standing in the inbound checks.
 - No browser run: one at the epic's close-out.

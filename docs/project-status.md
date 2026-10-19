@@ -1108,7 +1108,7 @@ agreed order:
     characters. `talkit` is a reserved emailit handle, `man mail` names the forum, and
     `restoreSite.ts talkit.io` restores it with every thread kept. The bundle had 661 B left
     after the slice (284,314 B), so slice 2 raises the ceiling as decided. Slice 2 (v0.411.0,
-    on `feat/talkit-posting`): a form POSTed to talkit's `/post` starts a thread, signed as the
+    PR #709, merged 2026-10-19): a form POSTed to talkit's `/post` starts a thread, signed as the
     emailit.io login in the `~/.mailrc` of the user the tool runs as, which only a POST to
     talkit's address carries. The handler refuses control characters, a title that is not one
     line of 1 to 80 characters and a body that is not 1 to 4,000, then `talkit_post` checks the
@@ -1116,8 +1116,8 @@ agreed order:
     `talkit.log` names each thread's poster and address. lynx draws a `<textarea>` as a box
     several lines tall. The bundle ceiling's code part rose by 2,000 B to 136,975 B (talkit's
     code was 1,011 B), so the ceiling is 286,975 B. The migration is on `jshack-dev` and
-    `jshack-prod`. **Pick up here (2026-10-19):** slice 2's PR, then slice 3 (comments) of
-    `plans/talkit.md`.
+    `jshack-prod`. **Pick up here (2026-10-19):** slice 3 (comments) of `plans/talkit.md`,
+    planned and confirmed, to be built on `feat/talkit-comments`.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
