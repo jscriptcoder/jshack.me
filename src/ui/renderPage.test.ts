@@ -781,6 +781,12 @@ describe('a box several lines tall, on a form', () => {
     });
   });
 
+  it('keeps a blank line between two as an empty row', () => {
+    const [box] = selectablesOn('<body><textarea name="body" rows="1">one\n\ntwo</textarea></body>');
+
+    expect(box).toMatchObject({ text: [row('one'), row(), row('two')].join('\n') });
+  });
+
   it('decodes what the page wrote inside it, and draws none of it as markup', () => {
     const [box] = selectablesOn(
       '<body><textarea name="body" rows="1">&lt;b&gt;hi&lt;/b&gt; <i>x</i></textarea></body>',

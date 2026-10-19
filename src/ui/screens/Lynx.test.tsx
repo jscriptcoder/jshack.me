@@ -1151,6 +1151,27 @@ describe('typing into a box several lines tall', () => {
     expect(screen.getByText('Posted as neo.')).toBeInTheDocument();
   });
 
+  // A field with no name has nothing to be sent as, a box as much as a one-line field.
+  it('leaves a box with no name out of what the form sends', async () => {
+    const { onFollow } = renderSite({
+      start: FORUM,
+      pages: {
+        [FORUM]:
+          '<body><form action="/post" method="post"><input name="title"><br>' +
+          '<textarea rows="2"></textarea><br><input type="submit" value="Post"></form></body>',
+        [POST]: '<body><p>Posted as neo.</p></body>',
+      },
+    });
+    type('Hi');
+    intoTheBox();
+    type('unsent');
+    fireEvent.keyDown(browser(), { key: 'Tab' });
+
+    await press('Enter');
+
+    expect(onFollow).toHaveBeenCalledWith(POST, 'title=Hi');
+  });
+
   it('says Enter starts a new line while the reader is in the box', () => {
     renderForum();
     intoTheBox();
