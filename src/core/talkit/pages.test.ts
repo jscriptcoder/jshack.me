@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   NO_SUCH_PAGE,
-  NO_SUCH_THREAD,
   TALKIT_FRONT_PAGE,
   threadPage,
   threadsPage,
@@ -57,7 +56,6 @@ const PAGES = {
   list: threadsPage({ page: 1, threads: [listing()], hasOlder: false }),
   thread: threadPage(thread()),
   'no such page': NO_SUCH_PAGE,
-  'no such thread': NO_SUCH_THREAD,
 };
 
 const INJECTIONS = [
@@ -201,12 +199,9 @@ describe("talkit.io's pages", () => {
     });
   });
 
-  it.each([
-    ['NO_SUCH_PAGE', NO_SUCH_PAGE, 'No such page - talkit.io', 'No such page.'],
-    ['NO_SUCH_THREAD', NO_SUCH_THREAD, 'No such thread - talkit.io', 'No such thread.'],
-  ])('%s says so', (_name, page, title, said) => {
-    expect(parsed(page).title).toBe(title);
-    expect(contentText(page)).toEqual([said]);
+  it('says so when a page of the list is not a page', () => {
+    expect(parsed(NO_SUCH_PAGE).title).toBe('No such page - talkit.io');
+    expect(contentText(NO_SUCH_PAGE)).toEqual(['No such page.']);
   });
 
   describe('no player text becomes markup', () => {

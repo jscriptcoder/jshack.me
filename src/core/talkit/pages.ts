@@ -119,8 +119,3 @@ export const NO_SUCH_PAGE = talkitDocument({
   title: 'No such page - talkit.io',
   body: ['<p>No such page.</p>'],
 });
-
-export const NO_SUCH_THREAD = talkitDocument({
-  title: 'No such thread - talkit.io',
-  body: ['<p>No such thread.</p>'],
-});

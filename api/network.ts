@@ -496,6 +496,29 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         logFailure('http-fetch ledger largest balances', error);
         return { data: data as unknown, error };
       },
+      // Only talkit.io's /threads reaches this. A comment bumps its thread, so the list
+      // walks the latest activity down; equal times fall back to the newest thread, so a
+      // page reads the same on every visit. The handler parses the rows itself.
+      findThreads: async (offset: number, limit: number) => {
+        const { data, error } = await supabase
+          .from('talkit_threads')
+          .select('id, title, author, comment_count, last_activity_at')
+          .order('last_activity_at', { ascending: false })
+          .order('id', { ascending: false })
+          .range(offset, offset + limit - 1);
+        logFailure('http-fetch forum thread list', error);
+        return { data: data as unknown, error };
+      },
+      // Only talkit.io's /thread reaches this, with an id already checked for its shape.
+      findThread: async (id: number) => {
+        const { data, error } = await supabase
+          .from('talkit_threads')
+          .select('id, title, author, body, created_at')
+          .eq('id', id)
+          .maybeSingle();
+        logFailure('http-fetch forum thread', error);
+        return { data: data as unknown, error };
+      },
     });
     res.status(status).json(body);
     return;
