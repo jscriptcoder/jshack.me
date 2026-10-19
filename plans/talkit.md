@@ -4,7 +4,8 @@
 (PR #708, 2026-10-19, v0.410.0; the migration is on `jshack-dev` and `jshack-prod`).
 **Slice 2 planned and confirmed by the owner 2026-10-19** (below, after slice 1's plan); built
 on `feat/talkit-posting`, increments 1 to 6 committed, v0.411.0; the migration is on
-`jshack-dev`, and goes to `jshack-prod` before merge. Next: the PR gate.
+`jshack-dev` and `jshack-prod`. PR gate passed (mutation 389 killed, the survivors equivalent
+but a CRLF `~/.mailrc` line, left untested by the owner). Next: the PR's review and merge.
 
 **Slice 2 as built: where it differs from the plan below:**
 
