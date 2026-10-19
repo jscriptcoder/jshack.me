@@ -1106,8 +1106,8 @@ agreed order:
     seeds the operator's welcome thread. Every player string is escaped, and a body links only
     strict `http://` addresses (`core/talkit/playerText.ts`); the table's CHECKs refuse control
     characters. `talkit` is a reserved emailit handle, `man mail` names the forum, and
-    `restoreSite.ts talkit.io` restores it with every thread kept. The bundle had 681 B left
-    after the row (284,294 B), so slice 2 raises the ceiling as decided. **Pick up here
+    `restoreSite.ts talkit.io` restores it with every thread kept. The bundle had 661 B left
+    after the slice (284,314 B), so slice 2 raises the ceiling as decided. **Pick up here
     (2026-10-19):** slice 2 of `plans/talkit.md`, starting a thread.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block

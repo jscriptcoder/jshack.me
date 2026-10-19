@@ -1,7 +1,7 @@
 # Plan: a forum, at talkit.io
 
-**Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-19. **Slice 1 in review**
-(PR #708, `feat/talkit-reading`, v0.410.0; the migration is on `jshack-dev` and `jshack-prod`).
+**Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-19. **Slice 1 merged**
+(PR #708, 2026-10-19, v0.410.0; the migration is on `jshack-dev` and `jshack-prod`).
 Slice 2 is next and has no plan yet.
 
 **Slice 1 as built: where it differs from the plan below** (owner-confirmed 2026-10-19):
