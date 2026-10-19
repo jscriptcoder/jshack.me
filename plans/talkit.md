@@ -1,7 +1,27 @@
 # Plan: a forum, at talkit.io
 
-**Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-19. No slice is planned
-yet; slice 1 is next.
+**Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-19. **Slice 1 in review**
+(PR #708, `feat/talkit-reading`, v0.410.0; the migration is on `jshack-dev` and `jshack-prod`).
+Slice 2 is next and has no plan yet.
+
+**Slice 1 as built: where it differs from the plan below** (owner-confirmed 2026-10-19):
+
+- **A thread that is not there is a plain 404**, as a missing file is: `{ error: 'not_found' }`,
+  `curl`'s `(22)` line, lynx's own 404 page, logged `404 0`. A 404 carries no page in this game,
+  and teaching the clients to show one was not worth widening the slice, so the "No such thread."
+  page was dropped.
+- **A thread id is at most 15 digits** (`^[1-9][0-9]{0,14}$`), not 18, so every id stays exact
+  as a JS number.
+- **Titles and handles go through `escapeHtml` alone; only a body goes through `playerText`**,
+  which also breaks lines and links. A title is a link itself on the list and plain text in
+  `<title>`, so it never links. Every player string is still escaped by the one function.
+- **The two selects landed with the dispatch** (increment 4), as `ResolveHttpFetchDeps` does not
+  typecheck without them; the migration and wire-check stayed in increment 5.
+- **Bundle:** 284,314 B with the row, the front page and the `man mail` sentence, 661 B under the
+  ceiling, so decision 5's raise stays in slice 2.
+- **Found, not fixed:** `resolveOccupantSweep.test.ts`'s bad-signature test fails in some full
+  runs (3 of 6 on the branch) and never alone. Its tampering is a no-op 1 time in 256, which
+  does not explain the rate; the cause is not yet found. Goes to `backlog.md` at close-out.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 
