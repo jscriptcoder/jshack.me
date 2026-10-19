@@ -50,6 +50,7 @@ import {
 } from '../generation/fixedSites.js';
 import { answerSignup, type SignUp } from '../emailit/signup.js';
 import { answerPost, type PostThread } from '../talkit/answerPost.js';
+import { answerComment, type PostComment } from '../talkit/answerComment.js';
 import { indexedWeb, siteOn, type MachinePatchRow } from '../findit/webIndex.js';
 import { rankPages } from '../findit/search.js';
 import { searchResultsPage } from '../findit/page.js';
@@ -78,6 +79,7 @@ import {
   TALKIT_LOG_OWNER,
   TALKIT_LOG_PATH,
   TALKIT_LOG_PERMISSIONS,
+  formatTalkitCommentLine,
   formatTalkitPostLine,
 } from '../logging/talkitLog.js';
 import {
@@ -162,6 +164,9 @@ export type ResolveHttpFetchDeps = WebTargetDeps & {
   readonly signUp: SignUp;
   /** Start a thread at talkit.io. Only a form POSTed to talkit's `/post` reaches it. */
   readonly postThread: PostThread;
+  /** Comment on a thread at talkit.io. Only a form POSTed to talkit's `/comment` reaches
+   *  it. */
+  readonly postComment: PostComment;
 } & LedgerReads &
   ChainReads &
   ForumReads;
@@ -428,6 +433,9 @@ const SIGNUP_PATH = '/signup';
 /** Where talkit.io takes a new thread. */
 const POST_PATH = '/post';
 
+/** Where talkit.io takes a comment on a thread. */
+const COMMENT_PATH = '/comment';
+
 /** The paths chainit.io answers from the ledger, and how each is answered: a lookup of
  *  one address, the latest transfers on the chain, the richest addresses. A view is never
  *  a file, whatever a root writes at its path. */
@@ -452,6 +460,30 @@ const TALKIT_VIEWS = new Map<
 
 /** A request path without its query string. */
 const pathOf = (requestPath: string): string => requestPath.split('?')[0] ?? requestPath;
+
+/** One line in talkit.io's own log, for a thread or a comment that went up. Best-effort,
+ *  as `logFetch` is: what a player wrote stands regardless of a logging failure. */
+const appendTalkitLine = async (
+  deps: ResolveHttpFetchDeps,
+  target: FetchTarget,
+  line: string,
+): Promise<void> => {
+  try {
+    await appendMachineLog(
+      { readLog: deps.readLog, upsertPatch: deps.upsertPatch },
+      {
+        writerKey: target.logWriterKey,
+        machineId: target.machineId,
+        path: TALKIT_LOG_PATH,
+        owner: TALKIT_LOG_OWNER,
+        permissions: TALKIT_LOG_PERMISSIONS,
+      },
+      line,
+    );
+  } catch {
+    // best-effort, as above.
+  }
+};
 
 /**
  * findit's answer to a search — the one address in this world that replies from a
@@ -557,26 +589,41 @@ export const handleResolveHttpFetch = async (
       size: answer.page.length,
     });
     if (answer.posted !== null) {
-      const line = formatTalkitPostLine({
-        time: asGameTime(deps.now()),
-        sourceIp,
-        ...answer.posted,
-      });
-      try {
-        await appendMachineLog(
-          { readLog: deps.readLog, upsertPatch: deps.upsertPatch },
-          {
-            writerKey: target.logWriterKey,
-            machineId: target.machineId,
-            path: TALKIT_LOG_PATH,
-            owner: TALKIT_LOG_OWNER,
-            permissions: TALKIT_LOG_PERMISSIONS,
-          },
-          line,
-        );
-      } catch {
-        // best-effort: the thread is up regardless of a logging failure.
-      }
+      await appendTalkitLine(
+        deps,
+        target,
+        formatTalkitPostLine({ time: asGameTime(deps.now()), sourceIp, ...answer.posted }),
+      );
+    }
+    return { status: 200, body: { ok: true, content: answer.page, server: target.server } };
+  }
+
+  // talkit.io's `/comment` takes a comment on a thread the same way, signed with the login
+  // beside the form and answered from a function.
+  if (
+    payload.body !== undefined &&
+    target.essid === TALKIT_NETWORK &&
+    pathOf(payload.path) === COMMENT_PATH
+  ) {
+    const answer = await answerComment({
+      form: payload.body,
+      login: payload.login ?? null,
+      playerKey: publicKey,
+      postComment: deps.postComment,
+    });
+    if (answer === null) return { status: 500, body: { error: 'comment_failed' } };
+    const sourceIp = await logFetch(deps, target, publicKey, standing.standingEssid, {
+      method: 'POST',
+      path: payload.path,
+      status: 200,
+      size: answer.page.length,
+    });
+    if (answer.commented !== null) {
+      await appendTalkitLine(
+        deps,
+        target,
+        formatTalkitCommentLine({ time: asGameTime(deps.now()), sourceIp, ...answer.commented }),
+      );
     }
     return { status: 200, body: { ok: true, content: answer.page, server: target.server } };
   }
