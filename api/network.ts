@@ -533,6 +533,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         logFailure('http-fetch forum thread', error);
         return { data: data as unknown, error };
       },
+      // Only talkit.io's /thread reaches this, once the thread it names was found. A
+      // comment's number orders the thread, as it was given under the thread's lock.
+      findComments: async (threadId: number) => {
+        const { data, error } = await supabase
+          .from('talkit_comments')
+          .select('number, author, body, created_at')
+          .eq('thread_id', threadId)
+          .order('number', { ascending: true });
+        logFailure('http-fetch forum comments', error);
+        return { data: data as unknown, error };
+      },
     });
     res.status(status).json(body);
     return;

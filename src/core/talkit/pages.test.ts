@@ -6,6 +6,7 @@ import {
   threadsPage,
   type ThreadListing,
   type Thread,
+  type ThreadComment,
 } from './pages.js';
 
 /**
@@ -32,6 +33,14 @@ const thread = (overrides: Partial<Thread> = {}): Thread => ({
   ...overrides,
 });
 
+const comment = (overrides: Partial<ThreadComment> = {}): ThreadComment => ({
+  number: 1,
+  author: 'neo',
+  body: 'Thanks for having us.',
+  createdAt: '2026-10-19T09:05:41.000Z',
+  ...overrides,
+});
+
 const parsed = (page: string): Document => new DOMParser().parseFromString(page, 'text/html');
 
 /** The page's own part: everything after the heading and the nav line. */
@@ -55,7 +64,7 @@ const links = (elements: readonly Element[]) =>
 const PAGES: readonly (readonly [string, () => string])[] = [
   ['front', () => TALKIT_FRONT_PAGE],
   ['list', () => threadsPage({ page: 1, threads: [listing()], hasOlder: false })],
-  ['thread', () => threadPage(thread())],
+  ['thread', () => threadPage(thread(), [])],
   ['no such page', () => NO_SUCH_PAGE],
 ];
 
@@ -213,31 +222,88 @@ describe("talkit.io's pages", () => {
 
   describe('a thread', () => {
     it('is titled with its own title', () => {
-      expect(parsed(threadPage(thread({ title: 'My new router' }))).title).toBe(
+      expect(parsed(threadPage(thread({ title: 'My new router' }), [])).title).toBe(
         'My new router - talkit.io',
       );
     });
 
-    it('shows its title, its author and when it was posted, its body and its comments', () => {
-      expect(contentText(threadPage(thread()))).toEqual([
+    it('shows its title, its author and when it was posted, and its body', () => {
+      expect(contentText(threadPage(thread(), [])).slice(0, 3)).toEqual([
         'Welcome to talkit.io',
         'by talkit, 2026-10-19 08:30',
         'This is the forum for the whole valley.',
-        'No comments yet.',
       ]);
-      expect(contentOf(threadPage(thread()))[0]?.tagName).toBe('H2');
+      expect(contentOf(threadPage(thread(), []))[0]?.tagName).toBe('H2');
     });
 
     it('breaks the body at each line break and links its addresses', () => {
-      const page = threadPage(thread({ body: 'Ask findit:\nhttp://findit.io/?q=router' }));
+      const page = threadPage(thread({ body: 'Ask findit:\nhttp://findit.io/?q=router' }), []);
       expect(contentOf(page)[2]?.innerHTML).toBe(
         'Ask findit:<br><a href="http://findit.io/?q=router">http://findit.io/?q=router</a>',
       );
     });
 
     it('never links an address in the title', () => {
-      const page = threadPage(thread({ title: 'see http://findit.io' }));
+      const page = threadPage(thread({ title: 'see http://findit.io' }), []);
       expect(contentOf(page)[0]?.innerHTML).toBe('see http://findit.io');
+    });
+
+    it('says so under the body while nobody has commented', () => {
+      expect(contentText(threadPage(thread(), [])).slice(3, 5)).toEqual([
+        'No comments yet.',
+        'Comment',
+      ]);
+    });
+
+    it('shows each comment under the body, in the order given: its number, author, time and body', () => {
+      const page = threadPage(thread(), [
+        comment(),
+        comment({
+          number: 2,
+          author: 'trinity',
+          body: 'Mine too.',
+          createdAt: '2026-10-19T11:47:03.000Z',
+        }),
+      ]);
+      expect(contentText(page).slice(3, 8)).toEqual([
+        '#1 by neo, 2026-10-19 09:05',
+        'Thanks for having us.',
+        '#2 by trinity, 2026-10-19 11:47',
+        'Mine too.',
+        'Comment',
+      ]);
+    });
+
+    it("breaks a comment's body at each line break and links its addresses", () => {
+      const page = threadPage(thread(), [comment({ body: 'Try this:\nhttp://findit.io/?q=wifi' })]);
+      expect(contentOf(page)[4]?.innerHTML).toBe(
+        'Try this:<br><a href="http://findit.io/?q=wifi">http://findit.io/?q=wifi</a>',
+      );
+    });
+
+    it('ends with a form to comment on this thread: its id, a body four rows tall and a button', () => {
+      const document = parsed(threadPage(thread({ id: 12 }), [comment()]));
+      const form = document.querySelector('form');
+
+      expect(contentOf(threadPage(thread({ id: 12 }), [comment()])).at(-1)?.tagName).toBe('FORM');
+      expect([form?.getAttribute('action'), form?.getAttribute('method')]).toEqual([
+        '/comment',
+        'post',
+      ]);
+      expect(
+        [...(form?.querySelectorAll('input, textarea') ?? [])].map((control) => [
+          control.tagName,
+          control.getAttribute('type'),
+          control.getAttribute('name'),
+          control.getAttribute('value'),
+        ]),
+      ).toEqual([
+        ['INPUT', 'hidden', 'id', '12'],
+        ['TEXTAREA', null, 'body', null],
+        ['INPUT', 'submit', null, 'Comment'],
+      ]);
+      expect(form?.querySelector('textarea')?.getAttribute('rows')).toBe('4');
+      expect(form?.querySelector('textarea')?.textContent).toBe('');
     });
   });
 
@@ -248,6 +314,8 @@ describe("talkit.io's pages", () => {
 
   describe('no player text becomes markup', () => {
     const OWN_TAGS = ['A', 'BR', 'H1', 'H2', 'HR', 'P'];
+    /** A thread page's own form: the comment form, and nothing else. */
+    const FORM_TAGS = ['FORM', 'INPUT', 'TEXTAREA'];
 
     const tagsIn = (page: string): readonly string[] => [
       ...new Set([...parsed(page).body.querySelectorAll('*')].map((element) => element.tagName)),
@@ -266,9 +334,16 @@ describe("talkit.io's pages", () => {
       );
     });
 
+    /** What a thread page's form holds: exactly the comment form's three controls. */
+    const formControlsIn = (page: string): readonly string[] =>
+      [...parsed(page).querySelectorAll('form, input, textarea, button, select')].map(
+        (control) => `${control.tagName} ${control.getAttribute('name') ?? ''}`,
+      );
+
     it.each(INJECTIONS)('on a thread, a title, author and body of %s', (payload) => {
-      const page = threadPage(thread({ title: payload, author: payload, body: payload }));
-      expect(tagsIn(page).filter((tag) => !OWN_TAGS.includes(tag))).toEqual([]);
+      const page = threadPage(thread({ title: payload, author: payload, body: payload }), []);
+      expect(tagsIn(page).filter((tag) => ![...OWN_TAGS, ...FORM_TAGS].includes(tag))).toEqual([]);
+      expect(formControlsIn(page)).toEqual(['FORM ', 'INPUT id', 'TEXTAREA body', 'INPUT ']);
       expect(parsed(page).title).toBe(`${payload} - talkit.io`);
       expect(contentText(page).slice(0, 3)).toEqual([
         payload,
@@ -277,8 +352,18 @@ describe("talkit.io's pages", () => {
       ]);
     });
 
+    it.each(INJECTIONS)('on a thread, a comment whose author and body are %s', (payload) => {
+      const page = threadPage(thread(), [comment({ author: payload, body: payload })]);
+      expect(tagsIn(page).filter((tag) => ![...OWN_TAGS, ...FORM_TAGS].includes(tag))).toEqual([]);
+      expect(formControlsIn(page)).toEqual(['FORM ', 'INPUT id', 'TEXTAREA body', 'INPUT ']);
+      expect(contentText(page).slice(3, 5)).toEqual([
+        `#1 by ${payload}, 2026-10-19 09:05`,
+        payload,
+      ]);
+    });
+
     it('the only link a body gets goes where its address says, and holds nothing more', () => {
-      const page = threadPage(thread({ body: 'http://x.io/a"onmouseover="1' }));
+      const page = threadPage(thread({ body: 'http://x.io/a"onmouseover="1' }), []);
       const bodyLinks = [...(contentOf(page)[2]?.querySelectorAll('a') ?? [])];
       expect(bodyLinks.map((link) => link.getAttributeNames())).toEqual([['href']]);
       expect(bodyLinks.map((link) => link.getAttribute('href'))).toEqual(['http://x.io/a']);

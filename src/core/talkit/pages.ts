@@ -38,6 +38,14 @@ export type Thread = {
   readonly createdAt: string;
 };
 
+/** A comment as its thread's page shows it, numbered within the thread. */
+export type ThreadComment = {
+  readonly number: number;
+  readonly author: string;
+  readonly body: string;
+  readonly createdAt: string;
+};
+
 /** A talkit page: the forum's name, the way to the list, and whatever the page says
  *  beneath them. */
 const talkitDocument = (options: {
@@ -112,14 +120,28 @@ export const threadsPage = (options: {
         : [...options.threads.map(listLine), ...pagingLine(options.page, options.hasOlder)],
   });
 
-export const threadPage = (thread: Thread): string =>
+const commentLines = (comment: ThreadComment): readonly string[] => [
+  `<p>#${comment.number} by ${escapeHtml(comment.author)}, ${ledgerTime(comment.createdAt)}</p>`,
+  `<p>${playerText(comment.body)}</p>`,
+];
+
+/** A thread, its comments in the order given, and the form to add one. */
+export const threadPage = (thread: Thread, comments: readonly ThreadComment[]): string =>
   talkitDocument({
     title: `${thread.title} - talkit.io`,
     body: [
       `<h2>${escapeHtml(thread.title)}</h2>`,
       `<p>by ${escapeHtml(thread.author)}, ${ledgerTime(thread.createdAt)}</p>`,
       `<p>${playerText(thread.body)}</p>`,
-      '<p>No comments yet.</p>',
+      ...(comments.length === 0 ? ['<p>No comments yet.</p>'] : comments.flatMap(commentLines)),
+      // The thread's id is the server's own number, so the form holds nothing a player
+      // wrote, and the commenter's login goes beside it as it does with a post.
+      '<h2>Comment</h2>',
+      '<form action="/comment" method="post">',
+      `<input type="hidden" name="id" value="${thread.id}">`,
+      '<p><textarea name="body" rows="4"></textarea></p>',
+      '<p><input type="submit" value="Comment"></p>',
+      '</form>',
     ],
   });
 

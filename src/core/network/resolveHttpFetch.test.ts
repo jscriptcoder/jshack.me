@@ -211,6 +211,7 @@ type FetchOverrides = {
   findLargestBalances?: ChainReads['findLargestBalances'];
   findThreads?: ForumReads['findThreads'];
   findThread?: ForumReads['findThread'];
+  findComments?: ForumReads['findComments'];
   postThread?: PostThread;
 };
 
@@ -270,6 +271,9 @@ const makeDeps = (over: FetchOverrides = {}) => {
   const findThread = vi.fn<ForumReads['findThread']>(
     over.findThread ?? (async () => ({ data: null, error: null })),
   );
+  const findComments = vi.fn<ForumReads['findComments']>(
+    over.findComments ?? (async () => ({ data: [], error: null })),
+  );
   // Default: every post goes up as thread 12. Only talkit's `/post` ever asks.
   const postThread = vi.fn<PostThread>(
     over.postThread ?? (async () => ({ data: { outcome: 'posted', id: 12 }, error: null })),
@@ -294,6 +298,7 @@ const makeDeps = (over: FetchOverrides = {}) => {
     findLargestBalances,
     findThreads,
     findThread,
+    findComments,
     postThread,
   };
   return {
@@ -306,6 +311,7 @@ const makeDeps = (over: FetchOverrides = {}) => {
     findLargestBalances,
     findThreads,
     findThread,
+    findComments,
     findNetworkByPublicIp,
     findPatches,
     listOccupantsByEssid,
@@ -1927,6 +1933,13 @@ describe('talkit.io answers the forum from its table', () => {
     body: 'This is the forum for the whole valley.\nPosts are permanent.',
     created_at: '2026-10-19T08:30:12+00:00',
   };
+  const commentRow = (number: number, overrides: Record<string, unknown> = {}) => ({
+    number,
+    author: 'neo',
+    body: `Comment ${number}`,
+    created_at: '2026-10-19T09:05:41+00:00',
+    ...overrides,
+  });
   /** A forum of `count` threads, the most recently active first, read the way the
    *  table is: `limit` rows from `offset`. */
   const forumOf = (count: number) => {
@@ -2059,13 +2072,46 @@ describe('talkit.io answers the forum from its table', () => {
     expect(findThread).toHaveBeenCalledWith(1);
   });
 
+  it("shows a thread's comments under it, read for that thread, and a form to add one", async () => {
+    const { deps, findComments } = makeDeps({
+      ...onTalkit,
+      ...forumOf(1),
+      findComments: async () => ({
+        data: [commentRow(1), commentRow(2, { author: 'trinity', body: 'Me\ntoo' })],
+        error: null,
+      }),
+    });
+
+    const page = contentOf(await handleResolveHttpFetch(fetchPath('/thread?id=1'), deps));
+
+    expect(page).toContain(
+      '<p>#1 by neo, 2026-10-19 09:05</p>\n<p>Comment 1</p>\n' +
+        '<p>#2 by trinity, 2026-10-19 09:05</p>\n<p>Me<br>too</p>\n',
+    );
+    expect(page).not.toContain('No comments yet.');
+    expect(page).toContain('<input type="hidden" name="id" value="1">');
+    expect(findComments).toHaveBeenCalledWith(1);
+  });
+
+  it('says a thread has no comments yet when none were read', async () => {
+    const { deps } = makeDeps({ ...onTalkit, ...forumOf(1) });
+
+    const page = contentOf(await handleResolveHttpFetch(fetchPath('/thread?id=1'), deps));
+
+    expect(page).toContain('<p>No comments yet.</p>');
+  });
+
   it('answers a thread nobody started as a page that is not there', async () => {
-    const { deps, findThread, upsertPatch } = makeDeps({ ...onTalkit, ...forumOf(1) });
+    const { deps, findThread, findComments, upsertPatch } = makeDeps({
+      ...onTalkit,
+      ...forumOf(1),
+    });
 
     const response = await handleResolveHttpFetch(fetchPath('/thread?id=999999'), deps);
 
     expect(response).toEqual({ status: 404, body: { error: 'not_found' } });
     expect(findThread).toHaveBeenCalledWith(999999);
+    expect(findComments).not.toHaveBeenCalled();
     // A 404 is a served response, and the one a defender most needs to see.
     expect(loggedLines(upsertPatch)).toContainEqual(
       expect.stringMatching(/"GET \/thread\?id=999999 HTTP\/1\.1" 404 0$/),
@@ -2211,6 +2257,22 @@ describe('talkit.io answers the forum from its table', () => {
       '/thread?id=1',
       'hands back a row that is not a thread',
       { findThread: async () => ({ data: { ...WELCOME, body: 42 }, error: null }) },
+    ],
+    [
+      '/thread?id=1',
+      'cannot read its comments',
+      // A comment that would parse, beside the error: the error alone has to fail the view.
+      { findComments: async () => ({ data: [commentRow(1)], error: new Error('down') }) },
+    ],
+    [
+      '/thread?id=1',
+      'hands back a comment that is not one',
+      {
+        findComments: async () => ({
+          data: [commentRow(1), commentRow(2, { number: 0 })],
+          error: null,
+        }),
+      },
     ],
   ])('fails %s, and records nothing, when the forum %s', async (path, _case, broken) => {
     const { deps, upsertPatch } = makeDeps({ ...onTalkit, ...forumOf(1), ...broken });
