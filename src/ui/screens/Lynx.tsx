@@ -46,7 +46,7 @@
  */
 
 import { For, Show, createEffect, createMemo, createSignal, on, onMount } from 'solid-js';
-import { fieldBox, renderPage, type Segment } from '../renderPage.js';
+import { fieldBox, renderPage, textBox, type Segment } from '../renderPage.js';
 import { encodeForm, formSubmissionUrl } from '../../core/network/http.js';
 
 /** What became of a follow: the reader moved (and new props are on their way), or
@@ -195,6 +195,12 @@ export const Lynx = (props: LynxProps) => {
   const activate = async () => {
     const target = current();
     if (target === undefined) return;
+    // A box sends nothing on Enter, even once the reader has stepped out of it: its form
+    // goes from its button, so Enter puts them back to typing instead.
+    if (target.kind === 'field' && target.rows !== undefined) {
+      setSteppedOut(false);
+      return;
+    }
     await (target.kind === 'link' ? go(target.url) : submit(target));
   };
 
@@ -224,7 +230,8 @@ export const Lynx = (props: LynxProps) => {
    * A key as the field being edited takes it, or false when the field leaves it to the
    * browser. Only the arrows up and down, Tab and Enter pass through: a field has no
    * cursor to move, so left and right do nothing rather than going back, and Backspace
-   * deletes.
+   * deletes. In a box several lines tall Enter starts a new line, so only the arrows and
+   * Tab pass through.
    */
   const editKey = (event: KeyboardEvent, field: Field): boolean => {
     if (event.key === 'Escape') {
@@ -237,6 +244,10 @@ export const Lynx = (props: LynxProps) => {
     }
     if (typesCharacter(event)) {
       edit(field, (value) => `${value}${event.key}`);
+      return true;
+    }
+    if (event.key === 'Enter' && field.rows !== undefined) {
+      edit(field, (value) => `${value}\n`);
       return true;
     }
     return event.key === 'ArrowLeft' || event.key === 'ArrowRight';
@@ -281,6 +292,9 @@ export const Lynx = (props: LynxProps) => {
     const target = current();
     if (target === undefined) return [];
     if (target.kind === 'link') return ['⏎ Follow'];
+    if (target.kind === 'field' && target.rows !== undefined) {
+      return [fieldBeingEdited() === null ? '⏎ Edit' : '⏎ New line'];
+    }
     return target.form === null ? [] : ['⏎ Submit'];
   };
 
@@ -301,6 +315,14 @@ export const Lynx = (props: LynxProps) => {
   /** How a field reads: with a cursor at the end while it is being typed into. A
    *  password reads as a star for each character it holds, never the characters. */
   const fieldText = (field: Field): string => {
+    if (field.rows !== undefined) {
+      const typing = field === fieldBeingEdited();
+      return textBox({
+        value: typing ? `${valueOf(field)}_` : valueOf(field),
+        placeholder: field.placeholder,
+        rows: field.rows,
+      });
+    }
     const value = field.masked ? '*'.repeat(valueOf(field).length) : valueOf(field);
     if (field === fieldBeingEdited()) return `[${value}_]`;
     return field.masked ? `[${value}]` : fieldBox({ value, placeholder: field.placeholder });
