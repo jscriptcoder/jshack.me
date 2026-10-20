@@ -74,38 +74,42 @@ export const Author = (props: AuthorProps) => {
       class="flex h-full flex-col font-mono text-sm leading-relaxed outline-none"
       onKeyDown={onKeyDown}
     >
-      <div class="flex max-w-3xl flex-1 items-start gap-6 overflow-y-auto p-4">
-        {/* Sized in CSS rather than left to the image: it is the only remote asset
+      {/* The scroll region spans the card so its scrollbar sits at the card's edge;
+          only the bio inside it is held to a readable width. */}
+      <div class="flex-1 overflow-y-auto">
+        <div class="flex max-w-3xl items-start gap-6 p-4">
+          {/* Sized in CSS rather than left to the image: it is the only remote asset
             the game loads, and a slow or failed fetch must not reflow the text
             beside it. A broken image is allowed to be a broken image — there is no
             fallback machinery for a picture. */}
-        <img
-          src={AVATAR_URL}
-          alt={NAME}
-          class="h-[152px] w-[152px] shrink-0 rounded-full border-2 border-solid border-[var(--theme-avatar-border)]"
-        />
-        <div class="flex flex-col gap-2">
-          <h2 class="text-xl font-bold text-[var(--theme-text-bright)]">{NAME}</h2>
-          <div class="flex flex-col gap-3">
-            <For each={BIO}>{(paragraph) => <p>{paragraph}</p>}</For>
-          </div>
-          <div class="mt-2 flex gap-4">
-            <For each={LINKS}>
-              {(link) => (
-                <a
-                  href={link.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  // Hover borrows `text-bright` rather than carrying a token of
-                  // its own: legacy had a `linkHover` shade, and a ninth value
-                  // whose only job is to be slightly lighter than the eighth is
-                  // four more numbers to keep right for no visible gain.
-                  class="text-[var(--theme-link)] underline hover:text-[var(--theme-text-bright)]"
-                >
-                  {link.label}
-                </a>
-              )}
-            </For>
+          <img
+            src={AVATAR_URL}
+            alt={NAME}
+            class="h-[152px] w-[152px] shrink-0 rounded-full border-2 border-solid border-[var(--theme-avatar-border)]"
+          />
+          <div class="flex flex-col gap-2">
+            <h2 class="text-xl font-bold text-[var(--theme-text-bright)]">{NAME}</h2>
+            <div class="flex flex-col gap-3">
+              <For each={BIO}>{(paragraph) => <p>{paragraph}</p>}</For>
+            </div>
+            <div class="mt-2 flex gap-4">
+              <For each={LINKS}>
+                {(link) => (
+                  <a
+                    href={link.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    // Hover borrows `text-bright` rather than carrying a token of
+                    // its own: legacy had a `linkHover` shade, and a ninth value
+                    // whose only job is to be slightly lighter than the eighth is
+                    // four more numbers to keep right for no visible gain.
+                    class="text-[var(--theme-link)] underline hover:text-[var(--theme-text-bright)]"
+                  >
+                    {link.label}
+                  </a>
+                )}
+              </For>
+            </div>
           </div>
         </div>
       </div>
