@@ -71,10 +71,10 @@ export const Author = (props: AuthorProps) => {
       // Focusable so the card itself receives keys; not in the tab order, because
       // it is the only thing on screen while it is open.
       tabIndex={-1}
-      class="flex h-full flex-col overflow-y-auto font-mono text-sm leading-relaxed outline-none"
+      class="flex h-full flex-col font-mono text-sm leading-relaxed outline-none"
       onKeyDown={onKeyDown}
     >
-      <div class="flex max-w-3xl items-start gap-6 p-4">
+      <div class="flex max-w-3xl flex-1 items-start gap-6 overflow-y-auto p-4">
         {/* Sized in CSS rather than left to the image: it is the only remote asset
             the game loads, and a slow or failed fetch must not reflow the text
             beside it. A broken image is allowed to be a broken image — there is no
@@ -109,6 +109,10 @@ export const Author = (props: AuthorProps) => {
           </div>
         </div>
       </div>
+      {/* Pinned below the scrolling bio and worded as lynx words its own, since the
+          card leaves on the same keys: it hides the prompt, so this line is the
+          only sign the terminal is still there. */}
+      <div class="px-2 py-1 text-[var(--theme-text-dim)]">q Quit</div>
     </main>
   );
 };
