@@ -24,6 +24,14 @@ export const handleOf = (address: string): string | null => {
   return at === -1 || address.slice(at + 1) !== EMAILIT_DOMAIN ? null : address.slice(0, at);
 };
 
+/** An address as a player typed it, in full: trimmed, lowercased, and a bare handle taken
+ *  to be at emailit.io. `mail` reads a recipient this way, and hireme.io an applicant, so
+ *  the two cannot read one typed address differently. */
+export const typedAddress = (typed: string): string => {
+  const lowered = typed.trim().toLowerCase();
+  return lowered.includes('@') ? lowered : `${lowered}@${EMAILIT_DOMAIN}`;
+};
+
 /** The address and password a `~/.mailrc` holds, or null when it is missing either. Each
  *  is a `set` line whose value runs to the end of the line, as in a real one; blank lines
  *  and `#` comments are skipped. */

@@ -32,8 +32,12 @@ import {
 import { vantageOf } from '../network/vantage.js';
 import { hasTty } from '../sessions/hasTty.js';
 import { mayExecute, resolveBinary } from './availability.js';
-import { handleOf, mailrcPath, savedLogin as savedLoginOn } from '../emailit/mailrc.js';
-import { EMAILIT_DOMAIN } from '../generation/fixedSites.js';
+import {
+  handleOf,
+  mailrcPath,
+  savedLogin as savedLoginOn,
+  typedAddress,
+} from '../emailit/mailrc.js';
 import { MIN_PASSWORD_LENGTH, validatePassword } from '../gameConfig/gameConfig.js';
 import type { AbsPath } from '../types.js';
 
@@ -79,13 +83,6 @@ const saveLogin = (
     isNew: login.isNew,
     permissions: { read: reach, write: reach, execute: [] },
   });
-};
-
-/** An address as the player typed it, in full: lowercased, and a bare handle taken to
- *  be at emailit.io. */
-const typedAddress = (typed: string): string => {
-  const lowered = typed.trim().toLowerCase();
-  return lowered.includes('@') ? lowered : `${lowered}@${EMAILIT_DOMAIN}`;
 };
 
 /** The login saved in the current user's `~/.mailrc`, and the file as it was read, or
