@@ -102,12 +102,11 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   v0.414.0). The lasting fix is to load lynx, nano or hackademy's pages on demand. It is its own
   piece of work, since box generation is synchronous.
 
-- **The e2e skill's `type-command.sh` cannot type a command holding `"`.** It compares the typed
-  field against both the command and the command in quotes, but `agent-browser eval` returns the
-  value as a JSON string, so every `"` inside comes back as `\"` and the check refuses to press
-  Enter. Seen in the talkit close-out (2026-10-20) on `curl -d "id=…&body=…"`; the workaround is
-  to type such a command by hand and press Enter. The fix: parse the eval result as JSON before
-  comparing.
+- **The e2e skill's `type-command.sh` could not type a command holding `"` — RESOLVED
+  2026-10-20.** `agent-browser eval` always prints the value as a JSON string, so every `"` inside
+  came back as `\"` and the check refused to press Enter (seen in the talkit close-out on
+  `curl -d "id=…&body=…"`). The script now decodes the eval result with `JSON.parse` before
+  comparing, and compares against the command alone.
 
 - **CLOSED (2026-10-07) — three wire-checks that failed for fixture reasons.**
   `testCrossPlayerConnectionTrace` already read the gateway's trace under `ap:<essid>` (fixed in

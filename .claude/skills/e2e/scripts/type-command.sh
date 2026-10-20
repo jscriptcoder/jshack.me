@@ -18,8 +18,11 @@ done
 
 browser eval "(() => { const input = document.querySelector('input'); input.focus(); input.value = ''; })()" > /dev/null
 browser keyboard type "$cmd"
-typed=$(browser eval "(() => document.querySelector('input').value)()" | tail -1)
-if [ "$typed" != "\"$cmd\"" ] && [ "$typed" != "$cmd" ]; then
+# eval prints the value as a JSON string, so a `"` inside comes back as `\"`;
+# decode it before comparing.
+typed=$(browser eval "(() => document.querySelector('input').value)()" | tail -1 |
+  node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(0, "utf8")))')
+if [ "$typed" != "$cmd" ]; then
   echo "typed $typed, expected $cmd — not submitting" >&2
   exit 1
 fi
