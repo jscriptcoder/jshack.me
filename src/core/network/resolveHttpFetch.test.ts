@@ -44,6 +44,7 @@ import {
 } from '../generation/fixedSites.js';
 import type { SignUp } from '../emailit/signup.js';
 import type { PostThread } from '../talkit/answerPost.js';
+import type { PostComment } from '../talkit/answerComment.js';
 import { FINDIT_FRONT_PAGE } from '../findit/page.js';
 import { EMAILIT_FRONT_PAGE } from '../emailit/pages.js';
 import { CHAINIT_FRONT_PAGE } from '../chainit/pages.js';
@@ -211,7 +212,9 @@ type FetchOverrides = {
   findLargestBalances?: ChainReads['findLargestBalances'];
   findThreads?: ForumReads['findThreads'];
   findThread?: ForumReads['findThread'];
+  findComments?: ForumReads['findComments'];
   postThread?: PostThread;
+  postComment?: PostComment;
 };
 
 const makeDeps = (over: FetchOverrides = {}) => {
@@ -270,9 +273,17 @@ const makeDeps = (over: FetchOverrides = {}) => {
   const findThread = vi.fn<ForumReads['findThread']>(
     over.findThread ?? (async () => ({ data: null, error: null })),
   );
+  const findComments = vi.fn<ForumReads['findComments']>(
+    over.findComments ?? (async () => ({ data: [], error: null })),
+  );
   // Default: every post goes up as thread 12. Only talkit's `/post` ever asks.
   const postThread = vi.fn<PostThread>(
     over.postThread ?? (async () => ({ data: { outcome: 'posted', id: 12 }, error: null })),
+  );
+  // Default: every comment goes up as #3 on its thread. Only talkit's `/comment` ever asks.
+  const postComment = vi.fn<PostComment>(
+    over.postComment ??
+      (async () => ({ data: { outcome: 'commented', number: 3 }, error: null })),
   );
   const deps: ResolveHttpFetchDeps = {
     nonceStore: freshStore,
@@ -294,11 +305,14 @@ const makeDeps = (over: FetchOverrides = {}) => {
     findLargestBalances,
     findThreads,
     findThread,
+    findComments,
     postThread,
+    postComment,
   };
   return {
     deps,
     postThread,
+    postComment,
     signUp,
     findBalance,
     findTransfers,
@@ -306,6 +320,7 @@ const makeDeps = (over: FetchOverrides = {}) => {
     findLargestBalances,
     findThreads,
     findThread,
+    findComments,
     findNetworkByPublicIp,
     findPatches,
     listOccupantsByEssid,
@@ -1927,6 +1942,13 @@ describe('talkit.io answers the forum from its table', () => {
     body: 'This is the forum for the whole valley.\nPosts are permanent.',
     created_at: '2026-10-19T08:30:12+00:00',
   };
+  const commentRow = (number: number, overrides: Record<string, unknown> = {}) => ({
+    number,
+    author: 'neo',
+    body: `Comment ${number}`,
+    created_at: '2026-10-19T09:05:41+00:00',
+    ...overrides,
+  });
   /** A forum of `count` threads, the most recently active first, read the way the
    *  table is: `limit` rows from `offset`. */
   const forumOf = (count: number) => {
@@ -2059,13 +2081,46 @@ describe('talkit.io answers the forum from its table', () => {
     expect(findThread).toHaveBeenCalledWith(1);
   });
 
+  it("shows a thread's comments under it, read for that thread, and a form to add one", async () => {
+    const { deps, findComments } = makeDeps({
+      ...onTalkit,
+      ...forumOf(1),
+      findComments: async () => ({
+        data: [commentRow(1), commentRow(2, { author: 'trinity', body: 'Me\ntoo' })],
+        error: null,
+      }),
+    });
+
+    const page = contentOf(await handleResolveHttpFetch(fetchPath('/thread?id=1'), deps));
+
+    expect(page).toContain(
+      '<p>#1 by neo, 2026-10-19 09:05</p>\n<p>Comment 1</p>\n' +
+        '<p>#2 by trinity, 2026-10-19 09:05</p>\n<p>Me<br>too</p>\n',
+    );
+    expect(page).not.toContain('No comments yet.');
+    expect(page).toContain('<input type="hidden" name="id" value="1">');
+    expect(findComments).toHaveBeenCalledWith(1);
+  });
+
+  it('says a thread has no comments yet when none were read', async () => {
+    const { deps } = makeDeps({ ...onTalkit, ...forumOf(1) });
+
+    const page = contentOf(await handleResolveHttpFetch(fetchPath('/thread?id=1'), deps));
+
+    expect(page).toContain('<p>No comments yet.</p>');
+  });
+
   it('answers a thread nobody started as a page that is not there', async () => {
-    const { deps, findThread, upsertPatch } = makeDeps({ ...onTalkit, ...forumOf(1) });
+    const { deps, findThread, findComments, upsertPatch } = makeDeps({
+      ...onTalkit,
+      ...forumOf(1),
+    });
 
     const response = await handleResolveHttpFetch(fetchPath('/thread?id=999999'), deps);
 
     expect(response).toEqual({ status: 404, body: { error: 'not_found' } });
     expect(findThread).toHaveBeenCalledWith(999999);
+    expect(findComments).not.toHaveBeenCalled();
     // A 404 is a served response, and the one a defender most needs to see.
     expect(loggedLines(upsertPatch)).toContainEqual(
       expect.stringMatching(/"GET \/thread\?id=999999 HTTP\/1\.1" 404 0$/),
@@ -2211,6 +2266,22 @@ describe('talkit.io answers the forum from its table', () => {
       '/thread?id=1',
       'hands back a row that is not a thread',
       { findThread: async () => ({ data: { ...WELCOME, body: 42 }, error: null }) },
+    ],
+    [
+      '/thread?id=1',
+      'cannot read its comments',
+      // A comment that would parse, beside the error: the error alone has to fail the view.
+      { findComments: async () => ({ data: [commentRow(1)], error: new Error('down') }) },
+    ],
+    [
+      '/thread?id=1',
+      'hands back a comment that is not one',
+      {
+        findComments: async () => ({
+          data: [commentRow(1), commentRow(2, { number: 0 })],
+          error: null,
+        }),
+      },
     ],
   ])('fails %s, and records nothing, when the forum %s', async (path, _case, broken) => {
     const { deps, upsertPatch } = makeDeps({ ...onTalkit, ...forumOf(1), ...broken });
@@ -2439,7 +2510,7 @@ describe('talkit.io takes a new thread', () => {
     expect(postThread).toHaveBeenCalledTimes(1);
   });
 
-  it.each(['/comment', '/', '/post/', '/threads'])(
+  it.each(['/', '/post/', '/threads'])(
     'refuses a form at %s, as every other server does',
     async (path) => {
       const { deps, postThread } = makeDeps(onTalkit);
@@ -2490,6 +2561,192 @@ describe('talkit.io takes a new thread', () => {
       body: { error: 'payload_invalid' },
     });
     expect(postThread).not.toHaveBeenCalled();
+  });
+});
+
+describe('talkit.io takes a comment', () => {
+  const TALKIT_IP = siteAddress('talkit.io') ?? '';
+  const TALKIT_ID = computeApGatewayId(TALKIT_NETWORK);
+  const onTalkit = {
+    lookup: async () => ({
+      data: { router_machine_id: TALKIT_ID, essid: TALKIT_NETWORK },
+      error: null,
+    }),
+    listOccupantsByEssid: async () => ({ data: [], error: null }),
+    listLeasesByEssid: async () => ({ data: [], error: null }),
+  };
+  const FORM = 'id=12&body=Mine+blinks.%0AAll+night.';
+  const NEO = { handle: 'neo', password: 's3cret' };
+  const commentTo = (path: string, fields: Record<string, unknown> = {}) =>
+    signRequest(BOB, 'resolveHttpFetch', {
+      target: TALKIT_IP,
+      port: HTTP_DEFAULT_PORT,
+      path,
+      body: FORM,
+      login: NEO,
+      ...fields,
+    });
+  const contentOf = (response: { body: Record<string, unknown> }): string =>
+    typeof response.body.content === 'string' ? response.body.content : '';
+  const writtenTo = (upsertPatch: ReturnType<typeof makeDeps>['upsertPatch'], path: string) =>
+    upsertPatch.mock.calls.map(([row]) => row).filter((row) => row.path === path);
+
+  it('posts the comment on the thread as the login the form carries, by the player who sent it', async () => {
+    const { deps, postComment, postThread } = makeDeps(onTalkit);
+
+    const response = await handleResolveHttpFetch(commentTo('/comment'), deps);
+
+    expect(postComment).toHaveBeenCalledWith({
+      handle: 'neo',
+      passwordMd5: md5('s3cret'),
+      playerKey: BOB.publicKeyHex,
+      threadId: 12,
+      body: 'Mine blinks.\nAll night.',
+    });
+    expect(postThread).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ ok: true, server: 'nginx' });
+    expect(contentOf(response)).toContain('Commented as neo.');
+  });
+
+  it('records the POST in its access log by its path, with no trace of the form or the login', async () => {
+    const { deps, upsertPatch } = makeDeps(onTalkit);
+
+    const response = await handleResolveHttpFetch(commentTo('/comment'), deps);
+
+    expect(writtenTo(upsertPatch, ACCESS_LOG_PATH).map((row) => row.content)).toEqual([
+      `${BOB_PUBLIC_IP} - - [30/Jul/2026:13:55:36 +0000] "POST /comment HTTP/1.1" 200 ${contentOf(response).length}\n`,
+    ]);
+    expect(JSON.stringify(upsertPatch.mock.calls)).not.toContain('s3cret');
+    expect(JSON.stringify(upsertPatch.mock.calls)).not.toContain('blinks');
+  });
+
+  it('writes who commented on which thread, and from where, to talkit.log', async () => {
+    const { deps, upsertPatch } = makeDeps(onTalkit);
+
+    await handleResolveHttpFetch(commentTo('/comment'), deps);
+
+    expect(writtenTo(upsertPatch, '/var/log/talkit.log')).toEqual([
+      expect.objectContaining({
+        machine_id: TALKIT_ID,
+        content: `2026-07-30 13:55:36 comment #3 on #12 by neo from ${BOB_PUBLIC_IP}\n`,
+        owner: 'root',
+        permissions: { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] },
+      }),
+    ]);
+  });
+
+  it('spells out anything in the handle that could pass for another column of the line', async () => {
+    const { deps, upsertPatch } = makeDeps(onTalkit);
+
+    await handleResolveHttpFetch(
+      commentTo('/comment', { login: { handle: 'neo on #1 by x', password: 'x' } }),
+      deps,
+    );
+
+    expect(writtenTo(upsertPatch, '/var/log/talkit.log').map((row) => row.content)).toEqual([
+      `2026-07-30 13:55:36 comment #3 on #12 by neo\\x20on\\x20\\x231\\x20by\\x20x from ${BOB_PUBLIC_IP}\n`,
+    ]);
+  });
+
+  it('answers a comment with no login plainly, and records only the POST', async () => {
+    const { deps, postComment, upsertPatch } = makeDeps(onTalkit);
+
+    const response = await handleResolveHttpFetch(commentTo('/comment', { login: undefined }), deps);
+
+    expect(response.status).toBe(200);
+    expect(contentOf(response)).toContain('Not logged in to emailit.io.');
+    expect(postComment).not.toHaveBeenCalled();
+    expect(writtenTo(upsertPatch, ACCESS_LOG_PATH)).toHaveLength(1);
+    expect(writtenTo(upsertPatch, '/var/log/talkit.log')).toEqual([]);
+  });
+
+  it('writes nothing to talkit.log for a comment the store refused', async () => {
+    const { deps, upsertPatch } = makeDeps({
+      ...onTalkit,
+      postComment: async () => ({ data: { outcome: 'no_thread' }, error: null }),
+    });
+
+    const response = await handleResolveHttpFetch(commentTo('/comment'), deps);
+
+    expect(contentOf(response)).toContain('No such thread.');
+    expect(writtenTo(upsertPatch, ACCESS_LOG_PATH)).toHaveLength(1);
+    expect(writtenTo(upsertPatch, '/var/log/talkit.log')).toEqual([]);
+  });
+
+  it('keeps a comment that went up, though its line could not be written', async () => {
+    const { deps } = makeDeps({
+      ...onTalkit,
+      upsertPatch: async (row) => {
+        if (row.path === '/var/log/talkit.log') throw new Error('journal unavailable');
+        return { error: null };
+      },
+    });
+
+    const response = await handleResolveHttpFetch(commentTo('/comment'), deps);
+
+    expect(response.status).toBe(200);
+    expect(contentOf(response)).toContain('Commented as neo.');
+  });
+
+  it('is a server error, and records nothing, when the store cannot be asked', async () => {
+    const { deps, upsertPatch } = makeDeps({
+      ...onTalkit,
+      postComment: async () => ({ data: null, error: { message: 'connection refused' } }),
+    });
+
+    expect(await handleResolveHttpFetch(commentTo('/comment'), deps)).toEqual({
+      status: 500,
+      body: { error: 'comment_failed' },
+    });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('takes a form at /comment however its query string reads', async () => {
+    const { deps, postComment } = makeDeps(onTalkit);
+
+    await handleResolveHttpFetch(commentTo('/comment?id=99'), deps);
+
+    expect(postComment).toHaveBeenCalledWith(expect.objectContaining({ threadId: 12 }));
+  });
+
+  it.each(['/comment/', '/comments', '/thread'])(
+    'refuses a form at %s, as every other server does',
+    async (path) => {
+      const { deps, postComment } = makeDeps(onTalkit);
+
+      const response = await handleResolveHttpFetch(commentTo(path), deps);
+
+      expect(response).toEqual({
+        status: 405,
+        body: { error: 'method_not_allowed', server: 'nginx' },
+      });
+      expect(postComment).not.toHaveBeenCalled();
+    },
+  );
+
+  it('takes no form at /comment on any other site', async () => {
+    const { deps, postComment } = makeDeps({ patches: aliceServing() });
+
+    const response = await handleResolveHttpFetch(
+      envelope({ path: '/comment', body: FORM, login: NEO }),
+      deps,
+    );
+
+    expect(response.status).toBe(405);
+    expect(postComment).not.toHaveBeenCalled();
+  });
+
+  it('serves /comment as a file to a plain fetch, posting nothing', async () => {
+    const { deps, postComment } = makeDeps(onTalkit);
+
+    const response = await handleResolveHttpFetch(
+      commentTo('/comment', { body: undefined, login: undefined }),
+      deps,
+    );
+
+    expect(response).toEqual({ status: 404, body: { error: 'not_found' } });
+    expect(postComment).not.toHaveBeenCalled();
   });
 });
 

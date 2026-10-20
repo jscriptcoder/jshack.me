@@ -462,6 +462,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         logFailure('http-fetch talkit post', error);
         return { data: data as unknown, error };
       },
+      // Only a form POSTed to talkit.io's /comment reaches this. The password check, the
+      // hourly cap, the comment's number and the thread's bump are one transaction inside
+      // the function, and its answer is handed over as it came off the wire.
+      postComment: async ({ handle, passwordMd5, playerKey, threadId, body }) => {
+        const { data, error } = await supabase.rpc('talkit_comment', {
+          comment_handle: handle,
+          comment_password_md5: passwordMd5,
+          comment_player_key: playerKey,
+          comment_thread_id: threadId,
+          comment_body: body,
+        });
+        logFailure('http-fetch talkit comment', error);
+        return { data: data as unknown, error };
+      },
       // Only a lookup at chainit.io's /address reaches these two: the public ledger, read
       // exactly as api/wallet.ts reads it for `wallet balance` and `wallet history` (an
       // api/ file is an endpoint of its own, so the reads are written here again). The
@@ -531,6 +545,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           .eq('id', id)
           .maybeSingle();
         logFailure('http-fetch forum thread', error);
+        return { data: data as unknown, error };
+      },
+      // Only talkit.io's /thread reaches this, once the thread it names was found. A
+      // comment's number orders the thread, as it was given under the thread's lock.
+      findComments: async (threadId: number) => {
+        const { data, error } = await supabase
+          .from('talkit_comments')
+          .select('number, author, body, created_at')
+          .eq('thread_id', threadId)
+          .order('number', { ascending: true });
+        logFailure('http-fetch forum comments', error);
         return { data: data as unknown, error };
       },
     });

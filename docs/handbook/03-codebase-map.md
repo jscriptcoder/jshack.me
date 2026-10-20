@@ -90,7 +90,7 @@ src/
 | `mapit/`           | mapit.io's pages: the valley's drawing and each town's seeded plan.                                                       | —       |
 | `emailit/`         | emailit.io's pages, sign-up, `mail`'s server side, and the mail root finds on emailit.io's box.                           | —       |
 | `chainit/`         | chainit.io's pages, and its views from the ledger: `/address`, `/recent` and `/rich`.                                     | —       |
-| `talkit/`          | talkit.io's pages, player text shown safely, its views from the forum table, and the checks on a new thread.              | —       |
+| `talkit/`          | talkit.io's pages, player text shown safely, its views from the forum tables, the checks on a new thread or comment.      | —       |
 | `logging/`         | One formatter per log file; source-IP and writer-key rules.                                                               | 8       |
 | `patches/`         | Server handlers for the journal (write, list, remove, log appends, traces), L1, L2, the read filter.                      | 9, 10   |
 | `signedRequest/`   | Envelope schema, signing, verification.                                                                                   | 9       |

@@ -4,8 +4,23 @@
 (PR #708, 2026-10-19, v0.410.0; the migration is on `jshack-dev` and `jshack-prod`).
 **Slice 2 merged** (PR #709, 2026-10-19, v0.411.0; the migration is on `jshack-dev` and
 `jshack-prod`; mutation 389 killed, the survivors equivalent but a CRLF `~/.mailrc` line, left
-untested by the owner). **Slice 3 planned and confirmed by the owner 2026-10-19** (below, after slice 2's plan); to be
-built on `feat/talkit-comments`.
+untested by the owner). **Slice 3 planned and confirmed by the owner 2026-10-19** (below, after
+slice 2's plan); built on `feat/talkit-comments`, increments 1 to 5 committed, v0.412.0; the
+migration is on `jshack-dev` and `jshack-prod`. Next: the PR gate (mutation, the full suite).
+
+**Slice 3 as built: where it differs from the plan below:**
+
+- **The two `api/network.ts` calls landed early**: the `findComments` select with increment 1
+  and the `postComment` call with increment 3, as `ResolveHttpFetchDeps` does not typecheck
+  without them; the migration and wire-check stayed in increment 4.
+- **The shared checks are a module of their own**, `core/talkit/writing.ts`: the line breaks,
+  the control characters, the 4,000-character limit, and the store's login and cap refusals
+  with their sentences. `answerPost` uses it unchanged in behaviour.
+- **`escapeLogField` spells out `#` too**, so a handle cannot pass for another comment's
+  `#<n> on #<id>` in `talkit.log`.
+- **The wire-check's raw-payload checks look only at a thread page before its comment form**,
+  since the form holds the page's own `</textarea>`; one check counts the page's single form,
+  box and two inputs.
 
 **Slice 2 as built: where it differs from the plan below:**
 
