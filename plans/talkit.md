@@ -9,7 +9,8 @@ untested by the owner). **Slice 3 merged** (PR #710, 2026-10-20, v0.412.0; the m
 throw at module load, two `?? ''` fallbacks fail `THREAD_ID` alike, two dropped `</form>` tags
 close at `</body>`). **Slice 4 grilled and planned 2026-10-20** (below, after slice 3's plan);
 built on `feat/talkit-removal`, increments 1 to 4 committed, v0.413.0; the migration is on
-`jshack-dev`. Next: the PR gate (mutation, the full suite), then `jshack-prod` before merge.
+`jshack-dev` and `jshack-prod`; mutation 97 of 101 killed, the 4 survivors equivalent. Next: the
+PR, then the epic's close-out.
 
 **Slice 4 as built: where it differs from the plan below:**
 

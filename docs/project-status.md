@@ -1130,8 +1130,8 @@ agreed order:
     and the page reads `#n [removed]`, the count and the list unmoved. It prints what it removes
     and the database host first, player text quoted with every control and format character
     spelled out, and exits 1 when there is nothing to remove. No trace on talkit's box. The
-    migration is on `jshack-dev`. **Pick up here (2026-10-20):** slice 4's PR, then the epic's
-    close-out (one browser run over all four slices).
+    migration is on `jshack-dev` and `jshack-prod`. **Pick up here (2026-10-20):** slice 4's PR,
+    then the epic's close-out (one browser run over all four slices).
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
