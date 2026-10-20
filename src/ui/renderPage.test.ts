@@ -65,6 +65,7 @@ describe('rendering a page as text', () => {
 
     expect(line).toEqual({
       heading: true,
+      alert: false,
       segments: [{ kind: 'link', text: '[1]Bean There', url: 'http://192.168.1.5/beans.html' }],
     });
   });
@@ -81,6 +82,54 @@ describe('rendering a page as text', () => {
     const lines = renderPage({ html: '<body><h1>one<br>two</h1></body>', url: PAGE_URL });
 
     expect(lines.map((line) => line.heading)).toEqual([true, true]);
+  });
+
+  // A form's refusal has to stand out from the form it sits in, and a terminal has no
+  // colour of its own to give it: the browser needs to know which line says what went
+  // wrong.
+  it('marks a paragraph the page calls an alert, and nothing around it', () => {
+    const lines = renderPage({
+      html: '<body><p>Handle</p><p role="alert">That handle is taken</p><p>Password</p></body>',
+      url: PAGE_URL,
+    });
+
+    expect(lines.map((line) => line.alert)).toEqual([false, false, true, false, false]);
+  });
+
+  it('hands the browser an alert as its text alone, the marking kept on the line', () => {
+    const [line] = renderPage({
+      html: '<body><p role="alert">That handle is taken</p></body>',
+      url: PAGE_URL,
+    });
+
+    expect(line).toEqual({
+      heading: false,
+      alert: true,
+      segments: [{ kind: 'text', text: 'That handle is taken' }],
+    });
+  });
+
+  it('marks every line of an alert broken with <br> as an alert', () => {
+    const lines = renderPage({
+      html: '<body><p role="alert">one<br>two</p></body>',
+      url: PAGE_URL,
+    });
+
+    expect(lines.map((line) => line.alert)).toEqual([true, true]);
+  });
+
+  it('leaves no gap behind for an alert with nothing in it', () => {
+    expect(asLines('<body><p>before</p><p role="alert"></p><p>after</p></body>')).toEqual([
+      'before',
+      '',
+      'after',
+    ]);
+  });
+
+  it('marks no line of a paragraph with any other role as an alert', () => {
+    const lines = renderPage({ html: '<body><p role="note">aside</p></body>', url: PAGE_URL });
+
+    expect(lines.map((line) => line.alert)).toEqual([false]);
   });
 
   it('keeps an inline element inside the line it belongs to', () => {
@@ -376,6 +425,7 @@ describe('a table on a page', () => {
     expect(renderPage({ html, url: PAGE_URL })).toEqual([
       {
         heading: false,
+        alert: false,
         segments: [
           { kind: 'text', text: 'Menu' },
           { kind: 'text', text: '     ' },
@@ -384,6 +434,7 @@ describe('a table on a page', () => {
       },
       {
         heading: false,
+        alert: false,
         segments: [
           { kind: 'text', text: 'Opening' },
           { kind: 'text', text: '  ' },

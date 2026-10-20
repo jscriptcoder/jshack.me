@@ -42,7 +42,7 @@ describe('the front page of emailit.io', () => {
     const opening = frontPageText().replace(/\s+/g, ' ').trim();
 
     expect(opening).toMatch(/^emailit\.io Free email for everybody/);
-    expect(frontPage().querySelector('strong')).toBeNull();
+    expect(frontPage().querySelector('[role="alert"]')).toBeNull();
   });
 
   it('carries the sign-up form: a handle, a password and a button, posted to /signup', () => {
@@ -53,6 +53,12 @@ describe('the front page of emailit.io', () => {
     expect(form?.querySelector('input[name="handle"]')?.getAttribute('value')).toBe('');
     expect(form?.querySelector('input[name="password"]')?.getAttribute('type')).toBe('password');
     expect(form?.querySelector('input[type="submit"]')?.getAttribute('value')).toBe('Sign up');
+  });
+
+  it('says nothing inside the form but its labels until a sign-up is refused', () => {
+    const form = frontPage().querySelector('form');
+
+    expect(form?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Handle Password');
   });
 
   it('offers the form before the way to sign up from a terminal', () => {

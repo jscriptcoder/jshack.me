@@ -73,7 +73,14 @@ export type Segment =
   | Control;
 
 /** One rendered line, as the runs of text it is made of. */
-export type RenderedLine = { readonly heading: boolean; readonly segments: readonly Segment[] };
+/** A line told as a heading, or as an alert (what went wrong, as a refused form says
+ *  it), or neither; the browser sets each apart, since a terminal can only do it with
+ *  weight and colour. */
+export type RenderedLine = {
+  readonly heading: boolean;
+  readonly alert: boolean;
+  readonly segments: readonly Segment[];
+};
 
 /** A segment before the page has been walked far enough to number its links: the
  *  same shape, with a link's `[n]` not yet written in front of it. */
@@ -91,8 +98,14 @@ type HeadingStart = { readonly kind: 'heading' };
 
 const HEADING_START: HeadingStart = { kind: 'heading' };
 
+/** Where an alert's line starts: a paragraph the page marks `role="alert"`, the way a
+ *  refused form says what went wrong. */
+type AlertStart = { readonly kind: 'alert' };
+
+const ALERT_START: AlertStart = { kind: 'alert' };
+
 /** What a line holds before its table columns are measured. */
-type LinePiece = Piece | CellStart | HeadingStart;
+type LinePiece = Piece | CellStart | HeadingStart | AlertStart;
 
 type Line = readonly LinePiece[];
 
@@ -491,6 +504,7 @@ const renderContainer = (container: Element, depth: number, base: string): reado
       continue;
     }
     const tag = tagOf(child);
+    const role = child.getAttribute('role');
     // Script and style need no skip here: they fall through to the inline branch,
     // and `inlinePieces` is the one place that decides they contribute nothing.
     if (isList(child)) {
@@ -509,7 +523,14 @@ const renderContainer = (container: Element, depth: number, base: string): reado
     }
     if (tag === 'p') {
       flush();
-      lines.push([], ...toLines(inlinePieces(child, base)), []);
+      const paragraph = toLines(inlinePieces(child, base));
+      lines.push(
+        [],
+        ...(role === 'alert'
+          ? paragraph.map((line): Line => (line.length === 0 ? line : [ALERT_START, ...line]))
+          : paragraph),
+        [],
+      );
       continue;
     }
     if (WRAPPER_TAGS.has(tag)) {
@@ -552,9 +573,7 @@ const normalize = (lines: readonly Line[]): readonly Line[] => {
  * are numbered: a field or a button is something to select, not somewhere to go, so a
  * form above the results leaves the first result `[1]`.
  */
-const numbered = (
-  lines: readonly Line[],
-): readonly (readonly (Segment | CellStart | HeadingStart)[])[] => {
+const numbered = (lines: readonly Line[]): readonly (readonly LinePiece[])[] => {
   let count = 0;
   return lines.map((line) =>
     line.map((piece) => {
@@ -565,12 +584,20 @@ const numbered = (
   );
 };
 
-/** A numbered line, told as a heading or not, its table columns not yet measured. */
-type MarkedLine = { readonly heading: boolean; readonly pieces: readonly (Segment | CellStart)[] };
+/** A numbered line, told as a heading, an alert or neither, its table columns not yet
+ *  measured. */
+type MarkedLine = {
+  readonly heading: boolean;
+  readonly alert: boolean;
+  readonly pieces: readonly (Segment | CellStart)[];
+};
 
-const marked = (line: readonly (Segment | CellStart | HeadingStart)[]): MarkedLine => ({
+const marked = (line: readonly LinePiece[]): MarkedLine => ({
   heading: line.some((piece) => piece.kind === 'heading'),
-  pieces: line.filter((piece): piece is Segment | CellStart => piece.kind !== 'heading'),
+  alert: line.some((piece) => piece.kind === 'alert'),
+  pieces: line.filter(
+    (piece): piece is Segment | CellStart => piece.kind !== 'heading' && piece.kind !== 'alert',
+  ),
 });
 
 /** A numbered row: what sits before its first cell (a list's indent), and its cells
@@ -617,7 +644,7 @@ const aligned = (lines: readonly MarkedLine[]): readonly RenderedLine[] => {
     return new Map(found).set(table, longest);
   }, new Map<Element | null, readonly number[]>());
 
-  return lines.map(({ heading, pieces }) => {
+  return lines.map(({ heading, alert, pieces }) => {
     const columns = widths.get(tableOf(pieces)) ?? [];
     const { prefix, cells } = rowOf(pieces);
     const laidOut = cells.flatMap((cell, column): readonly Segment[] => {
@@ -626,7 +653,7 @@ const aligned = (lines: readonly MarkedLine[]): readonly RenderedLine[] => {
       const padding = ' '.repeat((columns[column] ?? 0) - widthOf(cell)) + COLUMN_GAP;
       return [...cell, { kind: 'text', text: padding }];
     });
-    return { heading, segments: [...prefix, ...laidOut] };
+    return { heading, alert, segments: [...prefix, ...laidOut] };
   });
 };
 

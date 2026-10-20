@@ -351,13 +351,14 @@ export const Lynx = (props: LynxProps) => {
           {/* `min-h-[1lh]` keeps the blank line between blocks: an empty div has no
               height of its own, and the spacing IS the rendering. A heading is set
               in bold and the brighter colour, the way a terminal lynx sets one
-              apart: there is no larger font to give it. */}
+              apart: there is no larger font to give it. An alert, what a refused
+              form says went wrong, is set in the error colour. */}
           {(line) => (
             <div
-              role={line.heading ? 'heading' : undefined}
+              role={line.heading ? 'heading' : line.alert ? 'alert' : undefined}
               class={`min-h-[1lh] whitespace-pre-wrap break-words${
                 line.heading ? ' font-bold text-[var(--theme-text-bright)]' : ''
-              }`}
+              }${line.alert ? ' text-[var(--theme-error)]' : ''}`}
             >
               <For each={line.segments}>
                 {(segment) => {

@@ -148,7 +148,7 @@ describe('a sign-up refused before the store is asked', () => {
       'handle=neo&password=abc',
       'Password must be at least 4 characters',
     ],
-  ])('refuses %s, saying why above the front page', async (_case, form, message) => {
+  ])('refuses %s, saying why on the front page', async (_case, form, message) => {
     const { asked, text } = await signUpWith(form);
 
     expect(asked).toEqual([]);
@@ -214,6 +214,67 @@ describe('a sign-up the store refuses', () => {
 
     expect(page).toBeNull();
   });
+});
+
+describe('where a refused sign-up says why', () => {
+  /** The one alert on the page, and the input on the line just above it. */
+  const alertOn = (page: string | null) => {
+    const document = new DOMParser().parseFromString(page ?? '', 'text/html');
+    const alerts = document.querySelectorAll('[role="alert"]');
+    const above = alerts[0]?.previousElementSibling?.querySelector('input');
+    return {
+      count: alerts.length,
+      text: alerts[0]?.textContent,
+      under: above?.getAttribute('name') ?? above?.getAttribute('type'),
+    };
+  };
+
+  // Said next to what the reader has to change, rather than at the top of the page,
+  // where it is easy to read straight past.
+  it.each([
+    [
+      'a handle the store says is taken',
+      'handle=neo&password=s3cret',
+      answered('taken'),
+      'That handle is taken',
+      'handle',
+    ],
+    [
+      'a reserved handle',
+      'handle=root&password=s3cret',
+      answered('created'),
+      '"root" is a reserved system name',
+      'handle',
+    ],
+    [
+      'a handle not allowed',
+      'handle=1neo&password=s3cret',
+      answered('created'),
+      'Start with a letter, then letters, numbers, hyphens, or underscores',
+      'handle',
+    ],
+    [
+      'a password too short',
+      'handle=neo&password=abc',
+      answered('created'),
+      'Password must be at least 4 characters',
+      'password',
+    ],
+    [
+      'a sign-up over the day',
+      'handle=neo&password=s3cret',
+      answered('capped'),
+      'You have signed up 3 addresses today. Try again tomorrow.',
+      'submit',
+    ],
+  ])(
+    'says why %s, as an alert under the field it is about',
+    async (_case, form, reply, message, field) => {
+      const { page } = await signUpWith(form, reply);
+
+      expect(alertOn(page)).toEqual({ count: 1, text: message, under: field });
+    },
+  );
 });
 
 describe('the form a refused sign-up comes back with', () => {
