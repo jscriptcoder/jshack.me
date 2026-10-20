@@ -1,7 +1,7 @@
 # Plan: applying for contract work, at hireme.io
 
-**Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-20. No slice is planned
-yet; slice 1 is next.
+**Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-20. Slice 1 is planned,
+its choices and criteria confirmed, and in progress on `feat/hireme-apply`.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 
@@ -154,3 +154,165 @@ will take a player's address and mail them a private address to open with `curl`
   `194` is the working choice), the board server's key and hostname, the table's name, the exact
   page wording beyond decisions 10–11, and whether a bare handle in the form means `@emailit.io`
   as it does for `mail send`.
+
+## Slice 1 plan: a player applies
+
+**Branch**: `feat/hireme-apply` · **Version**: 0.419.0 → 0.420.0 · **Class**: behaviour change
+· **Delivery**: one PR against `main`; one migration, applied to `jshack-dev` then `jshack-prod`
+before merge.
+
+**Value.** A player opens `hireme.io` in lynx or curl, applies with their emailit.io address, and
+finds a mail from `jobs@hireme.io` in their inbox holding a private address that is theirs for
+good. The address answers nothing until slice 2.
+
+**Path.** `lynx`/`curl -d` → the signed `resolveHttpFetch` → `handleResolveHttpFetch` resolves
+`hireme.io`'s address to its one box, as for every fixed site → a POST to `/apply` on hireme's
+network is answered by a function: the form is read, the store is asked to apply (draw-or-read
+the address, the 24-hour window, the mail, in one transaction) → a page answers → the hit is a
+`POST /apply` line in hireme's `access.log`, without the body.
+
+### Facts read while planning (2026-10-20)
+
+- **emailit's `/signup` is the template** (`network/resolveHttpFetch.ts`): a POST whose target's
+  ESSID and path match is answered by `answerSignup` (`emailit/signup.ts`), which decodes the form
+  with `URLSearchParams`, refuses through the front page with a `Refusal` said under a line, and
+  reads the store's word with a zod enum; a store that fails or answers an unknown word is a 500
+  `signup_failed` with no log line. The front page is also planted at `/signup`, so going back
+  after a submit re-fetches the form and never resends it.
+- **`email_signup` delivers a system mail in SQL**: it inserts into `email_messages` at the
+  account's `next_number` and bumps it, in the same transaction, under an advisory lock
+  (`20261014000000_email.sql`). The 100-message cap lives in `email_send`, so a function that
+  inserts on its own ignores it, as system mail must.
+- **`handleOf` (`emailit/mailrc.ts`) is an address's emailit handle or null**; `mail` turns what
+  was typed into an address with its private `typedAddress` (trimmed, lowercased, a bare handle
+  means `@emailit.io`, `commands/mail.ts`).
+- **A reply to `jobs@hireme.io` already bounces**: `mail` refuses any domain but emailit.io
+  (`unknown domain`) before nano opens.
+- **These follow from a fixed-site row, unchanged** (talkit and chainit found the same): the
+  findit listing (findit crawls the front page and reads its meta description), `whois`, the
+  persona, the box's hostname and `scripts/restoreSite.ts`. A site's static files are its entry
+  in `WEB_ROOTS` (`generation/fixedSiteFs.ts`).
+- **`RESERVED_HANDLES`** (`emailit/signup.ts`) holds the system names nobody may sign up as.
+
+### Choices made while planning (owner to confirm with the plan)
+
+- **No page ever shows the address.** Success reads "Thanks, neo. We have sent your contractor
+  board to neo@emailit.io." Anyone may apply for any handle (decision 8), so a page that showed
+  the address would hand neo's board to whoever typed `neo`. The "already applied" answer shows
+  nothing of it either.
+- **The form reads the address as `mail` does**: trimmed, lowercased, and a bare handle means
+  `@emailit.io`. `typedAddress` moves from `commands/mail.ts` to `emailit/mailrc.ts` beside
+  `handleOf`, so the two cannot drift. This settles the last open item above.
+- **Refusals, each a `<p role="alert">` under its line, the address kept as typed**: nothing
+  typed, "Enter your emailit.io address" (under the field); another domain, "Only emailit.io
+  addresses can apply" (field); a handle no account holds, "No such mailbox" (field), whether the
+  shape is impossible or the store has no account; inside the window, "We already have your
+  application. Check your inbox." (under the button, as emailit's cap is, since no field is
+  wrong).
+- **One table, `hireme_boards`**: `handle` (primary key, references `email_accounts`), `address`
+  (UNIQUE, CHECKed to `194.<0–255>.<0–255>.<2–254>`, the fourth octet as every address in the
+  world), `applied_at` and `mailed_at`. RLS on, no policies. Decision 4's "both UNIQUE" is the
+  primary key and the UNIQUE.
+- **One function, `hireme_apply(handle, candidate_address, sender, subject, body)`, answering a
+  word**, everything that must be atomic under an advisory lock on the handle: `no_mailbox` (no
+  account), `recent` (mailed inside 24 hours; nothing written), `collision` (the handle has no
+  board and the candidate is somebody else's; nothing written), `sent` (the board read, or
+  created at the candidate; `mailed_at` set; the mail delivered as the next message). The body
+  arrives with `{address}` where the address goes and the function puts the board's own address
+  there, so a re-sent mail names the address held, never the fresh candidate. A handle holds no
+  braces, so nothing typed can become the placeholder.
+- **The draw is the caller's, injected**: `api/network.ts` draws `194.<0–255>.<0–255>.<2–254>`
+  with `node:crypto`'s `randomInt`; `core/hireme/` takes a `drawBoardAddress` function, so the
+  rule is tested with a scripted draw. On `collision` the caller draws again, up to 5 times, then
+  answers 500 `apply_failed` with no log line (at about 16.5M addresses a collision is a test's
+  event, not a player's).
+- **The mail**, from `jobs@hireme.io`, subject `Your hireme.io application`:
+
+  ```
+  Thanks for applying, neo.
+
+  Your contractor board is at http://{address}/
+
+  Open it with lynx or curl:
+
+    lynx http://{address}/
+
+  -- hireme.io
+  ```
+
+- **The row**: key and domain `hireme.io`, hostname `hireme`, place
+  `{ category: 'hacker', place: 'the hiring hall' }`, last in `FIXED_SITES`, its address
+  `placelessAddress(6 + …)` after talkit's. `hireme` joins `RESERVED_HANDLES`, as `talkit` did,
+  so nobody signs up as `hireme@emailit.io` to pass for the agency.
+- **The front page**: `<h1>hireme.io</h1>`, "Freelance contracts for independent IT and security
+  people. Apply with your emailit.io address and we will send you your contractor board.", the
+  form (one `email` field, `[ Apply ]`), and the recipe in a `<pre>`:
+  `$ curl -d "email=neo@emailit.io" http://hireme.io/apply`. Title `hireme.io - contract work`;
+  meta description "Freelance contract work for independent IT and security people. Apply with
+  your emailit.io address." It is planted at `index.html` and `apply`, as emailit's is at
+  `signup`.
+- **Bundle:** the row, the front page and the reserved name are client bytes; the answer pages,
+  the rules and the mail text are server-only. Measured at increment 3; decision 13 governs a
+  breach.
+
+### Acceptance criteria
+
+1. `curl http://hireme.io/` prints the front page: title, meta description, the `<h1>`, the
+   paragraph, the form and the `curl -d` recipe; `lynx hireme.io` shows the form. A GET of
+   `/apply` is the same page.
+2. A findit search for `contract` or `hireme` lists `hireme.io` with its description;
+   `whois hireme.io` answers; its address is in the 193 block and no other network's address
+   changed.
+3. `curl -d "email=neo@emailit.io" http://hireme.io/apply` for an existing `neo` answers "Thanks,
+   neo. We have sent your contractor board to neo@emailit.io.", and the page holds no `194.`
+   address. `neo`'s inbox then has, as its next message, a mail from `jobs@hireme.io` with
+   subject `Your hireme.io application` and the body above with a `194.x.y.z` address in it.
+4. `email=Neo`, `email= neo ` and `email=NEO@EMAILIT.IO` all apply for `neo`.
+5. Inside 24 hours of the last mail, applying for `neo` again answers "We already have your
+   application. Check your inbox." under the button, sends nothing and changes nothing.
+6. After 24 hours, applying again mails the SAME address, never a new one.
+7. A full inbox (100 messages) still receives the application mail.
+8. `email=` refuses "Enter your emailit.io address"; `email=neo@gmail.com` "Only emailit.io
+   addresses can apply"; `email=nobody` (no such account) and `email=a!b` "No such mailbox";
+   each as an alert under the field with the address kept as typed, and none writes anything.
+9. Two handles applying get different addresses; a drawn address another handle holds is drawn
+   again and the applicant still gets a board of their own; five collisions in a row are a 500
+   with nothing logged and nothing written.
+10. Every `/apply` POST is a `POST /apply` line in hireme's `access.log` with the visitor's
+    address and never the form; a 500 logs nothing.
+11. A reply from `mail` to `jobs@hireme.io` is refused `unknown domain`.
+12. `hireme` cannot be signed up for at emailit.io ("a reserved system name").
+13. A hireme.io whose web server is stopped, or whose box is bricked, takes no applications;
+    `restoreSite.ts hireme.io` brings it back and the `hireme_boards` rows are untouched. A
+    root's rewritten `index.html` is served at `/` while `POST /apply` still works.
+14. Every other fixed site and path is served as before; emailit's sign-up and `mail` behave as
+    before; the bundle check passes.
+
+### Increments (each RED → GREEN → REFACTOR; commit on approval)
+
+1. **The application's rules** (`core/hireme/apply.ts`): read the form, refuse, ask the store
+   with a drawn candidate, redraw on `collision`, map each word to its page; criteria 3–5, 8
+   and 9 at the function with a fake store and a scripted draw. `typedAddress` moves to
+   `mailrc.ts` (mail's tests stay green).
+2. **hireme's pages** (`core/hireme/pages.ts`): the front page with a refusal under its line,
+   and the thanks page; criteria 1, 3, 5 and 8 at the page, including that no page holds the
+   address.
+3. **hireme.io is a fixed site**: the row, its address, `WEB_ROOTS`, `hireme` reserved;
+   criteria 2, 12 and 14 in the `fixedSiteFs`, `webIndex`, `world`, `whois` and `signup` tests;
+   the bundle measured.
+4. **The fetch takes the form**: an `apply` dep in `ResolveHttpFetchDeps` and the dispatch
+   beside emailit's; criteria 3, 10 and 13 at the handler with fake deps.
+5. **The migration, the adapter and the wire-check**: `hireme_boards` and `hireme_apply` to
+   `jshack-dev`; the RPC and the draw in `api/network.ts`; a new `scripts/testHireme.ts`
+   (criteria 3–11 live: 6 by moving `mailed_at` back with the service role, 7 by filling an
+   inbox, 9 by pre-inserting a board at the next candidate), and `testRestoreSite.ts hireme.io`.
+6. **Docs and version 0.420.0**: `restoreSite.ts`'s comment; the handbook's codebase map and
+   glossary; `docs/project-status.md`; the migration to `jshack-prod` before merge.
+
+### Evidence
+
+- Unit and jsdom tests under `npm test`; `npm run typecheck`; `npm run lint`; the bundle check.
+- Wire-check `scripts/testHireme.ts` against `vercel dev` + local supabase, and
+  `testRestoreSite.ts hireme.io`.
+- Mutation gate at PR readiness over `core/hireme/` and the dispatch.
+- No browser run: one at the epic's close-out.
