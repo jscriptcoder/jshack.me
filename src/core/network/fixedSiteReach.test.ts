@@ -28,6 +28,7 @@ describe.each([
   ['emailit.io', 'emailit'],
   ['chainit.io', 'chainit'],
   ['talkit.io', 'talkit'],
+  ['hireme.io', 'hireme'],
 ])('reaching the box %s runs on', (key, hostname) => {
   const deps = {
     findNetworkByPublicIp: async () => ({

@@ -59,7 +59,7 @@ import { createPrng } from '../src/core/generation/prng.js';
 import { derivedPublicIpByEssid } from '../src/core/logging/crossPlayerSourceIp.js';
 import type { MachinePatchRow as WebIndexPatchRow } from '../src/core/findit/webIndex.js';
 import { derivedNetworkByPublicIp } from '../src/core/network/resolvePublicTarget.js';
-import { randomUUID } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 
 // Vercel adapter for POST /api/network — joining an AP, and reaching what is on it.
 //
@@ -448,6 +448,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         logFailure('http-fetch email sign-up', error);
         return { data: data as unknown, error };
       },
+      // Only a form POSTed to hireme.io's /apply reaches this. The mailbox, the 24-hour
+      // window, the board's address and the mail are one transaction inside the function,
+      // and its answer is a word, handed over as it came off the wire.
+      apply: async ({ handle, candidateAddress, mail }) => {
+        const { data, error } = await supabase.rpc('hireme_apply', {
+          apply_handle: handle,
+          candidate_address: candidateAddress,
+          mail_sender: mail.sender,
+          mail_subject: mail.subject,
+          mail_body: mail.body,
+        });
+        logFailure('http-fetch hireme apply', error);
+        return { data: data as unknown, error };
+      },
+      // A board's address: 194.<0-255>.<0-255>.<2-254>, the block no network in the world
+      // answers from. Drawn from the OS's randomness, since nobody may guess the next one.
+      drawBoardAddress: () => `194.${randomInt(256)}.${randomInt(256)}.${randomInt(2, 255)}`,
       // Only a form POSTed to talkit.io's /post reaches this. The password check, the
       // hourly cap and the insert are one transaction inside the function, and its answer
       // is handed over as it came off the wire for the handler to read.

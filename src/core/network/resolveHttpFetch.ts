@@ -46,9 +46,11 @@ import {
   CHAINIT_NETWORK,
   EMAILIT_NETWORK,
   FINDIT_NETWORK,
+  HIREME_NETWORK,
   TALKIT_NETWORK,
 } from '../generation/fixedSites.js';
 import { answerSignup, type SignUp } from '../emailit/signup.js';
+import { answerApply, type Apply } from '../hireme/apply.js';
 import { answerPost, type PostThread } from '../talkit/answerPost.js';
 import { answerComment, type PostComment } from '../talkit/answerComment.js';
 import { indexedWeb, siteOn, type MachinePatchRow } from '../findit/webIndex.js';
@@ -162,6 +164,12 @@ export type ResolveHttpFetchDeps = WebTargetDeps & {
   ) => Promise<{ readonly data: readonly MachinePatchRow[] | null; readonly error: unknown }>;
   /** Open an emailit.io account. Only a form POSTed to emailit's `/signup` reaches it. */
   readonly signUp: SignUp;
+  /** Apply for contract work at hireme.io. Only a form POSTed to hireme's `/apply`
+   *  reaches it. */
+  readonly apply: Apply;
+  /** A fresh address in the boards' block, offered to `apply` for a handle that has no
+   *  board yet. */
+  readonly drawBoardAddress: () => string;
   /** Start a thread at talkit.io. Only a form POSTed to talkit's `/post` reaches it. */
   readonly postThread: PostThread;
   /** Comment on a thread at talkit.io. Only a form POSTed to talkit's `/comment` reaches
@@ -430,6 +438,9 @@ const searchedFor = (requestPath: string): string | null => {
 /** Where emailit.io takes a sign-up. */
 const SIGNUP_PATH = '/signup';
 
+/** Where hireme.io takes an application. */
+const APPLY_PATH = '/apply';
+
 /** Where talkit.io takes a new thread. */
 const POST_PATH = '/post';
 
@@ -558,6 +569,28 @@ export const handleResolveHttpFetch = async (
       signUp: deps.signUp,
     });
     if (page === null) return { status: 500, body: { error: 'signup_failed' } };
+    await logFetch(deps, target, publicKey, standing.standingEssid, {
+      method: 'POST',
+      path: payload.path,
+      status: 200,
+      size: page.length,
+    });
+    return { status: 200, body: { ok: true, content: page, server: target.server } };
+  }
+
+  // hireme.io's `/apply` takes an application the same way, answered from a function: a
+  // root on hireme can deface the front page, but never stop it taking applications.
+  if (
+    payload.body !== undefined &&
+    target.essid === HIREME_NETWORK &&
+    pathOf(payload.path) === APPLY_PATH
+  ) {
+    const page = await answerApply({
+      form: payload.body,
+      apply: deps.apply,
+      drawBoardAddress: deps.drawBoardAddress,
+    });
+    if (page === null) return { status: 500, body: { error: 'apply_failed' } };
     await logFetch(deps, target, publicKey, standing.standingEssid, {
       method: 'POST',
       path: payload.path,

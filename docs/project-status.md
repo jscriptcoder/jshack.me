@@ -1181,9 +1181,10 @@ agreed order:
     affected. The bundle grew by 44 B, to 285,361 B of 286,975 B. Browser close-out (2026-10-20,
     v0.419.0, real keys): `SkyLab` with `X` and `y` typed after `sky` read `skyxylab`, the prompt
     was `carol@skyxylab`, and `su` with `Hunter2` reached root. No defect.
-    **Pick up here (2026-10-20):** the items still open in `backlog.md`, the agreed work until
-    the owner reopens missions; news is the next public site, and townsfolk threads the forum's
-    next piece, each waiting for its own grill.
+    **Pick up here (2026-10-20):** the hireme.io epic is in flight, groundwork for missions:
+    a player applies at hireme.io and is mailed a private board address. Its grill, slices and
+    live status are in `plans/hireme.md`; slice 1 (applying, v0.420.0) is on
+    `feat/hireme-apply`. The items still open in `backlog.md` wait behind it.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

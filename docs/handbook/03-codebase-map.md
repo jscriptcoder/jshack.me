@@ -91,6 +91,7 @@ src/
 | `emailit/`         | emailit.io's pages, sign-up, `mail`'s server side, and the mail root finds on emailit.io's box.                           | —       |
 | `chainit/`         | chainit.io's pages, and its views from the ledger: `/address`, `/recent` and `/rich`.                                     | —       |
 | `talkit/`          | talkit.io's pages, player text shown safely, its views from the forum tables, the checks on a new thread or comment, the operator's removal words. | —       |
+| `hireme/`          | hireme.io's pages, and an application: the address read as `mail` reads it, its refusals, the board address drawn and drawn again. | —       |
 | `logging/`         | One formatter per log file; source-IP and writer-key rules.                                                               | 8       |
 | `patches/`         | Server handlers for the journal (write, list, remove, log appends, traces), L1, L2, the read filter.                      | 9, 10   |
 | `signedRequest/`   | Envelope schema, signing, verification.                                                                                   | 9       |
@@ -118,7 +119,7 @@ builders), `lanDatabase.ts` and `lanStore.ts` (find real generated database and 
 | `encode.ts`                | Writes `src/core/secrets/__encoded.ts` (uncrackable pool as md5s) and the test-only `__plaintext.ts`.                            |
 | `checkSecrets.ts`          | Post-build: fails if any uncrackable password appears in `dist/`.                                                                |
 | `checkBudgets.ts`          | Post-build bundle-size and per-box timing budget.                                                                                |
-| `test*.ts` (80 files)      | Wire-checks: drive the real `api/` endpoints against `vercel dev` and local Supabase.                                            |
+| `test*.ts` (125 files)     | Wire-checks: drive the real `api/` endpoints against `vercel dev` and local Supabase.                                            |
 | `publicAddressOf.ts`       | A declared network's derived public address, for a wire-check to aim at; stops the run for a network the world does not declare. |
 | `seedCrossPlayerTarget.ts` | One-shot setup for a two-player browser run (not self-cleaning; run with `clean` after).                                         |
 | `restoreSite.ts`           | Operator tool: reset a fixed site (any domain in `FIXED_SITES`, e.g. `chainit.io`) to its generated state. Can target production.              |

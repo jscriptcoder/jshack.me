@@ -282,6 +282,24 @@ describe('whois', () => {
     });
   });
 
+  it('names hireme, the contracting agency, by its domain spelt as a network name', async () => {
+    const address = addressOf('hireme.io');
+
+    const { lines, exitCode } = await run(address);
+
+    expect({ lines, exitCode }).toEqual({
+      lines: [
+        '% Harrow Valley registry',
+        '',
+        `inetnum:        ${address} - ${address}`,
+        'netname:        HIREME-IO',
+        'org-name:       hireme.io',
+        'domain:         hireme.io',
+      ],
+      exitCode: 0,
+    });
+  });
+
   it.each([
     ['Millbrook', 'millbrook.gov'],
     ['Ashby', 'ashby.gov'],

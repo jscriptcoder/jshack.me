@@ -48,11 +48,13 @@ import { MAPIT_PAGES } from '../mapit/pages.js';
 import { EMAILIT_FRONT_PAGE } from '../emailit/pages.js';
 import { CHAINIT_FRONT_PAGE } from '../chainit/pages.js';
 import { TALKIT_FRONT_PAGE } from '../talkit/pages.js';
+import { HIREME_FRONT_PAGE } from '../hireme/pages.js';
 import {
   CHAINIT_NETWORK,
   EMAILIT_NETWORK,
   FINDIT_NETWORK,
   HACKADEMY_NETWORK,
+  HIREME_NETWORK,
   MAPIT_NETWORK,
   TALKIT_NETWORK,
   type FixedSite,
@@ -77,6 +79,7 @@ const WEB_ROOTS: ReadonlyMap<string, Readonly<Record<string, string>>> = new Map
   [EMAILIT_NETWORK, { 'index.html': EMAILIT_FRONT_PAGE, signup: EMAILIT_FRONT_PAGE }],
   [CHAINIT_NETWORK, { 'index.html': CHAINIT_FRONT_PAGE }],
   [TALKIT_NETWORK, { 'index.html': TALKIT_FRONT_PAGE }],
+  [HIREME_NETWORK, { 'index.html': HIREME_FRONT_PAGE, apply: HIREME_FRONT_PAGE }],
 ]);
 
 /** The site whose box keeps everybody's mail. Its files are not generated: the server lays

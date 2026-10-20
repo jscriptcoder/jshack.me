@@ -68,6 +68,13 @@ const TALKIT: FixedSite = {
   place: { category: 'hacker', place: 'the town square' },
 };
 
+const HIREME: FixedSite = {
+  key: 'hireme.io',
+  domain: 'hireme.io',
+  hostname: 'hireme',
+  place: { category: 'hacker', place: 'the hiring hall' },
+};
+
 /** Every fixed site, in the order their addresses were handed out. */
 export const FIXED_SITES: readonly FixedSite[] = [
   FINDIT,
@@ -76,6 +83,7 @@ export const FIXED_SITES: readonly FixedSite[] = [
   EMAILIT,
   CHAINIT,
   TALKIT,
+  HIREME,
 ];
 
 /** The fixed site known by `key`, or `undefined` for any other network. */
@@ -99,3 +107,6 @@ export const CHAINIT_NETWORK = CHAINIT.key;
 
 export const TALKIT_NETWORK = TALKIT.key;
 export const TALKIT_DOMAIN = TALKIT.domain;
+
+export const HIREME_NETWORK = HIREME.key;
+export const HIREME_DOMAIN = HIREME.domain;

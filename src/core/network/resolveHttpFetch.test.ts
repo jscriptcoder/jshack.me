@@ -40,9 +40,13 @@ import {
   FINDIT_DOMAIN,
   FINDIT_NETWORK,
   HACKADEMY_NETWORK,
+  HIREME_DOMAIN,
+  HIREME_NETWORK,
   TALKIT_NETWORK,
 } from '../generation/fixedSites.js';
 import type { SignUp } from '../emailit/signup.js';
+import type { Apply } from '../hireme/apply.js';
+import { HIREME_FRONT_PAGE } from '../hireme/pages.js';
 import type { PostThread } from '../talkit/answerPost.js';
 import type { PostComment } from '../talkit/answerComment.js';
 import { FINDIT_FRONT_PAGE } from '../findit/page.js';
@@ -206,6 +210,7 @@ type FetchOverrides = {
   findActiveSession?: FindActiveSession;
   findPublicIpByEssid?: FindPublicIpByEssid;
   signUp?: SignUp;
+  apply?: Apply;
   findBalance?: WalletBalanceDeps['findBalance'];
   findTransfers?: WalletHistoryDeps['findTransfers'];
   findLatestTransfers?: ChainReads['findLatestTransfers'];
@@ -252,6 +257,8 @@ const makeDeps = (over: FetchOverrides = {}) => {
   );
   // Default: every sign-up opens its account. Only emailit's `/signup` ever asks.
   const signUp = vi.fn<SignUp>(over.signUp ?? (async () => ({ data: 'created', error: null })));
+  // Default: every application is mailed. Only hireme's `/apply` ever asks.
+  const apply = vi.fn<Apply>(over.apply ?? (async () => ({ data: 'sent', error: null })));
   // Default: the ledger has never seen the address. Only chainit's `/address` ever asks.
   const findBalance = vi.fn<WalletBalanceDeps['findBalance']>(
     over.findBalance ?? (async () => ({ data: null, error: null })),
@@ -299,6 +306,8 @@ const makeDeps = (over: FetchOverrides = {}) => {
     findActiveSession,
     findPublicIpByEssid,
     signUp,
+    apply,
+    drawBoardAddress: () => '194.12.40.7',
     findBalance,
     findTransfers,
     findLatestTransfers,
@@ -314,6 +323,7 @@ const makeDeps = (over: FetchOverrides = {}) => {
     postThread,
     postComment,
     signUp,
+    apply,
     findBalance,
     findTransfers,
     findLatestTransfers,
@@ -1313,6 +1323,171 @@ describe('emailit.io signs a reader up', () => {
       status: 500,
       body: { error: 'signup_failed' },
     });
+  });
+});
+
+describe('hireme.io takes an application', () => {
+  const HIREME_IP = siteAddress(HIREME_DOMAIN) ?? '';
+  const HIREME_ID = computeApGatewayId(HIREME_NETWORK);
+  const FORM = 'email=neo%40emailit.io';
+  const onHireme = {
+    lookup: async () => ({
+      data: { router_machine_id: HIREME_ID, essid: HIREME_NETWORK },
+      error: null,
+    }),
+    listOccupantsByEssid: async () => ({ data: [], error: null }),
+    listLeasesByEssid: async () => ({ data: [], error: null }),
+  };
+  const request = (fields: Record<string, unknown>) =>
+    signRequest(BOB, 'resolveHttpFetch', {
+      target: HIREME_IP,
+      port: HTTP_DEFAULT_PORT,
+      path: '/apply',
+      ...fields,
+    });
+  const contentOf = (response: { body: Record<string, unknown> }): string =>
+    typeof response.body.content === 'string' ? response.body.content : '';
+  const accessLogOf = (upsertPatch: ReturnType<typeof makeDeps>['upsertPatch']) =>
+    upsertPatch.mock.calls.map(([row]) => row).find((row) => row.path === ACCESS_LOG_PATH);
+
+  it('mails the board a form at /apply asks for, and thanks the reader', async () => {
+    const { deps, apply } = makeDeps(onHireme);
+
+    const response = await handleResolveHttpFetch(request({ body: FORM }), deps);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ ok: true, server: 'nginx' });
+    expect(contentOf(response)).toContain(
+      'Thanks, neo. We have sent your contractor board to neo@emailit.io.',
+    );
+    expect(apply).toHaveBeenCalledWith(
+      expect.objectContaining({ handle: 'neo', candidateAddress: '194.12.40.7' }),
+    );
+  });
+
+  it('answers a refusal the store gives with the front page and its reason', async () => {
+    const { deps } = makeDeps({
+      ...onHireme,
+      apply: async () => ({ data: 'recent', error: null }),
+    });
+
+    const response = await handleResolveHttpFetch(request({ body: FORM }), deps);
+
+    expect(response.status).toBe(200);
+    expect(contentOf(response)).toContain('We already have your application. Check your inbox.');
+  });
+
+  it('records the application in its log as a POST, with no trace of the form', async () => {
+    const { deps, upsertPatch } = makeDeps(onHireme);
+
+    const response = await handleResolveHttpFetch(request({ body: FORM }), deps);
+
+    expect(accessLogOf(upsertPatch)?.machine_id).toBe(HIREME_ID);
+    expect(accessLogOf(upsertPatch)?.content).toBe(
+      `${BOB_PUBLIC_IP} - - [30/Jul/2026:13:55:36 +0000] "POST /apply HTTP/1.1" 200 ${contentOf(response).length}\n`,
+    );
+    expect(JSON.stringify(upsertPatch.mock.calls)).not.toContain('neo');
+  });
+
+  it('takes a form at /apply however its query string reads', async () => {
+    const { deps, apply } = makeDeps(onHireme);
+
+    await handleResolveHttpFetch(request({ path: '/apply?from=front', body: FORM }), deps);
+
+    expect(apply).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a form anywhere else on the box, as every other server does', async () => {
+    const { deps, apply } = makeDeps(onHireme);
+
+    const response = await handleResolveHttpFetch(request({ path: '/', body: FORM }), deps);
+
+    expect(response).toEqual({
+      status: 405,
+      body: { error: 'method_not_allowed', server: 'nginx' },
+    });
+    expect(apply).not.toHaveBeenCalled();
+  });
+
+  it('takes no form at /apply on any other site', async () => {
+    const { deps, apply } = makeDeps({ patches: aliceServing() });
+
+    const response = await handleResolveHttpFetch(envelope({ path: '/apply', body: FORM }), deps);
+
+    expect(response.status).toBe(405);
+    expect(apply).not.toHaveBeenCalled();
+  });
+
+  it('takes no application at emailit, whose /apply is no form', async () => {
+    const { deps, apply } = makeDeps({
+      ...onHireme,
+      lookup: async () => ({
+        data: { router_machine_id: computeApGatewayId(EMAILIT_NETWORK), essid: EMAILIT_NETWORK },
+        error: null,
+      }),
+    });
+
+    const response = await handleResolveHttpFetch(request({ body: FORM }), deps);
+
+    expect(response.status).toBe(405);
+    expect(apply).not.toHaveBeenCalled();
+  });
+
+  // A browser going back to a page it reached by applying asks for /apply without the
+  // form: that gets the form to fill in afresh, and mails nobody.
+  it('serves the application form to a plain fetch of /apply, mailing nobody', async () => {
+    const { deps, apply } = makeDeps(onHireme);
+
+    expect(await handleResolveHttpFetch(request({}), deps)).toEqual({
+      status: 200,
+      body: { ok: true, content: HIREME_FRONT_PAGE, server: 'nginx' },
+    });
+    expect(apply).not.toHaveBeenCalled();
+  });
+
+  it('still takes applications on a box whose front page a root defaced', async () => {
+    const { deps, apply } = makeDeps({
+      ...onHireme,
+      patches: patchesByMachine({ [HIREME_ID]: [publishedPage('<h1>OWNED</h1>')] }),
+    });
+
+    expect(contentOf(await handleResolveHttpFetch(request({ path: '/' }), deps))).toBe(
+      '<h1>OWNED</h1>',
+    );
+    const response = await handleResolveHttpFetch(request({ body: FORM }), deps);
+    expect(contentOf(response)).toContain('Thanks, neo.');
+    expect(apply).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['bricked', '/boot/vmlinuz'],
+    ['whose web server was stopped', `/var/run/${SERVICE_CATALOG.http.pidfile}`],
+  ])('takes no application when the box is %s', async (_case, removed) => {
+    const { deps, apply } = makeDeps({
+      ...onHireme,
+      patches: patchesByMachine({
+        [HIREME_ID]: [{ ...publishedPage(''), path: removed, content: null, node_type: null }],
+      }),
+    });
+
+    expect(await handleResolveHttpFetch(request({ body: FORM }), deps)).toEqual({
+      status: 404,
+      body: { error: 'host_unreachable' },
+    });
+    expect(apply).not.toHaveBeenCalled();
+  });
+
+  it('reports a store it could not reach as a server error, and records nothing', async () => {
+    const { deps, upsertPatch } = makeDeps({
+      ...onHireme,
+      apply: async () => ({ data: null, error: { message: 'connection refused' } }),
+    });
+
+    expect(await handleResolveHttpFetch(request({ body: FORM }), deps)).toEqual({
+      status: 500,
+      body: { error: 'apply_failed' },
+    });
+    expect(accessLogOf(upsertPatch)).toBeUndefined();
   });
 });
 
