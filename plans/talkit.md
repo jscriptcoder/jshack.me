@@ -10,7 +10,12 @@ throw at module load, two `?? ''` fallbacks fail `THREAD_ID` alike, two dropped 
 close at `</body>`). **Slice 4 merged** (PR #711, 2026-10-20, v0.413.0; the migration is on
 `jshack-dev` and `jshack-prod`; mutation 97 of 101 killed, the 4 survivors equivalent: the
 `removed` flag's value goes unread, two `= ''` defaults fail the id checks alike, and U+FFFF
-is never spelled). Next: the epic's close-out, with one browser run over all four slices.
+is never spelled). **The close-out's browser run** (2026-10-20, v0.413.0) passed but for one
+defect: a comment sent from lynx always answered "No such thread.", since lynx sent no hidden
+field and the thread page's form names its thread in one. Slice 3's facts said lynx already sent
+them; nothing tested it, as the wire-check posts bodies of its own. v0.414.0 on
+`fix/lynx-hidden-fields` fixes it, and lays a `<form>` out as a block. Next: that PR, a lynx
+comment checked in the browser, then the close-out docs.
 
 **Slice 4 as built: where it differs from the plan below:**
 

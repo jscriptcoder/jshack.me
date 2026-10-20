@@ -1130,8 +1130,13 @@ agreed order:
     and the page reads `#n [removed]`, the count and the list unmoved. It prints what it removes
     and the database host first, player text quoted with every control and format character
     spelled out, and exits 1 when there is nothing to remove. No trace on talkit's box. The
-    migration is on `jshack-dev` and `jshack-prod`. **Pick up here (2026-10-20):** the epic's
-    close-out in `plans/talkit.md` (one browser run over all four slices).
+    migration is on `jshack-dev` and `jshack-prod`. The close-out's browser run (2026-10-20)
+    found a comment sent from lynx always answered "No such thread.": lynx drew a form's hidden
+    fields as nothing and sent only the fields it drew, so the thread's `id` never went. v0.414.0
+    (on `fix/lynx-hidden-fields`) sends them, and lays a `<form>` out as a block, so the front
+    page's "Post" label and button no longer run onto the line before. **Pick up here
+    (2026-10-20):** that fix's PR, a lynx comment checked in the browser, then the epic's
+    close-out docs in `plans/talkit.md`.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
