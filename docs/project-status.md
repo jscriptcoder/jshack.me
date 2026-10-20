@@ -1153,6 +1153,16 @@ agreed order:
     bundle grew by 106 B, to 285,241 B of 286,975 B. Browser close-out (2026-10-20, v0.415.0, a
     new player): a second sign-up for a handle claimed with `curl -d` answered with the line in
     red under `Handle [e2etaken_]`, and a short password with it under `Password []`. No defect.
+25. ✅ **lynx says a request is out while it waits (v0.416.0, PR #715, 2026-10-20).** The owner,
+    playing, saw a slow emailit.io sign-up or talkit.io post leave the screen exactly as it was,
+    with nothing to say the key had done anything. While a follow, a form or a step back waits,
+    the status line (`ui/screens/Lynx.tsx`) now reads `HTTP request sent; waiting for response.`,
+    real lynx's words, in place of the key hints. A second press while waiting was already
+    ignored. The first page of `lynx <url>` loads in the terminal before the browser opens, so
+    this does not cover it. The bundle grew by 51 B, to 285,292 B of 286,975 B. Browser
+    close-out (2026-10-20, v0.416.0, a new player on ESPRESSO-EXPRESS): an emailit.io sign-up from
+    the form showed the line from 359 ms to 2,734 ms, then the welcome page; `←` showed it too. No
+    defect.
     **Pick up here (2026-10-20):** the items still open in `backlog.md`, the agreed work until
     the owner reopens missions; news is the next public site, and townsfolk threads the forum's
     next piece, each waiting for its own grill.
