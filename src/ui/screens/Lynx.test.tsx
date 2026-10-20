@@ -1188,6 +1188,104 @@ describe('typing into a box several lines tall', () => {
   });
 });
 
+describe("sending a form's hidden fields", () => {
+  const THREAD = 'http://talkit.io/thread?id=12';
+  const COMMENT = 'http://talkit.io/comment';
+
+  /** A thread's page as talkit.io serves it: the thread its form comments on is named in a
+   *  field the reader never sees. */
+  const COMMENT_FORM =
+    '<body><p><a href="/threads">Threads</a></p><p>Router for sale</p>' +
+    '<form action="/comment" method="post">' +
+    '<input type="hidden" name="id" value="12"><textarea name="body" rows="2"></textarea>' +
+    '<input type="submit" value="Comment"></form></body>';
+
+  const type = (text: string) => {
+    for (const key of text) fireEvent.keyDown(browser(), { key });
+  };
+
+  it('sends the hidden field with what was typed, as a browser does', async () => {
+    const { onFollow } = renderSite({ start: THREAD, pages: { [THREAD]: COMMENT_FORM } });
+
+    fireEvent.keyDown(browser(), { key: 'ArrowDown' });
+    type('hi');
+    fireEvent.keyDown(browser(), { key: 'Tab' });
+    await press('Enter');
+
+    expect(onFollow).toHaveBeenCalledWith(COMMENT, 'id=12&body=hi');
+  });
+
+  it('still shows the hidden field nowhere, and offers it to no one to type into', () => {
+    const pages = {
+      [HOME]:
+        '<body><form action="/find"><input type="hidden" name="token" value="kept-out-of-sight">' +
+        '<input name="q"></form></body>',
+    };
+    renderSite({ pages });
+
+    expect(screen.getAllByRole('textbox')).toHaveLength(1);
+    expect(browser().textContent).not.toContain('kept-out-of-sight');
+  });
+
+  it('puts the hidden field in the address of a form that gets', async () => {
+    const pages = {
+      [HOME]:
+        '<body><form action="/find"><input type="hidden" name="in" value="docs">' +
+        '<input name="q"></form></body>',
+    };
+    const { onFollow } = renderSite({ pages });
+
+    type('wifi');
+    await press('Enter');
+
+    expect(onFollow).toHaveBeenCalledWith('http://192.168.1.5/find?in=docs&q=wifi');
+  });
+
+  it('encodes what the hidden field holds, as it encodes what was typed', async () => {
+    const pages = {
+      [HOME]:
+        '<body><form action="/find" method="post">' +
+        '<input type="hidden" name="token" value="a b&amp;c=d"><input name="q"></form></body>',
+    };
+    const { onFollow } = renderSite({ pages });
+
+    type('x');
+    await press('Enter');
+
+    expect(onFollow).toHaveBeenCalledWith('http://192.168.1.5/find', 'token=a+b%26c%3Dd&q=x');
+  });
+
+  it('sends a hidden field that holds nothing, as an empty value', async () => {
+    const pages = {
+      [HOME]:
+        '<body><form action="/find" method="post"><input type="hidden" name="page">' +
+        '<input name="q"></form></body>',
+    };
+    const { onFollow } = renderSite({ pages });
+
+    type('x');
+    await press('Enter');
+
+    expect(onFollow).toHaveBeenCalledWith('http://192.168.1.5/find', 'page=&q=x');
+  });
+
+  it("leaves out a hidden field with no name, and another form's hidden fields", async () => {
+    const pages = {
+      [HOME]:
+        '<body><form action="/find" method="post"><input type="hidden" value="nameless">' +
+        '<input type="hidden" name="in" value="docs"><input name="q"></form>' +
+        '<form action="/other" method="post"><input type="hidden" name="secret" value="theirs">' +
+        '<input name="r"></form></body>',
+    };
+    const { onFollow } = renderSite({ pages });
+
+    type('x');
+    await press('Enter');
+
+    expect(onFollow).toHaveBeenCalledWith('http://192.168.1.5/find', 'in=docs&q=x');
+  });
+});
+
 describe('one request at a time', () => {
   /** A browser whose every follow waits until the test lets it answer. */
   const renderWaiting = () => {

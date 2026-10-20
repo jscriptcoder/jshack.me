@@ -133,7 +133,7 @@ export const resolveHref = ({
   return formatUrl({ host: from.host, port: from.port, path });
 };
 
-type FormField = { readonly name: string; readonly value: string };
+export type FormField = { readonly name: string; readonly value: string };
 
 /**
  * What a form's fields read as on the wire: a GET form's query, and a POST form's body.

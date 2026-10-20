@@ -177,16 +177,20 @@ export const Lynx = (props: LynxProps) => {
     setVisited((trail) => [...trail, leaving]);
   };
 
-  /** Send the form `control` belongs to: every field of that form, and no other's. A
-   *  field with no name has nothing to be sent as, so a browser leaves it out. */
+  /** Send the form `control` belongs to: its hidden fields, then every field of that form
+   *  the reader could type into, and no other form's. A field with no name has nothing to
+   *  be sent as, so a browser leaves it out. */
   const submit = async (control: Control) => {
     const form = control.form;
     if (form === null) return;
-    const fields = selectables().flatMap((segment) =>
-      segment.kind === 'field' && segment.form?.id === form.id && segment.name !== ''
-        ? [{ name: segment.name, value: valueOf(segment) }]
-        : [],
-    );
+    const fields = [
+      ...form.hidden,
+      ...selectables().flatMap((segment) =>
+        segment.kind === 'field' && segment.form?.id === form.id && segment.name !== ''
+          ? [{ name: segment.name, value: valueOf(segment) }]
+          : [],
+      ),
+    ];
     await (form.method === 'post'
       ? go(form.action, encodeForm(fields))
       : go(formSubmissionUrl({ action: form.action, fields })));
