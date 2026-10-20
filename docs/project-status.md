@@ -1141,10 +1141,21 @@ agreed order:
     page's "Post" label and button no longer run onto the line before; a lynx comment then
     posted in the browser. As built: [`talkit-architecture.md`](./talkit-architecture.md);
     follow-ups (townsfolk threads, authors deleting their own, paging a long thread) in
-    `backlog.md` under "talkit — follow-ups deferred". **Pick up here (2026-10-20):** the items
-    still open in `backlog.md`, the agreed work until the owner reopens missions; news is the
-    next public site, and townsfolk threads the forum's next piece, each waiting for its own
-    grill.
+    `backlog.md` under "talkit — follow-ups deferred".
+24. ✅ **emailit.io says a refused sign-up in red, under its field (v0.415.0, PR #714,
+    2026-10-20).** The owner, playing, read straight past "That handle is taken": a refusal sat
+    at the top of the page in plain text. It now sits under the line it is about, as a
+    `<p role="alert">`: a taken, reserved or not allowed handle under `Handle`, a short password
+    under `Password`, and the 3-a-day cap under `[ Sign up ]`, since no field is wrong. lynx
+    (`ui/renderPage.ts`, `ui/screens/Lynx.tsx`) draws every line of a `<p role="alert">` in
+    `--theme-error`, the colour of its own alert bar, the way it already sets a heading apart;
+    `curl` shows the plain HTML. Any page can use it, and talkit's refusal pages do not yet. The
+    bundle grew by 106 B, to 285,241 B of 286,975 B. Browser close-out (2026-10-20, v0.415.0, a
+    new player): a second sign-up for a handle claimed with `curl -d` answered with the line in
+    red under `Handle [e2etaken_]`, and a short password with it under `Password []`. No defect.
+    **Pick up here (2026-10-20):** the items still open in `backlog.md`, the agreed work until
+    the owner reopens missions; news is the next public site, and townsfolk threads the forum's
+    next piece, each waiting for its own grill.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
