@@ -2102,6 +2102,25 @@ describe('talkit.io answers the forum from its table', () => {
     expect(findComments).toHaveBeenCalledWith(1);
   });
 
+  it('shows a removed comment by its number alone, in its place among the others', async () => {
+    const { deps } = makeDeps({
+      ...onTalkit,
+      ...forumOf(1),
+      findComments: async () => ({
+        data: [commentRow(1), commentRow(2, { author: null, body: null }), commentRow(3)],
+        error: null,
+      }),
+    });
+
+    const page = contentOf(await handleResolveHttpFetch(fetchPath('/thread?id=1'), deps));
+
+    expect(page).toContain(
+      '<p>#1 by neo, 2026-10-19 09:05</p>\n<p>Comment 1</p>\n' +
+        '<p>#2 [removed]</p>\n' +
+        '<p>#3 by neo, 2026-10-19 09:05</p>\n<p>Comment 3</p>\n',
+    );
+  });
+
   it('says a thread has no comments yet when none were read', async () => {
     const { deps } = makeDeps({ ...onTalkit, ...forumOf(1) });
 
@@ -2282,6 +2301,17 @@ describe('talkit.io answers the forum from its table', () => {
           error: null,
         }),
       },
+    ],
+    // A removal takes the author and the body together; a row missing one is not a comment.
+    [
+      '/thread?id=1',
+      'hands back a comment with a body and no author',
+      { findComments: async () => ({ data: [commentRow(1, { author: null })], error: null }) },
+    ],
+    [
+      '/thread?id=1',
+      'hands back a comment with an author and no body',
+      { findComments: async () => ({ data: [commentRow(1, { body: null })], error: null }) },
     ],
   ])('fails %s, and records nothing, when the forum %s', async (path, _case, broken) => {
     const { deps, upsertPatch } = makeDeps({ ...onTalkit, ...forumOf(1), ...broken });

@@ -6,7 +6,7 @@ import {
   threadsPage,
   type ThreadListing,
   type Thread,
-  type ThreadComment,
+  type WrittenComment,
 } from './pages.js';
 
 /**
@@ -33,7 +33,7 @@ const thread = (overrides: Partial<Thread> = {}): Thread => ({
   ...overrides,
 });
 
-const comment = (overrides: Partial<ThreadComment> = {}): ThreadComment => ({
+const comment = (overrides: Partial<WrittenComment> = {}): WrittenComment => ({
   number: 1,
   author: 'neo',
   body: 'Thanks for having us.',
@@ -271,6 +271,21 @@ describe("talkit.io's pages", () => {
         '#2 by trinity, 2026-10-19 11:47',
         'Mine too.',
         'Comment',
+      ]);
+    });
+
+    it('shows a removed comment as its number alone, on one line in its place', () => {
+      const page = threadPage(thread(), [
+        comment(),
+        { number: 2, removed: true },
+        comment({ number: 3 }),
+      ]);
+      expect(contentText(page).slice(3, 8)).toEqual([
+        '#1 by neo, 2026-10-19 09:05',
+        'Thanks for having us.',
+        '#2 [removed]',
+        '#3 by neo, 2026-10-19 09:05',
+        'Thanks for having us.',
       ]);
     });
 

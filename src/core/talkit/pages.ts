@@ -39,12 +39,18 @@ export type Thread = {
 };
 
 /** A comment as its thread's page shows it, numbered within the thread. */
-export type ThreadComment = {
+export type WrittenComment = {
   readonly number: number;
   readonly author: string;
   readonly body: string;
   readonly createdAt: string;
 };
+
+/** A comment the operator removed: its number stays taken, so "see #4" still means #4,
+ *  and nothing else of it is kept. */
+export type RemovedComment = { readonly number: number; readonly removed: true };
+
+export type ThreadComment = WrittenComment | RemovedComment;
 
 /** A talkit page: the forum's name, the way to the list, and whatever the page says
  *  beneath them. */
@@ -120,10 +126,13 @@ export const threadsPage = (options: {
         : [...options.threads.map(listLine), ...pagingLine(options.page, options.hasOlder)],
   });
 
-const commentLines = (comment: ThreadComment): readonly string[] => [
-  `<p>#${comment.number} by ${escapeHtml(comment.author)}, ${ledgerTime(comment.createdAt)}</p>`,
-  `<p>${playerText(comment.body)}</p>`,
-];
+const commentLines = (comment: ThreadComment): readonly string[] =>
+  'removed' in comment
+    ? [`<p>#${comment.number} [removed]</p>`]
+    : [
+        `<p>#${comment.number} by ${escapeHtml(comment.author)}, ${ledgerTime(comment.createdAt)}</p>`,
+        `<p>${playerText(comment.body)}</p>`,
+      ];
 
 /** A thread, its comments in the order given, and the form to add one. */
 export const threadPage = (thread: Thread, comments: readonly ThreadComment[]): string =>
