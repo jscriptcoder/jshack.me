@@ -1097,10 +1097,10 @@ agreed order:
     `127.0.0.1` replied as the gateway. No defect. **Pick up here (2026-10-19):** the items still
     open in `backlog.md`, the agreed work until the owner reopens missions; the next public sites
     (news, the forum) wait in `backlog.md` for their own grill.
-23. **A forum at talkit.io (IN FLIGHT, 2026-10-19; plan and grill in `plans/talkit.md`).** Players
-    will start threads and comment on them as their emailit.io account, the `~/.mailrc` on the box
-    the tool runs on serving as the cookie. Four slices; one browser run at close-out. Slice 1
-    (v0.410.0): talkit.io is a sixth fixed site with a defaceable front page, and `/threads` (20 a
+23. ✅ **A forum at talkit.io (v0.410.0–v0.414.0, PRs #708–#712, 2026-10-19 to 2026-10-20).**
+    Players start threads and comment on them as their emailit.io account, the `~/.mailrc` on the
+    box the tool runs on serving as the cookie. Four slices and one fix; one browser run at
+    close-out. Slice 1 (v0.410.0): talkit.io is a sixth fixed site with a defaceable front page, and `/threads` (20 a
     page by latest activity, `older`/`newer` links) and `/thread?id=<n>` answer from the new
     `talkit_threads` table, never a file; an id naming no thread is a plain 404. The migration
     seeds the operator's welcome thread. Every player string is escaped, and a body links only
@@ -1130,13 +1130,21 @@ agreed order:
     and the page reads `#n [removed]`, the count and the list unmoved. It prints what it removes
     and the database host first, player text quoted with every control and format character
     spelled out, and exits 1 when there is nothing to remove. No trace on talkit's box. The
-    migration is on `jshack-dev` and `jshack-prod`. The close-out's browser run (2026-10-20)
-    found a comment sent from lynx always answered "No such thread.": lynx drew a form's hidden
-    fields as nothing and sent only the fields it drew, so the thread's `id` never went. v0.414.0
-    (on `fix/lynx-hidden-fields`) sends them, and lays a `<form>` out as a block, so the front
-    page's "Post" label and button no longer run onto the line before. **Pick up here
-    (2026-10-20):** that fix's PR, a lynx comment checked in the browser, then the epic's
-    close-out docs in `plans/talkit.md`.
+    migration is on `jshack-dev` and `jshack-prod`. Browser close-out (2026-10-20, v0.413.0, a
+    new player signed up on emailit.io and logged in with `mail login`): lynx read the front page
+    and the list, posted a two-line thread from the box and showed it; `talkitRemove.ts comment`
+    left `#1 [removed]` above `#2` with the list still at `2 comments`, and `talkitRemove.ts
+    thread` turned the open link into a 404. One defect: a comment sent from lynx always
+    answered "No such thread.", since lynx drew a form's hidden fields as nothing and sent only
+    the fields it drew, so the thread's `id` never went (`curl -d` was never affected). v0.414.0
+    (PR #712, merged 2026-10-20) sends them, and lays a `<form>` out as a block, so the front
+    page's "Post" label and button no longer run onto the line before; a lynx comment then
+    posted in the browser. As built: [`talkit-architecture.md`](./talkit-architecture.md);
+    follow-ups (townsfolk threads, authors deleting their own, paging a long thread) in
+    `backlog.md` under "talkit — follow-ups deferred". **Pick up here (2026-10-20):** the items
+    still open in `backlog.md`, the agreed work until the owner reopens missions; news is the
+    next public site, and townsfolk threads the forum's next piece, each waiting for its own
+    grill.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

@@ -145,6 +145,9 @@ files). `.branches/` and `.temp/` are CLI state and git-ignored.
 | `world-content-architecture.md`      | As-built generated content and its rules.                                                       |
 | `discovery-architecture.md`          | As-built DNS and public web (findit.io, mapit.io).                                              |
 | `vulnerability-architecture.md`      | As-built vulnerability system.                                                                  |
+| `wallet-architecture.md`             | As-built crypto wallet and chainit.io.                                                          |
+| `email-architecture.md`              | As-built email (`mail`, emailit.io).                                                            |
+| `talkit-architecture.md`             | As-built forum (talkit.io).                                                                     |
 | `e2e-shared-network-verification.md` | Two-player browser journeys and a coverage map.                                                 |
 | `legacy/`                            | The retired React app's design, and the rewrite blueprint. Historical.                          |
 | `mission-ideas/`                     | Legacy mission designs, input to the planned missions feature.                                  |

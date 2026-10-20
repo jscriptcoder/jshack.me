@@ -31,6 +31,18 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   otherwise leaves no log line); and **mission-era NPC mail**, clients mailing players and the
   reverse.
 
+- **talkit — follow-ups deferred.** The forum epic shipped at v0.414.0 (as-built:
+  [`talkit-architecture.md`](./talkit-architecture.md)). Left out on purpose:
+  - **Townsfolk threads**, the next piece of work after the epic: flavour and true leads,
+    generated on the server from the world, so they cost no bundle bytes. Kept out of v1 because a
+    content generator and its lead rules would have doubled the epic.
+  - **Authors deleting their own posts.** It makes a good impersonation mechanic, since a stolen
+    `~/.mailrc` could then delete its victim's posts, and it needs a slice of its own. Until then
+    only the operator removes (`scripts/talkitRemove.ts`).
+  - **Paging a long thread's comments.** Every comment is on the thread's one page, and the
+    20-an-hour cap is what bounds it. Page it if a thread ever grows long enough to need it.
+  - Reporting and blocking are owed before multiplayer is announced, as for mail (above).
+
 - **More public websites — ideas, not yet grilled (2026-10-16).** The public web today is
   findit.io (search), mapit.io (the map), emailit.io (mail), hackademy.io and the public places'
   own sites. These are candidates to make Harrow Valley feel inhabited. Every name is a
@@ -39,9 +51,10 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
     - **Local news** (`valleynews.io`): generated headlines about the towns and their places,
       and later things players did ("Copper Systems' site has been down since Tuesday"). It makes
       persistence visible to everyone and can hand out leads.
-    - **A forum** (`talkit.io`): townsfolk talk about their WiFi, jobs and new routers. Flavour
-      and clues now, a place where players post to each other later. A friendlier form of the
-      "hacker BBS posting leads" under procedural world deferred.
+    - ✅ **A forum** (`talkit.io`): shipped at v0.410.0–v0.414.0 (#708–#712), players posting
+      to each other first; as-built [`talkit-architecture.md`](./talkit-architecture.md).
+      Townsfolk talking about their WiFi, jobs and new routers is its next piece, under "talkit
+      — follow-ups deferred".
     - **A jobs board** (`hireit.io`): places post vacancies ("Ridgemont hospital seeks an IT
       contractor"), and each posting says something about how the place runs. A possible front
       door for missions.
@@ -64,7 +77,37 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
       source of leads that fits players learning the hard way.
   - **The pick when this is taken up:** news, the forum and the block explorer. The first two
     make the world feel alive and give missions a channel. The third built on the shipped
-    wallet and is done (2026-10-16); news and the forum remain.
+    wallet and is done (2026-10-16), the forum is done (2026-10-20), and news remains.
+
+- **Two system log lines landing together can lose one.** `appendMachineLog`
+  (`patches/appendMachineLog.ts`) reads the log as a reader sees it, appends the line and writes
+  the file back, so two appends to one log at the same moment can each build on the same read,
+  and the second write drops the first one's line. Found in the talkit epic (2026-10-19), when
+  `scripts/testTalkit.ts` fetched three talkit pages in parallel and `access.log` held two
+  lines; the check now fetches them in turn. Every trace that goes through `appendMachineLog`
+  shares it. In play it costs a log line now and then, when two visitors hit one site at once.
+  The fix when it matters: an append that does not read first, such as a row per line or a
+  database-side append.
+
+- **`resolveOccupantSweep.test.ts`'s bad-signature test fails in some full runs, and never
+  alone.** "rejects an envelope whose signature does not verify" failed in 3 of 6 full runs on
+  the talkit slice 1 branch (2026-10-19). Its tampering, replacing the signature's first byte
+  with `00`, changes nothing 1 time in 256, which does not explain that rate. The cause is not
+  yet found.
+
+- **Lazy-load a large client piece so features stop meeting the bundle ceiling.** Every command
+  and screen is in the main chunk, so each feature's client code counts against
+  `BUNDLE_CEILING_BYTES` (`scripts/checkBudgets.ts`). Content was cut twice to make room, and
+  talkit raised the ceiling's code part by 2,000 B instead (285,135 B of 286,975 B at
+  v0.414.0). The lasting fix is to load lynx, nano or hackademy's pages on demand. It is its own
+  piece of work, since box generation is synchronous.
+
+- **The e2e skill's `type-command.sh` cannot type a command holding `"`.** It compares the typed
+  field against both the command and the command in quotes, but `agent-browser eval` returns the
+  value as a JSON string, so every `"` inside comes back as `\"` and the check refuses to press
+  Enter. Seen in the talkit close-out (2026-10-20) on `curl -d "id=…&body=…"`; the workaround is
+  to type such a command by hand and press Enter. The fix: parse the eval result as JSON before
+  comparing.
 
 - **CLOSED (2026-10-07) — three wire-checks that failed for fixture reasons.**
   `testCrossPlayerConnectionTrace` already read the gateway's trace under `ap:<essid>` (fixed in
