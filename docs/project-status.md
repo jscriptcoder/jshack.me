@@ -1173,6 +1173,14 @@ agreed order:
     its scrollbar sat mid-screen beside the text. v0.418.0 (PR #717) scrolls a full-width region
     around the column, and the scrollbar is back at the card's edge. The bundle grew by 25 B in
     all, to 285,317 B of 286,975 B.
+27. ✅ **The new-game form lowercases the workstation and username (v0.419.0, PR #718,
+    2026-10-20).** A capital in either was refused with "Use letters, numbers, and hyphens only",
+    which never said why; the owner asked the game to lowercase them itself. Both fields
+    (`ui/screens/Intro.tsx`) now turn lowercase as typed, the cursor kept where it was; the
+    password keeps its case. The shared validators are unchanged, so emailit.io handles are not
+    affected. The bundle grew by 44 B, to 285,361 B of 286,975 B. Browser close-out (2026-10-20,
+    v0.419.0, real keys): `SkyLab` with `X` and `y` typed after `sky` read `skyxylab`, the prompt
+    was `carol@skyxylab`, and `su` with `Hunter2` reached root. No defect.
     **Pick up here (2026-10-20):** the items still open in `backlog.md`, the agreed work until
     the owner reopens missions; news is the next public site, and townsfolk threads the forum's
     next piece, each waiting for its own grill.
