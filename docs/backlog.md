@@ -87,7 +87,14 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   lines; the check now fetches them in turn. Every trace that goes through `appendMachineLog`
   shares it. In play it costs a log line now and then, when two visitors hit one site at once.
   The fix when it matters: an append that does not read first, such as a row per line or a
-  database-side append.
+  database-side append. Agreed 2026-10-20 to take it as its own planned slice, not a small fix:
+  a database-side append has to lock the log's path, re-read the latest row by the reader's
+  ordering (`orderPatchesForReplay`, restated in SQL), and end with an `updated_at` later than
+  the row it built on. The `patches_set_updated_at` trigger stamps `NOW()`, the transaction's
+  START, so an append that waited on the lock would write a row a reader ranks below the one it
+  built on; the slice has to change that stamp (`clock_timestamp()`) for every write. And every
+  handler's
+  `readLog`/`upsertPatch` deps (about 30 files and their test fakes) move onto it.
 
 - **`resolveOccupantSweep.test.ts`'s bad-signature test fails in some full runs, and never
   alone.** "rejects an envelope whose signature does not verify" failed in 3 of 6 full runs on
