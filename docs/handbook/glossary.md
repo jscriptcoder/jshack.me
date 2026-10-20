@@ -34,6 +34,8 @@ here refers to a real network or system.
 | **emailit.io**              | Where a player signs up for an email address (`curl -d` to `/signup`), a one-machine network on the public web.                                     |
 | **chainit.io**              | The JSC block explorer (`/address?a=<address>`, `/recent`, `/rich`), a one-machine network on the public web whose views come from the ledger.      |
 | **talkit.io**               | The valley's forum (`/threads`, `/thread?id=<n>`, `POST /post` and `/comment`), a one-machine network on the public web, its views from its tables. |
+| **hireme.io**               | A contracting agency where a player applies with their emailit.io address (`curl -d` to `/apply`) and is mailed their private board's address, a one-machine network on the public web. |
+| **Contractor board**        | A handle's private page at a `194.x.y.z` address drawn once and kept for good, mailed from jobs@hireme.io; whoever has the address can read it. Not served yet. |
 | **`~/.mailrc`**             | The login `mail` uses: an emailit.io address and its password in plain text, per user per box. It signs talkit.io posts and comments too.           |
 | **Forward**                 | A line `forward <public port> to <ip>:<port>` in a router's `/etc/iptables/rules.v4`.                                                               |
 | **Vantage**                 | Where a request is made from: own LAN, same-WiFi player, public internet, or down an inner gateway's chain. Decided by the server from the address. |
