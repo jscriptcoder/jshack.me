@@ -7,9 +7,23 @@
 untested by the owner). **Slice 3 merged** (PR #710, 2026-10-20, v0.412.0; the migration is on
 `jshack-dev` and `jshack-prod`; mutation 406 of 414 killed, the 8 survivors equivalent: four
 throw at module load, two `?? ''` fallbacks fail `THREAD_ID` alike, two dropped `</form>` tags
-close at `</body>`). **Slice 4 grilled and planned 2026-10-20** (below, after slice 3's plan;
-the owner confirmed the decisions, the plan's choices wait on their word). Next: build it on
-`feat/talkit-removal`.
+close at `</body>`). **Slice 4 grilled and planned 2026-10-20** (below, after slice 3's plan);
+built on `feat/talkit-removal`, increments 1 to 4 committed, v0.413.0; the migration is on
+`jshack-dev`. Next: the PR gate (mutation, the full suite), then `jshack-prod` before merge.
+
+**Slice 4 as built: where it differs from the plan below:**
+
+- **The quoting spells out every control and format character** (`\p{Cc}` and `\p{Cf}`), not
+  C0, DEL and C1 alone: a bidi override in a title could otherwise reorder the rest of the
+  operator's line, the host included, and a zero-width character could hide text. A character
+  past the first plane is spelled `\u{e0001}`. Each title and handle is quoted by hand, not by
+  `JSON.stringify`, so every escape is in one place.
+- **A removed comment carries its number alone** (`RemovedComment`), not its time: the page
+  shows no time for it, so the parse keeps none.
+- **The wire-check reads talkit's logs straight after each removal**, since every page it
+  fetches afterwards adds its own `access.log` line.
+- **The handbook names all three operator scripts**, `mintCoins.ts` included, where it called
+  `restoreSite.ts` the only one.
 
 **Slice 3 as built: where it differs from the plan below:**
 
