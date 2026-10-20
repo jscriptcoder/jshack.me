@@ -7,7 +7,9 @@
 untested by the owner). **Slice 3 merged** (PR #710, 2026-10-20, v0.412.0; the migration is on
 `jshack-dev` and `jshack-prod`; mutation 406 of 414 killed, the 8 survivors equivalent: four
 throw at module load, two `?? ''` fallbacks fail `THREAD_ID` alike, two dropped `</form>` tags
-close at `</body>`). Next: plan slice 4, operator removal.
+close at `</body>`). **Slice 4 grilled and planned 2026-10-20** (below, after slice 3's plan;
+the owner confirmed the decisions, the plan's choices wait on their word). Next: build it on
+`feat/talkit-removal`.
 
 **Slice 3 as built: where it differs from the plan below:**
 
@@ -732,3 +734,213 @@ numbers the comment, bumps the thread and inserts → the answer page. A line go
 - Mutation gate at PR readiness over `core/talkit/`, the talkit log line and the dispatch; no
   mutant left standing in the inbound checks.
 - No browser run: one at the epic's close-out.
+
+## Slice 4 plan: the operator removes
+
+### Decisions (grilled with the owner 2026-10-20)
+
+Decision 12 named the script and the two outcomes; these settle the rest.
+
+1. **A removed thread is deleted for good, its comments with it.** The foreign key from
+   `talkit_comments` to `talkit_threads` becomes `ON DELETE CASCADE`, so one `DELETE` takes the
+   thread and every comment on it, a comment landing mid-removal included. Its link answers the
+   plain 404 an unused id answers (slice 1 as built), and its comment form answers "No such
+   thread.", which `talkit_comment` already says when no thread row is found. Ids are an
+   identity, so a removed id never comes back. Why: whatever made the operator remove it (abuse,
+   spam, somebody's real details) should not stay in the database, and a reader cannot tell a
+   hidden thread from a missing one anyway. Rejected: a `removed_at` column (an undo, but the
+   content stays and every read filters on it).
+2. **A removed comment keeps its row, its number and its time; its author and body become
+   NULL.** A CHECK holds the two NULL together, and their shape CHECKs still hold whenever they
+   are not. The page shows `<p>#3 [removed]</p>` and nothing more: no handle, no time, no body.
+   The NULL body is the mark itself, so no flag can disagree with it. Why: the content goes for
+   the same reason a thread's does, and a removal is no public mark against a handle that a
+   stolen `~/.mailrc` may have signed. Rejected: keeping the author, shown or in the database
+   alone (a record for a later ban, but a handle tied to content nobody can see).
+3. **A removed comment still counts, and nothing moves.** `comment_count` stays, so a thread
+   with one of three comments removed still reads `3 comments`, which is how many entries its
+   page shows; `last_activity_at` stays, so a removal never bumps the thread. Why: the count
+   numbers the next comment, and lowering it would hand a number out twice. Rejected: a
+   `removed_count` column for a `2 comments` line (a second number to keep in step).
+4. **The script names what it removes:** `talkitRemove.ts thread <id>` and
+   `talkitRemove.ts comment <id> <n>`. The id is checked as the server checks one (`THREAD_ID`)
+   and the number as a positive whole number; anything else is a usage error before anything is
+   touched, so a forgotten number never removes a whole thread. Before it writes, it reads the
+   target and prints one line naming it and the database host — a thread's title, author and
+   comment count, or a comment's author — then removes it, with no prompt, as `mintCoins.ts`
+   asks none. The words are read by a pure `core/talkit/` module with unit tests, as
+   `mintOrder.ts` reads a mint's. Rejected: a `y/N` prompt (no operator script asks, and it
+   stands in the way of removing several in a row).
+5. **Nothing to remove exits 1 and writes nothing**: "No thread #n", "No comment #m on #n", and
+   "Comment #m on #n is already removed", each with the host. A database error is 1 too; bad
+   words or missing env are 2, before anything is touched. Why: a mistyped number is the likely
+   mistake, and an already-removed comment answering 0 would make a run against the wrong
+   database look like it worked. Rejected: 0 for an already-removed comment, so a rerun is
+   harmless.
+6. **The script writes the tables directly with the service role, as `restoreSite.ts` does; no
+   SQL function.** A thread: read, print, `DELETE`. A comment: read, print, then `UPDATE … SET
+   author = NULL, body = NULL WHERE thread_id = … AND number = … AND body IS NOT NULL`. A write
+   that matches nothing, because a removal running beside it got there first, answers decision
+   5's line. The migration is schema alone: the cascade, the two nullable columns and the CHECK
+   pairing them. Why: nothing but the operator removes, so a function is one more grant and
+   signature for the same two statements. Rejected: `talkit_remove_thread` and
+   `talkit_remove_comment` granted to `service_role`.
+7. **The welcome thread stays as it is.** "Nobody can edit or delete what you write" still holds
+   for players, decision 13 has the welcome state the cap and permanence alone, and a
+   `#3 [removed]` on a page is how players learn an operator steps in. Rejected: "The operator
+   removes abuse." (a data migration for one sentence, under a welcome that may have comments).
+8. **A removal leaves no trace on talkit's box**: no `talkit.log` line, no `access.log` line,
+   and the post's or comment's own `talkit.log` line stays where it is. Why: the operator has no
+   address in the world, the reason a restore writes no `kern.log` line, and hunting journal
+   rows from the removal script would bind it to the journal for nothing a root lacks. Rejected:
+   a `removed comment #3 on #12` line (a write with no address, from outside the world).
+9. **A new wire-check, `scripts/testTalkitRemove.ts`, runs the real script as a child process**
+   against `vercel dev` and local supabase, and reads the pages and rows after each run.
+   `testTalkit.ts` and `testRestoreSite.ts talkit.io` are re-run. Rejected: growing
+   `testTalkit.ts` (already the longest talkit check; removal is the operator's own act with its
+   own exit codes).
+
+**Branch**: `feat/talkit-removal` · **Version**: 0.412.0 → 0.413.0 · **Class**: behaviour change
+· **Delivery**: one PR against `main`; one migration, applied to `jshack-dev` then `jshack-prod`
+before merge.
+
+**Value.** The operator, holding a database's service-role key, takes a thread or one comment
+off talkit.io with one command. A removed thread is gone from the list and its link is a 404; a
+removed comment reads `#3 [removed]` in its place, so every other number still points where it
+did.
+
+**Path.** `scripts/talkitRemove.ts <words>` → `readRemovalOrder` in `core/talkit/removal.ts`
+(usage error, exit 2) → a read of the target with the service role (nothing there, exit 1) →
+the printed line → the `DELETE` or the `UPDATE` (matched nothing, exit 1) → exit 0. Readers then
+see it through the unchanged `findThreads`, `findThread` and `findComments` reads, whose rows
+`answerViews.ts` parses and `pages.ts` shows.
+
+### Facts read while planning (2026-10-20)
+
+- **The foreign key is `talkit_comments_thread_id_fkey`** by Postgres's naming, declared inline
+  as `REFERENCES talkit_threads (id)` with no `ON DELETE` rule
+  (`20261020000000_talkit_comment.sql`). `author` and `body` are `NOT NULL`, each with a shape
+  CHECK. A CHECK that meets a NULL passes, so the shape CHECKs need no change once the columns
+  are nullable.
+- **`talkit_comment` already refuses a removed thread**: its `UPDATE … RETURNING` finds no row
+  and it answers `no_thread`, writing and counting nothing. It inserts a non-NULL author and
+  body, so the new CHECK never refuses it.
+- **No `api/` line changes.** `findComments` already selects `number, author, body,
+  created_at`; only the parse in `answerViews.ts` (`commentRowSchema`, `z.string()` for both)
+  and the line in `pages.ts` (`commentLines`, `ThreadComment` with string `author` and `body`)
+  meet the NULLs. A half-NULL row cannot be stored, but a parse that met one would answer the
+  500 `forum_lookup_failed`, as any row that is not a comment does.
+- **The operator-script pattern is `mintCoins.ts`**: a pure reader (`readMintOrder`, unit
+  tested) turns the words into an order or `null`, the script checks env, creates the
+  service-role client, prints a line naming `new URL(url).host`, writes, and exits 0, 1 or 2.
+- **Titles may hold C1 controls.** `holdsControl` (`core/talkit/writing.ts`) and the table
+  CHECKs refuse C0 controls but a line break, and DEL, never U+0080–U+009F. In the game they
+  are text in a page; in the operator's real terminal U+009B can start an escape sequence, and
+  `JSON.stringify` leaves C1 unescaped.
+- **`pages.ts` is in the client bundle**, through `TALKIT_FRONT_PAGE` in
+  `generation/fixedSiteFs.ts`; `threadPage` should shake out of it, and the bundle check
+  (285,045 B of 286,975 B) confirms.
+- **`testTalkit.ts`'s cleanup deletes comments by author** before threads; it still works, and
+  with the cascade the thread delete alone would do.
+- **The handbook calls `restoreSite.ts` "the one operator script"**
+  (`docs/handbook/12-build-deploy-operate.md`), stale since `mintCoins.ts`, and its codebase
+  map (`03-codebase-map.md`) lists `restoreSite.ts` but not `mintCoins.ts`.
+
+### Choices made while planning (owner to confirm with the plan)
+
+- **One module, `core/talkit/removal.ts`, holds everything the script decides that is not a
+  database call**: `readRemovalOrder(words)` and the sentences it prints. The order is
+  `{ kind: 'thread', threadId }` or `{ kind: 'comment', threadId, number }`, or `null` for
+  anything but exactly those words: `thread` and an id, or `comment`, an id and a number. The id
+  is `THREAD_ID`; the number is `^[1-9][0-9]{0,8}$`, which fits `comment_count`'s `INTEGER`. A
+  near miss is refused, never repaired (`Thread`, `12 `, `+3`, `03`, a fourth word).
+- **The printed lines**:
+  - `Removing thread #12 "<title>" by neo, 7 comments, on <host>` (and `1 comment`);
+  - `Removing comment #3 on #12 by neo on <host>`;
+  - `No thread #12 on <host>`, `No comment #9 on #12 on <host>`,
+    `Comment #3 on #12 is already removed on <host>`;
+  - `Removed thread #12` / `Removed comment #3 on #12` after the write.
+
+  The title and handle are written as JSON strings with every C0, DEL and C1 character spelled
+  `\u00XX`, so nothing a player typed reaches the operator's terminal as a control. A handle is
+  shaped by its CHECK, and goes through the same quoting anyway, as decision 10's "every string a
+  player wrote" asks.
+- **The comment row parses as one of two shapes**: `author` and `body` both strings (shown as
+  now), or both `null` (`{ number, createdAt, removed: true }`); one NULL without the other fails
+  the parse. `ThreadComment` becomes that union, and `commentLines` shows a removed one as the
+  single line `<p>#3 [removed]</p>`.
+- **The migration is `20261020010000_talkit_removal.sql`**: the foreign key dropped and added
+  again with `ON DELETE CASCADE`, both columns `DROP NOT NULL`, and
+  `CHECK ((author IS NULL) = (body IS NULL))`. Its header says why the row stays (the number)
+  and why the content goes (decision 2).
+- **The script, `scripts/talkitRemove.ts`**, follows `mintCoins.ts`'s header shape (what it
+  does, that there is no undo, usage, exit codes). For a thread it reads
+  `id, title, author, comment_count` with `maybeSingle()`, prints, and deletes `.eq('id', …)`
+  with `.select('id')` so it can tell a delete that matched nothing. For a comment it reads
+  `author, body` with `maybeSingle()`, prints, and updates with `.not('body', 'is', null)` and
+  `.select('number')`.
+- **The wire-check, `scripts/testTalkitRemove.ts`**, signs up one throwaway handle, posts two
+  threads and three comments through the signed endpoint, runs the script with `spawnSync` as
+  `testRestoreSite.ts` does, and reads pages through `resolveHttpFetch` and rows with the
+  service role. Its cleanup deletes its threads (the cascade takes the comments), its writes,
+  its account and its sessions.
+
+### Acceptance criteria
+
+1. `talkitRemove.ts comment 12 3` on a thread with three comments prints the line naming
+   comment #3 and its author and the host, exits 0, and the thread's page shows
+   `#3 [removed]` in #3's place: no handle, no time, no body. #1 and #2 read as before. The
+   database holds the row with its number and time, its author and body NULL.
+2. After it, `/threads` still says `3 comments` for the thread, in the same place on the list,
+   and the next comment on the thread is `#4`.
+3. `talkitRemove.ts thread 12` prints the line naming the thread, its title, author and comment
+   count, and the host, and exits 0. The thread is gone from `/threads`, `/thread?id=12` is the
+   404 an unused id gets, a comment sent to it answers "No such thread.", and no comment on it
+   is left in the database. The other thread is untouched.
+4. Run again, `comment 12 3` prints "Comment #3 on #12 is already removed on <host>"; a comment
+   number nobody used prints "No comment #9 on #12 on <host>"; a removed or unused thread prints
+   "No thread #12 on <host>". Each exits 1 and changes no row.
+5. Any other words exit 2 with the usage line and touch nothing: no words, an unknown kind,
+   `thread` without an id, `comment` without a number, an id or number of `0`, `03`, `+3`, `abc`, a sixteen-digit
+   id, a ten-digit number, a fourth word. So does missing env.
+6. The printed line shows a title holding `"`, `\`, a C1 control (U+009B) or an emoji as a JSON
+   string, the controls spelled `\u00XX`, so the operator's terminal acts on none of it.
+7. A removal adds no line to talkit's `talkit.log` or `access.log`.
+8. A comment row with one of its author and body NULL, were one ever read, makes the thread's
+   page a 500, as a malformed row does.
+9. `/post`, `/comment`, the views and every other site answer as before, and the bundle check
+   passes.
+
+### Increments (each RED → GREEN → REFACTOR; commit on approval)
+
+1. **A thread's page shows a removed comment** (`core/talkit/answerViews.ts`,
+   `core/talkit/pages.ts`): the two-shape parse, `ThreadComment` as a union, the
+   `#3 [removed]` line. Criteria 1 (the page half) and 8, at the function with fake reads, and
+   `threadPage` at the page.
+2. **The script's words and sentences** (`core/talkit/removal.ts`): `readRemovalOrder` and the
+   printed lines with their quoting. Criteria 5 and 6 as unit tests over every near miss and
+   every control range.
+3. **The migration, the script and the wire-check**: `20261020010000_talkit_removal.sql` to
+   local and `jshack-dev`; `scripts/talkitRemove.ts`; `scripts/testTalkitRemove.ts`, written
+   first and failing until the script and migration exist. Criteria 1–5 and 7 live, with a
+   removal racing a comment left out (the cascade is the database's own guarantee). The
+   script's database half has no unit test: it is a thin wrapper over `removal.ts`, as
+   `mintCoins.ts` is over `mintOrder.ts`, and the wire-check is its evidence. `testTalkit.ts`,
+   `testRestoreSite.ts talkit.io` and `testEmailitSignup` are re-run.
+4. **Docs, version 0.413.0**: the handbook's operating section names the three operator
+   scripts, and its codebase map gains `mintCoins.ts` and `talkitRemove.ts`; `docs/project-status.md`.
+   The migration goes to `jshack-prod` before merge.
+
+### Evidence
+
+- Unit tests under `npm test`; `npm run typecheck`; `npm run lint`; the bundle check.
+- Wire-check `scripts/testTalkitRemove.ts` against `vercel dev` + local supabase, and the
+  `testTalkit.ts`, `testRestoreSite.ts talkit.io` and `testEmailitSignup` checks again.
+- Mutation gate at PR readiness over `core/talkit/removal.ts`, the comment parse in
+  `answerViews.ts` and the comment lines in `pages.ts`. The script itself is N/A: its branches
+  are proved by the wire-check's exit codes and rows.
+- No browser run in the slice. **The epic's close-out follows the merge**, as its own `docs(v2)`
+  commit: the one browser run over all four slices, the backlog entries the plan lists (the
+  `access.log` race, the flaky `resolveOccupantSweep` test, authors deleting their own,
+  townsfolk threads, lazy-loading, paging a long thread), and this file's content moved into
+  `docs/`.

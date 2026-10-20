@@ -1124,8 +1124,8 @@ agreed order:
     password, holds posts and comments to one 20-an-hour cap, and numbers the comment and
     bumps its thread in one `UPDATE` that locks the thread's row. `talkit.log` names each
     comment, its thread, its writer and address. No client code changed. The migration is on
-    `jshack-dev` and `jshack-prod`. **Pick up here (2026-10-20):** plan slice 4 (operator removal) in
-    `plans/talkit.md`.
+    `jshack-dev` and `jshack-prod`. **Pick up here (2026-10-20):** build slice 4 (operator removal), grilled and
+    planned in `plans/talkit.md`.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
