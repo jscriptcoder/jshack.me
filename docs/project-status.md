@@ -1163,12 +1163,16 @@ agreed order:
     close-out (2026-10-20, v0.416.0, a new player on ESPRESSO-EXPRESS): an emailit.io sign-up from
     the form showed the line from 359 ms to 2,734 ms, then the welcome page; `←` showed it too. No
     defect.
-26. ✅ **The author card says how to leave it (v0.417.0, PR #716, 2026-10-20).** The owner,
-    playing, found nothing on the `author` card to say which key went back to the terminal. A dim
-    `q Quit` line (`ui/screens/Author.tsx`) is now pinned below the bio, in lynx's words, since
-    the card leaves on the same `q`/`Q`/`Esc`; the bio scrolls on its own so the line stays on
-    screen. The bundle grew by 18 B, to 285,310 B of 286,975 B. No browser close-out yet: the
-    pinned layout is unverified outside jsdom.
+26. ✅ **The author card says how to leave it (v0.417.0–v0.418.0, PRs #716–#717, 2026-10-20).**
+    The owner, playing, found nothing on the `author` card to say which key went back to the
+    terminal. A dim `q Quit` line (`ui/screens/Author.tsx`) is now pinned below the bio, in lynx's
+    words, since the card leaves on the same `q`/`Q`/`Esc`; the bio scrolls on its own so the line
+    stays on screen. Browser close-out (2026-10-20, v0.417.0, a new player, 900×420): the line
+    stayed at the card's bottom with the bio scrolled to its end, and `q` and `Esc` each returned
+    focus to the prompt. One defect: the scroll region was the bio column, held to `max-w-3xl`, so
+    its scrollbar sat mid-screen beside the text. v0.418.0 (PR #717) scrolls a full-width region
+    around the column, and the scrollbar is back at the card's edge. The bundle grew by 25 B in
+    all, to 285,317 B of 286,975 B.
     **Pick up here (2026-10-20):** the items still open in `backlog.md`, the agreed work until
     the owner reopens missions; news is the next public site, and townsfolk threads the forum's
     next piece, each waiting for its own grill.
