@@ -1,7 +1,8 @@
 # Plan: applying for contract work, at hireme.io
 
-**Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-20. Slice 1 is planned,
-its choices and criteria confirmed, and in progress on `feat/hireme-apply`.
+**Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-20. Slice 1 shipped
+(v0.420.0, PR #719, 2026-10-20; migration on `jshack-dev` and `jshack-prod`). Slice 2, the board
+answers, is next and not yet planned. The browser run waits for the epic's close-out.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 
@@ -157,6 +158,13 @@ will take a player's address and mail them a private address to open with `curl`
 
 ## Slice 1 plan: a player applies
 
+**As built (v0.420.0, PR #719).** All 14 criteria met. Unit tests at the rules, the pages, the
+site row and the dispatch; `scripts/testHireme.ts` 21/21 and `testRestoreSite.ts hireme.io` 13/13
+live. hireme.io is at `193.72.191.97`. The bundle grew 234 B, to 285,595 B of 286,975 B.
+Mutation: `apply.ts` 79 killed + 1 timeout, dispatch 27/27; `pages.ts`'s 12 survivors are static
+mutants (five killed by hand, seven closing tags the HTML parser restores). The gate found the
+`no_mailbox` tests never reached the store (`nobody` is a reserved username) and fixed them.
+
 **Branch**: `feat/hireme-apply` · **Version**: 0.419.0 → 0.420.0 · **Class**: behaviour change
 · **Delivery**: one PR against `main`; one migration, applied to `jshack-dev` then `jshack-prod`
 before merge.
@@ -214,7 +222,8 @@ the address, the 24-hour window, the mail, in one transaction) → a page answer
   world), `applied_at` and `mailed_at`. RLS on, no policies. Decision 4's "both UNIQUE" is the
   primary key and the UNIQUE.
 - **One function, `hireme_apply(handle, candidate_address, sender, subject, body)`, answering a
-  word**, everything that must be atomic under an advisory lock on the handle: `no_mailbox` (no
+  word**, everything that must be atomic under a lock on the handle (as built: the applicant's
+  `email_accounts` row `FOR UPDATE`, as `email_send` locks a recipient's): `no_mailbox` (no
   account), `recent` (mailed inside 24 hours; nothing written), `collision` (the handle has no
   board and the candidate is somebody else's; nothing written), `sent` (the board read, or
   created at the candidate; `mailed_at` set; the mail delivered as the next message). The body
@@ -305,7 +314,9 @@ the address, the 24-hour window, the mail, in one transaction) → a page answer
 5. **The migration, the adapter and the wire-check**: `hireme_boards` and `hireme_apply` to
    `jshack-dev`; the RPC and the draw in `api/network.ts`; a new `scripts/testHireme.ts`
    (criteria 3–11 live: 6 by moving `mailed_at` back with the service role, 7 by filling an
-   inbox, 9 by pre-inserting a board at the next candidate), and `testRestoreSite.ts hireme.io`.
+   inbox, 9 by calling `hireme_apply` directly with an address another handle holds, since the
+   server's draw cannot be predicted; five collisions in a row are unit-tested), and
+   `testRestoreSite.ts hireme.io`.
 6. **Docs and version 0.420.0**: `restoreSite.ts`'s comment; the handbook's codebase map and
    glossary; `docs/project-status.md`; the migration to `jshack-prod` before merge.
 
