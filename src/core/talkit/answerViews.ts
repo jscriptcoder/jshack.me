@@ -8,7 +8,7 @@
 
 import { z } from 'zod';
 import { exactCount } from '../wallet/exactCount.js';
-import { NO_SUCH_PAGE, threadPage, threadsPage } from './pages.js';
+import { NO_SUCH_PAGE, threadPage, threadsPage, type ThreadComment } from './pages.js';
 
 /** How many threads a page of the list shows. */
 const PAGE_LENGTH = 20;
@@ -80,19 +80,30 @@ const threadRowSchema = z
     createdAt: row.created_at,
   }));
 
-const commentRowSchema = z
-  .object({
-    number: z.number().int().positive(),
-    author: z.string(),
-    body: z.string(),
-    created_at: instant,
-  })
-  .transform((row) => ({
-    number: row.number,
-    author: row.author,
-    body: row.body,
-    createdAt: row.created_at,
-  }));
+const commentNumber = z.number().int().positive();
+
+/** A comment as it was written, or one the operator removed, whose author and body went
+ *  together. A row missing only one of them is neither. */
+const commentRowSchema = z.union([
+  z
+    .object({
+      number: commentNumber,
+      author: z.string(),
+      body: z.string(),
+      created_at: instant,
+    })
+    .transform(
+      (row): ThreadComment => ({
+        number: row.number,
+        author: row.author,
+        body: row.body,
+        createdAt: row.created_at,
+      }),
+    ),
+  z
+    .object({ number: commentNumber, author: z.null(), body: z.null() })
+    .transform((row): ThreadComment => ({ number: row.number, removed: true })),
+]);
 
 /** One query field of the request, or null when it is absent. The base only lets `URL`
  *  read a path; nothing of it is used. */

@@ -160,10 +160,14 @@ installed with until it is reinstalled.
   `[patches]` or `[sessions]` and a label. Read them in the Vercel dashboard or with `vercel logs`.
   There are no metrics, alerts or error tracker.
 - **Data fixes.** There are no admin endpoints. Operators use the service-role key directly, through
-  Supabase Studio's SQL editor or a script. `scripts/restoreSite.ts <domain>` is the one operator
-  script: it resets a shared fixed site, `findit.io` or `hackademy.io` (ends its sessions, deletes
-  its journal, writes a fresh boot marker), and can be pointed at production by supplying production
-  credentials by hand.
+  Supabase Studio's SQL editor or a script. Three operator scripts exist, each pointed at production
+  by supplying production credentials by hand, and each printing the database host it writes to:
+  - `scripts/restoreSite.ts <domain>` resets a fixed site, any domain in `FIXED_SITES` (ends its
+    sessions, deletes its journal, writes a fresh boot marker).
+  - `scripts/mintCoins.ts <address> <amount>` credits a ledger address with new coins.
+  - `scripts/talkitRemove.ts thread <id>` or `comment <id> <n>` takes a thread, with all its
+    comments, or one comment off talkit.io. A thread is deleted; a comment keeps its number and
+    reads `#n [removed]`. There is no undo.
 - **Querying the local database**:
   `docker exec supabase_db_jshack-me psql -U postgres -tAc "select count(*) from patches"`.
   (`supabase db psql -c` does not exist in the CLI version used.)
