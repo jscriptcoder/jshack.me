@@ -23,6 +23,7 @@ import type { NonceStore } from '../signedRequest/nonceStore.js';
 import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
 import type { ListPathPatchesResult, PatchRow } from '../patches/upsertPatch.js';
 import { logRead } from '../../test/factories/logRows.js';
+import { withForgedSignature } from '../../test/factories/signedEnvelope.js';
 
 /**
  * `handleResolveOccupantSweep` is the path sweep pointed at a FELLOW OCCUPANT's box, at
@@ -612,10 +613,7 @@ describe('a request the server does not trust', () => {
     const { deps, listOccupantsByEssid } = makeDeps();
     const signed = await envelope();
 
-    const response = await handleResolveOccupantSweep(
-      { ...signed, signature: signed.signature.replace(/^../, '00') },
-      deps,
-    );
+    const response = await handleResolveOccupantSweep(withForgedSignature(signed), deps);
 
     expect(response).toEqual({ status: 401, body: { error: 'signature_invalid' } });
     expect(listOccupantsByEssid).not.toHaveBeenCalled();
