@@ -82,11 +82,49 @@ describe('Intro — form step', () => {
     });
   });
 
+  it('lowercases the workstation and username as they are typed, but never the password', () => {
+    const onSubmit = vi.fn();
+    render(() => <Intro onSubmit={onSubmit} />);
+    startNewGame();
+    fillValidForm({
+      workstation: 'SkyLab',
+      username: 'Alice',
+      password: 'Hunter2',
+      confirm: 'Hunter2',
+    });
+
+    // A hostname and a login are lowercase on the box, so a capital is taken as
+    // the player's lowercase rather than refused — and the field shows it, so the
+    // name in the prompt is the one they saw before START.
+    expect(screen.getByLabelText(/workstation/i)).toHaveValue('skylab');
+    expect(screen.getByLabelText(/username/i)).toHaveValue('alice');
+    submit();
+    expect(onSubmit).toHaveBeenCalledWith({
+      machineName: 'skylab',
+      username: 'alice',
+      rootPassword: 'Hunter2',
+    });
+  });
+
+  it('keeps the cursor where it was when a capital is typed mid-name', () => {
+    render(() => <Intro onSubmit={vi.fn()} />);
+    startNewGame();
+    const workstation = screen.getByLabelText(/workstation/i);
+
+    // Rewriting a field's value moves its cursor to the end, so without care the
+    // next key typed after a mid-name capital would land at the end of the name.
+    fireEvent.input(workstation, {
+      target: { value: 'skyLab', selectionStart: 4, selectionEnd: 4 },
+    });
+
+    expect(workstation).toHaveProperty('selectionStart', 4);
+  });
+
   it('does not call onSubmit and shows an error when the machine name is invalid', () => {
     const onSubmit = vi.fn();
     render(() => <Intro onSubmit={onSubmit} />);
     startNewGame();
-    fillValidForm({ workstation: 'Bad Name' }); // uppercase + space
+    fillValidForm({ workstation: 'bad name' });
     submit();
 
     expect(onSubmit).not.toHaveBeenCalled();

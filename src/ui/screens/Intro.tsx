@@ -56,6 +56,16 @@ const FIELD_CLASS =
 
 const LABEL_CLASS = 'text-right text-sm text-[var(--theme-text-dim)]';
 
+/** A hostname and a login are lowercase on the box, so a capital is taken as the
+ *  player's lowercase rather than refused, and the field shows it as typed.
+ *  Rewriting the value throws the cursor to the end, so it is put back. */
+const lowercaseInPlace = (field: HTMLInputElement): string => {
+  const { selectionStart, selectionEnd } = field;
+  field.value = field.value.toLowerCase();
+  field.setSelectionRange(selectionStart, selectionEnd);
+  return field.value;
+};
+
 export const Intro = (props: IntroProps) => {
   const [step, setStep] = createSignal<Step>('menu');
   const [machineName, setMachineName] = createSignal('');
@@ -149,7 +159,7 @@ export const Intro = (props: IntroProps) => {
               spellcheck={false}
               value={machineName()}
               onInput={(event) => {
-                setMachineName(event.currentTarget.value);
+                setMachineName(lowercaseInPlace(event.currentTarget));
                 clearError();
               }}
             />
@@ -166,7 +176,7 @@ export const Intro = (props: IntroProps) => {
               spellcheck={false}
               value={username()}
               onInput={(event) => {
-                setUsername(event.currentTarget.value);
+                setUsername(lowercaseInPlace(event.currentTarget));
                 clearError();
               }}
             />
