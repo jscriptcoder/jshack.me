@@ -23,10 +23,19 @@
 //     and access.log has the POST but never the form. No login, a wrong password, a bad
 //     title or body, or a 21st post in the hour stores nothing; five wrong passwords in a
 //     minute throttle every post; the store itself refuses a control character.
+//   - A PLAYER COMMENTS. A form POSTed to `/comment` naming a thread goes up through
+//     api/network.ts's `talkit_comment` call as the next number on that thread, and the
+//     thread's page shows it, read by api/network.ts's own select. The thread goes to the
+//     top of the list with its count; talkit.log names the comment, its thread, who wrote
+//     it and from where. Comments sent together are numbered one after another. No login,
+//     a wrong password, an id naming no thread, or a bad body stores nothing and moves no
+//     thread; posts and comments share the 20 an hour; the store refuses a control
+//     character; five wrong passwords in a minute throttle every comment.
 //
 // It needs the forum to hold only its welcome thread, as a fresh database does: the
-// threads it seeds are signed `wirecheck`, the ones it posts `wirepost` and `wirepost2`,
-// and it deletes them, and those two accounts, before and after.
+// threads it seeds are signed `wirecheck`, the ones it posts and the comments it writes
+// `wirepost` and `wirepost2`, and it deletes them, and those two accounts, before and
+// after.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testTalkit.ts
@@ -114,6 +123,11 @@ const contentOf = (body: unknown): string => {
   return typeof content === 'string' ? content : '';
 };
 
+/** A thread's page before the comment form it ends with: everything players wrote, and
+ *  the only part a raw payload must never appear in, since the form holds the page's own
+ *  `<textarea>`. */
+const beforeCommentForm = (page: string): string => page.split('<h2>Comment</h2>')[0] ?? page;
+
 const errorOf = (body: unknown): string =>
   String((body as { error?: unknown } | null)?.error ?? '');
 
@@ -151,6 +165,8 @@ const threadCount = async (): Promise<number | null> => {
 };
 
 const cleanup = async () => {
+  // Comments first: a comment names its thread, so the thread cannot go while it stands.
+  await sr.from('talkit_comments').delete().in('author', [POSTER, OTHER_POSTER]);
   await sr.from('talkit_threads').delete().in('author', [SEEDER, POSTER, OTHER_POSTER]);
   await sr.from('talkit_writes').delete().eq('player_key', visitor.publicKeyHex);
   await sr.from('email_login_failures').delete().eq('player_key', visitor.publicKeyHex);
@@ -354,7 +370,7 @@ const main = async () => {
   const listed = pages.join('\n');
   for (const [index, payload] of PAYLOADS.entries()) {
     const shown = await fetchPath(`/thread?id=${idOf(index + 1)}`);
-    const threadText = contentOf(shown.body);
+    const threadText = beforeCommentForm(contentOf(shown.body));
     const escaped = escapeHtml(payload);
     check(
       `${payload.slice(0, 40)} shows as text on the list and on its thread`,
@@ -628,7 +644,7 @@ const main = async () => {
   for (const payload of PAYLOADS) {
     const id = postedId((await postForm({ title: payload, body: payload })).body);
     const row = await threadRow(id);
-    const shown = contentOf((await fetchPath(`/thread?id=${id}`)).body);
+    const shown = beforeCommentForm(contentOf((await fetchPath(`/thread?id=${id}`)).body));
     const escaped = escapeHtml(payload);
     check(
       `${payload.slice(0, 40)} is stored as typed and shown as text`,
@@ -649,13 +665,6 @@ const main = async () => {
     'a 4,000-character body of four-byte characters posts, its form far past 4,096',
     wideForm.length > 4096 && wideRow?.body === wideBody,
     `form ${wideForm.length} characters; stored ${[...(wideRow?.body ?? '')].length}`,
-  );
-
-  const comment = await postForm({ title: 'Hi', body: 'there' }, loginAs(POSTER), '/comment');
-  check(
-    'a form at /comment still gets the 405',
-    comment.status === 405 && errorOf(comment.body) === 'method_not_allowed',
-    `status ${comment.status}`,
   );
 
   // Eight posts went up this hour; twelve more under the other handle make twenty.
@@ -708,6 +717,240 @@ const main = async () => {
     'five wrong passwords in a minute throttle even the right one',
     refusalOf(throttled.body) === 'Too many failed logins. Wait a minute.',
     refusalOf(throttled.body),
+  );
+
+  // 11. A PLAYER COMMENTS. A fresh hour for the visitor: the posts above filled the cap,
+  //     and the wrong passwords throttled the login.
+  await sr.from('talkit_writes').delete().eq('player_key', visitor.publicKeyHex);
+  await sr.from('email_login_failures').delete().eq('player_key', visitor.publicKeyHex);
+  const commentForm = (
+    threadId: number | string,
+    body: string,
+    login: Login | null = loginAs(POSTER),
+  ) => postForm({ id: String(threadId), body }, login, '/comment');
+  const commentRows = async (threadId: number) => {
+    const { data } = await sr
+      .from('talkit_comments')
+      .select('number, author, body')
+      .eq('thread_id', threadId)
+      .order('number', { ascending: true });
+    return (data ?? []) as { number: number; author: string; body: string }[];
+  };
+  const activityOfThread = async (threadId: number) => {
+    const { data } = await sr
+      .from('talkit_threads')
+      .select('comment_count, last_activity_at')
+      .eq('id', threadId)
+      .maybeSingle();
+    return data as { comment_count: number; last_activity_at: string } | null;
+  };
+  const writtenThisHour = async (): Promise<number> => {
+    const { count } = await sr
+      .from('talkit_writes')
+      .select('player_key', { count: 'exact', head: true })
+      .eq('player_key', visitor.publicKeyHex);
+    return count ?? -1;
+  };
+  const isCommented = (answer: { status: number; body: unknown }) =>
+    answer.status === 200 &&
+    contentOf(answer.body).includes('<title>Commented - talkit.io</title>');
+
+  const commented = await commentForm(firstId, 'Mine too.\r\nSince Tuesday.');
+  const firstComments = await commentRows(firstId);
+  check(
+    'a comment posted with a login goes up as #1, signed with its handle, its CRLF a line break',
+    isCommented(commented) &&
+      contentOf(commented.body).includes(`<p>Commented as ${POSTER}.</p>`) &&
+      contentOf(commented.body).includes(
+        `<a href="/thread?id=${firstId}">Back to the thread</a>`,
+      ) &&
+      JSON.stringify(firstComments) ===
+        JSON.stringify([{ number: 1, author: POSTER, body: 'Mine too.\nSince Tuesday.' }]),
+    `status ${commented.status}; ${JSON.stringify(firstComments)}`,
+  );
+  const listWithComment = contentOf((await fetchPath('/threads')).body);
+  check(
+    'the commented thread goes back to the top of the list, with 1 comment',
+    listedIds(listWithComment)[0] === firstId &&
+      listWithComment.includes(`>My new router</a><br>by ${POSTER}, 1 comment, last `),
+    JSON.stringify(listedIds(listWithComment).slice(0, 3)),
+  );
+  const pageWithComment = contentOf((await fetchPath(`/thread?id=${firstId}`)).body);
+  check(
+    "the thread's page shows the comment under the body, numbered, and the form to add one",
+    new RegExp(
+      `<p>#1 by ${POSTER}, \\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}</p>\n<p>Mine too\\.<br>Since Tuesday\\.</p>`,
+    ).test(pageWithComment) &&
+      !pageWithComment.includes('No comments yet.') &&
+      pageWithComment.includes(`<input type="hidden" name="id" value="${firstId}">`),
+    `/thread?id=${firstId}`,
+  );
+  const commentLine = (await talkitLog()).split('\n').filter(Boolean).at(-1) ?? '';
+  check(
+    'talkit.log names the comment, its thread, its writer and the address it came from',
+    /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} /.test(commentLine) &&
+      commentLine.endsWith(` comment #1 on #${firstId} by ${POSTER} from ${visitorIp}`),
+    commentLine || '(no line)',
+  );
+  const logAfterComment = await accessLog();
+  check(
+    "access.log has the comment's POST from the visitor, and never the form or the password",
+    logAfterComment
+      .split('\n')
+      .some((line) => line.includes(visitorIp) && line.includes('"POST /comment HTTP/1.1" 200 ')) &&
+      !logAfterComment.includes(POSTER_PASSWORD) &&
+      !logAfterComment.includes('Tuesday'),
+    logAfterComment.split('\n').find((line) => line.includes('POST /comment')) ?? '(no line)',
+  );
+
+  const byOther = await commentForm(firstId, 'Same here.', loginAs(OTHER_POSTER));
+  const together = await Promise.all(
+    Array.from({ length: 4 }, (_unused, index) => commentForm(firstId, `Together ${index}`)),
+  );
+  const numbered = await commentRows(firstId);
+  check(
+    'comments sent together on one thread are numbered one after another, none the same',
+    isCommented(byOther) &&
+      together.every(isCommented) &&
+      JSON.stringify(numbered.map((row) => row.number)) === JSON.stringify([1, 2, 3, 4, 5, 6]) &&
+      numbered[1]?.author === OTHER_POSTER &&
+      (await activityOfThread(firstId))?.comment_count === 6,
+    JSON.stringify(numbered.map((row) => `${row.number} ${row.author}`)),
+  );
+
+  const activityBefore = JSON.stringify(await activityOfThread(firstId));
+  const writtenBefore = await writtenThisHour();
+  for (const [what, fields, login, said] of [
+    ['with no login', { id: String(firstId), body: 'Hi' }, null, 'Not logged in to emailit.io.'],
+    [
+      'with a wrong password',
+      { id: String(firstId), body: 'Hi' },
+      loginAs(POSTER, 'not-the-password'),
+      `Login failed for ${POSTER}@emailit.io.`,
+    ],
+    ['naming no thread', { body: 'Hi' }, loginAs(POSTER), 'No such thread.'],
+    ['naming a word', { id: 'abc', body: 'Hi' }, loginAs(POSTER), 'No such thread.'],
+    [
+      'naming a thread nobody started',
+      { id: '999999999999999', body: 'Hi' },
+      loginAs(POSTER),
+      'No such thread.',
+    ],
+    [
+      'with a blank body',
+      { id: String(firstId), body: ' \n ' },
+      loginAs(POSTER),
+      'A comment is 1 to 4,000',
+    ],
+    [
+      'with a 4,001-character body',
+      { id: String(firstId), body: 'x'.repeat(4001) },
+      loginAs(POSTER),
+      'A comment is 1 to 4,000',
+    ],
+    ['with a NUL', { id: String(firstId), body: 'a\u0000b' }, loginAs(POSTER), 'control'],
+    ['with an ESC', { id: String(firstId), body: 'a\u001b[31mb' }, loginAs(POSTER), 'control'],
+  ] as const) {
+    const refused = await postForm(fields, login, '/comment');
+    check(
+      `a comment ${what} is refused`,
+      refused.status === 200 &&
+        contentOf(refused.body).includes('<title>Not posted - talkit.io</title>') &&
+        refusalOf(refused.body).includes(said),
+      refusalOf(refused.body),
+    );
+  }
+  check(
+    'nothing refused was stored, moved its thread, or counted toward the cap',
+    (await commentRows(firstId)).length === 6 &&
+      JSON.stringify(await activityOfThread(firstId)) === activityBefore &&
+      (await writtenThisHour()) === writtenBefore,
+    `${activityBefore} → ${JSON.stringify(await activityOfThread(firstId))}; writes ${writtenBefore}`,
+  );
+
+  for (const payload of PAYLOADS) {
+    await commentForm(firstId, payload);
+  }
+  const payloadRows = (await commentRows(firstId)).slice(6);
+  const pageWithPayloads = contentOf((await fetchPath(`/thread?id=${firstId}`)).body);
+  check(
+    'every payload, as a comment, is stored as typed and shown as text, the page keeping one form',
+    JSON.stringify(payloadRows.map((row) => row.body)) === JSON.stringify(PAYLOADS) &&
+      PAYLOADS.every(
+        (payload) =>
+          escapeHtml(payload) === payload || !beforeCommentForm(pageWithPayloads).includes(payload),
+      ) &&
+      (pageWithPayloads.match(/<form/g) ?? []).length === 1 &&
+      (pageWithPayloads.match(/<textarea/g) ?? []).length === 1 &&
+      (pageWithPayloads.match(/<input/g) ?? []).length === 2,
+    `${payloadRows.length} rows`,
+  );
+
+  const wideComment = '📡'.repeat(4000);
+  await commentForm(firstId, wideComment);
+  check(
+    'a 4,000-character comment of four-byte characters goes up',
+    (await commentRows(firstId)).at(-1)?.body === wideComment,
+    `${(await commentRows(firstId)).length} comments`,
+  );
+
+  // Thirteen written this hour, all comments; posts under the other handle make twenty.
+  const toFill = 20 - (await writtenThisHour());
+  const fillingPosts = await Promise.all(
+    Array.from({ length: toFill }, (_unused, index) =>
+      postForm({ title: `Mixed ${index}`, body: 'b' }, loginAs(OTHER_POSTER)),
+    ),
+  );
+  check(
+    'posts and comments together go up to twenty in the hour',
+    toFill === 7 && fillingPosts.every((answer) => postedId(answer.body) > 0),
+    `${fillingPosts.filter((answer) => postedId(answer.body) > 0).length}/${toFill}`,
+  );
+  const commentsBeforeCap = (await commentRows(firstId)).length;
+  const overCap = await Promise.all([
+    commentForm(firstId, 'One more', loginAs(POSTER)),
+    commentForm(firstId, 'One more', loginAs(OTHER_POSTER)),
+    postForm({ title: 'One more', body: 'b' }, loginAs(POSTER)),
+  ]);
+  check(
+    'the 21st writing in the hour is refused, comment or post, whichever handle signs it',
+    overCap.every(
+      (answer) =>
+        refusalOf(answer.body) === 'You have posted 20 times in the last hour. Wait a while.',
+    ) && (await commentRows(firstId)).length === commentsBeforeCap,
+    overCap.map((answer) => refusalOf(answer.body)).join(' / '),
+  );
+
+  // The table's CHECKs hold whatever calls the store, and a refused insert takes the
+  // thread's count back with it. A fresh player key, so neither the cap nor the throttle
+  // answers first.
+  const countBeforeGuard = (await activityOfThread(firstId))?.comment_count;
+  const { error: commentGuarded } = await sr.rpc('talkit_comment', {
+    comment_handle: POSTER,
+    comment_password_md5: md5(POSTER_PASSWORD),
+    comment_player_key: 'd'.repeat(64),
+    comment_thread_id: firstId,
+    comment_body: 'a\u001bb',
+  });
+  check(
+    'the store refuses a control character in a comment, and counts nothing',
+    commentGuarded !== null &&
+      (await commentRows(firstId)).length === commentsBeforeCap &&
+      (await activityOfThread(firstId))?.comment_count === countBeforeGuard,
+    commentGuarded?.message ?? 'stored',
+  );
+  await sr.from('email_login_failures').delete().eq('player_key', 'd'.repeat(64));
+
+  // A fresh hour once more, so the throttle and not the cap is what answers.
+  await sr.from('talkit_writes').delete().eq('player_key', visitor.publicKeyHex);
+  for (let i = 0; i < 5; i += 1) {
+    await commentForm(firstId, 'Hi', loginAs(POSTER, 'nope'));
+  }
+  const commentThrottled = await commentForm(firstId, 'Hi', loginAs(POSTER));
+  check(
+    'five wrong passwords in a minute throttle even the right one, for a comment',
+    refusalOf(commentThrottled.body) === 'Too many failed logins. Wait a minute.',
+    refusalOf(commentThrottled.body),
   );
 
   await cleanup();
