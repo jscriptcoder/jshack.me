@@ -998,6 +998,16 @@ describe('Terminal full-screen apps', () => {
     // even "opening…" would leave that in the scrollback forever.
     expect(scrollback().length).toBe(beforeTheCard + 2);
   });
+  it('tells the player which keys take them back to the terminal', async () => {
+    renderTerminal();
+
+    runCommand('author');
+    await screen.findByText('Francisco Ramos (jscriptcoder)');
+
+    // The card hides the prompt, so nothing else on screen says the terminal is
+    // still there — a player who does not guess a key is stranded on a bio.
+    expect(screen.getByText('q Quit')).toBeInTheDocument();
+  });
   it('takes the keyboard as it opens, so a player can leave without clicking first', async () => {
     renderTerminal();
 
