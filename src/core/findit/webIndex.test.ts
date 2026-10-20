@@ -1008,6 +1008,24 @@ describe('talkit.io, on the web findit searches', () => {
   });
 });
 
+describe('hireme.io, on the web findit searches', () => {
+  it('comes first for anybody who asks for contract work', async () => {
+    expect(rankPages(await indexWith(), 'contract')[0]?.address).toBe('hireme.io');
+  });
+
+  it('is found by its own name', async () => {
+    expect(rankPages(await indexWith(), 'hireme').map((page) => page.address)).toContain(
+      'hireme.io',
+    );
+  });
+
+  it('is listed by what it says of itself: contract work, and how to apply', async () => {
+    expect((await found('hireme.io'))?.description).toBe(
+      'Freelance contract work for independent IT and security people. Apply with your emailit.io address.',
+    );
+  });
+});
+
 describe('the map of the world, on the web findit searches', () => {
   it('comes first for anybody who asks for a map', async () => {
     expect(rankPages(await indexWith(), 'map')[0]?.address).toBe('mapit.io');

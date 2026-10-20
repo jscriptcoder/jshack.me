@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { CHAINIT_NETWORK, EMAILIT_NETWORK, FINDIT_NETWORK } from './fixedSites.js';
 import { CHAINIT_FRONT_PAGE } from '../chainit/pages.js';
 import { TALKIT_FRONT_PAGE } from '../talkit/pages.js';
+import { HIREME_FRONT_PAGE } from '../hireme/pages.js';
 import { MAIL_SPOOL_DIR, ROOT_DIR } from './baseFs.js';
 import { filterTreeForSession } from '../patches/readFilter.js';
 import { materializeApGatewayFs } from '../network/materializeRouterFs.js';
@@ -37,6 +38,7 @@ describe.each([
   ['emailit.io', 'emailit'],
   ['chainit.io', 'chainit'],
   ['talkit.io', 'talkit'],
+  ['hireme.io', 'hireme'],
 ])('the box %s runs on', (key, hostname) => {
   const box = (): Directory => siteBox(key);
 
@@ -115,6 +117,7 @@ describe('the fixed sites, side by side', () => {
       'emailit.io',
       'chainit.io',
       'talkit.io',
+      'hireme.io',
     ].map(rootHash);
     expect(new Set(hashes).size).toBe(hashes.length);
   });
@@ -139,6 +142,17 @@ describe("talkit.io's box", () => {
     'keeps no %s page on its disk, since what players wrote is never a file',
     (path) => {
       expect(read(siteBox('talkit.io'), `/var/www/html/${path}`)).toBeNull();
+    },
+  );
+});
+
+describe("hireme.io's box", () => {
+  // Served at /apply too, so a browser going back to the page it reached by applying
+  // fetches the form again rather than sending it again.
+  it.each(['index.html', 'apply'])(
+    'serves the front page at %s, a file a root can deface like any other',
+    (path) => {
+      expect(read(siteBox('hireme.io'), `/var/www/html/${path}`)).toBe(HIREME_FRONT_PAGE);
     },
   );
 });

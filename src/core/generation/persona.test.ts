@@ -103,6 +103,15 @@ describe('networkPersona', () => {
     });
   });
 
+  it('keeps hireme the hiring hall, however many kinds of place the world grows', () => {
+    expect(networkPersona('hireme.io')).toEqual({
+      category: 'hacker',
+      place: 'the hiring hall',
+      domain: 'hireme-io.lan',
+      town: 'Ridgemont',
+    });
+  });
+
   it('does not put every network outside the catalog in the same kind of place', () => {
     const categories = new Set(
       Array.from({ length: 40 }, (_unused, index) => networkPersona(`Uncatalogued-${index}`).category),
