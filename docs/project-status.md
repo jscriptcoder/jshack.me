@@ -1124,14 +1124,14 @@ agreed order:
     password, holds posts and comments to one 20-an-hour cap, and numbers the comment and
     bumps its thread in one `UPDATE` that locks the thread's row. `talkit.log` names each
     comment, its thread, its writer and address. No client code changed. The migration is on
-    `jshack-dev` and `jshack-prod`. Slice 4 (v0.413.0, on `feat/talkit-removal`): the operator's
+    `jshack-dev` and `jshack-prod`. Slice 4 (v0.413.0, PR #711, merged 2026-10-20): the operator's
     `scripts/talkitRemove.ts thread <id>` deletes a thread and, through the foreign key's cascade,
     its comments; `comment <id> <n>` wipes a comment's author and body, so its row and number stay
     and the page reads `#n [removed]`, the count and the list unmoved. It prints what it removes
     and the database host first, player text quoted with every control and format character
     spelled out, and exits 1 when there is nothing to remove. No trace on talkit's box. The
-    migration is on `jshack-dev` and `jshack-prod`. **Pick up here (2026-10-20):** slice 4's PR,
-    then the epic's close-out (one browser run over all four slices).
+    migration is on `jshack-dev` and `jshack-prod`. **Pick up here (2026-10-20):** the epic's
+    close-out in `plans/talkit.md` (one browser run over all four slices).
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
