@@ -32,14 +32,17 @@
  * or an example response re-flowed into a paragraph no longer says what it said.
  */
 
-import { resolveHref } from '../core/network/http.js';
+import { resolveHref, type FormField } from '../core/network/http.js';
 
 /** Where a form sends what was typed into it, and how. `id` tells the forms on one
- *  page apart, so a submit sends its own form's fields and nobody else's. */
+ *  page apart, so a submit sends its own form's fields and nobody else's. `hidden` is
+ *  what the form sends that the reader never sees, as a browser sends it: a thread's
+ *  comment form names its thread this way. */
 export type FormTarget = {
   readonly id: number;
   readonly action: string;
   readonly method: 'get' | 'post';
+  readonly hidden: readonly FormField[];
 };
 
 /** Something on a form a reader can select: a field to type into, or the button that
@@ -94,6 +97,10 @@ type LinePiece = Piece | CellStart | HeadingStart;
 type Line = readonly LinePiece[];
 
 const HEADING_TAGS: ReadonlySet<string> = new Set(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']);
+
+/** Blocks that only hold other blocks, read through to what is inside them. A form is
+ *  one, as a browser lays it out: its paragraphs each start a line of their own. */
+const WRAPPER_TAGS: ReadonlySet<string> = new Set(['div', 'form']);
 
 /** Elements whose content is program text, not page text. A reader sees neither,
  *  the same way a comment is invisible — `curl` is what shows a page's source. */
@@ -192,6 +199,17 @@ const rowsAskedFor = (box: Element): number => {
  * only a place on its own page (`#`), is sent back to the page it sits on, as a browser
  * sends it.
  */
+/** The named fields of `form` a reader never sees, in the page's order. One with no name
+ *  has nothing to be sent as, so a browser leaves it out. */
+const hiddenFieldsOf = (form: Element): readonly FormField[] =>
+  Array.from(form.querySelectorAll('input')).flatMap((input) => {
+    const kind = (input.getAttribute('type') ?? 'text').toLowerCase();
+    const name = input.getAttribute('name') ?? '';
+    return INVISIBLE_FIELD_TYPES.has(kind) && name !== ''
+      ? [{ name, value: input.getAttribute('value') ?? '' }]
+      : [];
+  });
+
 const formTargetOf = (control: Element, base: string): FormTarget | null => {
   const form = control.closest('form');
   if (form === null) return null;
@@ -203,6 +221,7 @@ const formTargetOf = (control: Element, base: string): FormTarget | null => {
     id: Array.from(form.ownerDocument.forms).indexOf(form),
     action,
     method: form.getAttribute('method')?.toLowerCase() === 'post' ? 'post' : 'get',
+    hidden: hiddenFieldsOf(form),
   };
 };
 
@@ -493,7 +512,7 @@ const renderContainer = (container: Element, depth: number, base: string): reado
       lines.push([], ...toLines(inlinePieces(child, base)), []);
       continue;
     }
-    if (tag === 'div') {
+    if (WRAPPER_TAGS.has(tag)) {
       flush();
       lines.push([], ...renderContainer(child, depth, base), []);
       continue;

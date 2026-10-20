@@ -127,6 +127,14 @@ describe('rendering a page as text', () => {
     expect(lines).toEqual(['Title', '', 'body text']);
   });
 
+  it('reads through a form to the blocks inside it, as a browser lays one out', () => {
+    const lines = asLines(
+      '<body><form><p>Title<br><input name="title"></p><p>Body</p></form><p>after</p></body>',
+    );
+
+    expect(lines).toEqual(['Title', '[]', '', 'Body', '', 'after']);
+  });
+
   it('lines a wrapped item up under its own text, not under its marker', () => {
     const lines = asLines('<body><ul><li>first part<br>second part</li></ul></body>');
 
@@ -543,7 +551,7 @@ describe('a form a reader can fill in', () => {
     '<body><form action="/" method="GET"><input type="text" name="q" value="coffee" placeholder="Search the public web"><button type="submit">Search</button></form></body>';
 
   it('offers a field to type into, knowing its name, what it holds and where its form sends it', () => {
-    const form = { id: 0, action: 'http://findit.io/', method: 'get' };
+    const form = { id: 0, action: 'http://findit.io/', method: 'get', hidden: [] };
 
     expect(selectablesOn(FINDIT_FORM, 'http://findit.io/?q=coffee')).toEqual([
       {
@@ -630,7 +638,11 @@ describe('a form a reader can fill in', () => {
     expect(
       selectablesOn('<body><form action="/"><input type="submit" value="Go"></form></body>'),
     ).toEqual([
-      { kind: 'submit', text: '[ Go ]', form: { id: 0, action: 'http://192.168.1.5/', method: 'get' } },
+      {
+        kind: 'submit',
+        text: '[ Go ]',
+        form: { id: 0, action: 'http://192.168.1.5/', method: 'get', hidden: [] },
+      },
     ]);
   });
 
@@ -664,7 +676,7 @@ describe('a form a reader can fill in', () => {
         value: 'hunter2',
         placeholder: '',
         masked: true,
-        form: { id: 0, action: 'http://192.168.1.5/', method: 'post' },
+        form: { id: 0, action: 'http://192.168.1.5/', method: 'post', hidden: [] },
       },
     ]);
   });
@@ -719,7 +731,11 @@ describe('what a form offers, at its edges', () => {
 
   it('offers a button with no type as something that sends its form', () => {
     expect(selectablesOn('<body><form action="/"><button>Go</button></form></body>')).toEqual([
-      { kind: 'submit', text: '[ Go ]', form: { id: 0, action: 'http://192.168.1.5/', method: 'get' } },
+      {
+        kind: 'submit',
+        text: '[ Go ]',
+        form: { id: 0, action: 'http://192.168.1.5/', method: 'get', hidden: [] },
+      },
     ]);
   });
 
@@ -753,7 +769,7 @@ describe('a box several lines tall, on a form', () => {
         placeholder: '',
         masked: false,
         rows: 2,
-        form: { id: 0, action: 'http://192.168.1.5/post', method: 'post' },
+        form: { id: 0, action: 'http://192.168.1.5/post', method: 'post', hidden: [] },
       },
     ]);
   });
@@ -841,7 +857,7 @@ describe('a box several lines tall, on a form', () => {
 
 describe("emailit.io's front page, as a reader of it sees it", () => {
   it('offers a handle to type, a password to type unseen and a button, all sent to /signup', () => {
-    const form = { id: 0, action: 'http://emailit.io/signup', method: 'post' };
+    const form = { id: 0, action: 'http://emailit.io/signup', method: 'post', hidden: [] };
     const selectables = renderPage({ html: EMAILIT_FRONT_PAGE, url: 'http://emailit.io/' }).flatMap(
       (line) => line.segments.filter((segment) => segment.kind !== 'text'),
     );
@@ -856,7 +872,7 @@ describe("emailit.io's front page, as a reader of it sees it", () => {
 
 describe("talkit.io's front page, as a reader of it sees it", () => {
   it('offers a title to type, a box four rows tall for the post and a button, all sent to /post', () => {
-    const form = { id: 0, action: 'http://talkit.io/post', method: 'post' };
+    const form = { id: 0, action: 'http://talkit.io/post', method: 'post', hidden: [] };
     const selectables = renderPage({ html: TALKIT_FRONT_PAGE, url: 'http://talkit.io/' }).flatMap(
       (line) => line.segments.filter((segment) => segment.kind !== 'text'),
     );
@@ -867,6 +883,23 @@ describe("talkit.io's front page, as a reader of it sees it", () => {
       expect.objectContaining({ kind: 'field', name: 'title', form }),
       expect.objectContaining({ kind: 'field', name: 'body', rows: 4, form }),
       { kind: 'submit', text: '[ Post ]', form },
+    ]);
+  });
+
+  it('gives the title, the post and the button each a line of their own', () => {
+    const lines = asLines(TALKIT_FRONT_PAGE);
+    const box = Array.from({ length: 4 }, () => `[${' '.repeat(40)}]`).join('\n');
+
+    expect(lines.slice(lines.indexOf('Start a thread'))).toEqual([
+      'Start a thread',
+      '',
+      'Title',
+      '[]',
+      '',
+      'Post',
+      box,
+      '',
+      '[ Post ]',
     ]);
   });
 });
