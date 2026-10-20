@@ -109,6 +109,18 @@ describe('Lynx browser screen', () => {
     expect(heading.className).not.toBe(body.className);
   });
 
+  it('shows a line the page calls an alert as an alert, set apart from the text around it', () => {
+    renderLynx({
+      content: '<body><p>Handle</p><p role="alert">That handle is taken</p></body>',
+    });
+
+    const alert = screen.getByRole('alert');
+    const body = screen.getByText('Handle');
+
+    expect(alert).toHaveTextContent('That handle is taken');
+    expect(alert.className).not.toBe(body.className);
+  });
+
   it('leaves the comment behind — reading a page is not reading its source', () => {
     renderLynx();
 

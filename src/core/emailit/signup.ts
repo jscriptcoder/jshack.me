@@ -16,7 +16,7 @@ import { z } from 'zod';
 import { md5 } from '../generation/md5.js';
 import { validatePassword, validateUsername } from '../gameConfig/gameConfig.js';
 import { EMAILIT_DOMAIN } from '../generation/fixedSites.js';
-import { emailitFrontPage, welcomePage } from './pages.js';
+import { emailitFrontPage, welcomePage, type Refusal } from './pages.js';
 
 /** Handles nobody may sign up for, on top of the system names the Intro form keeps for
  *  itself (`root` and `admin` among them): they are the addresses mail itself is run from,
@@ -74,15 +74,24 @@ export type SignUp = (
   account: NewAccount,
 ) => Promise<{ readonly data: unknown; readonly error: unknown }>;
 
-const REFUSED_BY_STORE: Readonly<Record<Exclude<SignUpOutcome, 'created'>, string>> = {
-  taken: 'That handle is taken',
-  capped: 'You have signed up 3 addresses today. Try again tomorrow.',
+const REFUSED_BY_STORE: Readonly<Record<Exclude<SignUpOutcome, 'created'>, Refusal>> = {
+  taken: { message: 'That handle is taken', under: 'handle' },
+  capped: { message: 'You have signed up 3 addresses today. Try again tomorrow.', under: 'submit' },
 };
 
 /** Why `handle` cannot be signed up for, or null when it can. */
 const refusedHandle = (handle: string): string | null =>
   validateUsername(handle) ??
   (RESERVED_HANDLES.has(handle) ? `"${handle}" is a reserved system name` : null);
+
+/** Why the form cannot be signed up with as it stands, or null when the store can be
+ *  asked. */
+const refusedForm = (handle: string, password: string): Refusal | null => {
+  const handleRefusal = refusedHandle(handle);
+  if (handleRefusal !== null) return { message: handleRefusal, under: 'handle' };
+  const passwordRefusal = validatePassword(password);
+  return passwordRefusal === null ? null : { message: passwordRefusal, under: 'password' };
+};
 
 /** The page a sign-up answers with, or null when the store could not be asked. */
 export const answerSignup = async ({
@@ -101,7 +110,7 @@ export const answerSignup = async ({
   const handle = typedHandle.toLowerCase();
   const password = fields.get('password') ?? '';
 
-  const refusal = refusedHandle(handle) ?? validatePassword(password);
+  const refusal = refusedForm(handle, password);
   if (refusal !== null) return emailitFrontPage({ refusal, handle: typedHandle });
 
   const reply = await signUp({

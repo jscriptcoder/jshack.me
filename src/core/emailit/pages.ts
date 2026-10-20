@@ -35,27 +35,38 @@ const GETTING_MAIL = [
   '</pre>',
 ];
 
+/** Why a sign-up was refused, and the line of the form it is said under: the field the
+ *  reader has to change, or the button when there is nothing to change but the day. */
+export type Refusal = {
+  readonly message: string;
+  readonly under: 'handle' | 'password' | 'submit';
+};
+
 /**
- * The front page, with the sign-up form. After a refused sign-up it says why above
- * everything else, and the form keeps the handle as it was typed; the password field is
- * always empty, so a password never comes back in a page.
+ * The front page, with the sign-up form. After a refused sign-up it says why as an alert
+ * under the line it is about, and the form keeps the handle as it was typed; the password
+ * field is always empty, so a password never comes back in a page.
  */
 export const emailitFrontPage = ({
   refusal,
   handle = '',
-}: { readonly refusal?: string; readonly handle?: string } = {}): string =>
-  page(
+}: { readonly refusal?: Refusal; readonly handle?: string } = {}): string => {
+  const saidUnder = (line: Refusal['under']): readonly string[] =>
+    refusal?.under === line ? [`<p role="alert">${escapeHtml(refusal.message)}</p>`] : [];
+  return page(
     'emailit.io',
     [
       '<h1>emailit.io</h1>',
-      ...(refusal === undefined ? [] : [`<p><strong>${escapeHtml(refusal)}</strong></p>`]),
       '<p>Free email for everybody on the net. Pick a handle and a password, and',
       'handle@emailit.io is yours.</p>',
       '<h2>Sign up</h2>',
       '<form action="/signup" method="post">',
       `<p>Handle <input name="handle" value="${escapeHtml(handle)}"></p>`,
+      ...saidUnder('handle'),
       '<p>Password <input type="password" name="password"></p>',
+      ...saidUnder('password'),
       '<p><input type="submit" value="Sign up"></p>',
+      ...saidUnder('submit'),
       '</form>',
       '<p>A handle starts with a letter, then letters, numbers, hyphens or underscores, up to',
       '24 characters. A password needs at least 4 characters. First come, first served.</p>',
@@ -69,6 +80,7 @@ export const emailitFrontPage = ({
     ],
     'emailit.io: free email for everybody on the net. Sign up for an address, and read your mail with mail.',
   );
+};
 
 export const EMAILIT_FRONT_PAGE = emailitFrontPage();
 
