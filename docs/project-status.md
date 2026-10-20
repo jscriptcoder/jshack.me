@@ -1116,7 +1116,7 @@ agreed order:
     `talkit.log` names each thread's poster and address. lynx draws a `<textarea>` as a box
     several lines tall. The bundle ceiling's code part rose by 2,000 B to 136,975 B (talkit's
     code was 1,011 B), so the ceiling is 286,975 B. The migration is on `jshack-dev` and
-    `jshack-prod`. Slice 3 (v0.412.0, on `feat/talkit-comments`): a thread's page shows its
+    `jshack-prod`. Slice 3 (v0.412.0, PR #710, merged 2026-10-20): a thread's page shows its
     comments, oldest first and numbered within the thread, and ends with a form POSTed to
     `/comment` with the thread's id. The handler refuses no login, an id that cannot name a
     thread, a control character and a body that is not 1 to 4,000 characters (the checks a
@@ -1124,8 +1124,8 @@ agreed order:
     password, holds posts and comments to one 20-an-hour cap, and numbers the comment and
     bumps its thread in one `UPDATE` that locks the thread's row. `talkit.log` names each
     comment, its thread, its writer and address. No client code changed. The migration is on
-    `jshack-dev` and `jshack-prod`. **Pick up here (2026-10-20):** slice 3's PR, then slice 4
-    (operator removal) of `plans/talkit.md`.
+    `jshack-dev` and `jshack-prod`. **Pick up here (2026-10-20):** plan slice 4 (operator removal) in
+    `plans/talkit.md`.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

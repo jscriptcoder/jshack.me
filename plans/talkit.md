@@ -4,9 +4,10 @@
 (PR #708, 2026-10-19, v0.410.0; the migration is on `jshack-dev` and `jshack-prod`).
 **Slice 2 merged** (PR #709, 2026-10-19, v0.411.0; the migration is on `jshack-dev` and
 `jshack-prod`; mutation 389 killed, the survivors equivalent but a CRLF `~/.mailrc` line, left
-untested by the owner). **Slice 3 planned and confirmed by the owner 2026-10-19** (below, after
-slice 2's plan); built on `feat/talkit-comments`, increments 1 to 5 committed, v0.412.0; the
-migration is on `jshack-dev` and `jshack-prod`. Next: the PR gate (mutation, the full suite).
+untested by the owner). **Slice 3 merged** (PR #710, 2026-10-20, v0.412.0; the migration is on
+`jshack-dev` and `jshack-prod`; mutation 406 of 414 killed, the 8 survivors equivalent: four
+throw at module load, two `?? ''` fallbacks fail `THREAD_ID` alike, two dropped `</form>` tags
+close at `</body>`). Next: plan slice 4, operator removal.
 
 **Slice 3 as built: where it differs from the plan below:**
 
@@ -16,8 +17,8 @@ migration is on `jshack-dev` and `jshack-prod`. Next: the PR gate (mutation, the
 - **The shared checks are a module of their own**, `core/talkit/writing.ts`: the line breaks,
   the control characters, the 4,000-character limit, and the store's login and cap refusals
   with their sentences. `answerPost` uses it unchanged in behaviour.
-- **`escapeLogField` spells out `#` too**, so a handle cannot pass for another comment's
-  `#<n> on #<id>` in `talkit.log`.
+- **`#` needed no new escape**: it is already outside `escapeLogField`'s set, so a handle
+  could not pass for another comment's `#<n> on #<id>` in `talkit.log` even if handles allowed it.
 - **The wire-check's raw-payload checks look only at a thread page before its comment form**,
   since the form holds the page's own `</textarea>`; one check counts the page's single form,
   box and two inputs.
