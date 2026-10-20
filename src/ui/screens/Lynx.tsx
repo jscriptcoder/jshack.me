@@ -30,7 +30,8 @@
  *
  * One request at a time. A key pressed again before the answer comes — a held Enter —
  * sends nothing, so a form is never sent twice and a late answer never lands over the
- * page the first one opened.
+ * page the first one opened. While it waits, the status line says so in place of the
+ * key hints, as real lynx's does.
  *
  * The trail of visited pages lives here, beside the selection it restores, and it
  * starts empty every time the browser opens — a reader who quit and came back has
@@ -45,7 +46,7 @@
  * re-rendering it.
  */
 
-import { For, Show, createEffect, createMemo, createSignal, on, onMount } from 'solid-js';
+import { For, Match, Switch, createEffect, createMemo, createSignal, on, onMount } from 'solid-js';
 import { fieldBox, renderPage, textBox, type Segment } from '../renderPage.js';
 import { encodeForm, formSubmissionUrl } from '../../core/network/http.js';
 
@@ -74,6 +75,11 @@ const typesCharacter = (event: KeyboardEvent): boolean =>
 /** The first thing on a page a reader can select — where they start, so Enter always
  *  has a target without them having to aim first. */
 const FIRST_SELECTABLE = 1;
+
+/** What the status line says while a request is out — real lynx's own words for it.
+ *  Without it a slow answer reads as a key that did nothing, and the reader presses
+ *  it again. */
+const WAITING_STATUS = 'HTTP request sent; waiting for response.';
 
 /** A page the reader has left, and what they had selected when they left it. */
 type Visited = { readonly url: string; readonly selected: number };
@@ -394,14 +400,14 @@ export const Lynx = (props: LynxProps) => {
           )}
         </For>
       </div>
-      <Show
-        when={alert()}
-        fallback={
-          <div class="px-2 py-1 text-[var(--theme-text-dim)]">{hint()}</div>
-        }
-      >
-        {(message) => <div class="px-2 py-1 text-[var(--theme-error)]">{message()}</div>}
-      </Show>
+      <Switch fallback={<div class="px-2 py-1 text-[var(--theme-text-dim)]">{hint()}</div>}>
+        <Match when={waiting()}>
+          <div class="px-2 py-1">{WAITING_STATUS}</div>
+        </Match>
+        <Match when={alert()}>
+          {(message) => <div class="px-2 py-1 text-[var(--theme-error)]">{message()}</div>}
+        </Match>
+      </Switch>
     </main>
   );
 };

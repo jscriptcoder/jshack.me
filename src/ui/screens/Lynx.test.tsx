@@ -1349,6 +1349,40 @@ describe('one request at a time', () => {
     expect(onFollow).toHaveBeenCalledTimes(2);
   });
 
+  // A slow answer must not read as a dead key, or the reader presses it again.
+  it('says a request is out while it waits for its answer', async () => {
+    renderWaiting();
+
+    await press('Enter');
+
+    expect(screen.getByText('HTTP request sent; waiting for response.')).toBeInTheDocument();
+  });
+
+  it('stops saying so once the answer has come', async () => {
+    const { answerAll } = renderWaiting();
+
+    await press('Enter');
+    await answerAll();
+
+    expect(screen.queryByText('HTTP request sent; waiting for response.')).not.toBeInTheDocument();
+  });
+
+  it('says a request is out while it waits to go back', async () => {
+    const { answerAll } = renderWaiting();
+    await press('Enter');
+    await answerAll();
+
+    await press('ArrowLeft');
+
+    expect(screen.getByText('HTTP request sent; waiting for response.')).toBeInTheDocument();
+  });
+
+  it('says nothing about a request before one is sent', () => {
+    renderWaiting();
+
+    expect(screen.queryByText('HTTP request sent; waiting for response.')).not.toBeInTheDocument();
+  });
+
   it('still quits while a request is waiting', async () => {
     const onExit = vi.fn();
     renderLynx({
