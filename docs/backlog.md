@@ -99,8 +99,11 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
 - **`resolveOccupantSweep.test.ts`'s bad-signature test fails in some full runs, and never
   alone.** "rejects an envelope whose signature does not verify" failed in 3 of 6 full runs on
   the talkit slice 1 branch (2026-10-19). Its tampering, replacing the signature's first byte
-  with `00`, changes nothing 1 time in 256, which does not explain that rate. The cause is not
-  yet found.
+  with `00`, changes nothing 1 time in 256, which does not explain that rate. 2026-10-20: three
+  full runs on `main` (10,108 tests each) all passed, so the rate did not reproduce. The 1-in-256
+  hole was real (a `00`-leading signature, tampered so, verified) and is closed: the test and its
+  twin in `resolveOccupantFetch.test.ts` now flip a bit through `withForgedSignature`
+  (`src/test/factories/signedEnvelope.ts`). If it fails again, the cause is something else.
 
 - **Lazy-load a large client piece so features stop meeting the bundle ceiling.** Every command
   and screen is in the main chunk, so each feature's client code counts against

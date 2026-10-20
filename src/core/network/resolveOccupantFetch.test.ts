@@ -33,6 +33,7 @@ import { crackableEssidPool } from '../generation/generateWifi.js';
 import { chainLinks } from '../generation/lanTopology.js';
 import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
 import { computeApGatewayId } from '../identity/router.js';
+import { withForgedSignature } from '../../test/factories/signedEnvelope.js';
 
 /**
  * `handleResolveOccupantFetch` serves a page off a FELLOW OCCUPANT's box to a caller on
@@ -701,10 +702,7 @@ describe('a request the server does not trust', () => {
     const { deps, listOccupantsByEssid } = makeDeps();
     const signed = await envelope();
 
-    const response = await handleResolveOccupantFetch(
-      { ...signed, signature: signed.signature.replace(/^../, '00') },
-      deps,
-    );
+    const response = await handleResolveOccupantFetch(withForgedSignature(signed), deps);
 
     expect(response).toEqual({ status: 401, body: { error: 'signature_invalid' } });
     expect(listOccupantsByEssid).not.toHaveBeenCalled();
