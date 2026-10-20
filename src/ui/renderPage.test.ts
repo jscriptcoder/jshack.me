@@ -127,6 +127,14 @@ describe('rendering a page as text', () => {
     expect(lines).toEqual(['Title', '', 'body text']);
   });
 
+  it('reads through a form to the blocks inside it, as a browser lays one out', () => {
+    const lines = asLines(
+      '<body><form><p>Title<br><input name="title"></p><p>Body</p></form><p>after</p></body>',
+    );
+
+    expect(lines).toEqual(['Title', '[]', '', 'Body', '', 'after']);
+  });
+
   it('lines a wrapped item up under its own text, not under its marker', () => {
     const lines = asLines('<body><ul><li>first part<br>second part</li></ul></body>');
 
@@ -875,6 +883,23 @@ describe("talkit.io's front page, as a reader of it sees it", () => {
       expect.objectContaining({ kind: 'field', name: 'title', form }),
       expect.objectContaining({ kind: 'field', name: 'body', rows: 4, form }),
       { kind: 'submit', text: '[ Post ]', form },
+    ]);
+  });
+
+  it('gives the title, the post and the button each a line of their own', () => {
+    const lines = asLines(TALKIT_FRONT_PAGE);
+    const box = Array.from({ length: 4 }, () => `[${' '.repeat(40)}]`).join('\n');
+
+    expect(lines.slice(lines.indexOf('Start a thread'))).toEqual([
+      'Start a thread',
+      '',
+      'Title',
+      '[]',
+      '',
+      'Post',
+      box,
+      '',
+      '[ Post ]',
     ]);
   });
 });

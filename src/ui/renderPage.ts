@@ -98,6 +98,10 @@ type Line = readonly LinePiece[];
 
 const HEADING_TAGS: ReadonlySet<string> = new Set(['h1', 'h2', 'h3', 'h4', 'h5', 'h6']);
 
+/** Blocks that only hold other blocks, read through to what is inside them. A form is
+ *  one, as a browser lays it out: its paragraphs each start a line of their own. */
+const WRAPPER_TAGS: ReadonlySet<string> = new Set(['div', 'form']);
+
 /** Elements whose content is program text, not page text. A reader sees neither,
  *  the same way a comment is invisible — `curl` is what shows a page's source. */
 const SILENT_TAGS: ReadonlySet<string> = new Set(['script', 'style']);
@@ -508,7 +512,7 @@ const renderContainer = (container: Element, depth: number, base: string): reado
       lines.push([], ...toLines(inlinePieces(child, base)), []);
       continue;
     }
-    if (tag === 'div') {
+    if (WRAPPER_TAGS.has(tag)) {
       flush();
       lines.push([], ...renderContainer(child, depth, base), []);
       continue;
