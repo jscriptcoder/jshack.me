@@ -3,8 +3,9 @@
 **Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-20. Slice 1 shipped
 (v0.420.0, PR #719, 2026-10-20; migration on `jshack-dev` and `jshack-prod`). Slice 2, the board
 answers, shipped (v0.421.0, PR #721, 2026-10-21; no migration). Slice 3, a root on the boards'
-server, shipped (v0.422.0, PR #722, 2026-10-21; no migration). All three slices are in; the
-epic's one browser run is next, then the close-out moves this file's content into `docs/`.
+server, shipped (v0.422.0, PR #722, 2026-10-21; no migration). All three slices are in, and
+the epic's browser run passed (2026-10-21, v0.422.0, below); the close-out moving this file's
+content into `docs/` is next.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 
@@ -143,6 +144,36 @@ will take a player's address and mail them a private address to open with `curl`
        and `ssh` and its `access.log`; the board page, "Welcome back" and the placeholder.
     3. **A root on the board server**: `/etc/hireme/boards` built from the table under the journal,
        and operator restore for a box with no domain.
+
+## Browser run (2026-10-21, v0.422.0, game day 101): passed, no defect
+
+Two players in headed browsers against `vercel dev` + local supabase.
+
+- **alice**, on `APERTURE-WIFI` (`193.201.183.142`): signed up as `alicek` with `curl -d`, then
+  `mail login`; in `lynx hireme.io` typed the bare handle `alicek` into the form and submitted.
+  The page answered "Thanks, alicek. We have sent your contractor board to alicek@emailit.io."
+  with no address on it. `mail` listed `jobs@hireme.io` / `Your hireme.io application`;
+  `mail read 2` gave `http://194.100.69.23/` and the `lynx` line. `lynx http://194.100.69.23/`
+  showed "Welcome back, alicek." and the placeholder. `whois` on her address and on an unheld
+  `194.1.2.3` printed the same `HIREME-BOARDS` record.
+- **bob**, on `GROUND-ZERO-COFFEE` (`87.1.37.73`): `lynx` on the leaked address showed alicek's
+  board; `curl` on the neighbouring `194.100.69.24` was refused; `nmap -sV` showed `http`
+  (nginx 1.26.0) and `ssh` (OpenSSH 9.7.0).
+- **No root on the boards' server today.** Neither service has a root-tier hole on day 101, so
+  the root view is proven by `testHiremeBoardRoot.ts` (13/13), as the runbook directs. To show a
+  shell in the browser, nginx 1.28.3 was staged by one service-role manifest row (a user-tier
+  full shell that day); `msfconsole 194.100.69.23 80` landed. There `cat /etc/hostname` read
+  `boards`, `ls /etc` listed no `hireme`, `cat /etc/hireme/boards` was "No such file or
+  directory", and `cat /var/log/access.log` showed both reads,
+  `193.201.183.142 … "GET http://194.100.69.23/ HTTP/1.1" 200` and the same from `87.1.37.73`:
+  a board read from somewhere its owner never was.
+- **The operator restore**: `restoreSite.ts boards.hireme.io` closed 1 session and removed 4
+  rows; bob's next command printed "Connection to ap-gw closed by remote host."; a rescan showed
+  nginx 1.26.0 again; alice's `curl` still got her board, and her `hireme_boards` row was
+  unchanged.
+- **Known, not this epic's**: a shell on any fixed site or gateway prompts `root@ap-gw`, since the
+  prompt names a box by its machine id's leading half (recorded in
+  `docs/e2e-shared-network-verification.md`).
 
 ## Follows from the decisions
 
