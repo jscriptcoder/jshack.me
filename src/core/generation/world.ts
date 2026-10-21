@@ -40,6 +40,7 @@ import {
   HIREME_NETWORK,
   MAPIT_NETWORK,
   TALKIT_NETWORK,
+  VALLEYNEWS_NETWORK,
 } from './fixedSites.js';
 
 /** How much stands behind a network's gateway: one machine, a few, or today's inner
@@ -786,6 +787,8 @@ const ADDRESS_BY_KEY: ReadonlyMap<string, string> = new Map([
   [TALKIT_NETWORK, placelessAddress(5 + LANDMARK_CORPORATIONS.length + CORPORATIONS.length)],
   // hireme came after talkit, and takes the next address.
   [HIREME_NETWORK, placelessAddress(6 + LANDMARK_CORPORATIONS.length + CORPORATIONS.length)],
+  // valleynews came after hireme, and takes the next address.
+  [VALLEYNEWS_NETWORK, placelessAddress(7 + LANDMARK_CORPORATIONS.length + CORPORATIONS.length)],
   ...DRAWN_TOWNS.flatMap((drawn) => townAddresses(drawn.town, drawn.networks)),
   // Ridgemont's drawn networks answer after its landmarks, at the places their keys hold.
   ...RIDGEMONT_DRAWN.map((network, index): [string, string] => [

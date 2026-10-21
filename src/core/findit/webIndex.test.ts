@@ -1026,6 +1026,24 @@ describe('hireme.io, on the web findit searches', () => {
   });
 });
 
+describe('valleynews.io, on the web findit searches', () => {
+  it('comes first for anybody who asks for the news', async () => {
+    expect(rankPages(await indexWith(), 'news')[0]?.address).toBe('valleynews.io');
+  });
+
+  it('is found by the valley it covers', async () => {
+    expect(rankPages(await indexWith(), 'valley').map((page) => page.address)).toContain(
+      'valleynews.io',
+    );
+  });
+
+  it('is listed by what it says of itself: the valley, its makers and the wider world', async () => {
+    expect((await found('valleynews.io'))?.description).toBe(
+      'News from Harrow Valley, from the people who build it, and from the wider world of security.',
+    );
+  });
+});
+
 describe('the map of the world, on the web findit searches', () => {
   it('comes first for anybody who asks for a map', async () => {
     expect(rankPages(await indexWith(), 'map')[0]?.address).toBe('mapit.io');

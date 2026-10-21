@@ -606,6 +606,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         logFailure('http-fetch forum comments', error);
         return { data: data as unknown, error };
       },
+      // Only valleynews.io's sections reach this. The newest story first; equal times
+      // fall back to the newer id, so a section reads the same on every visit.
+      findStories: async (section: string) => {
+        const { data, error } = await supabase
+          .from('news_stories')
+          .select('id, title, byline, posted_at')
+          .eq('section', section)
+          .order('posted_at', { ascending: false })
+          .order('id', { ascending: false });
+        logFailure('http-fetch news section', error);
+        return { data: data as unknown, error };
+      },
+      // Only valleynews.io's /story reaches this, with an id already checked for its shape.
+      findStory: async (id: number) => {
+        const { data, error } = await supabase
+          .from('news_stories')
+          .select('id, section, title, byline, body, posted_at')
+          .eq('id', id)
+          .maybeSingle();
+        logFailure('http-fetch news story', error);
+        return { data: data as unknown, error };
+      },
     });
     res.status(status).json(body);
     return;

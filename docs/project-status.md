@@ -1200,9 +1200,15 @@ agreed order:
     `access.log` (no release had a root-tier hole on game day 101, so the root view rests on its
     wire-check); the restore. No defect. As built:
     [`hireme-architecture.md`](./hireme-architecture.md); what jobs need is in `backlog.md` under
-    "hireme — the missions it waits for". **Pick up here (2026-10-21):** the items still open in
-    `backlog.md`, the agreed work until the owner reopens missions, whose front door is now
-    built; news is the next public site, waiting for its own grill.
+    "hireme — the missions it waits for".
+29. **The valley's paper at valleynews.io (in flight).** One site where everything is announced:
+    the valley's news, the developer's notes and real-world security news, in three labelled
+    sections, every story hand-written and posted by the operator from a story file. Slice 1
+    (v0.423.0): the paper is the eighth fixed site, its sections and stories built from
+    `news_stories` (migration on `jshack-dev` and `jshack-prod`), and `scripts/valleynews.ts
+    post` puts a story up. **Pick up here (2026-10-21):** its grill, slices and live status are in
+    `plans/valleynews.md`; slice 2 (edit, remove and the README line) is next. The items still
+    open in `backlog.md` wait behind it.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

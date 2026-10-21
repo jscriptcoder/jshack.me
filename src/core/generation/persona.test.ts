@@ -112,6 +112,15 @@ describe('networkPersona', () => {
     });
   });
 
+  it('keeps valleynews the newsroom, however many kinds of place the world grows', () => {
+    expect(networkPersona('valleynews.io')).toEqual({
+      category: 'hacker',
+      place: 'the newsroom',
+      domain: 'valleynews-io.lan',
+      town: 'Ridgemont',
+    });
+  });
+
   it("keeps the contractor boards' server hireme's back office", () => {
     expect(networkPersona('boards.hireme.io')).toEqual({
       category: 'hacker',
