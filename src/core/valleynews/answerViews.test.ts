@@ -78,6 +78,16 @@ describe('a section', () => {
     },
   );
 
+  it('is a whole document as curl prints it, its head holding its title alone', async () => {
+    const page = pageOf(await answerSection('valley', newsReads()));
+    expect(
+      page.startsWith(
+        '<html>\n<head>\n<title>The valley - valleynews.io</title>\n</head>\n<body>\n',
+      ),
+    ).toBe(true);
+    expect(page.endsWith('</body>\n</html>\n')).toBe(true);
+  });
+
   it('reads only its own section', async () => {
     const asked: string[] = [];
     await answerSection(
@@ -210,6 +220,16 @@ describe('a story', () => {
       'The fog came in over Ridgemont at dawn.',
       'By noon it was gone.',
     ]);
+  });
+
+  it('starts a new paragraph at a line of spaces alone', async () => {
+    const page = pageOf(
+      await answerStory(
+        '/story?id=7',
+        newsReads({ findStory: answered(storyRow({ body: 'One.\n   \nTwo.' })) }),
+      ),
+    );
+    expect(contentText(page).slice(3)).toEqual(['One.', 'Two.']);
   });
 
   it('shows no empty paragraph for blank lines around the body, and no indent', async () => {

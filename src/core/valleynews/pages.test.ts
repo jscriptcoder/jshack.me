@@ -19,6 +19,16 @@ describe("valleynews.io's masthead", () => {
     expect(page.querySelector('h1')?.textContent).toBe('valleynews.io');
   });
 
+  it('is a whole document as curl prints it, its head holding its title and description', () => {
+    expect(
+      VALLEYNEWS_FRONT_PAGE.startsWith(
+        '<html>\n<head>\n<title>valleynews.io - the Harrow Valley paper</title>\n<meta name="description" content="',
+      ),
+    ).toBe(true);
+    expect(VALLEYNEWS_FRONT_PAGE).toContain('.">\n</head>\n<body>\n<h1>valleynews.io</h1>\n');
+    expect(VALLEYNEWS_FRONT_PAGE.endsWith('</body>\n</html>\n')).toBe(true);
+  });
+
   it('leads to the three sections from its nav line', () => {
     const nav = parsed(VALLEYNEWS_FRONT_PAGE).querySelector('h1 + p');
     expect(

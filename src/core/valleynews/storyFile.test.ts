@@ -163,6 +163,13 @@ describe('refusing a file that is not a story', () => {
     });
   });
 
+  it('refuses a file that ends on its last header, with no line break after it', () => {
+    expect(readStoryFile('section: wire\ntitle: A title\nbyline: A byline')).toEqual({
+      ok: false,
+      reason: 'The body is empty',
+    });
+  });
+
   it('refuses a body of blank lines', () => {
     expect(readStoryFile(storyFileText({ body: ' \n\n  ' }))).toEqual({
       ok: false,
