@@ -43,6 +43,20 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
     20-an-hour cap is what bounds it. Page it if a thread ever grows long enough to need it.
   - Reporting and blocking are owed before multiplayer is announced, as for mail (above).
 
+- **hireme — the missions it waits for.** The contractor boards shipped at v0.422.0 (as-built:
+  [`hireme-architecture.md`](./hireme-architecture.md)), every board saying no work is available
+  yet. Left for the missions grill, all on top of the machines, the addresses and the lookup as
+  they are:
+  - **Job templates and per-handle instances**, a table keyed by handle, so a job a player
+    completes leaves their own board and nobody else's. Places posting vacancies that say how they
+    run (the old `hireit.io` idea) fit here.
+  - **How a job is claimed and completed**, and whether somebody holding a leaked address can
+    claim one.
+  - **The wallet and the payout**, through the operator mint, paying whoever completes the job and
+    names a wallet.
+  - **What the root view adds**, beyond each handle's address.
+  - A second, darknet operator stays open as later content.
+
 - **More public websites — ideas, not yet grilled (2026-10-16).** The public web today is
   findit.io (search), mapit.io (the map), emailit.io (mail), hackademy.io and the public places'
   own sites. These are candidates to make Harrow Valley feel inhabited. Every name is a
@@ -55,9 +69,10 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
       to each other first; as-built [`talkit-architecture.md`](./talkit-architecture.md).
       Townsfolk talking about their WiFi, jobs and new routers is its next piece, under "talkit
       — follow-ups deferred".
-    - **A jobs board** (`hireit.io`): places post vacancies ("Ridgemont hospital seeks an IT
-      contractor"), and each posting says something about how the place runs. A possible front
-      door for missions.
+    - ✅ **A jobs board**: built as hireme.io at v0.420.0–v0.422.0 (#719, #721, #722), each
+      player's own contractor board behind a private address; as-built
+      [`hireme-architecture.md`](./hireme-architecture.md). Places posting vacancies that say how
+      they run is missions content, under "hireme — the missions it waits for".
     - **Reviews** (`rateit.io`): star ratings and comments on mapit's places, cheap to generate
       from the place data ("The Wi-Fi password is on the menu, lol").
   - **Ties to systems that already exist:**

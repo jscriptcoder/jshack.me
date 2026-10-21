@@ -149,6 +149,7 @@ files). `.branches/` and `.temp/` are CLI state and git-ignored.
 | `wallet-architecture.md`             | As-built crypto wallet and chainit.io.                                                          |
 | `email-architecture.md`              | As-built email (`mail`, emailit.io).                                                            |
 | `talkit-architecture.md`             | As-built forum (talkit.io).                                                                     |
+| `hireme-architecture.md`             | As-built contract work (hireme.io and the contractor boards).                                   |
 | `e2e-shared-network-verification.md` | Two-player browser journeys and a coverage map.                                                 |
 | `legacy/`                            | The retired React app's design, and the rewrite blueprint. Historical.                          |
 | `mission-ideas/`                     | Legacy mission designs, input to the planned missions feature.                                  |

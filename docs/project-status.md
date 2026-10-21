@@ -1181,12 +1181,28 @@ agreed order:
     affected. The bundle grew by 44 B, to 285,361 B of 286,975 B. Browser close-out (2026-10-20,
     v0.419.0, real keys): `SkyLab` with `X` and `y` typed after `sky` read `skyxylab`, the prompt
     was `carol@skyxylab`, and `su` with `Hunter2` reached root. No defect.
-    **Pick up here (2026-10-20):** the hireme.io epic is in flight, groundwork for missions:
-    a player applies at hireme.io and is mailed a private board address. Its grill, slices and
-    live status are in `plans/hireme.md`; slices 1 (applying, v0.420.0) and 2 (the board
-    answers, v0.421.0) shipped, and slice 3 (a root on the boards' server, v0.422.0) is on
-    `feat/hireme-board-root`. The items still open in
-    `backlog.md` wait behind it.
+28. ✅ **Contract work at hireme.io (v0.420.0–v0.422.0, PRs #719, #721, #722, 2026-10-20 to
+    2026-10-21).** Groundwork for missions: a player applies at hireme.io, the seventh fixed site,
+    with their emailit.io address and is mailed a private address in the new `194` block, theirs
+    for good, that opens their contractor board in `curl` or `lynx`. The address is the key and
+    belongs to the handle, so whoever holds the mailbox holds the board, and nothing warns that it
+    is a secret. Slice 1 (v0.420.0): `POST /apply`, its refusals under their lines, one mail per
+    handle per 24 hours from `jobs@hireme.io`, the address drawn on the server and kept in
+    `hireme_boards` (migration on `jshack-dev` and `jshack-prod`). Slice 2 (v0.421.0): the block
+    is public, every door finds a held address through one table lookup and an unheld one as
+    nothing, and an unlisted boards' server answers "Welcome back, neo." and a placeholder at `/`,
+    logging each read in absolute form. Slice 3 (v0.422.0): a root on the boards' server reads
+    every handle's address in `/etc/hireme/boards`, built from the table under the journal, and
+    `restoreSite.ts boards.hireme.io` restores it. The bundle grew by 409 B in all, to 285,770 B
+    of 286,975 B. Browser close-out (2026-10-21, v0.422.0, two players): an application from lynx
+    with a bare handle, the mail, the board in lynx; a second player on the leaked address; a
+    staged user-tier shell on the boards' server with `/etc/hireme` hidden and both reads in
+    `access.log` (no release had a root-tier hole on game day 101, so the root view rests on its
+    wire-check); the restore. No defect. As built:
+    [`hireme-architecture.md`](./hireme-architecture.md); what jobs need is in `backlog.md` under
+    "hireme — the missions it waits for". **Pick up here (2026-10-21):** the items still open in
+    `backlog.md`, the agreed work until the owner reopens missions, whose front door is now
+    built; news is the next public site, waiting for its own grill.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

@@ -102,3 +102,20 @@ then `ArrowDown`. To read the log, a shell on chainit is enough; no root tier is
   follow land in the shell. Read the footer first: `Esc Leave field` means you are in the field,
   `← Back q Quit` means you are not.
 - `scripts/restoreSite.ts chainit.io` clears the staged manifest and the log with everything else.
+
+**Reaching hireme.io's boards' server** (verified 2026-10-21, v0.422.0, game day 101). It has no
+domain and no address of its own: it answers at every board's address, and a board's address
+is only in its owner's mail (`mail read <n>` after applying) or in `hireme_boards`. Aim every
+command at that `194.` address.
+- **Applying from lynx**: `lynx hireme.io` opens typing in the Email field; type the bare handle
+  one `press` per character and `Enter` submits. The page never shows the address.
+- **A shell there** is staged the way chainit's is: one service-role `patches` row on
+  `computeApGatewayId('boards.hireme.io')` at `/var/lib/dpkg/status` with nginx's `Version:`
+  swapped (1.28.3 gave a user-tier full shell on day 101), then `msfconsole <board address> 80`.
+  `cat /etc/hostname` reads `boards`; the prompt says `root@ap-gw`, as on every fixed site.
+- **At user tier `/etc/hireme` is hidden**, so `cat /etc/hireme/boards` answers "No such file or
+  directory". The root view needs a root-tier hole; on a day without one it rests on
+  `testHiremeBoardRoot.ts`. `access.log` is readable at any tier and names each board read as
+  `"GET http://<address>/ HTTP/1.1"` beside the reader's address.
+- `scripts/restoreSite.ts boards.hireme.io` restores it; the standing shell's next command prints
+  "Connection to ap-gw closed by remote host." Boards and `hireme_boards` are untouched.
