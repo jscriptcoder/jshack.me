@@ -2530,6 +2530,12 @@ describe("Ridgemont's addresses", () => {
     ]);
   });
 
+  it("gives the contractor boards' server no address of its own", () => {
+    // It answers at every board's address, each drawn and stored by hireme.io, and at
+    // none the world derives: nobody finds it but by an address somebody was mailed.
+    expect(publicAddress('boards.hireme.io')).toBeUndefined();
+  });
+
   it('answers a network nobody publishes from, before anybody has joined it', () => {
     // A home network publishes nothing, yet its gateway is on the internet like anyone's.
     expect(publicAddress('FAMILY-WIFI-2G')).toMatch(/^87\.1\./);

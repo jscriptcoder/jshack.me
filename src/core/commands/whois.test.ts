@@ -300,6 +300,38 @@ describe('whois', () => {
     });
   });
 
+  it.each(['194.12.40.7', '194.0.0.2', '194.255.255.254'])(
+    "names hireme's contractor boards for %s, as it does for every address in their block",
+    async (address) => {
+      // The registry answers for the whole block, held or not, as a real one answers for
+      // a netblock, so asking about an address says nothing of whether a board is there.
+      const { lines, exitCode } = await run(address);
+
+      expect({ lines, exitCode }).toEqual({
+        lines: [
+          '% Harrow Valley registry',
+          '',
+          'inetnum:        194.0.0.0 - 194.255.255.255',
+          'netname:        HIREME-BOARDS',
+          'org-name:       hireme.io',
+        ],
+        exitCode: 0,
+      });
+    },
+  );
+
+  it.each(['195.12.40.7', '1194.12.40.7', '194.12.40'])(
+    "has no entry for %s, outside the boards' block",
+    async (address) => {
+      const { lines, exitCode } = await run(address);
+
+      expect({ lines, exitCode }).toEqual({
+        lines: ['% Harrow Valley registry', '', '%ERROR:101: no entries found'],
+        exitCode: 1,
+      });
+    },
+  );
+
   it.each([
     ['Millbrook', 'millbrook.gov'],
     ['Ashby', 'ashby.gov'],

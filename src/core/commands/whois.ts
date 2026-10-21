@@ -4,11 +4,13 @@
  * The registry answers from the world's declaration alone. Every network's public address
  * is derived from its place in the world, so the organisation, town and region behind an
  * address are known without asking anybody on the network: the answer is the same
- * whether anyone is there or not.
+ * whether anyone is there or not. hireme.io's contractor boards are answered for as one
+ * block, since which of its addresses are held is the server's alone to know.
  */
 
 import type { Command, CommandResult } from './types.js';
 import {
+  BOARD_FIRST_OCTET,
   declaredNetwork,
   HARROW_VALLEY,
   networkAt,
@@ -16,11 +18,14 @@ import {
 } from '../generation/world.js';
 import { fixedSite, type FixedSite } from '../generation/fixedSites.js';
 import { siteAddress } from '../generation/publisher.js';
+import { isBoardAddress } from '../generation/ip.js';
 import { vantageOf } from '../network/vantage.js';
 import { errorLine, text } from './streaming.js';
 
 /** What the registry knows about the network at an address. */
 type RegistryRecord = {
+  /** The addresses the record is for: one network's own, or a whole block. */
+  readonly inetnum: string;
   /** The name a player would recognise it by in a scan: its ESSID. */
   readonly netname: string;
   readonly orgName: string;
@@ -31,7 +36,8 @@ type RegistryRecord = {
 };
 
 /** A fixed site broadcasts no wifi, so its netname is its key spelt the way an ESSID is. */
-const fixedSiteRecord = (site: FixedSite): RegistryRecord => ({
+const fixedSiteRecord = (site: FixedSite, address: string): RegistryRecord => ({
+  inetnum: `${address} - ${address}`,
   netname: site.key.toUpperCase().replace(/[^A-Z0-9]+/g, '-'),
   orgName: site.domain,
   domain: site.domain,
@@ -41,17 +47,28 @@ const fixedSiteRecord = (site: FixedSite): RegistryRecord => ({
 const isPlaceless = (address: string): boolean =>
   Number(address.split('.')[0]) === PLACELESS_FIRST_OCTET;
 
+/** hireme.io's contractor boards, answered for the whole block whether anybody holds the
+ *  address asked about or not, as a real registry answers for a netblock: the record says
+ *  whose block it is and nothing of which addresses in it are handed out. */
+const BOARDS_RECORD: RegistryRecord = {
+  inetnum: `${BOARD_FIRST_OCTET}.0.0.0 - ${BOARD_FIRST_OCTET}.255.255.255`,
+  netname: 'HIREME-BOARDS',
+  orgName: 'hireme.io',
+};
+
 /** The record for whichever network answers at `address`, or `undefined` where none does. */
 const recordAt = (address: string): RegistryRecord | undefined => {
+  if (isBoardAddress(address)) return BOARDS_RECORD;
   const key = networkAt(address);
   const site = fixedSite(key ?? '');
-  if (site !== undefined) return fixedSiteRecord(site);
+  if (site !== undefined) return fixedSiteRecord(site, address);
   const network = declaredNetwork(key ?? '');
   if (network === undefined) return undefined;
   const { town, region } = network;
   // A corporation's branch publishes nothing, but the line is its company's.
   const holder = declaredNetwork(network.parent ?? '') ?? network;
   return {
+    inetnum: `${address} - ${address}`,
     netname: network.essid,
     // A network that publishes nothing is somebody's line from the town's ISP, which is
     // all a real registry says about a home or a small shop.
@@ -110,7 +127,7 @@ const execute: Command['execute'] = async (env, args): Promise<CommandResult> =>
     kind: 'sync',
     lines: [
       ...HEADER,
-      text(field('inetnum', `${address} - ${address}`)),
+      text(field('inetnum', record.inetnum)),
       text(field('netname', record.netname)),
       text(field('org-name', record.orgName)),
       ...(record.domain === undefined ? [] : [text(field('domain', record.domain))]),
