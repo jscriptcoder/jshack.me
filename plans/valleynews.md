@@ -1,9 +1,9 @@
 # Plan: the valley's paper, at valleynews.io
 
 **Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-21. Slice 1 shipped
-(v0.423.0, PR #723, 2026-10-21; migration on `jshack-dev` and `jshack-prod`). Slice 2, edit,
-remove and the README line, is planned (2026-10-21) and not started. The browser run waits for
-the work's close-out.
+(v0.423.0, PR #723, 2026-10-21; migration on `jshack-dev` and `jshack-prod`). Slice 2 shipped
+(v0.424.0, PR #724, 2026-10-21; no migration). Next is the close-out browser run, posting,
+editing and removing through the script; then the opening stories on release day.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 
@@ -304,6 +304,16 @@ valleynews's `access.log`, as for every view.
 - No browser run: one at the epic's close-out.
 
 ## Slice 2 plan: edit, remove and the README line
+
+**As built (v0.424.0, PR #724).** All 8 criteria met. `readDeskOrder` and the edit, remove and
+no-story lines are tested at the function; `scripts/testValleynews.ts` grew from 37 to 51 checks,
+running the real `edit` and `remove` live (an edit keeps the id and the exact `posted_at`, and
+moves the story between sections in its first-date place). The bundle is 286,170 B of 286,975 B,
+805 B left, measured after the vite 8.3.4 bump that landed beside the slice. Mutation over
+`storyFile.ts`: 170 killed; 2 survivors are equivalent (the `= ''` destructuring defaults in
+`readDeskOrder`, which only a missing word reaches, and the length checks refuse that first),
+and 3 no-coverage are slice 1's `?? ''` fallbacks. No departure from the plan: the script reads
+a story file inside the verb that needs it, still before the database is asked anything.
 
 **Branch**: `feat/valleynews-desk` · **Version**: 0.423.0 → 0.424.0 · **Class**: behaviour change
 · **Delivery**: one PR against `main`; no migration.
