@@ -2,7 +2,9 @@
 
 **Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-20. Slice 1 shipped
 (v0.420.0, PR #719, 2026-10-20; migration on `jshack-dev` and `jshack-prod`). Slice 2, the board
-answers, is next and not yet planned. The browser run waits for the epic's close-out.
+answers, is planned below, its choices and criteria confirmed 2026-10-21, and in progress on
+`feat/hireme-board`. The browser run waits for
+the epic's close-out.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 
@@ -326,4 +328,148 @@ the address, the 24-hour window, the mail, in one transaction) → a page answer
 - Wire-check `scripts/testHireme.ts` against `vercel dev` + local supabase, and
   `testRestoreSite.ts hireme.io`.
 - Mutation gate at PR readiness over `core/hireme/` and the dispatch.
+- No browser run: one at the epic's close-out.
+
+## Slice 2 plan: the board answers
+
+**Branch**: `feat/hireme-board` · **Version**: 0.420.0 → 0.421.0 · **Class**: behaviour change
+· **Delivery**: one PR against `main`; no migration (the table and its service-role access
+exist since slice 1).
+
+**Value.** A player who applied opens the address in their mail with `lynx` or `curl` and finds
+their contractor board: "Welcome back, neo." and the placeholder. Any address in the block that
+nobody holds answers as nothing, as any empty address does.
+
+**Path.** `lynx`/`curl` on a `194.` address → `isPublicIp` routes it to the server → the signed
+`resolveHttpFetch` → `findNetworkByPublicIp` reads `hireme_boards` for that address: held, it is
+the board server's network; not held, nothing → the board server's gateway (the box itself) is
+materialized, boot- and port-gated as every fixed site → a GET of `/` on the board server is
+answered by a function: the handle holding the asked address, then its board page → the hit is a
+line in the board server's `access.log`. `nmap`, `ssh` and the other cross-network commands reach
+the same box through the same lookup.
+
+### Facts read while planning (2026-10-21)
+
+- **`isPublicIp`** (`generation/ip.ts`) accepts a single address whose first octet is the
+  placeless block's (`PLACELESS_FIRST_OCTET`, 193, in `generation/world.ts`) or a region's. Every
+  cross-network command and the UI's page fetch (`ui/state.ts`) route on it; nothing client-side
+  but `whois` asks *who* is at a public address.
+- **`findNetworkByPublicIp` is wired in twelve places**, all to the pure
+  `derivedNetworkByPublicIp`: `api/network.ts` (the fetch, the scan, the path sweep) and
+  `api/sessions.ts` (nine: ssh and the service gates). `resolvePublicTarget`,
+  `resolveWebTarget` and `resolvePublicScan` all take it as a dep, so one composed lookup serves
+  every door.
+- **A fixed site's box is chosen by key**: `apGatewayFs` (`generation/routerFs.ts`) builds
+  `buildFixedSiteFs(site)` for `fixedSite(essid)`; `resolvePublicTarget`'s gateway target takes
+  its hostname and "fronts no LAN" from the same lookup; `networkPersona` its place. Listing,
+  domain resolution (`publisher.ts`), findit and `restoreSite.ts` read `FIXED_SITES`; the
+  placeless address comes from `ADDRESS_BY_KEY`. So a box `fixedSite()` finds but `FIXED_SITES`
+  does not hold has a machine, a hostname and a persona, and no address, domain or listing.
+- **A fixed site's web root is its `WEB_ROOTS` entry**; with none, `/var/www/html` is empty.
+- **The fetch's function-answered paths are matched by ESSID and path** before the file read
+  (`network/resolveHttpFetch.ts`), and logged through `logFetch` with the request path as sent.
+  An access-log line is `<source> - - [time] "<METHOD> <path> HTTP/1.1" <status> <size>`
+  (`logging/accessLog.ts`).
+- **Standing on a box with no public address traces as `unknown`**
+  (`derivedPublicIpByEssid`), so a root who works from the board server leaves `unknown` in
+  others' logs.
+- **`hireme_boards` is readable by the service role alone** (RLS on, no policies), which is what
+  `api/` uses; a read by address hits the UNIQUE index.
+- **Bundle**: 285,595 B of 286,975 B, 1,380 B left (v0.420.0).
+
+### Choices made while planning (owner to confirm with the plan)
+
+- **The block is `194`, declared beside the placeless one**: `BOARD_FIRST_OCTET = 194` in
+  `world.ts`; `isPublicIp` accepts it; `api/network.ts`'s draw uses it in place of its literal.
+- **The board server is a fixed box nobody lists**: a `FixedSite` value outside `FIXED_SITES`,
+  key `boards.hireme.io`, hostname `boards`, domain `hireme.io` (its `/etc/hosts` says
+  `boards.hireme.io`, the agency's back office, but no name resolves to it), place
+  `{ category: 'hacker', place: 'the back office' }`. `fixedSite(key)` finds it as well, so its
+  box, hostname and persona come from the same code as every fixed site's: `http` and `ssh` on
+  the seeded versions, an uncrackable root, empty `access.log`, `auth.log`, `kern.log`, and an
+  empty web root. It has no 193 address, no domain anybody can `curl`, no findit listing.
+- **One lookup for every door**: `core/hireme/boards.ts` exports a lookup built from a
+  `findBoardHandle(address)` read: a `194.` address is the board server's network when a handle
+  holds it and nothing when none does; any other address is `derivedNetworkByPublicIp`'s answer.
+  A failed read is the lookup's error (a 500 `network_lookup_failed`, as today). All twelve
+  wirings switch to it, so `curl`, `lynx`, `nmap`, `ssh`, `nc` and the rest agree.
+- **The board is answered at `/`**, any query ignored, for a GET only, from a function, as
+  talkit's views are: the handle holding the asked address (`payload.target`), then its page. A
+  root's `index.html` on the board server never replaces anybody's board. Every other path is a
+  file from the board server's disk (empty, so a 404); a POST is the usual 405. If the second
+  read finds no handle (the account was deleted between the two reads) the answer is
+  `host_unreachable`; if it fails, a 500 `board_lookup_failed` with no log line.
+- **The page**: title `hireme.io - contractor board`, `<h1>Welcome back, neo.</h1>`, then
+  `<p>Contractor board — no contracts available yet. New work is coming soon.</p>`; the handle
+  escaped as on the thanks page. Built on the server only.
+- **The log line names the board read**: every address lands on one box and one `access.log`,
+  so a line with the path alone would not say whose board was read. On the board server, the
+  request is recorded in absolute form, `"GET http://194.12.40.7/ HTTP/1.1"`, as a server logs a
+  request that names its host; the line's format is otherwise unchanged. Rejected: the plain
+  path (the root sees reads but not whose), and a host column for this one box (a second line
+  format to parse).
+- **`whois` answers for the whole block**, held or not, from the client alone:
+
+  ```
+  inetnum:        194.0.0.0 - 194.255.255.255
+  netname:        HIREME-BOARDS
+  org-name:       hireme.io
+  ```
+
+- **Working from the board server traces as `unknown`**, as from any box with no public
+  address; it has 16.7M addresses and no one of them is its own. Left as it is; slice 3, which
+  is about a root on this box, may revisit it.
+- **Bundle**: the block, the `whois` record and the box's row are client bytes; the lookup, the
+  page and the dispatch are server-only. Measured at increment 2; decision 13 governs a breach.
+
+### Acceptance criteria
+
+1. After `neo` applies, `curl http://<mailed address>/` prints neo's board: title, "Welcome
+   back, neo." and "Contractor board — no contracts available yet. New work is coming soon.";
+   `lynx` shows the same; `/?x=1` is the same page.
+2. Two handles' addresses each answer their own handle's board, never the other's.
+3. An address in the 194 block that nobody holds answers exactly as an empty 193 address does,
+   to `curl`, `lynx`, `nmap` and `ssh`.
+4. `nmap` on a held address shows `http` and `ssh` open; `ssh root@<address>` with a wrong
+   password is refused as at any fixed site. Every held address reaches the same one box.
+5. Each board read is a line in the board server's `access.log` with the reader's address and
+   `GET http://<address>/`; a path other than `/` is a logged 404 in the same form; a POST is a
+   logged 405; a failed lookup logs nothing.
+6. `whois` on any `194.` address prints the block's record; `whois` on every other address and
+   domain answers as before.
+7. A root's `index.html` on the board server does not change what `/` answers at any address.
+8. A bricked board server, or one whose web server is stopped, leaves every board unreachable
+   while hireme.io still takes applications; a dark hireme.io leaves every board answering.
+9. findit lists nothing new; no network's address, domain or listing changed; every other fixed
+   site, path and command behaves as before; the bundle check passes.
+
+### Increments (each RED → GREEN → REFACTOR; commit on approval)
+
+1. **The block is public**: `BOARD_FIRST_OCTET`, `isPublicIp`, and `whois`'s block record;
+   criteria 6 and the routing half of 3 in the `ip` and `whois` tests.
+2. **The board server's box**: the unlisted row, `fixedSite` finding it, its tree (services,
+   logs, empty web root, hostname, persona); the listing, address and domain tests prove it
+   stays unlisted (criterion 9); the bundle measured.
+3. **The lookup**: `core/hireme/boards.ts` over a fake `findBoardHandle`; held, unheld, failed,
+   and a non-194 address passed through (criteria 3 and 4 at the lookup).
+4. **The board page and the dispatch**: `boardPage(handle)` in `hireme/pages.ts`; a
+   `findBoardHandle` dep in `ResolveHttpFetchDeps`; `/` answered from it, the absolute-form log
+   line, the 404, 405, `host_unreachable` and 500 arms; criteria 1, 2, 5, 7 and 8 at the handler
+   with fake deps.
+5. **The adapter and the wire-check**: `findBoardHandle` over `hireme_boards` and the composed
+   lookup at all twelve wirings in `api/network.ts` and `api/sessions.ts`; the draw on
+   `BOARD_FIRST_OCTET`; a new `scripts/testHiremeBoard.ts` (criteria 1–5, 7 and 8 live: apply,
+   read the mail, fetch the board, two handles, an unheld address against an empty 193 one,
+   `nmap`, a wrong-password `ssh`, the log lines, a root's `index.html` planted by journal row,
+   a bricked board server).
+6. **Docs and version 0.421.0**: the handbook's glossary ("Contractor board", now served) and
+   codebase map; `docs/project-status.md`; this plan's status.
+
+### Evidence
+
+- Unit and jsdom tests under `npm test`; `npm run typecheck`; `npm run lint`; the bundle check.
+- Wire-check `scripts/testHiremeBoard.ts` against `vercel dev` + local supabase; `testHireme.ts`
+  rerun, since its mail now names an address that answers.
+- Mutation gate at PR readiness over `core/hireme/boards.ts`, the board page, the dispatch and
+  `isPublicIp`/`whois`.
 - No browser run: one at the epic's close-out.
