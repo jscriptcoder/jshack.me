@@ -2,8 +2,8 @@
 
 **Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-21. Slice 1 shipped
 (v0.423.0, PR #723, 2026-10-21; migration on `jshack-dev` and `jshack-prod`). Slice 2, edit,
-remove and the README line, is next and not yet planned. The browser run waits for the work's
-close-out.
+remove and the README line, is planned (2026-10-21) and not started. The browser run waits for
+the work's close-out.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 
@@ -302,6 +302,129 @@ valleynews's `access.log`, as for every view.
   `testRestoreSite.ts valleynews.io`.
 - Mutation gate at PR readiness over `core/valleynews/` and the dispatch.
 - No browser run: one at the epic's close-out.
+
+## Slice 2 plan: edit, remove and the README line
+
+**Branch**: `feat/valleynews-desk` · **Version**: 0.423.0 → 0.424.0 · **Class**: behaviour change
+· **Delivery**: one PR against `main`; no migration.
+
+**Value.** The operator fixes a posted story without breaking the address already passed around,
+and takes one down for good; a new player's README tells them where the paper is.
+
+**Path.** `scripts/valleynews.ts edit <id> <file>` reads its order and the file with
+`core/valleynews/`'s readers → reads the story's row by id with the service role → prints the
+guard line naming the story it is about to change, and the database → updates the row's section,
+title, byline and body → prints the story's address. `remove <id>` reads the row the same way,
+prints its guard line, and deletes the row. The section and story pages read the table on every
+visit, so nothing on the server changes. A new box's README is `core/hackademy/readme.ts`.
+
+### Facts read while planning (2026-10-21)
+
+- **The script reads its order inline** (`verb !== 'post' || …` in `scripts/valleynews.ts`).
+  talkit's operator script reads its order in `core/` (`readRemovalOrder`, `core/talkit/removal.ts`),
+  tested there, with the thread id rule it shares with the views (`THREAD_ID`, exported from
+  `core/talkit/answerViews.ts`).
+- **The story id rule** is `STORY_ID` (`^[1-9][0-9]{0,14}$`) in `core/valleynews/answerViews.ts`,
+  not exported. `answerViews.ts` imports `storyFile.ts` (for `NEWS_SECTIONS`), so `storyFile.ts`
+  cannot import it back without a cycle.
+- **talkit's removal reads before it writes**: it reads the row, prints the guard line, writes with
+  `.select(…)`, and treats a write that touched no row as nothing there (a run beside it got there
+  first): one line, exit 1.
+- **A removed id is never handed out again**: `news_stories.id` is `GENERATED ALWAYS AS IDENTITY`,
+  so an old link to a removed story stays a 404 and never lands on a newer story.
+- **An update keeps the date**: `posted_at` is not a field of a story, so writing the four fields
+  leaves it, and the id, as they were. The table's CHECKs hold an edit to the limits they hold a
+  post to, so no migration.
+- **The README** is 16 lines; `workstationFs.test.ts` holds it to 20 ("fits on one screen") and
+  checks each step of the walk. Only a new box gets it: a player who has one keeps theirs.
+- **Bundle**: 910 B left. The README line is the only client bytes in the slice: the client
+  imports `pages.ts`, which takes only a type from `storyFile.ts`, so the readers and the script's
+  lines cost nothing.
+
+### Choices made while planning (owner-confirmed 2026-10-21)
+
+- **The guard lines name the story being changed**, read from its row, beside the database host.
+  A mistyped id would otherwise overwrite or delete the wrong story with nothing on screen to say
+  so.
+  - `edit`: `Editing story <id> "<current title>" in /<current section> on <host>:`, then
+    `  now "<new title>" in /<new section> as <new byline>`; after the write,
+    `Edited story <id>: http://valleynews.io/story?id=<id>`.
+  - `remove`: `Removing story <id> "<title>" from /<section> on <host>`; after,
+    `Removed story <id>`.
+  - An id no story holds, or a write that finds the row gone: `No story <id> on <host>`, exit 1,
+    nothing written.
+- **The README ends with the paper, as a prompt line**, in the root shell the walk ends in, inside
+  the width of the lines above:
+
+  ```
+  # lynx http://hackademy.io
+
+  News from the valley, and from the people who build it:
+  # lynx http://valleynews.io
+  ```
+
+  Rejected: decision 14's sentence on one line, 81 characters with the command mid-sentence.
+
+### Choices made while planning (Claude's, within the decisions)
+
+- **The order is read in `core/`**, as talkit's: `readDeskOrder(words)` gives `post <file>`,
+  `edit <id> <file>` or `remove <id>`, or nothing; nothing prints
+  `Usage: valleynews.ts post <file> | edit <id> <file> | remove <id>` and exits 2. An id is a
+  story id by the views' own rule, so `edit 07 …` or `remove +7` is refused, never read as 7.
+- **`STORY_ID` moves to `storyFile.ts`** and is exported; `answerViews.ts` imports it. The views'
+  404 tests are the safety net for the move.
+- **Everything refusable without the database is refused first**: the order, the env, then for
+  `edit` the file (`Not edited: <reason>`, as `post` prints `Not posted: …`), all exit 2.
+- **An edit writes the four fields** whether or not they differ: no comparing, no "nothing
+  changed" line.
+- **A removal deletes the row.** Nothing else refers to a story, so nothing cascades.
+- **Exits**: 0 done; 1 no such story or a database error; 2 a bad order, a file it cannot read or
+  that is not a story, or missing env.
+- **`storyFile.ts` keeps the readers and the lines**, its header widened to the whole desk, rather
+  than a second module for three verbs.
+
+### Acceptance criteria
+
+1. `edit <id> <file>` on a posted story prints its guard line, current title and section and the
+   new title, section and byline, then the edited line; `/story?id=<id>` then shows the new title,
+   byline and paragraphs under the day it was first posted, at the same id.
+2. An edit that changes the section moves the story: listed in the new section at its first
+   date's place, and in the old one no longer.
+3. `edit` with a file that is not a story, or that cannot be read, exits 2 with the story
+   unchanged; with an id no story holds, it prints `No story <id> on <host>`, exits 1 and writes
+   nothing.
+4. `remove <id>` prints its guard line, deletes the story and prints `Removed story <id>`; the
+   story is in no section and `/story?id=<id>` is a 404.
+5. `remove` of an id no story holds, one already removed included, prints `No story <id> on
+   <host>` and exits 1.
+6. Anything but `post <file>`, `edit <id> <file>` or `remove <id>` (an unknown verb, a missing or
+   extra word, an id with a sign, a leading zero, or over 15 digits) prints the usage line and
+   exits 2 before anything is touched; `post` works as before.
+7. A new player's README ends with the paper's line and `# lynx http://valleynews.io`, and still
+   fits on one screen; every other line is as before.
+8. The bundle check passes.
+
+### Increments (each RED → GREEN → REFACTOR; commit on approval)
+
+1. **The desk's order and lines** (`core/valleynews/storyFile.ts`): `STORY_ID` moved in (views
+   green), `readDeskOrder`, and the edit, remove and no-story lines; criterion 6 and the lines'
+   wording at the function.
+2. **The script and the wire-check**: `edit` and `remove` in `scripts/valleynews.ts`;
+   `scripts/testValleynews.ts` runs the real script for criteria 1–6 live (its stories bylined
+   `wirecheck`, as now).
+3. **The README line** (`core/hackademy/readme.ts`): criterion 7 in `workstationFs.test.ts`; the
+   bundle measured, criterion 8.
+4. **Docs and version 0.424.0**: the handbook's codebase map row and operate chapter for the
+   script's three verbs, the glossary entry, `docs/project-status.md`, and this plan's as-built.
+
+### Evidence
+
+- Unit tests under `npm test`; `npm run typecheck`; `npm run lint`; the bundle check.
+- Wire-check `scripts/testValleynews.ts` against `vercel dev` + local supabase.
+- Mutation gate at PR readiness over `core/valleynews/storyFile.ts`; the README is a constant
+  checked by its test (mutation N/A).
+- No browser run in the PR: the work's close-out run follows this slice, posting, editing and
+  removing through the script.
 
 ## Deferred
 
