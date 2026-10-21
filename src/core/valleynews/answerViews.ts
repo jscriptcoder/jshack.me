@@ -9,10 +9,7 @@
 import { z } from 'zod';
 import type { ViewAnswer } from '../talkit/answerViews.js';
 import { sectionPage, storyPage } from './pages.js';
-import { NEWS_SECTIONS, type NewsSection } from './storyFile.js';
-
-/** A story id: no sign, no leading zero, and short enough to stay exact as a number. */
-const STORY_ID = /^[1-9][0-9]{0,14}$/;
+import { NEWS_SECTIONS, STORY_ID, type NewsSection } from './storyFile.js';
 
 /** A read off the stories table. Typed as unknown because the rows come off the wire, and
  *  are parsed before they are used. */
