@@ -177,6 +177,16 @@ describe('buildWorkstationBaseFs', () => {
       expect(content).toMatch(/root password you chose/);
     });
 
+    it('ends by pointing at the paper, in the root shell the walk ends in', () => {
+      expect(readme().content.split('\n').slice(-5)).toEqual([
+        '# lynx http://hackademy.io',
+        '',
+        'News from the valley, and from the people who build it:',
+        '# lynx http://valleynews.io',
+        '',
+      ]);
+    });
+
     it('fits on one screen', () => {
       expect(readme().content.trimEnd().split('\n').length).toBeLessThanOrEqual(20);
     });

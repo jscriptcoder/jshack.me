@@ -2,7 +2,8 @@
  * The README a new player finds in their home directory: the one thing the game plants
  * there. A fresh box is on no network, so it walks them online, then to a browser, then to
  * hackademy.io, where everything else is taught. It names each step and explains none of
- * them; the explaining is the site's job.
+ * them; the explaining is the site's job. Last, it points at valleynews.io, where the valley's
+ * news and the game's own are posted.
  */
 export const WELCOME_README = [
   'Welcome to your box. Everything happens at the prompt: "help" lists every',
@@ -21,5 +22,8 @@ export const WELCOME_README = [
   '$ su root',
   '# apt install lynx',
   '# lynx http://hackademy.io',
+  '',
+  'News from the valley, and from the people who build it:',
+  '# lynx http://valleynews.io',
   '',
 ].join('\n');
