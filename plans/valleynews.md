@@ -1,7 +1,9 @@
 # Plan: the valley's paper, at valleynews.io
 
-**Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-21. Slice 1 is planned,
-its choices and criteria confirmed; `feat/valleynews-paper` is next.
+**Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-21. Slice 1 shipped
+(v0.423.0, PR #723, 2026-10-21; migration on `jshack-dev` and `jshack-prod`). Slice 2, edit,
+remove and the README line, is next and not yet planned. The browser run waits for the work's
+close-out.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 
@@ -137,6 +139,22 @@ A browser run closes out the work after slice 2, posting through the script. Rel
 of the opening stories follows.
 
 ## Slice 1 plan: the paper reads and posts
+
+**As built (v0.423.0, PR #723).** All 13 criteria met. Unit tests at the story file, the pages and
+views, the site row and the dispatch; `scripts/testValleynews.ts` 37/37 (it runs the real
+`scripts/valleynews.ts post`) and `testRestoreSite.ts valleynews.io` 13/13 live. valleynews.io is
+at `193.88.47.244`. The bundle grew 295 B, to 286,065 B of 286,975 B, leaving 910 B: the
+masthead is client code, the section and story pages are not. Mutation over `core/valleynews/`
+and the dispatch: 270 killed, 0 timeouts; 2 survivors are module-load mutants killed by hand
+(Stryker's static-mutant blind spot), 3 no-coverage are `?? ''` fallbacks no file can reach.
+The gate's first run found four untested behaviours (a file ending on its last header, a
+paragraph broken by a line of spaces, the document frame `curl` prints for the masthead and a
+section page), now tested, and three pieces of the reader that did nothing, now gone: `trim`
+already takes off a byte-order mark, and one control-character rule serves every field.
+Departures from the plan below: the reader refuses every `\p{Cc}` character but the line break,
+the C1 range included, a little stricter than the table (lint forbids raw control ranges in a
+regex); and the two selects in `api/network.ts` landed with the dispatch, since the handler's
+deps require them, and were proven by the wire-check.
 
 **Branch**: `feat/valleynews-paper` · **Version**: 0.422.0 → 0.423.0 · **Class**: behaviour change
 · **Delivery**: one PR against `main`; one migration, applied to `jshack-dev` then `jshack-prod`
