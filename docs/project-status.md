@@ -1183,8 +1183,9 @@ agreed order:
     was `carol@skyxylab`, and `su` with `Hunter2` reached root. No defect.
     **Pick up here (2026-10-20):** the hireme.io epic is in flight, groundwork for missions:
     a player applies at hireme.io and is mailed a private board address. Its grill, slices and
-    live status are in `plans/hireme.md`; slice 1 (applying, v0.420.0) shipped, and slice 2
-    (the board answers, v0.421.0) is on `feat/hireme-board`. The items still open in
+    live status are in `plans/hireme.md`; slices 1 (applying, v0.420.0) and 2 (the board
+    answers, v0.421.0) shipped, and slice 3 (a root on the boards' server, v0.422.0) is on
+    `feat/hireme-board-root`. The items still open in
     `backlog.md` wait behind it.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block

@@ -77,7 +77,9 @@ RLS denies anon/authenticated entirely; only the service-role function touches t
   address finds its network through `networkByPublicIp` (`core/hireme/boards.ts`): a held
   `194` address is the boards' server (`boards.hireme.io`, a fixed box with no address, domain
   or listing of its own), an unheld one is nothing, and every other address is derived as
-  above without the table being read.
+  above without the table being read. A root session on the boards' server is shown the table
+  as `/etc/hireme/boards` (`withBoardsList`, laid in by `resolveCrossPlayerFs` under the
+  journal, as emailit.io's mail is).
 - **Who is on an AP** = **`home_network_occupants`** (PK `(essid, owner_key)`, plus an index
   on `workstation_machine_id` for the reverse lookup): `workstation_machine_id`,
   `workstation_username`, `workstation_machine_name`, `workstation_root_hash`. Written on

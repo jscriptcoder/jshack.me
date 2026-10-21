@@ -34,7 +34,8 @@ exploit session's `userType` is the CVE's tier, not the account it lands on
 gives you a shell *as the root account at user/guest tier*, which is not a root session (a
 root-only file like `/etc/emailit/passwd` stays hidden). So when the day's holes are only
 user/guest tier, the box simply cannot be rooted that day — prove any root-only behaviour with
-the feature's wire-check seeded session instead (e.g. `testMailSpool.ts`), and say in the
+the feature's wire-check seeded session instead (e.g. `testMailSpool.ts`,
+`testHiremeBoardRoot.ts` for the boards' server's `/etc/hireme/boards`), and say in the
 evidence that the UI run stood the root session up directly. **Trap:** matching a fixed site's
 `/etc/passwd` root hash with `plaintextFor` WILL "find" it, because the helper searches the
 uncrackable pool too — it is NOT a route a player has, and must never be presented
