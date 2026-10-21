@@ -1206,9 +1206,10 @@ agreed order:
     sections, every story hand-written and posted by the operator from a story file. Slice 1
     (v0.423.0): the paper is the eighth fixed site, its sections and stories built from
     `news_stories` (migration on `jshack-dev` and `jshack-prod`), and `scripts/valleynews.ts
-    post` puts a story up. **Pick up here (2026-10-21):** its grill, slices and live status are in
-    `plans/valleynews.md`; slice 2 (edit, remove and the README line) is next. The items still
-    open in `backlog.md` wait behind it.
+    post` puts a story up. Slice 2 (v0.424.0): the script also edits a story in place and removes
+    one, and a new player's README ends at the paper. **Pick up here (2026-10-21):** its grill,
+    slices and live status are in `plans/valleynews.md`; the close-out browser run is next, then
+    the opening stories on release day. The items still open in `backlog.md` wait behind it.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
