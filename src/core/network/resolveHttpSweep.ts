@@ -31,6 +31,7 @@ import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
 import { authorizeMachineAccess, type FindActiveSession } from '../patches/authorizeMachineAccess.js';
 import { resolveWebTarget, type HandlerResponse, type WebTargetDeps } from './resolveHttpFetch.js';
 import { sweepWord, type ProbedPath } from './webSweep.js';
+import { loggedRequestPath } from '../hireme/boards.js';
 import { DIRLIST_PATH, parseDirlist } from './defaultDirlist.js';
 import { wordlistOn } from '../wordlist/passwordSweep.js';
 import { HTTP_DEFAULT_PORT } from './http.js';
@@ -183,7 +184,17 @@ export const handleResolveHttpSweep = async (
       actorKey: publicKey,
       standingEssid: access.session === null ? null : access.session.essid,
     }),
-    swept.flatMap((word) => word.asked),
+    // On the boards' server each line names the address swept as well.
+    swept
+      .flatMap((word) => word.asked)
+      .map((probed) => ({
+        ...probed,
+        path: loggedRequestPath({
+          essid: target.essid,
+          address: payload.target,
+          path: probed.path,
+        }),
+      })),
   );
 
   return {

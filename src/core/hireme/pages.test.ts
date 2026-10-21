@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { HIREME_FRONT_PAGE, thanksPage } from './pages.js';
+import { boardPage, HIREME_FRONT_PAGE, thanksPage } from './pages.js';
 
 /**
  * hireme.io's front page, the file a fresh box serves at `/`: what a reader in lynx or
@@ -63,5 +63,34 @@ describe('the page an application that was mailed answers with', () => {
   // applying is nobody's listing.
   it('carries no description of its own', () => {
     expect(thanks().querySelector('meta[name="description"]')).toBeNull();
+  });
+});
+
+describe("a handle's contractor board", () => {
+  const board = (handle: string) =>
+    new DOMParser().parseFromString(boardPage(handle), 'text/html');
+
+  it('is titled as the board', () => {
+    expect(board('neo').title).toBe('hireme.io - contractor board');
+  });
+
+  // Whoever has the address reads the board, so it says whose it is.
+  it('welcomes back the handle it belongs to', () => {
+    expect(board('neo').querySelector('h1')?.textContent).toBe('Welcome back, neo.');
+    expect(board('trinity').querySelector('h1')?.textContent).toBe('Welcome back, trinity.');
+  });
+
+  it('says there is no work yet', () => {
+    expect(board('neo').querySelector('p')?.textContent).toBe(
+      'Contractor board — no contracts available yet. New work is coming soon.',
+    );
+  });
+
+  it('carries no description, since no search engine lists it', () => {
+    expect(board('neo').querySelector('meta[name="description"]')).toBeNull();
+  });
+
+  it('shows a handle as text, never as markup', () => {
+    expect(board('<b>neo</b>').querySelector('b')).toBeNull();
   });
 });

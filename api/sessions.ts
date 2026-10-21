@@ -16,10 +16,8 @@ import {
   handleExploitLocalElevate,
   type FiringShell,
 } from '../src/core/sessions/exploitLocalElevate.js';
-import {
-  derivedNetworkByPublicIp,
-  type NatOccupantRow,
-} from '../src/core/network/resolvePublicTarget.js';
+import type { NatOccupantRow } from '../src/core/network/resolvePublicTarget.js';
+import { networkByPublicIp, type FindBoardHandle } from '../src/core/hireme/boards.js';
 import {
   handleAuthCreateSessionSameLan,
   type OccupantConnectRow,
@@ -120,6 +118,26 @@ type QuerySpec = {
 const logFailure = (label: string, error: unknown) => {
   if (error) console.error(`[sessions] ${label} error:`, error);
 };
+
+/** The handle holding a contractor board's address, or none where nobody holds it — the
+ *  read that tells a board's address from an empty one. Service role only, as the table
+ *  allows nobody else; the address is UNIQUE, so the read is one indexed row. */
+const findBoardHandleVia =
+  ({ supabase, label }: QuerySpec): FindBoardHandle =>
+  async (address) => {
+    const { data, error } = await supabase
+      .from('hireme_boards')
+      .select('handle')
+      .eq('address', address)
+      .maybeSingle();
+    logFailure(label, error);
+    return { data: data as { handle: string } | null, error };
+  };
+
+/** What stands at a public address: a board's address read from the table, every other
+ *  address derived from the world. Every door to a public address finds its network
+ *  through this, so none can reach a board another cannot. */
+const networkByPublicIpVia = (spec: QuerySpec) => networkByPublicIp(findBoardHandleVia(spec));
 
 /** Every row shape this endpoint persists into `sessions`. They differ in `kind` and in
  *  whether an `essid` rides along; the insert itself does not care, and each handler has
@@ -579,7 +597,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       readLog: listPathPatchesVia({ supabase, label: 'exploit trace read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'exploit trace upsert' }),
       listLeasesByEssid: listLeasesByEssidVia({ supabase, label: 'exploit lan-lease list' }),
-      findNetworkByPublicIp: derivedNetworkByPublicIp,
+      findNetworkByPublicIp: networkByPublicIpVia({ supabase, label: 'board lookup' }),
       findPublicIpByEssid: derivedPublicIpByEssid,
       listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
         supabase,
@@ -647,7 +665,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { status, body } = await handleAuthCreateSessionPublic(req.body, {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
-      findNetworkByPublicIp: derivedNetworkByPublicIp,
+      findNetworkByPublicIp: networkByPublicIpVia({ supabase, label: 'board lookup' }),
       findPatches: findPatchesVia({ supabase, label: 'public auth boot-state lookup' }),
       listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
         supabase,
@@ -740,7 +758,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findPatches: findPatchesVia({ supabase, label: 'mysql target journal lookup' }),
       readMysqlLog: listPathPatchesVia({ supabase, label: 'mysql log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'mysql log upsert' }),
-      findNetworkByPublicIp: derivedNetworkByPublicIp,
+      findNetworkByPublicIp: networkByPublicIpVia({ supabase, label: 'board lookup' }),
       findPublicIpByEssid: derivedPublicIpByEssid,
       listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
         supabase,
@@ -777,7 +795,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findPatches: findPatchesVia({ supabase, label: 'mysql statement journal lookup' }),
       readMysqlLog: listPathPatchesVia({ supabase, label: 'mysql statement log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'mysql datadir + log upsert' }),
-      findNetworkByPublicIp: derivedNetworkByPublicIp,
+      findNetworkByPublicIp: networkByPublicIpVia({ supabase, label: 'board lookup' }),
       findPublicIpByEssid: derivedPublicIpByEssid,
       listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
         supabase,
@@ -815,7 +833,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findPatches: findPatchesVia({ supabase, label: 'redis target journal lookup' }),
       readRedisLog: listPathPatchesVia({ supabase, label: 'redis log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'redis log upsert' }),
-      findNetworkByPublicIp: derivedNetworkByPublicIp,
+      findNetworkByPublicIp: networkByPublicIpVia({ supabase, label: 'board lookup' }),
       findPublicIpByEssid: derivedPublicIpByEssid,
       listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
         supabase,
@@ -856,7 +874,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       readSnmpdLog: listPathPatchesVia({ supabase, label: 'snmpd log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'snmpd log upsert' }),
       findPublicIpByEssid: derivedPublicIpByEssid,
-      findNetworkByPublicIp: derivedNetworkByPublicIp,
+      findNetworkByPublicIp: networkByPublicIpVia({ supabase, label: 'board lookup' }),
       listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
         supabase,
         label: 'snmp walk occupant list',
@@ -899,7 +917,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findPatches: findPatchesVia({ supabase, label: 'snmp set target journal lookup' }),
       readSnmpdLog: listPathPatchesVia({ supabase, label: 'snmpd set log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'snmpd set upsert' }),
-      findNetworkByPublicIp: derivedNetworkByPublicIp,
+      findNetworkByPublicIp: networkByPublicIpVia({ supabase, label: 'board lookup' }),
       findPublicIpByEssid: derivedPublicIpByEssid,
       listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
         supabase,
@@ -936,7 +954,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findPatches: findPatchesVia({ supabase, label: 'redis statement journal lookup' }),
       readRedisLog: listPathPatchesVia({ supabase, label: 'redis statement log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'redis statement upsert' }),
-      findNetworkByPublicIp: derivedNetworkByPublicIp,
+      findNetworkByPublicIp: networkByPublicIpVia({ supabase, label: 'board lookup' }),
       findPublicIpByEssid: derivedPublicIpByEssid,
       listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
         supabase,
@@ -975,7 +993,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       listPathPatches: listPathPatchesVia({ supabase, label: 'hydra wordlist read' }),
       readAuthLog: listPathPatchesVia({ supabase, label: 'hydra auth-log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'hydra auth-log upsert' }),
-      findNetworkByPublicIp: derivedNetworkByPublicIp,
+      findNetworkByPublicIp: networkByPublicIpVia({ supabase, label: 'board lookup' }),
       findPublicIpByEssid: derivedPublicIpByEssid,
       listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
         supabase,
