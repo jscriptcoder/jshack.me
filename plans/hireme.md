@@ -2,9 +2,8 @@
 
 **Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-20. Slice 1 shipped
 (v0.420.0, PR #719, 2026-10-20; migration on `jshack-dev` and `jshack-prod`). Slice 2, the board
-answers, is planned below, its choices and criteria confirmed 2026-10-21, and in progress on
-`feat/hireme-board`. The browser run waits for
-the epic's close-out.
+answers, shipped (v0.421.0, PR #721, 2026-10-21; no migration). Slice 3, a root on the boards'
+server, is next and not yet planned. The browser run waits for the epic's close-out.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 
@@ -331,6 +330,16 @@ the address, the 24-hour window, the mail, in one transaction) → a page answer
 - No browser run: one at the epic's close-out.
 
 ## Slice 2 plan: the board answers
+
+**As built (v0.421.0, PR #721).** All 9 criteria met. Unit tests at the block, `whois`, the
+box, the lookup, the page and both handlers; `scripts/testHiremeBoard.ts` 15/15 live, with
+`testHireme`, `testHackademy` and `testCrossPlayerRouter` rerun green. The bundle grew 148 B, to
+285,743 B of 286,975 B. Mutation: 122 killed, 3 equivalent survivors (two `?? ''` fallbacks, a
+`!== null` guard before an `includes`). One addition while building: a `gobuster` sweep of a
+board's address logged plain paths, so the absolute-form rule moved into one function,
+`loggedRequestPath` (`core/hireme/boards.ts`), that the fetch and the sweep both use; unit-tested
+only, since staging a live sweep needs a player standing on a box. `isBoardAddress` lives in
+`generation/ip.ts` beside `isPublicIp`, shared by `whois` and the lookup.
 
 **Branch**: `feat/hireme-board` · **Version**: 0.420.0 → 0.421.0 · **Class**: behaviour change
 · **Delivery**: one PR against `main`; no migration (the table and its service-role access
