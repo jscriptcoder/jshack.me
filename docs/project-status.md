@@ -1201,15 +1201,21 @@ agreed order:
     wire-check); the restore. No defect. As built:
     [`hireme-architecture.md`](./hireme-architecture.md); what jobs need is in `backlog.md` under
     "hireme — the missions it waits for".
-29. **The valley's paper at valleynews.io (in flight).** One site where everything is announced:
-    the valley's news, the developer's notes and real-world security news, in three labelled
-    sections, every story hand-written and posted by the operator from a story file. Slice 1
-    (v0.423.0): the paper is the eighth fixed site, its sections and stories built from
+29. ✅ **The valley's paper at valleynews.io (v0.423.0–v0.424.0, PRs #723 and #724,
+    2026-10-21).** One site where everything is announced: the valley's news, the developer's notes and real-world security news, in three
+    labelled sections, every story hand-written and posted by the operator from a story file.
+    Slice 1 (v0.423.0): the paper is the eighth fixed site, its sections and stories built from
     `news_stories` (migration on `jshack-dev` and `jshack-prod`), and `scripts/valleynews.ts
-    post` puts a story up. Slice 2 (v0.424.0): the script also edits a story in place and removes
-    one, and a new player's README ends at the paper. **Pick up here (2026-10-21):** its grill,
-    slices and live status are in `plans/valleynews.md`; the close-out browser run is next, then
-    the opening stories on release day. The items still open in `backlog.md` wait behind it.
+    post` puts a story up. Slice 2 (v0.424.0): the script also edits a story in place, keeping
+    its id and day, and removes one, and a new player's README ends at the paper. Browser
+    close-out (2026-10-21, v0.424.0): the README, the masthead and each view in lynx, an edit
+    across sections at the same address, a removal's 404, findit, a planted masthead and the
+    restore with every story kept. No defect. As built:
+    [`valleynews-architecture.md`](./valleynews-architecture.md); what it left out is in
+    `backlog.md` under "valleynews — follow-ups deferred". **Pick up here (2026-10-21):** the
+    paper opens empty, so the opening stories (a `/dev` launch note, a couple of `/wire` pieces, a
+    few `/valley` stories) are drafted by Claude as story files for the owner to read and posted
+    to prod with the script on release day; then the items still open in `backlog.md`.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

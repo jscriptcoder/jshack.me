@@ -57,14 +57,31 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   - **What the root view adds**, beyond each handle's address.
   - A second, darknet operator stays open as later content.
 
+- **valleynews — follow-ups deferred.** The paper shipped at v0.424.0 (as-built:
+  [`valleynews-architecture.md`](./valleynews-architecture.md)), every story hand-written and
+  posted by the operator. Left out on purpose:
+  - **Headlines generated from the world** (the towns and their places), and **from what players
+    did** (watching journals for bricks and defacements: "Copper Systems' site has been down since
+    Tuesday"). Each is a content generator with its own rules, deferred as townsfolk threads were
+    for talkit.
+  - **The newest `/dev` headline at boot**, or as a line after `nmcli connect`, when the bundle has
+    room: a box boots before it is on a network, and it needs a server read and client code.
+  - **A `/latest` stream across sections, and paging**, cheap to add if asked for or if a section
+    grows long enough.
+  - **A small markup**, indented code blocks, if a `/dev` post ever needs one.
+  - **Reporters with emailit.io inboxes**, and **an embargo queue a root could read** (a leaked
+    story as a job): both mission-shaped.
+
 - **More public websites — ideas, not yet grilled (2026-10-16).** The public web today is
   findit.io (search), mapit.io (the map), emailit.io (mail), hackademy.io and the public places'
   own sites. These are candidates to make Harrow Valley feel inhabited. Every name is a
   placeholder, and each site needs its own grill before it is planned.
   - **Inhabited world:**
-    - **Local news** (`valleynews.io`): generated headlines about the towns and their places,
-      and later things players did ("Copper Systems' site has been down since Tuesday"). It makes
-      persistence visible to everyone and can hand out leads.
+    - ✅ **Local news** (`valleynews.io`): shipped at v0.423.0–v0.424.0 (#723–#724), widened to
+      every announcement: the valley's news, the developer's notes and real-world security news,
+      hand-written and posted by the operator; as-built
+      [`valleynews-architecture.md`](./valleynews-architecture.md). Generated headlines, from the
+      world and from what players did, are under "valleynews — follow-ups deferred".
     - ✅ **A forum** (`talkit.io`): shipped at v0.410.0–v0.414.0 (#708–#712), players posting
       to each other first; as-built [`talkit-architecture.md`](./talkit-architecture.md).
       Townsfolk talking about their WiFi, jobs and new routers is its next piece, under "talkit

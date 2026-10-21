@@ -119,3 +119,22 @@ command at that `194.` address.
   `"GET http://<address>/ HTTP/1.1"` beside the reader's address.
 - `scripts/restoreSite.ts boards.hireme.io` restores it; the standing shell's next command prints
   "Connection to ap-gw closed by remote host." Boards and `hireme_boards` are untouched.
+
+**Reading valleynews.io while the operator posts** (verified 2026-10-21, v0.424.0). Stories
+reach the paper only through `scripts/valleynews.ts post <file>`, `edit <id> <file>` and
+`remove <id>`, run from the repo with `npx dotenv -e .env.development.local -- npx tsx …`; write
+the story files in the scratchpad. Each prints the id to open, and a page reads the table on
+every visit, so a lynx reload shows a change at once.
+- **Wait on lynx's address line, never on page text.** The scrollback still holds everything an
+  earlier `curl` printed, findit's results included, so a wait for "Harrow Valley paper" matched
+  the old search and the screenshot caught lynx still loading. Poll `innerText` for
+  `http://valleynews.io/<path>\n`, the bar lynx draws once the page is up.
+- **A story that is not there never opens lynx**: `lynx valleynews.io/story?id=53` after a
+  removal answers `lynx: (22) The requested URL returned error: 404` at the prompt.
+- **A story's links**: the nav is `[1]`–`[3]`, the section heading on a story page `[4]`, and a
+  section's stories follow from `[4]`. A `Source: …https://…` line carries no number: it is text.
+- **The defaced masthead** is planted as for mapit (`computeApGatewayId(fixedSite(
+  VALLEYNEWS_NETWORK).key)` at `/var/www/html/index.html`); the views keep answering from the
+  table, and `restoreSite.ts valleynews.io` brings the masthead back with every story kept.
+- **Clean up** by `remove`-ing each story the run posted: the paper opens empty, and
+  `testValleynews.ts` refuses a paper that holds stories.
