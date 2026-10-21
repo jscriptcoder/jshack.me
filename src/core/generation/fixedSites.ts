@@ -16,7 +16,8 @@ export type FixedSite = {
   /** The key the site is known by wherever a network is — its log rows, its address
    *  lookups. Never a wifi ESSID: nothing broadcasts it and nobody joins it. */
   readonly key: string;
-  /** The name it answers to on the web. */
+  /** The domain its hostname sits under, and for a site in `FIXED_SITES` the name it
+   *  answers to on the web. */
   readonly domain: string;
   /** What it calls itself on its own disk. */
   readonly hostname: string;
@@ -86,9 +87,23 @@ export const FIXED_SITES: readonly FixedSite[] = [
   HIREME,
 ];
 
-/** The fixed site known by `key`, or `undefined` for any other network. */
+/** The server hireme.io's contractor boards are served from: a fixed box like the sites,
+ *  but listed nowhere. It has no address of its own and no domain anybody can resolve; it
+ *  answers at every board's address, each held by one emailit.io handle, so nobody finds it
+ *  but by an address somebody was mailed. */
+const BOARD_SERVER: FixedSite = {
+  key: 'boards.hireme.io',
+  domain: HIREME.domain,
+  hostname: 'boards',
+  place: { category: 'hacker', place: 'the back office' },
+};
+
+const FIXED_BOXES: readonly FixedSite[] = [...FIXED_SITES, BOARD_SERVER];
+
+/** The fixed box known by `key` — a site or the boards' server — or `undefined` for any
+ *  other network. */
 export const fixedSite = (key: string): FixedSite | undefined =>
-  FIXED_SITES.find((site) => site.key === key);
+  FIXED_BOXES.find((site) => site.key === key);
 
 // findit keeps its own names: its search is the one thing a fixed site does that the
 // others do not.
@@ -110,3 +125,5 @@ export const TALKIT_DOMAIN = TALKIT.domain;
 
 export const HIREME_NETWORK = HIREME.key;
 export const HIREME_DOMAIN = HIREME.domain;
+
+export const BOARD_SERVER_NETWORK = BOARD_SERVER.key;

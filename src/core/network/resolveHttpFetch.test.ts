@@ -34,6 +34,7 @@ import type { PatchRow } from '../patches/upsertPatch.js';
 import { siteAddress } from '../generation/publisher.js';
 import { publicAddress } from '../generation/world.js';
 import {
+  BOARD_SERVER_NETWORK,
   CHAINIT_NETWORK,
   EMAILIT_DOMAIN,
   EMAILIT_NETWORK,
@@ -46,7 +47,8 @@ import {
 } from '../generation/fixedSites.js';
 import type { SignUp } from '../emailit/signup.js';
 import type { Apply } from '../hireme/apply.js';
-import { HIREME_FRONT_PAGE } from '../hireme/pages.js';
+import type { FindBoardHandle } from '../hireme/boards.js';
+import { boardPage, HIREME_FRONT_PAGE } from '../hireme/pages.js';
 import type { PostThread } from '../talkit/answerPost.js';
 import type { PostComment } from '../talkit/answerComment.js';
 import { FINDIT_FRONT_PAGE } from '../findit/page.js';
@@ -211,6 +213,7 @@ type FetchOverrides = {
   findPublicIpByEssid?: FindPublicIpByEssid;
   signUp?: SignUp;
   apply?: Apply;
+  findBoardHandle?: FindBoardHandle;
   findBalance?: WalletBalanceDeps['findBalance'];
   findTransfers?: WalletHistoryDeps['findTransfers'];
   findLatestTransfers?: ChainReads['findLatestTransfers'];
@@ -259,6 +262,10 @@ const makeDeps = (over: FetchOverrides = {}) => {
   const signUp = vi.fn<SignUp>(over.signUp ?? (async () => ({ data: 'created', error: null })));
   // Default: every application is mailed. Only hireme's `/apply` ever asks.
   const apply = vi.fn<Apply>(over.apply ?? (async () => ({ data: 'sent', error: null })));
+  // Default: nobody holds a board. Only a fetch of a board's address ever asks.
+  const findBoardHandle = vi.fn<FindBoardHandle>(
+    over.findBoardHandle ?? (async () => ({ data: null, error: null })),
+  );
   // Default: the ledger has never seen the address. Only chainit's `/address` ever asks.
   const findBalance = vi.fn<WalletBalanceDeps['findBalance']>(
     over.findBalance ?? (async () => ({ data: null, error: null })),
@@ -308,6 +315,7 @@ const makeDeps = (over: FetchOverrides = {}) => {
     signUp,
     apply,
     drawBoardAddress: () => '194.12.40.7',
+    findBoardHandle,
     findBalance,
     findTransfers,
     findLatestTransfers,
@@ -324,6 +332,7 @@ const makeDeps = (over: FetchOverrides = {}) => {
     postComment,
     signUp,
     apply,
+    findBoardHandle,
     findBalance,
     findTransfers,
     findLatestTransfers,
@@ -1488,6 +1497,169 @@ describe('hireme.io takes an application', () => {
       body: { error: 'apply_failed' },
     });
     expect(accessLogOf(upsertPatch)).toBeUndefined();
+  });
+});
+
+describe("a contractor board answers at its address", () => {
+  const BOARDS_ID = computeApGatewayId(BOARD_SERVER_NETWORK);
+  const NEO_BOARD = '194.12.40.7';
+  const TRINITY_BOARD = '194.200.3.254';
+  const HOLDERS: Readonly<Record<string, string>> = {
+    [NEO_BOARD]: 'neo',
+    [TRINITY_BOARD]: 'trinity',
+  };
+  const onBoards = {
+    lookup: async () => ({
+      data: { router_machine_id: BOARDS_ID, essid: BOARD_SERVER_NETWORK },
+      error: null,
+    }),
+    listOccupantsByEssid: async () => ({ data: [], error: null }),
+    listLeasesByEssid: async () => ({ data: [], error: null }),
+    findBoardHandle: async (address: string) => {
+      const handle = HOLDERS[address];
+      return { data: handle === undefined ? null : { handle }, error: null };
+    },
+  };
+  const request = (fields: Record<string, unknown>) =>
+    signRequest(BOB, 'resolveHttpFetch', {
+      target: NEO_BOARD,
+      port: HTTP_DEFAULT_PORT,
+      path: '/',
+      ...fields,
+    });
+  const contentOf = (response: { body: Record<string, unknown> }): string =>
+    typeof response.body.content === 'string' ? response.body.content : '';
+  const accessLogOf = (upsertPatch: ReturnType<typeof makeDeps>['upsertPatch']) =>
+    upsertPatch.mock.calls.map(([row]) => row).find((row) => row.path === ACCESS_LOG_PATH);
+
+  it('answers the board of the handle that holds the address asked', async () => {
+    const { deps, findBoardHandle } = makeDeps(onBoards);
+
+    expect(await handleResolveHttpFetch(request({}), deps)).toEqual({
+      status: 200,
+      body: { ok: true, content: boardPage('neo'), server: 'nginx' },
+    });
+    expect(findBoardHandle).toHaveBeenCalledWith(NEO_BOARD);
+  });
+
+  it("answers another handle's address with that handle's board", async () => {
+    const { deps } = makeDeps(onBoards);
+
+    const response = await handleResolveHttpFetch(request({ target: TRINITY_BOARD }), deps);
+
+    expect(contentOf(response)).toBe(boardPage('trinity'));
+  });
+
+  it('answers the board however its query string reads', async () => {
+    const { deps } = makeDeps(onBoards);
+
+    const response = await handleResolveHttpFetch(request({ path: '/?from=mail' }), deps);
+
+    expect(contentOf(response)).toBe(boardPage('neo'));
+  });
+
+  // Every board's address lands on the one box and its one log, so the line names the
+  // address asked, or a root reading it could not tell whose board was read.
+  it('records the read with the address it asked, under the boards server', async () => {
+    const { deps, upsertPatch } = makeDeps(onBoards);
+
+    const response = await handleResolveHttpFetch(request({}), deps);
+
+    expect(accessLogOf(upsertPatch)?.machine_id).toBe(BOARDS_ID);
+    expect(accessLogOf(upsertPatch)?.content).toBe(
+      `${BOB_PUBLIC_IP} - - [30/Jul/2026:13:55:36 +0000] "GET http://${NEO_BOARD}/ HTTP/1.1" 200 ${contentOf(response).length}\n`,
+    );
+  });
+
+  it('serves any other path from its disk, which publishes nothing, and records the miss', async () => {
+    const { deps, upsertPatch, findBoardHandle } = makeDeps(onBoards);
+
+    const response = await handleResolveHttpFetch(request({ path: '/index.html' }), deps);
+
+    expect(response).toEqual({ status: 404, body: { error: 'not_found' } });
+    expect(accessLogOf(upsertPatch)?.content).toBe(
+      `${BOB_PUBLIC_IP} - - [30/Jul/2026:13:55:36 +0000] "GET http://${NEO_BOARD}/index.html HTTP/1.1" 404 0\n`,
+    );
+    expect(findBoardHandle).not.toHaveBeenCalled();
+  });
+
+  it('refuses a form, as every server but the ones that take one does', async () => {
+    const { deps, upsertPatch, findBoardHandle } = makeDeps(onBoards);
+
+    const response = await handleResolveHttpFetch(request({ body: 'contract=1' }), deps);
+
+    expect(response).toEqual({
+      status: 405,
+      body: { error: 'method_not_allowed', server: 'nginx' },
+    });
+    expect(accessLogOf(upsertPatch)?.content).toBe(
+      `${BOB_PUBLIC_IP} - - [30/Jul/2026:13:55:36 +0000] "POST http://${NEO_BOARD}/ HTTP/1.1" 405 ${METHOD_NOT_ALLOWED_PAGE.length}\n`,
+    );
+    expect(findBoardHandle).not.toHaveBeenCalled();
+  });
+
+  it("never answers a root's front page in place of a board", async () => {
+    const { deps } = makeDeps({
+      ...onBoards,
+      patches: patchesByMachine({ [BOARDS_ID]: [publishedPage('<h1>OWNED</h1>')] }),
+    });
+
+    expect(contentOf(await handleResolveHttpFetch(request({}), deps))).toBe(boardPage('neo'));
+    expect(contentOf(await handleResolveHttpFetch(request({ path: '/index.html' }), deps))).toBe(
+      '<h1>OWNED</h1>',
+    );
+  });
+
+  it.each([
+    ['bricked', '/boot/vmlinuz'],
+    ['whose web server was stopped', `/var/run/${SERVICE_CATALOG.http.pidfile}`],
+  ])('answers no board when the box is %s', async (_case, removed) => {
+    const { deps, findBoardHandle } = makeDeps({
+      ...onBoards,
+      patches: patchesByMachine({
+        [BOARDS_ID]: [{ ...publishedPage(''), path: removed, content: null, node_type: null }],
+      }),
+    });
+
+    expect(await handleResolveHttpFetch(request({}), deps)).toEqual({
+      status: 404,
+      body: { error: 'host_unreachable' },
+    });
+    expect(findBoardHandle).not.toHaveBeenCalled();
+  });
+
+  it('answers as nothing when the board is gone by the time it is read, and records nothing', async () => {
+    const { deps, upsertPatch } = makeDeps({
+      ...onBoards,
+      findBoardHandle: async () => ({ data: null, error: null }),
+    });
+
+    expect(await handleResolveHttpFetch(request({}), deps)).toEqual({
+      status: 404,
+      body: { error: 'host_unreachable' },
+    });
+    expect(accessLogOf(upsertPatch)).toBeUndefined();
+  });
+
+  it('reports a board it could not read as a server error, and records nothing', async () => {
+    const { deps, upsertPatch } = makeDeps({
+      ...onBoards,
+      findBoardHandle: async () => ({ data: null, error: { message: 'connection refused' } }),
+    });
+
+    expect(await handleResolveHttpFetch(request({}), deps)).toEqual({
+      status: 500,
+      body: { error: 'board_lookup_failed' },
+    });
+    expect(accessLogOf(upsertPatch)).toBeUndefined();
+  });
+
+  it('reads no board for a fetch of any other site', async () => {
+    const { deps, findBoardHandle } = makeDeps({ patches: aliceServing() });
+
+    await handleResolveHttpFetch(envelope({}), deps);
+
+    expect(findBoardHandle).not.toHaveBeenCalled();
   });
 });
 

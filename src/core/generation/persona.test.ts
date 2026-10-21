@@ -112,6 +112,15 @@ describe('networkPersona', () => {
     });
   });
 
+  it("keeps the contractor boards' server hireme's back office", () => {
+    expect(networkPersona('boards.hireme.io')).toEqual({
+      category: 'hacker',
+      place: 'the back office',
+      domain: 'boards-hireme-io.lan',
+      town: 'Ridgemont',
+    });
+  });
+
   it('does not put every network outside the catalog in the same kind of place', () => {
     const categories = new Set(
       Array.from({ length: 40 }, (_unused, index) => networkPersona(`Uncatalogued-${index}`).category),

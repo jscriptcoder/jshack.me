@@ -43,6 +43,7 @@ import { HTTP_DEFAULT_PORT, METHOD_NOT_ALLOWED_PAGE, resolveWebPath } from './ht
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import { generatedLanBox } from './generatedLanBox.js';
 import {
+  BOARD_SERVER_NETWORK,
   CHAINIT_NETWORK,
   EMAILIT_NETWORK,
   FINDIT_NETWORK,
@@ -51,6 +52,8 @@ import {
 } from '../generation/fixedSites.js';
 import { answerSignup, type SignUp } from '../emailit/signup.js';
 import { answerApply, type Apply } from '../hireme/apply.js';
+import { loggedRequestPath, type FindBoardHandle } from '../hireme/boards.js';
+import { boardPage } from '../hireme/pages.js';
 import { answerPost, type PostThread } from '../talkit/answerPost.js';
 import { answerComment, type PostComment } from '../talkit/answerComment.js';
 import { indexedWeb, siteOn, type MachinePatchRow } from '../findit/webIndex.js';
@@ -170,6 +173,8 @@ export type ResolveHttpFetchDeps = WebTargetDeps & {
   /** A fresh address in the boards' block, offered to `apply` for a handle that has no
    *  board yet. */
   readonly drawBoardAddress: () => string;
+  /** The handle holding a board's address. Only a fetch of a board reaches it. */
+  readonly findBoardHandle: FindBoardHandle;
   /** Start a thread at talkit.io. Only a form POSTed to talkit's `/post` reaches it. */
   readonly postThread: PostThread;
   /** Comment on a thread at talkit.io. Only a form POSTed to talkit's `/comment` reaches
@@ -441,6 +446,9 @@ const SIGNUP_PATH = '/signup';
 /** Where hireme.io takes an application. */
 const APPLY_PATH = '/apply';
 
+/** Where the boards' server answers a contractor board. */
+const BOARD_PATH = '/';
+
 /** Where talkit.io takes a new thread. */
 const POST_PATH = '/post';
 
@@ -555,6 +563,13 @@ export const handleResolveHttpFetch = async (
     return target;
   }
 
+  // What every line below records: on the boards' server, the address asked as well.
+  const loggedPath = loggedRequestPath({
+    essid: target.essid,
+    address: payload.target,
+    path: payload.path,
+  });
+
   // emailit.io's `/signup` is the one place in the world that takes a form, and like
   // findit's search it answers from a function, not a file: a rooted emailit.io can deface
   // its front page without breaking sign-up, and a dark one has already refused above.
@@ -571,7 +586,7 @@ export const handleResolveHttpFetch = async (
     if (page === null) return { status: 500, body: { error: 'signup_failed' } };
     await logFetch(deps, target, publicKey, standing.standingEssid, {
       method: 'POST',
-      path: payload.path,
+      path: loggedPath,
       status: 200,
       size: page.length,
     });
@@ -593,7 +608,7 @@ export const handleResolveHttpFetch = async (
     if (page === null) return { status: 500, body: { error: 'apply_failed' } };
     await logFetch(deps, target, publicKey, standing.standingEssid, {
       method: 'POST',
-      path: payload.path,
+      path: loggedPath,
       status: 200,
       size: page.length,
     });
@@ -617,7 +632,7 @@ export const handleResolveHttpFetch = async (
     if (answer === null) return { status: 500, body: { error: 'post_failed' } };
     const sourceIp = await logFetch(deps, target, publicKey, standing.standingEssid, {
       method: 'POST',
-      path: payload.path,
+      path: loggedPath,
       status: 200,
       size: answer.page.length,
     });
@@ -647,7 +662,7 @@ export const handleResolveHttpFetch = async (
     if (answer === null) return { status: 500, body: { error: 'comment_failed' } };
     const sourceIp = await logFetch(deps, target, publicKey, standing.standingEssid, {
       method: 'POST',
-      path: payload.path,
+      path: loggedPath,
       status: 200,
       size: answer.page.length,
     });
@@ -666,11 +681,30 @@ export const handleResolveHttpFetch = async (
   if (payload.body !== undefined) {
     await logFetch(deps, target, publicKey, standing.standingEssid, {
       method: 'POST',
-      path: payload.path,
+      path: loggedPath,
       status: 405,
       size: METHOD_NOT_ALLOWED_PAGE.length,
     });
     return { status: 405, body: { error: 'method_not_allowed', server: target.server } };
+  }
+
+  // A contractor board is answered by the boards' server from the table, for the handle
+  // holding the address asked, never from a file: a root on the server can plant a page at
+  // any other path, but cannot put one in place of anybody's board. Reached only after the
+  // target resolved, so a dark server answers no board at all.
+  if (target.essid === BOARD_SERVER_NETWORK && pathOf(payload.path) === BOARD_PATH) {
+    const holder = await deps.findBoardHandle(payload.target);
+    // No page was served, so nothing is recorded, as for chainit's failed read.
+    if (holder.error) return { status: 500, body: { error: 'board_lookup_failed' } };
+    // The board was let go between finding the server and reading it: nothing is there.
+    if (holder.data === null) return UNREACHABLE;
+    const page = boardPage(holder.data.handle);
+    await logFetch(deps, target, publicKey, standing.standingEssid, {
+      path: loggedPath,
+      status: 200,
+      size: page.length,
+    });
+    return { status: 200, body: { ok: true, content: page, server: target.server } };
   }
 
   // chainit answers its views from the ledger, like findit's search, never from a file:
@@ -684,7 +718,7 @@ export const handleResolveHttpFetch = async (
     // No page was served, so nothing is recorded — as for a sign-up that failed.
     if (page === null) return { status: 500, body: { error: 'ledger_lookup_failed' } };
     await logFetch(deps, target, publicKey, standing.standingEssid, {
-      path: payload.path,
+      path: loggedPath,
       status: 200,
       size: page.length,
     });
@@ -702,7 +736,7 @@ export const handleResolveHttpFetch = async (
     if (answer === null) return { status: 500, body: { error: 'forum_lookup_failed' } };
     const content = answer.status === 200 ? answer.page : '';
     await logFetch(deps, target, publicKey, standing.standingEssid, {
-      path: payload.path,
+      path: loggedPath,
       status: answer.status,
       size: content.length,
     });
@@ -719,7 +753,7 @@ export const handleResolveHttpFetch = async (
   if (query !== null) {
     const results = await answerSearch(deps, query);
     await logFetch(deps, target, publicKey, standing.standingEssid, {
-      path: payload.path,
+      path: loggedPath,
       status: 200,
       size: results.length,
     });
@@ -741,7 +775,7 @@ export const handleResolveHttpFetch = async (
   // one a defender most needs to see. Only the unreachable cases above leave no trace,
   // where there was no machine to do the recording.
   await logFetch(deps, target, publicKey, standing.standingEssid, {
-    path: payload.path,
+    path: loggedPath,
     status: content === null ? 404 : 200,
     size: content === null ? 0 : content.length,
   });

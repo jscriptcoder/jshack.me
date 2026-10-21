@@ -32,14 +32,16 @@ const read = (tree: Directory, path: string): string | null => {
 };
 
 describe.each([
-  ['findit.io', 'findit'],
-  ['hackademy.io', 'hackademy'],
-  ['mapit.io', 'mapit'],
-  ['emailit.io', 'emailit'],
-  ['chainit.io', 'chainit'],
-  ['talkit.io', 'talkit'],
-  ['hireme.io', 'hireme'],
-])('the box %s runs on', (key, hostname) => {
+  ['findit.io', 'findit', 'findit.io'],
+  ['hackademy.io', 'hackademy', 'hackademy.io'],
+  ['mapit.io', 'mapit', 'mapit.io'],
+  ['emailit.io', 'emailit', 'emailit.io'],
+  ['chainit.io', 'chainit', 'chainit.io'],
+  ['talkit.io', 'talkit', 'talkit.io'],
+  ['hireme.io', 'hireme', 'hireme.io'],
+  // The contractor boards' server: hireme's back office, under hireme's domain.
+  ['boards.hireme.io', 'boards', 'hireme.io'],
+])('the box %s runs on', (key, hostname, domain) => {
   const box = (): Directory => siteBox(key);
 
   it('comes up', () => {
@@ -98,7 +100,9 @@ describe.each([
 
   it('is named for itself, on its own domain', () => {
     expect(read(box(), '/etc/hostname')?.trim()).toBe(hostname);
-    expect(read(box(), '/etc/hosts')).toContain(`127.0.1.1\t${hostname}.${key} ${hostname}\n`);
+    expect(read(box(), '/etc/hosts')).toContain(
+      `127.0.1.1\t${hostname}.${domain} ${hostname}\n`,
+    );
   });
 });
 
@@ -118,6 +122,7 @@ describe('the fixed sites, side by side', () => {
       'chainit.io',
       'talkit.io',
       'hireme.io',
+      'boards.hireme.io',
     ].map(rootHash);
     expect(new Set(hashes).size).toBe(hashes.length);
   });
@@ -144,6 +149,13 @@ describe("talkit.io's box", () => {
       expect(read(siteBox('talkit.io'), `/var/www/html/${path}`)).toBeNull();
     },
   );
+});
+
+describe("the contractor boards' box", () => {
+  it('publishes nothing from its disk, since every board is answered by the server', () => {
+    const webRoot = nodeAt(siteBox('boards.hireme.io'), '/var/www/html');
+    expect(webRoot?.kind === 'directory' ? [...webRoot.entries.keys()] : null).toEqual([]);
+  });
 });
 
 describe("hireme.io's box", () => {

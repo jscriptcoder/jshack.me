@@ -725,6 +725,10 @@ const addressOf = (town: Town, index: number): string => {
 
 /** The block of the networks that stand in no town: findit, and the corporations. */
 export const PLACELESS_FIRST_OCTET = 193;
+/** The block hireme.io hands its contractor boards out from, an address at a time, each
+ *  held by one emailit.io handle and stored rather than derived. No network in the world
+ *  answers in it, so an address nobody holds is as empty as any other. */
+export const BOARD_FIRST_OCTET = 194;
 /** How many networks the placeless block holds: every second octet by a town's worth. */
 const PLACELESS_NETWORKS = TOWNS_PER_REGION * NETWORKS_PER_TOWN;
 /** Steps through the placeless block. A prime sharing no factor with

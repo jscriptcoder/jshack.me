@@ -148,8 +148,9 @@ still checks it.
   them.
 - **No network answers at a `.1` address**, so a wire-check that needs an address where nobody
   answers uses one (`87.1.0.1`, `193.0.0.1`), true for any world.
-- **Only `87` and `193` are public** (`isPublicIp`). A network the world does not declare has no
-  address at all: a lab network a wire-check joins is reachable only from its own LAN, and a
+- **Only `87`, `193` and `194` are public** (`isPublicIp`). `194` holds hireme.io's contractor
+  boards, each address drawn and stored rather than derived (`docs/cross-player-architecture.md`).
+  A network the world does not declare has no address at all: a lab network a wire-check joins is reachable only from its own LAN, and a
   trace names a player standing on one as `unknown`.
 
 The random allocator, its 12 first octets and its `network_public_ips` table were retired by a

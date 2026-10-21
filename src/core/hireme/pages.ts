@@ -8,7 +8,8 @@
  * defaced front page leaves applying working, and a dark box takes both down.
  *
  * No page holds a board's address. Anyone may apply for any handle, so the address goes
- * only into the handle's inbox.
+ * only into the handle's inbox. The board itself is built here too, though it is served by
+ * the boards' server, not by hireme.io's.
  *
  * Plain HTML within what `lynx` renders, a command in a `<pre>` behind its `$ ` prompt.
  */
@@ -73,4 +74,12 @@ export const thanksPage = (handle: string, address: string): string =>
   page('Thanks for applying', [
     '<h1>Thanks for applying</h1>',
     `<p>Thanks, ${escapeHtml(handle)}. We have sent your contractor board to ${escapeHtml(address)}.</p>`,
+  ]);
+
+/** A handle's contractor board, answered by the server at the board's address. It says
+ *  whose it is, since whoever holds the address reads it. */
+export const boardPage = (handle: string): string =>
+  page('hireme.io - contractor board', [
+    `<h1>Welcome back, ${escapeHtml(handle)}.</h1>`,
+    '<p>Contractor board — no contracts available yet. New work is coming soon.</p>',
   ]);

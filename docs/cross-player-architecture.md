@@ -70,8 +70,14 @@ RLS denies anon/authenticated entirely; only the service-role function touches t
   (`core/generation/world.ts`). Every occupant of an AP shares it, and it answers before
   anybody has joined. A town's networks sit in their region's block (Ridgemont's landmarks at
   `87.1.x.y`); findit and the corporations sit in the placeless `193` block. `isPublicIp`
-  (`core/generation/ip.ts`) accepts exactly those blocks. A network the world does not declare
-  (a local lab network) has no public address.
+  (`core/generation/ip.ts`) accepts exactly those blocks and the contractor boards' `194`. A
+  network the world does not declare (a local lab network) has no public address.
+- **A contractor board's address** is the one public address that is stored: drawn in `194`
+  when a handle applies at hireme.io and kept in `hireme_boards`. Every door to a public
+  address finds its network through `networkByPublicIp` (`core/hireme/boards.ts`): a held
+  `194` address is the boards' server (`boards.hireme.io`, a fixed box with no address, domain
+  or listing of its own), an unheld one is nothing, and every other address is derived as
+  above without the table being read.
 - **Who is on an AP** = **`home_network_occupants`** (PK `(essid, owner_key)`, plus an index
   on `workstation_machine_id` for the reverse lookup): `workstation_machine_id`,
   `workstation_username`, `workstation_machine_name`, `workstation_root_hash`. Written on

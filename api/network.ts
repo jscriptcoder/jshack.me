@@ -58,7 +58,8 @@ import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
 import { createPrng } from '../src/core/generation/prng.js';
 import { derivedPublicIpByEssid } from '../src/core/logging/crossPlayerSourceIp.js';
 import type { MachinePatchRow as WebIndexPatchRow } from '../src/core/findit/webIndex.js';
-import { derivedNetworkByPublicIp } from '../src/core/network/resolvePublicTarget.js';
+import { networkByPublicIp, type FindBoardHandle } from '../src/core/hireme/boards.js';
+import { BOARD_FIRST_OCTET } from '../src/core/generation/world.js';
 import { randomInt, randomUUID } from 'node:crypto';
 
 // Vercel adapter for POST /api/network — joining an AP, and reaching what is on it.
@@ -91,6 +92,26 @@ const logFailure = (label: string, error: unknown) => {
   if (error) console.error(`[network] ${label} error:`, error);
 };
 
+/** The handle holding a contractor board's address, or none where nobody holds it — the
+ *  read that tells a board's address from an empty one. Service role only, as the table
+ *  allows nobody else; the address is UNIQUE, so the read is one indexed row. */
+const findBoardHandleVia =
+  ({ supabase, label }: QuerySpec): FindBoardHandle =>
+  async (address) => {
+    const { data, error } = await supabase
+      .from('hireme_boards')
+      .select('handle')
+      .eq('address', address)
+      .maybeSingle();
+    logFailure(label, error);
+    return { data: data as { handle: string } | null, error };
+  };
+
+/** What stands at a public address: a board's address read from the table, every other
+ *  address derived from the world. Every door to a public address finds its network
+ *  through this, so none can reach a board another cannot. */
+const networkByPublicIpVia = (spec: QuerySpec) => networkByPublicIp(findBoardHandleVia(spec));
+
 /**
  * Finding the box behind a public address and a port — the reads shared by every web
  * tool that reaches across networks. One definition at the adapter as well as in core:
@@ -98,7 +119,7 @@ const logFailure = (label: string, error: unknown) => {
  * order, or the two would disagree about what is even there.
  */
 const webTargetDepsVia = ({ supabase, label }: QuerySpec): WebTargetDeps => ({
-  findNetworkByPublicIp: derivedNetworkByPublicIp,
+  findNetworkByPublicIp: networkByPublicIpVia({ supabase, label: `${label} board lookup` }),
   // Per-machine journal: the gateway's (boot state + the live forward table), then the
   // reached box's (its running services and the pages themselves).
   findPatches: async ({ machine_id }: { machine_id: string }) => {
@@ -313,7 +334,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // A public IP belongs to the ESSID's shared GATEWAY, a distinct machine whose id
     // derives from the ESSID: its journal drives the boot-state check, its own sshd:22,
     // and the forward table the handler liveness-gates each occupant's box against.
-    const findNetworkByPublicIp = derivedNetworkByPublicIp;
+    const findNetworkByPublicIp = networkByPublicIpVia({
+      supabase,
+      label: 'scan board lookup',
+    });
     // The resolved ROUTER's FULL journal (scoped to router_machine_id, server order)
     // so the handler can replay it over the seeded router base — to ask `canBoot`
     // (a `/boot` tombstone takes the public IP dark) and to read its open ports off
@@ -464,7 +488,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       },
       // A board's address: 194.<0-255>.<0-255>.<2-254>, the block no network in the world
       // answers from. Drawn from the OS's randomness, since nobody may guess the next one.
-      drawBoardAddress: () => `194.${randomInt(256)}.${randomInt(256)}.${randomInt(2, 255)}`,
+      drawBoardAddress: () =>
+        `${BOARD_FIRST_OCTET}.${randomInt(256)}.${randomInt(256)}.${randomInt(2, 255)}`,
+      // Only a fetch of a board's address reaches this: whose board it is.
+      findBoardHandle: findBoardHandleVia({ supabase, label: 'http-fetch board read' }),
       // Only a form POSTed to talkit.io's /post reaches this. The password check, the
       // hourly cap and the insert are one transaction inside the function, and its answer
       // is handed over as it came off the wire for the handler to read.

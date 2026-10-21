@@ -24,6 +24,7 @@ import type { ListPathPatchesResult } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import type { MachineLogReadResult } from '../patches/appendMachineLog.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
+import { BOARD_SERVER_NETWORK } from '../generation/fixedSites.js';
 
 /**
  * `handleResolveHttpSweep` is the path sweep pointed at another player. It answers the
@@ -340,6 +341,33 @@ describe('the box being swept records the whole run', () => {
       results: [{ path: '/../../etc/passwd', status: 404, size: 0 }],
     });
     expect(appendedLines(upsertPatch)).toEqual([[logLine('/../../etc/passwd', 404, 0)]]);
+  });
+
+  // Every board's address lands on the one boards' server and its one log, so each probe
+  // there names the address swept, or its log could not say whose board was aimed at.
+  it("names the address swept on each line the boards' server records", async () => {
+    const { deps, upsertPatch } = makeDeps({
+      lookup: async () => ({
+        data: {
+          router_machine_id: computeApGatewayId(BOARD_SERVER_NETWORK),
+          essid: BOARD_SERVER_NETWORK,
+        },
+        error: null,
+      }),
+      patches: async () => ({ data: [], error: null }),
+      listPathPatches: async () => ({ data: [dirlistRow(['admin'])], error: null }),
+    });
+
+    const { body } = await handleResolveHttpSweep(envelope({ target: '194.12.40.7' }), deps);
+
+    // The finding a player is shown stays the path they can fetch; only the log names
+    // the address.
+    expect(body).toEqual({
+      ok: true,
+      dirlistFound: true,
+      results: [{ path: '/admin', status: 404, size: 0 }],
+    });
+    expect(appendedLines(upsertPatch)).toEqual([[logLine('http://194.12.40.7/admin', 404, 0)]]);
   });
 
   it('traces a sweep launched from somebody else’s box to THAT box’s network', async () => {
