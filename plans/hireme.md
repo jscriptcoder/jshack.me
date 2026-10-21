@@ -3,8 +3,8 @@
 **Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-20. Slice 1 shipped
 (v0.420.0, PR #719, 2026-10-20; migration on `jshack-dev` and `jshack-prod`). Slice 2, the board
 answers, shipped (v0.421.0, PR #721, 2026-10-21; no migration). Slice 3, a root on the boards'
-server, is planned below, its choices confirmed 2026-10-21, and in progress on
-`feat/hireme-board-root`. The browser run waits for the epic's close-out.
+server, shipped (v0.422.0, PR #722, 2026-10-21; no migration). All three slices are in; the
+epic's one browser run is next, then the close-out moves this file's content into `docs/`.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 
@@ -485,6 +485,14 @@ the same box through the same lookup.
 - No browser run: one at the epic's close-out.
 
 ## Slice 3 plan: a root on the boards' server
+
+**As built (v0.422.0, PR #722).** All 7 criteria met. Unit tests at the box, `withBoardsList`
+and the `resolveCrossPlayerFs` dispatch; `scripts/testHiremeBoardRoot.ts` 13/13 live, with
+`testMailSpool`, `testRestoreSite hireme.io` and `emailit.io`, `testHiremeBoard` and `testHireme`
+rerun green. The bundle grew 27 B, to 285,770 B of 286,975 B. Mutation: 59 killed, none survived.
+One change from the plan: `testRestoreSite.ts` was left as it is, since it assumes a site whose
+`/` is a file and whose address is its domain's; the boards' server's restore is checked in
+`testHiremeBoardRoot.ts` instead. `FIXED_BOXES` is now exported, for the restore's usage line.
 
 **Branch**: `feat/hireme-board-root` · **Version**: 0.421.0 → 0.422.0 · **Class**: behaviour
 change · **Delivery**: one PR against `main`; no migration (the table and its service-role access
