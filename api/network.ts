@@ -58,7 +58,11 @@ import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
 import { createPrng } from '../src/core/generation/prng.js';
 import { derivedPublicIpByEssid } from '../src/core/logging/crossPlayerSourceIp.js';
 import type { MachinePatchRow as WebIndexPatchRow } from '../src/core/findit/webIndex.js';
-import { networkByPublicIp, type FindBoardHandle } from '../src/core/hireme/boards.js';
+import {
+  networkByPublicIp,
+  type Board,
+  type FindBoardHandle,
+} from '../src/core/hireme/boards.js';
 import { BOARD_FIRST_OCTET } from '../src/core/generation/world.js';
 import { randomInt, randomUUID } from 'node:crypto';
 
@@ -909,6 +913,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (error) console.error('[network] mail spool lookup error:', error);
       return { data: data as readonly SpoolAccount[] | null, error };
     };
+    // Every contractor board with the handle holding it. The order is the core's.
+    const findBoards = async () => {
+      const { data, error } = await supabase
+        .from('hireme_boards')
+        .select('handle, address, applied_at');
+      if (error) console.error('[network] boards lookup error:', error);
+      return { data: data as readonly Board[] | null, error };
+    };
     const { status, body } = await handleResolveCrossPlayerFs(req.body, {
       nonceStore: noopNonceStore,
       findOccupantWorkstationByMachineId,
@@ -916,6 +928,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findLastSessionEssid,
       findPatches,
       findMailSpool,
+      findBoards,
     });
     res.status(status).json(body);
     return;

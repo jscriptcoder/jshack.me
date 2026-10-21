@@ -1,7 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { networkByPublicIp, type FindBoardHandle } from './boards.js';
+import {
+  networkByPublicIp,
+  withBoardsList,
+  type Board,
+  type FindBoardHandle,
+} from './boards.js';
 import { computeApGatewayId } from '../identity/router.js';
 import { publicAddress } from '../generation/world.js';
+import { dir, file, PASSWD_FILE, ROOT_DIR, ROOT_FILE, TRAVERSABLE_DIR } from '../generation/baseFs.js';
+import type { Directory, FileNode } from '../filesystem/types.js';
 
 /**
  * Which network stands at a public address, now that some addresses are stored rather than
@@ -73,5 +80,88 @@ describe('networkByPublicIp', () => {
     });
     expect(await lookup('87.1.0.1')).toEqual({ data: null, error: null });
     expect(boards.asked).toEqual([]);
+  });
+});
+
+/**
+ * The list a root finds on the boards' server: every board's handle beside its address, built
+ * from the table's rows. The rows are made here; the file is the behaviour.
+ */
+
+const board = (overrides: Partial<Board> = {}): Board => ({
+  handle: 'neo',
+  address: '194.12.40.7',
+  applied_at: '2026-10-20T09:00:00.000+00:00',
+  ...overrides,
+});
+
+/** The box as the boards' server is generated: `/etc/hireme` there, empty, beside the box's
+ *  own `/etc/passwd`. */
+const boardsBox = (): Directory =>
+  dir(
+    {
+      etc: dir(
+        {
+          passwd: file('root:x:0:0:root:/root:/bin/bash\n', PASSWD_FILE),
+          hireme: dir({}, ROOT_DIR),
+        },
+        TRAVERSABLE_DIR,
+      ),
+    },
+    TRAVERSABLE_DIR,
+  );
+
+const nodeAt = (tree: Directory, path: string): FileNode | undefined =>
+  path
+    .split('/')
+    .filter((segment) => segment !== '')
+    .reduce<FileNode | undefined>(
+      (node, name) => (node?.kind === 'directory' ? node.entries.get(name) : undefined),
+      tree,
+    );
+
+const contentAt = (tree: Directory, path: string): string | undefined => {
+  const node = nodeAt(tree, path);
+  return node?.kind === 'file' ? node.content : undefined;
+};
+
+describe("the boards' server /etc/hireme/boards", () => {
+  it('holds one handle and address line per board, in the order they were applied for', () => {
+    const tree = withBoardsList(boardsBox(), [
+      board({ handle: 'trin', address: '194.200.3.254', applied_at: '2026-10-20T10:00:00Z' }),
+      board({ handle: 'neo', address: '194.12.40.7', applied_at: '2026-10-20T09:00:00Z' }),
+      board({ handle: 'morph', address: '194.0.0.2', applied_at: '2026-10-20T11:00:00Z' }),
+    ]);
+
+    expect(contentAt(tree, '/etc/hireme/boards')).toBe(
+      'neo 194.12.40.7\ntrin 194.200.3.254\nmorph 194.0.0.2\n',
+    );
+  });
+
+  it('orders by the moment of applying, not by how the time is written', () => {
+    const tree = withBoardsList(boardsBox(), [
+      board({ handle: 'late', applied_at: '2026-10-20T10:00:00+00:00' }),
+      board({ handle: 'early', applied_at: '2026-10-20T11:30:00+02:00' }),
+    ]);
+
+    expect(contentAt(tree, '/etc/hireme/boards')).toMatch(/^early .*\nlate /);
+  });
+
+  it('is root-only and owned by root', () => {
+    const node = nodeAt(withBoardsList(boardsBox(), [board()]), '/etc/hireme/boards');
+
+    expect(node).toMatchObject({ kind: 'file', owner: 'root', perms: ROOT_FILE });
+  });
+
+  it('is empty when nobody has applied', () => {
+    expect(contentAt(withBoardsList(boardsBox(), []), '/etc/hireme/boards')).toBe('');
+  });
+
+  it('leaves the box it was given unchanged', () => {
+    const box = boardsBox();
+
+    withBoardsList(box, [board()]);
+
+    expect(nodeAt(box, '/etc/hireme/boards')).toBeUndefined();
   });
 });

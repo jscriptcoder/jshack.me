@@ -50,6 +50,7 @@ import { CHAINIT_FRONT_PAGE } from '../chainit/pages.js';
 import { TALKIT_FRONT_PAGE } from '../talkit/pages.js';
 import { HIREME_FRONT_PAGE } from '../hireme/pages.js';
 import {
+  BOARD_SERVER_NETWORK,
   CHAINIT_NETWORK,
   EMAILIT_NETWORK,
   FINDIT_NETWORK,
@@ -87,6 +88,10 @@ const WEB_ROOTS: ReadonlyMap<string, Readonly<Record<string, string>>> = new Map
  *  are, so a root's write or `rm` there lands in a directory the box really has. */
 const keepsMail = (site: FixedSite): boolean => site.key === EMAILIT_NETWORK;
 
+/** The box that keeps the list of contractor boards. Like the mail, the list is laid in from
+ *  the boards' table when a root reads the box; only the directory it sits in is generated. */
+const keepsBoards = (site: FixedSite): boolean => site.key === BOARD_SERVER_NETWORK;
+
 /**
  * The machine a fixed site runs on, as generated: a web host with one account, the web
  * server that publishes its pages and the sshd its operators log in by. Built from the
@@ -122,6 +127,7 @@ export const buildFixedSiteFs = (site: FixedSite): Directory => {
           ),
           passwd: file(passwd, PASSWD_FILE),
           ...(keepsMail(site) ? { emailit: dir({}, ROOT_DIR) } : {}),
+          ...(keepsBoards(site) ? { hireme: dir({}, ROOT_DIR) } : {}),
         },
         TRAVERSABLE_DIR,
       ),
