@@ -76,6 +76,13 @@ const HIREME: FixedSite = {
   place: { category: 'hacker', place: 'the hiring hall' },
 };
 
+const VALLEYNEWS: FixedSite = {
+  key: 'valleynews.io',
+  domain: 'valleynews.io',
+  hostname: 'valleynews',
+  place: { category: 'hacker', place: 'the newsroom' },
+};
+
 /** Every fixed site, in the order their addresses were handed out. */
 export const FIXED_SITES: readonly FixedSite[] = [
   FINDIT,
@@ -85,6 +92,7 @@ export const FIXED_SITES: readonly FixedSite[] = [
   CHAINIT,
   TALKIT,
   HIREME,
+  VALLEYNEWS,
 ];
 
 /** The server hireme.io's contractor boards are served from: a fixed box like the sites,
@@ -126,5 +134,7 @@ export const TALKIT_DOMAIN = TALKIT.domain;
 
 export const HIREME_NETWORK = HIREME.key;
 export const HIREME_DOMAIN = HIREME.domain;
+
+export const VALLEYNEWS_NETWORK = VALLEYNEWS.key;
 
 export const BOARD_SERVER_NETWORK = BOARD_SERVER.key;

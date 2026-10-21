@@ -2490,6 +2490,7 @@ describe("Ridgemont's addresses", () => {
       'chainit.io',
       'talkit.io',
       'hireme.io',
+      'valleynews.io',
       ...corporations.map((network) => network.key),
     ]) {
       const address = publicAddress(key);
@@ -2510,6 +2511,7 @@ describe("Ridgemont's addresses", () => {
         'chainit.io',
         'talkit.io',
         'hireme.io',
+        'valleynews.io',
         'ACME-CORP',
         'NAKATOMI-PLAZA',
         'BREW-AND-CODE',
@@ -2523,6 +2525,7 @@ describe("Ridgemont's addresses", () => {
       ['chainit.io', '193.41.222.56'],
       ['talkit.io', '193.57.78.203'],
       ['hireme.io', '193.72.191.97'],
+      ['valleynews.io', '193.88.47.244'],
       ['ACME-CORP', '193.16.112.149'],
       ['NAKATOMI-PLAZA', '193.55.203.159'],
       ['BREW-AND-CODE', '87.1.159.19'],

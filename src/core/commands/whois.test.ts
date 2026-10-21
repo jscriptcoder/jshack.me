@@ -282,6 +282,24 @@ describe('whois', () => {
     });
   });
 
+  it('names valleynews, the paper, by its domain spelt as a network name', async () => {
+    const address = addressOf('valleynews.io');
+
+    const { lines, exitCode } = await run(address);
+
+    expect({ lines, exitCode }).toEqual({
+      lines: [
+        '% Harrow Valley registry',
+        '',
+        `inetnum:        ${address} - ${address}`,
+        'netname:        VALLEYNEWS-IO',
+        'org-name:       valleynews.io',
+        'domain:         valleynews.io',
+      ],
+      exitCode: 0,
+    });
+  });
+
   it('names hireme, the contracting agency, by its domain spelt as a network name', async () => {
     const address = addressOf('hireme.io');
 
