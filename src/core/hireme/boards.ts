@@ -9,11 +9,16 @@
  *
  * Every door to a public address (a fetch, a scan, a login, a service) finds its network
  * through this one lookup, so none of them can reach a board another one cannot.
+ *
+ * A root on the boards' server is shown the same table as a file, every handle beside its
+ * address, at `/etc/hireme/boards`.
  */
 
 import { isBoardAddress } from '../generation/ip.js';
 import { BOARD_SERVER_NETWORK } from '../generation/fixedSites.js';
 import { computeApGatewayId } from '../identity/router.js';
+import { file, ROOT_FILE, withFiles } from '../generation/baseFs.js';
+import type { Directory } from '../filesystem/types.js';
 import {
   derivedNetworkByPublicIp,
   type ApNetworkLookup,
@@ -43,6 +48,30 @@ export const loggedRequestPath = ({
   readonly address: string;
   readonly path: string;
 }): string => (essid === BOARD_SERVER_NETWORK ? `http://${address}${path}` : path);
+
+/** One board as the table keeps it: the handle holding it, its address, and the moment the
+ *  handle first applied. */
+export type Board = {
+  readonly handle: string;
+  readonly address: string;
+  readonly applied_at: string;
+};
+
+/** `box` with the list of boards laid into its `/etc/hireme`: one `<handle> <address>` line
+ *  per board, in the order they were applied for. The list lives in the table, not in the
+ *  file, so a root who rewrites the file changes what the next root reads and nobody's board.
+ *  Pure: the box it is given is never changed. */
+export const withBoardsList = (box: Directory, boards: readonly Board[]): Directory => {
+  const byApplying = [...boards].sort(
+    (first, second) => Date.parse(first.applied_at) - Date.parse(second.applied_at),
+  );
+  return withFiles(box, [
+    [
+      '/etc/hireme/boards',
+      file(byApplying.map((held) => `${held.handle} ${held.address}\n`).join(''), ROOT_FILE),
+    ],
+  ]);
+};
 
 /** The network standing at `publicIp`: the boards' server where a handle holds a board's
  *  address, otherwise whatever the world puts there. A failed read of the boards is passed

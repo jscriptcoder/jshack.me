@@ -1,6 +1,10 @@
-// Operator restore for a fixed site (findit.io, hackademy.io, mapit.io, emailit.io,
-// chainit.io, talkit.io, hireme.io) — returns a rooted, defaced or bricked site to its generated
-// state. The operator runs it by hand; nothing in the world heals a fixed site on its own.
+// Operator restore for a fixed box (findit.io, hackademy.io, mapit.io, emailit.io,
+// chainit.io, talkit.io, hireme.io, and boards.hireme.io, the server every contractor board is
+// served from) — returns a rooted, defaced or bricked box to its generated state. The operator
+// runs it by hand; nothing in the world heals a fixed box on its own.
+//
+// A box is named by its key. A site's key is its domain; the boards' server has no domain of
+// its own, so its key is the only name it has.
 //
 // A restore is a REBOOT. It happens in this order, and the order is the safety:
 //
@@ -22,25 +26,25 @@
 // nothing, deletes nothing, and leaves a fresh marker — harmless.
 //
 // Usage (local):
-//   npx dotenv -e .env.development.local -- npx tsx scripts/restoreSite.ts <domain>
+//   npx dotenv -e .env.development.local -- npx tsx scripts/restoreSite.ts <name>
 //
 // In production the operator supplies production's SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY.
 //
-// Exits 0 on success, 1 on a database error, 2 on a domain that names no fixed site or on
-// missing env — both before anything is touched.
+// Exits 0 on success, 1 on a database error, 2 on a name that is no fixed box's or on missing
+// env — both before anything is touched.
 
 import { randomUUID } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
-import { FIXED_SITES } from '../src/core/generation/fixedSites.js';
+import { FIXED_BOXES, fixedSite } from '../src/core/generation/fixedSites.js';
 import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js';
 import { BOOT_ID_OWNER, BOOT_ID_PATH, BOOT_ID_PERMISSIONS } from '../src/core/boot/bootId.js';
 
-const domain = process.argv[2];
-const site = FIXED_SITES.find((candidate) => candidate.domain === domain);
+const name = process.argv[2];
+const site = name === undefined ? undefined : fixedSite(name);
 if (site === undefined) {
-  const known = FIXED_SITES.map((candidate) => candidate.domain).join(', ');
-  console.error(`Usage: restoreSite.ts <domain>, where <domain> is one of: ${known}`);
+  const known = FIXED_BOXES.map((candidate) => candidate.key).join(', ');
+  console.error(`Usage: restoreSite.ts <name>, where <name> is one of: ${known}`);
   process.exit(2);
 }
 
@@ -61,7 +65,7 @@ const fail = (label: string, error: { message: string }): never => {
 };
 
 const main = async () => {
-  console.log(`Restoring ${site.domain} (machine ${machineId})`);
+  console.log(`Restoring ${site.key} (machine ${machineId})`);
 
   // 1. Close every open session on the site, whoever holds it — the same act a reboot
   //    performs, recorded the same way.
@@ -100,7 +104,7 @@ const main = async () => {
   if (marked.error) fail('writing the boot marker', marked.error);
   console.log(`  fresh boot marker ${bootId}`);
 
-  console.log(`${site.domain} restored.`);
+  console.log(`${site.key} restored.`);
   process.exit(0);
 };
 

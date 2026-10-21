@@ -119,10 +119,10 @@ builders), `lanDatabase.ts` and `lanStore.ts` (find real generated database and 
 | `encode.ts`                | Writes `src/core/secrets/__encoded.ts` (uncrackable pool as md5s) and the test-only `__plaintext.ts`.                            |
 | `checkSecrets.ts`          | Post-build: fails if any uncrackable password appears in `dist/`.                                                                |
 | `checkBudgets.ts`          | Post-build bundle-size and per-box timing budget.                                                                                |
-| `test*.ts` (125 files)     | Wire-checks: drive the real `api/` endpoints against `vercel dev` and local Supabase.                                            |
+| `test*.ts` (127 files)     | Wire-checks: drive the real `api/` endpoints against `vercel dev` and local Supabase.                                            |
 | `publicAddressOf.ts`       | A declared network's derived public address, for a wire-check to aim at; stops the run for a network the world does not declare. |
 | `seedCrossPlayerTarget.ts` | One-shot setup for a two-player browser run (not self-cleaning; run with `clean` after).                                         |
-| `restoreSite.ts`           | Operator tool: reset a fixed site (any domain in `FIXED_SITES`, e.g. `chainit.io`) to its generated state. Can target production.              |
+| `restoreSite.ts`           | Operator tool: reset a fixed box (a site's domain, e.g. `chainit.io`, or `boards.hireme.io`) to its generated state. Can target production.     |
 | `mintCoins.ts`             | Operator tool: credit a ledger address with new coins. Can target production.                                                    |
 | `talkitRemove.ts`          | Operator tool: remove a talkit.io thread, or one comment, which then reads `#n [removed]`. Can target production.                |
 | `verifyPatchesRls.ts`      | Checks row-level security on `patches` (anonymous access denied).                                                                |

@@ -27,7 +27,8 @@
  * session there is shown it at the real paths (`core/emailit/spool.ts`). The view is laid
  * into the box before the journal is replayed, so what a root wrote or removed there is
  * what the next root sees. Below root it is never built, so no table is read and nothing
- * of it reaches the wire.
+ * of it reaches the wire. The boards' server shows its root the list of contractor boards
+ * the same way (`core/hireme/boards.ts`).
  *
  * The journal is replayed whole, every writer's rows in the order the server stamped them.
  */
@@ -42,8 +43,9 @@ import {
 } from '../patches/remoteWritePermission.js';
 import { networkBaseFsForMachineId } from '../generation/lanHostIdentity.js';
 import { computeApGatewayId } from '../identity/router.js';
-import { EMAILIT_NETWORK } from '../generation/fixedSites.js';
+import { BOARD_SERVER_NETWORK, EMAILIT_NETWORK } from '../generation/fixedSites.js';
 import { withMailSpool, type SpoolAccount } from '../emailit/spool.js';
+import { withBoardsList, type Board } from '../hireme/boards.js';
 import { filterTreeForSession, filterTreeToAllowlist } from '../patches/readFilter.js';
 import { serializeTree } from '../filesystem/treeCodec.js';
 import type { Directory } from '../filesystem/types.js';
@@ -85,9 +87,13 @@ export type ResolveCrossPlayerFsDeps = {
   /** Every emailit.io account with everything in its inbox. Asked only for a root
    *  session on emailit.io's box. */
   readonly findMailSpool: () => Promise<Lookup<readonly SpoolAccount[]>>;
+  /** Every contractor board, with the handle holding it. Asked only for a root session on
+   *  the boards' server. */
+  readonly findBoards: () => Promise<Lookup<readonly Board[]>>;
 };
 
 const EMAILIT_MACHINE = computeApGatewayId(EMAILIT_NETWORK);
+const BOARD_SERVER_MACHINE = computeApGatewayId(BOARD_SERVER_NETWORK);
 
 export type HandlerResponse = {
   readonly status: number;
@@ -163,13 +169,20 @@ export const handleResolveCrossPlayerFs = async (
     return { status: 404, body: { error: 'host_unreachable' } };
   }
 
-  // A failed read is an error, never an empty spool: a root would take that for the truth.
-  const showsMail = payload.machine_id === EMAILIT_MACHINE && activeSession?.userType === 'root';
-  const spool = showsMail ? await deps.findMailSpool() : null;
+  // A failed read is an error, never an empty view: a root would take that for the truth.
+  const isRoot = activeSession?.userType === 'root';
+  const spool =
+    isRoot && payload.machine_id === EMAILIT_MACHINE ? await deps.findMailSpool() : null;
   if (spool !== null && spool.error) {
     return { status: 500, body: { error: 'mail_spool_lookup_failed' } };
   }
-  const box = spool === null ? base.data : withMailSpool(base.data, spool.data ?? []);
+  const boards =
+    isRoot && payload.machine_id === BOARD_SERVER_MACHINE ? await deps.findBoards() : null;
+  if (boards !== null && boards.error) {
+    return { status: 500, body: { error: 'boards_lookup_failed' } };
+  }
+  const withMail = spool === null ? base.data : withMailSpool(base.data, spool.data ?? []);
+  const box = boards === null ? withMail : withBoardsList(withMail, boards.data ?? []);
 
   const patches = await deps.findPatches({
     machine_id: payload.machine_id,

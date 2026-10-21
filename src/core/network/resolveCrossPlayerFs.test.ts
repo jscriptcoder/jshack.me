@@ -19,8 +19,9 @@ import { networkBaseFsForMachineId } from '../generation/lanHostIdentity.js';
 import { BOOT_ID_OWNER, BOOT_ID_PATH, BOOT_ID_PERMISSIONS, readBootId } from '../boot/bootId.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import type { SpoolAccount } from '../emailit/spool.js';
-import { EMAILIT_NETWORK } from '../generation/fixedSites.js';
-import { MAIL_SPOOL_FILE } from '../generation/baseFs.js';
+import type { Board } from '../hireme/boards.js';
+import { BOARD_SERVER_NETWORK, EMAILIT_NETWORK } from '../generation/fixedSites.js';
+import { MAIL_SPOOL_FILE, ROOT_FILE } from '../generation/baseFs.js';
 
 /**
  * `handleResolveCrossPlayerFs` is the cross-player READ (Story 2, slices 2c+2d):
@@ -82,6 +83,14 @@ type SessionResult = { data: ActiveSession | null; error: unknown };
 type PatchesResult = { data: readonly OwnerPatchRow[] | null; error: unknown };
 type LastEssidResult = { data: string | null; error: unknown };
 type SpoolResult = { data: readonly SpoolAccount[] | null; error: unknown };
+type BoardsResult = { data: readonly Board[] | null; error: unknown };
+
+const NEO_BOARD = '194.12.40.7';
+
+/** One board, held by neo. */
+const BOARDS: readonly Board[] = [
+  { handle: 'neo', address: NEO_BOARD, applied_at: '2026-10-20T09:00:00.000+00:00' },
+];
 
 const NEO_HASH = '5f4dcc3b5aa765d61d8327deb882cf99';
 
@@ -111,6 +120,7 @@ const makeDeps = (
     patches?: () => Promise<PatchesResult>;
     lastEssid?: () => Promise<LastEssidResult>;
     spool?: () => Promise<SpoolResult>;
+    boards?: () => Promise<BoardsResult>;
   } = {},
 ) => {
   // Whose box this is — and, by saying it is on a WiFi at all, whether it is reachable.
@@ -129,6 +139,9 @@ const makeDeps = (
   const findMailSpool = vi.fn<() => Promise<SpoolResult>>(
     over.spool ?? (async () => ({ data: SPOOL, error: null })),
   );
+  const findBoards = vi.fn<() => Promise<BoardsResult>>(
+    over.boards ?? (async () => ({ data: BOARDS, error: null })),
+  );
   const deps: ResolveCrossPlayerFsDeps = {
     nonceStore: freshStore,
     findOccupantWorkstationByMachineId,
@@ -136,6 +149,7 @@ const makeDeps = (
     findLastSessionEssid,
     findPatches,
     findMailSpool,
+    findBoards,
   };
   return {
     deps,
@@ -144,6 +158,7 @@ const makeDeps = (
     findLastSessionEssid,
     findPatches,
     findMailSpool,
+    findBoards,
   };
 };
 
@@ -959,5 +974,128 @@ describe("handleResolveCrossPlayerFs on emailit.io, whose mail lives in the serv
     const result = await handleResolveCrossPlayerFs(envelope(id, EMAILIT_MACHINE), deps);
 
     expect(result).toEqual({ status: 500, body: { error: 'mail_spool_lookup_failed' } });
+  });
+});
+
+const BOARD_SERVER_MACHINE = computeApGatewayId(BOARD_SERVER_NETWORK);
+
+/** The boards' server, with the caller's session on it opened from its network. */
+const onBoardServer = (over: Parameters<typeof makeDeps>[0] = {}) =>
+  makeDeps({
+    occupant: async () => ({ data: null, error: null }),
+    session: async () => ({
+      data: { userType: 'root', essid: BOARD_SERVER_NETWORK },
+      error: null,
+    }),
+    patches: async () => ({ data: [], error: null }),
+    ...over,
+  });
+
+describe("handleResolveCrossPlayerFs on the boards' server, whose list is the boards' table", () => {
+  it('lays every board into the box for a root session, root-only', async () => {
+    const id = generateIdentity();
+    const { deps, findBoards } = onBoardServer();
+
+    const result = await handleResolveCrossPlayerFs(envelope(id, BOARD_SERVER_MACHINE), deps);
+    const tree = treeOf(result);
+
+    expect(result.status).toBe(200);
+    expect(contentOf(tree, 'etc', 'hireme', 'boards')).toBe(`neo ${NEO_BOARD}\n`);
+    expect(get(tree, 'etc', 'hireme', 'boards')).toMatchObject({ perms: ROOT_FILE });
+    expect(findBoards).toHaveBeenCalledTimes(1);
+  });
+
+  it('lays an empty list for a root session when nobody has applied', async () => {
+    const id = generateIdentity();
+    const { deps } = onBoardServer({ boards: async () => ({ data: null, error: null }) });
+
+    const result = await handleResolveCrossPlayerFs(envelope(id, BOARD_SERVER_MACHINE), deps);
+
+    expect(result.status).toBe(200);
+    expect(contentOf(treeOf(result), 'etc', 'hireme', 'boards')).toBe('');
+  });
+
+  it.each(['user', 'guest'] as const)(
+    'reads no table for a %s session, and sends none of it',
+    async (userType) => {
+      const id = generateIdentity();
+      const { deps, findBoards } = onBoardServer({
+        session: async () => ({ data: { userType, essid: BOARD_SERVER_NETWORK }, error: null }),
+      });
+
+      const result = await handleResolveCrossPlayerFs(envelope(id, BOARD_SERVER_MACHINE), deps);
+
+      expect(result.status).toBe(200);
+      expect(get(treeOf(result), 'etc', 'hireme')).toBeUndefined();
+      expect(JSON.stringify(result.body)).not.toContain(NEO_BOARD);
+      expect(findBoards).not.toHaveBeenCalled();
+    },
+  );
+
+  it('reads no table for a caller whose session on the box has ended', async () => {
+    const id = generateIdentity();
+    const { deps, findBoards } = onBoardServer({
+      session: async () => ({ data: null, error: null }),
+      lastEssid: async () => ({ data: BOARD_SERVER_NETWORK, error: null }),
+    });
+
+    const result = await handleResolveCrossPlayerFs(envelope(id, BOARD_SERVER_MACHINE), deps);
+
+    expect(result.status).toBe(200);
+    expect(JSON.stringify(result.body)).not.toContain(NEO_BOARD);
+    expect(findBoards).not.toHaveBeenCalled();
+  });
+
+  it('reads no boards for a root on emailit.io, and no mail for a root here', async () => {
+    const id = generateIdentity();
+    const emailit = onEmailit();
+    const boards = onBoardServer();
+
+    await handleResolveCrossPlayerFs(envelope(id, EMAILIT_MACHINE), emailit.deps);
+    await handleResolveCrossPlayerFs(envelope(id, BOARD_SERVER_MACHINE), boards.deps);
+
+    expect(emailit.findBoards).not.toHaveBeenCalled();
+    expect(boards.findMailSpool).not.toHaveBeenCalled();
+  });
+
+  it("shows a root's rewrite of the list in place of the list", async () => {
+    const id = generateIdentity();
+    const forged = ownerRow({
+      path: '/etc/hireme/boards',
+      content: 'trin 194.1.1.1\n',
+      permissions: ROOT_FILE,
+    });
+    const { deps } = onBoardServer({ patches: async () => ({ data: [forged], error: null }) });
+
+    const result = await handleResolveCrossPlayerFs(envelope(id, BOARD_SERVER_MACHINE), deps);
+
+    expect(contentOf(treeOf(result), 'etc', 'hireme', 'boards')).toBe('trin 194.1.1.1\n');
+  });
+
+  it("shows a root's rm of the list", async () => {
+    const id = generateIdentity();
+    const { deps } = onBoardServer({
+      patches: async () => ({
+        data: [ownerRow({ path: '/etc/hireme/boards', content: null, permissions: null })],
+        error: null,
+      }),
+    });
+
+    const result = await handleResolveCrossPlayerFs(envelope(id, BOARD_SERVER_MACHINE), deps);
+
+    expect(result.status).toBe(200);
+    expect(get(treeOf(result), 'etc', 'hireme', 'boards')).toBeUndefined();
+    expect(JSON.stringify(result.body)).not.toContain(NEO_BOARD);
+  });
+
+  it('reports a server error, not an empty list, when the table cannot be read', async () => {
+    const id = generateIdentity();
+    const { deps } = onBoardServer({
+      boards: async () => ({ data: null, error: new Error('db down') }),
+    });
+
+    const result = await handleResolveCrossPlayerFs(envelope(id, BOARD_SERVER_MACHINE), deps);
+
+    expect(result).toEqual({ status: 500, body: { error: 'boards_lookup_failed' } });
   });
 });

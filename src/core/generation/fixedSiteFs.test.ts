@@ -204,6 +204,27 @@ describe("the room emailit.io's box keeps for its mail", () => {
   });
 });
 
+describe("the room the contractor boards' box keeps for its list of boards", () => {
+  it('has an empty /etc/hireme that only root may enter', () => {
+    expect(nodeAt(siteBox('boards.hireme.io'), '/etc/hireme')).toMatchObject({
+      kind: 'directory',
+      owner: 'root',
+      perms: ROOT_DIR,
+      entries: new Map(),
+    });
+  });
+
+  it.each(['user', 'guest'] as const)('is not there for a %s session', (tier) => {
+    const pruned = filterTreeForSession(siteBox('boards.hireme.io'), tier);
+
+    expect(nodeAt(pruned, '/etc/hireme')).toBeUndefined();
+  });
+
+  it.each(['hireme.io', 'emailit.io', 'findit.io'])('is kept on %s by nobody', (key) => {
+    expect(nodeAt(siteBox(key), '/etc/hireme')).toBeUndefined();
+  });
+});
+
 describe('the front page findit.io serves', () => {
   it('publishes a search form that documents itself', () => {
     const page = read(finditBox(), '/var/www/html/index.html') ?? '';

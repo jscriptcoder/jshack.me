@@ -98,7 +98,8 @@ const BOARD_SERVER: FixedSite = {
   place: { category: 'hacker', place: 'the back office' },
 };
 
-const FIXED_BOXES: readonly FixedSite[] = [...FIXED_SITES, BOARD_SERVER];
+/** Every fixed box: the sites, then the boards' server. */
+export const FIXED_BOXES: readonly FixedSite[] = [...FIXED_SITES, BOARD_SERVER];
 
 /** The fixed box known by `key` — a site or the boards' server — or `undefined` for any
  *  other network. */
