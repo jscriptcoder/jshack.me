@@ -50,6 +50,8 @@ disagree, the code wins; fix the doc.
   beyond one WiFi scan: Harrow Valley's eleven towns, network keys and names, addresses derived
   from a network's place, the scan's pool and injector, joins, how every network is reached, and
   how to add a town (the procedural world epic, shipped).
+- [world-in-numbers.md](./world-in-numbers.md) — the census: towns, networks, websites,
+  machines by kind and role, services, commands and doors, as measured over the whole world.
 - [discovery-architecture.md](./discovery-architecture.md) — names and the public web: the
   in-game DNS, publisher networks, the findit.io search engine, and the mapit.io map.
 - [vulnerability-architecture.md](./vulnerability-architecture.md) — the vulnerability system:
