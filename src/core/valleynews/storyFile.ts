@@ -33,13 +33,9 @@ const HEADER_NAMES: readonly HeaderName[] = ['section', 'title', 'byline'];
  *  not by UTF-16 unit. */
 const LIMITS = { title: 120, byline: 60, body: 20000 } as const;
 
-const BYTE_ORDER_MARK = '\uFEFF';
-
-/** A control character, a line break included: a header is one line, so it holds none. */
-const CONTROL = /\p{Cc}/u;
-
-/** A control character other than the line break, which a body may hold. */
-const BODY_CONTROL = /(?!\n)\p{Cc}/u;
+/** A control character other than the line break. Only a body has lines to break: a header
+ *  is one line, so it never holds one. */
+const CONTROL = /(?!\n)\p{Cc}/u;
 
 const isHeaderName = (name: string): name is HeaderName =>
   (HEADER_NAMES as readonly string[]).includes(name);
@@ -57,7 +53,7 @@ const spelled = (character: string): string =>
 /** Why `value` cannot be the field it is, or null when it can. */
 const fieldFault = (field: 'title' | 'byline' | 'body', value: string): string | null => {
   if (value === '') return `The ${field} is empty`;
-  const control = (field === 'body' ? BODY_CONTROL : CONTROL).exec(value);
+  const control = CONTROL.exec(value);
   if (control !== null) return `The ${field} holds a control character, ${spelled(control[0])}`;
   const length = [...value].length;
   return length > LIMITS[field]
@@ -73,6 +69,7 @@ const readHeaders = (
   for (const line of lines) {
     const colon = line.indexOf(':');
     if (colon === -1) return { reason: `Not a header: "${line}"` };
+    // `trim` also takes off the byte-order mark an editor may put before the first header.
     const name = line.slice(0, colon).trim();
     if (!isHeaderName(name)) {
       return { reason: `Unknown header "${name}": a story has section, title and byline` };
@@ -84,18 +81,17 @@ const readHeaders = (
   return missing === undefined ? { values } : { reason: `Missing header "${missing}"` };
 };
 
-/** The lines of `lines` between its first and its last line that is not blank. */
+/** The lines of `lines` between its first and its last line that is not blank: none, when
+ *  every line is. */
 const withoutBlankEnds = (lines: readonly string[]): readonly string[] => {
   const first = lines.findIndex((line) => !isBlank(line));
-  if (first === -1) return [];
   const last = lines.findLastIndex((line) => !isBlank(line));
   return lines.slice(first, last + 1);
 };
 
 /** The story `text` holds, or why it holds none. */
 export const readStoryFile = (text: string): StoryFileReading => {
-  const unmarked = text.startsWith(BYTE_ORDER_MARK) ? text.slice(BYTE_ORDER_MARK.length) : text;
-  const lines = unmarked.replace(/\r\n/g, '\n').split('\n');
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
   const blank = lines.findIndex(isBlank);
   const headerLines = blank === -1 ? lines : lines.slice(0, blank);
 
