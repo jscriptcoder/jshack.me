@@ -44,6 +44,7 @@ import {
   HIREME_DOMAIN,
   HIREME_NETWORK,
   TALKIT_NETWORK,
+  VALLEYNEWS_NETWORK,
 } from '../generation/fixedSites.js';
 import type { SignUp } from '../emailit/signup.js';
 import type { Apply } from '../hireme/apply.js';
@@ -57,6 +58,8 @@ import { CHAINIT_FRONT_PAGE } from '../chainit/pages.js';
 import type { ChainReads } from '../chainit/chainViews.js';
 import { TALKIT_FRONT_PAGE } from '../talkit/pages.js';
 import type { ForumReads } from '../talkit/answerViews.js';
+import { VALLEYNEWS_FRONT_PAGE } from '../valleynews/pages.js';
+import type { NewsReads } from '../valleynews/answerViews.js';
 import type { WalletBalanceDeps } from '../wallet/handleWalletBalance.js';
 import type { WalletHistoryDeps } from '../wallet/handleWalletHistory.js';
 import type { MachinePatchRow } from '../findit/webIndex.js';
@@ -221,6 +224,8 @@ type FetchOverrides = {
   findThreads?: ForumReads['findThreads'];
   findThread?: ForumReads['findThread'];
   findComments?: ForumReads['findComments'];
+  findStories?: NewsReads['findStories'];
+  findStory?: NewsReads['findStory'];
   postThread?: PostThread;
   postComment?: PostComment;
 };
@@ -290,6 +295,13 @@ const makeDeps = (over: FetchOverrides = {}) => {
   const findComments = vi.fn<ForumReads['findComments']>(
     over.findComments ?? (async () => ({ data: [], error: null })),
   );
+  // Default: the paper has printed nothing. Only valleynews's sections and `/story` ever ask.
+  const findStories = vi.fn<NewsReads['findStories']>(
+    over.findStories ?? (async () => ({ data: [], error: null })),
+  );
+  const findStory = vi.fn<NewsReads['findStory']>(
+    over.findStory ?? (async () => ({ data: null, error: null })),
+  );
   // Default: every post goes up as thread 12. Only talkit's `/post` ever asks.
   const postThread = vi.fn<PostThread>(
     over.postThread ?? (async () => ({ data: { outcome: 'posted', id: 12 }, error: null })),
@@ -323,6 +335,8 @@ const makeDeps = (over: FetchOverrides = {}) => {
     findThreads,
     findThread,
     findComments,
+    findStories,
+    findStory,
     postThread,
     postComment,
   };
@@ -340,6 +354,8 @@ const makeDeps = (over: FetchOverrides = {}) => {
     findThreads,
     findThread,
     findComments,
+    findStories,
+    findStory,
     findNetworkByPublicIp,
     findPatches,
     listOccupantsByEssid,
@@ -2710,6 +2726,281 @@ describe('talkit.io answers the forum from its table', () => {
     }
     expect(findThreads).not.toHaveBeenCalled();
     expect(findThread).not.toHaveBeenCalled();
+  });
+});
+
+describe('valleynews.io answers the paper from its table', () => {
+  const NEWS_IP = siteAddress('valleynews.io') ?? '';
+  const NEWS_ID = computeApGatewayId(VALLEYNEWS_NETWORK);
+  const onValleynews = {
+    lookup: async () => ({
+      data: { router_machine_id: NEWS_ID, essid: VALLEYNEWS_NETWORK },
+      error: null,
+    }),
+    listOccupantsByEssid: async () => ({ data: [], error: null }),
+    listLeasesByEssid: async () => ({ data: [], error: null }),
+  };
+  const listingRow = (id: number, overrides: Record<string, unknown> = {}) => ({
+    id,
+    title: `Story ${id}`,
+    byline: 'Mara Ellis',
+    posted_at: '2026-10-21T09:15:00+00:00',
+    ...overrides,
+  });
+  const STORY = {
+    ...listingRow(7, { title: 'Fog over Ridgemont' }),
+    section: 'valley',
+    body: 'The fog came in\nat dawn.\n\nBy noon it was gone.',
+  };
+  /** A paper holding two stories in each section, and story 7 in the valley. */
+  const paper = {
+    findStories: async (section: string) => ({
+      data: [
+        listingRow(2, { title: `${section} two` }),
+        listingRow(1, { title: `${section} one` }),
+      ],
+      error: null,
+    }),
+    findStory: async (id: number) => ({ data: id === 7 ? STORY : null, error: null }),
+  };
+  const fetchPath = (path: string, fields: Record<string, unknown> = {}) =>
+    signRequest(BOB, 'resolveHttpFetch', {
+      target: NEWS_IP,
+      port: HTTP_DEFAULT_PORT,
+      path,
+      ...fields,
+    });
+  const contentOf = (response: { body: Record<string, unknown> }): string =>
+    typeof response.body.content === 'string' ? response.body.content : '';
+  const accessLogOf = (upsertPatch: ReturnType<typeof makeDeps>['upsertPatch']) =>
+    upsertPatch.mock.calls.map(([row]) => row).find((row) => row.path === ACCESS_LOG_PATH);
+
+  it.each([
+    ['/valley', 'valley', '<h2>The valley</h2>'],
+    ['/dev', 'dev', '<h2>The dev log</h2>'],
+    ['/wire', 'wire', '<h2>The wire</h2>'],
+  ])('lists the stories at %s, reading that section alone', async (path, section, heading) => {
+    const { deps, findStories } = makeDeps({ ...onValleynews, ...paper });
+
+    const response = await handleResolveHttpFetch(fetchPath(path), deps);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({ ok: true, server: 'nginx' });
+    expect(contentOf(response)).toContain(heading);
+    expect(contentOf(response)).toContain(
+      `<a href="/story?id=2">${section} two</a><br>by Mara Ellis, 2026-10-21`,
+    );
+    expect(findStories.mock.calls).toEqual([[section]]);
+  });
+
+  it('reads a section whatever query comes after its path', async () => {
+    const { deps, findStories } = makeDeps({ ...onValleynews, ...paper });
+
+    const response = await handleResolveHttpFetch(fetchPath('/wire?page=2'), deps);
+
+    expect(response.status).toBe(200);
+    expect(findStories.mock.calls).toEqual([['wire']]);
+  });
+
+  it('shows a story under its section: title, byline and day, and its paragraphs', async () => {
+    const { deps, findStory } = makeDeps({ ...onValleynews, ...paper });
+
+    const response = await handleResolveHttpFetch(fetchPath('/story?id=7'), deps);
+
+    expect(response.status).toBe(200);
+    expect(contentOf(response)).toContain(
+      '<p><a href="/valley">The valley</a>: News from Harrow Valley</p>\n' +
+        '<h2>Fog over Ridgemont</h2>\n<p>by Mara Ellis, 2026-10-21</p>\n' +
+        '<p>The fog came in at dawn.</p>\n<p>By noon it was gone.</p>',
+    );
+    expect(findStory.mock.calls).toEqual([[7]]);
+  });
+
+  it('answers a story nobody posted as a page that is not there, and records it', async () => {
+    const { deps, upsertPatch } = makeDeps({ ...onValleynews, ...paper });
+
+    const response = await handleResolveHttpFetch(fetchPath('/story?id=8'), deps);
+
+    expect(response).toEqual({ status: 404, body: { error: 'not_found' } });
+    // A 404 is a served response, and the one a defender most needs to see.
+    expect(accessLogOf(upsertPatch)?.content).toContain('"GET /story?id=8 HTTP/1.1" 404 0');
+  });
+
+  it.each(['/story', '/story?id=', '/story?id=abc', '/story?id=0', '/story?id=07'])(
+    'answers %s as a page that is not there, and reads nothing',
+    async (path) => {
+      const { deps, findStory, upsertPatch } = makeDeps({ ...onValleynews, ...paper });
+
+      const response = await handleResolveHttpFetch(fetchPath(path), deps);
+
+      expect(response).toEqual({ status: 404, body: { error: 'not_found' } });
+      expect(findStory).not.toHaveBeenCalled();
+      expect(accessLogOf(upsertPatch)?.content).toContain(`"GET ${path} HTTP/1.1" 404 0`);
+    },
+  );
+
+  it.each(['/valley', '/dev?x=1', '/story?id=7'])(
+    'records a look at %s in its own log, as asked, traced to the visitor',
+    async (path) => {
+      const { deps, upsertPatch } = makeDeps({ ...onValleynews, ...paper });
+
+      const response = await handleResolveHttpFetch(fetchPath(path), deps);
+
+      const logged = accessLogOf(upsertPatch);
+      expect(logged?.machine_id).toBe(NEWS_ID);
+      expect(logged?.content).toContain(`${BOB_PUBLIC_IP} `);
+      expect(logged?.content).toContain(`"GET ${path} HTTP/1.1" 200 ${contentOf(response).length}`);
+    },
+  );
+
+  it('serves its masthead from its disk', async () => {
+    const { deps } = makeDeps(onValleynews);
+
+    expect(contentOf(await handleResolveHttpFetch(fetchPath('/'), deps))).toBe(
+      VALLEYNEWS_FRONT_PAGE,
+    );
+  });
+
+  it('serves a masthead a root rewrote, as the file it is', async () => {
+    const { deps } = makeDeps({
+      ...onValleynews,
+      patches: patchesByMachine({ [NEWS_ID]: [publishedPage('<html>EXTRA EXTRA</html>')] }),
+    });
+
+    expect(contentOf(await handleResolveHttpFetch(fetchPath('/'), deps))).toBe(
+      '<html>EXTRA EXTRA</html>',
+    );
+  });
+
+  it.each([
+    ['/valley', 'valley', 'valley two'],
+    ['/dev', 'dev', 'dev two'],
+    ['/wire', 'wire', 'wire two'],
+    ['/story?id=7', 'story', 'Fog over Ridgemont'],
+  ])('answers %s from the table whatever a root has written there', async (path, planted, said) => {
+    const { deps } = makeDeps({
+      ...onValleynews,
+      ...paper,
+      patches: patchesByMachine({ [NEWS_ID]: [publishedPage('<html>FORGED</html>', planted)] }),
+    });
+
+    const page = contentOf(await handleResolveHttpFetch(fetchPath(path), deps));
+
+    expect(page).toContain(said);
+    expect(page).not.toContain('FORGED');
+  });
+
+  it.each([
+    ['/valley/', 'valley/index.html'],
+    ['/story.html', 'story.html'],
+  ])('serves %s from its disk, like any other path', async (path, planted) => {
+    const { deps, findStories, findStory } = makeDeps({
+      ...onValleynews,
+      ...paper,
+      patches: patchesByMachine({ [NEWS_ID]: [publishedPage('<html>OWNED</html>', planted)] }),
+    });
+
+    expect(contentOf(await handleResolveHttpFetch(fetchPath(path), deps))).toBe(
+      '<html>OWNED</html>',
+    );
+    expect(findStories).not.toHaveBeenCalled();
+    expect(findStory).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['/wire', 'bricked', '/boot/vmlinuz'],
+    ['/story?id=7', 'bricked', '/boot/vmlinuz'],
+    ['/wire', 'whose web server was stopped', `/var/run/${SERVICE_CATALOG.http.pidfile}`],
+    ['/story?id=7', 'whose web server was stopped', `/var/run/${SERVICE_CATALOG.http.pidfile}`],
+  ])('answers nothing at %s when the box is %s', async (path, _case, removed) => {
+    const { deps, findStories, findStory } = makeDeps({
+      ...onValleynews,
+      ...paper,
+      patches: patchesByMachine({
+        [NEWS_ID]: [{ ...publishedPage(''), path: removed, content: null, node_type: null }],
+      }),
+    });
+
+    expect(await handleResolveHttpFetch(fetchPath(path), deps)).toEqual({
+      status: 404,
+      body: { error: 'host_unreachable' },
+    });
+    expect(findStories).not.toHaveBeenCalled();
+    expect(findStory).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      '/wire',
+      'cannot be read',
+      // Rows that would parse, beside the error: the error alone has to fail the view.
+      { findStories: async () => ({ data: [listingRow(1)], error: new Error('down') }) },
+    ],
+    [
+      '/wire',
+      'hands back a row that is not a story',
+      { findStories: async () => ({ data: [listingRow(1, { posted_at: 'never' })], error: null }) },
+    ],
+    [
+      '/story?id=7',
+      'cannot be read',
+      { findStory: async () => ({ data: STORY, error: new Error('down') }) },
+    ],
+    [
+      '/story?id=7',
+      'hands back a row that is not a story',
+      { findStory: async () => ({ data: { ...STORY, section: 'sports' }, error: null }) },
+    ],
+  ])('fails %s, and records nothing, when the paper %s', async (path, _case, broken) => {
+    const { deps, upsertPatch } = makeDeps({ ...onValleynews, ...paper, ...broken });
+
+    const response = await handleResolveHttpFetch(fetchPath(path), deps);
+
+    expect(response).toEqual({ status: 500, body: { error: 'news_lookup_failed' } });
+    expect(accessLogOf(upsertPatch)).toBeUndefined();
+  });
+
+  it.each(['/valley', '/story?id=7'])('takes no form at %s', async (path) => {
+    const { deps, findStories, findStory } = makeDeps({ ...onValleynews, ...paper });
+
+    const response = await handleResolveHttpFetch(fetchPath(path, { body: 'a=1' }), deps);
+
+    expect(response).toEqual({
+      status: 405,
+      body: { error: 'method_not_allowed', server: 'nginx' },
+    });
+    expect(findStories).not.toHaveBeenCalled();
+    expect(findStory).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [TALKIT_NETWORK, 'talkit.io'],
+    [HACKADEMY_NETWORK, 'hackademy.io'],
+  ])('leaves %s to serve the paper paths from its own disk', async (network, domain) => {
+    const { deps, findStories, findStory } = makeDeps({
+      ...paper,
+      lookup: async () => ({
+        data: { router_machine_id: computeApGatewayId(network), essid: network },
+        error: null,
+      }),
+      listOccupantsByEssid: async () => ({ data: [], error: null }),
+      listLeasesByEssid: async () => ({ data: [], error: null }),
+    });
+
+    for (const path of ['/valley', '/dev', '/wire', '/story?id=7']) {
+      expect(
+        await handleResolveHttpFetch(
+          signRequest(BOB, 'resolveHttpFetch', {
+            target: siteAddress(domain) ?? '',
+            port: HTTP_DEFAULT_PORT,
+            path,
+          }),
+          deps,
+        ),
+      ).toEqual({ status: 404, body: { error: 'not_found' } });
+    }
+    expect(findStories).not.toHaveBeenCalled();
+    expect(findStory).not.toHaveBeenCalled();
   });
 });
 

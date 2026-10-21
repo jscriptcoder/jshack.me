@@ -49,6 +49,7 @@ import {
   FINDIT_NETWORK,
   HIREME_NETWORK,
   TALKIT_NETWORK,
+  VALLEYNEWS_NETWORK,
 } from '../generation/fixedSites.js';
 import { answerSignup, type SignUp } from '../emailit/signup.js';
 import { answerApply, type Apply } from '../hireme/apply.js';
@@ -67,6 +68,7 @@ import {
   type ForumReads,
   type ViewAnswer,
 } from '../talkit/answerViews.js';
+import { answerSection, answerStory, type NewsReads } from '../valleynews/answerViews.js';
 import {
   ACCESS_LOG_OWNER,
   ACCESS_LOG_PATH,
@@ -182,7 +184,8 @@ export type ResolveHttpFetchDeps = WebTargetDeps & {
   readonly postComment: PostComment;
 } & LedgerReads &
   ChainReads &
-  ForumReads;
+  ForumReads &
+  NewsReads;
 
 const UNREACHABLE: HandlerResponse = { status: 404, body: { error: 'host_unreachable' } };
 const NOT_FOUND: HandlerResponse = { status: 404, body: { error: 'not_found' } };
@@ -477,6 +480,15 @@ const TALKIT_VIEWS = new Map<
   ['/thread', answerThread],
 ]);
 
+/** The paths valleynews.io answers from the stories table: each section, and one story.
+ *  Like talkit's views, never a file, whatever a root writes at their paths. */
+const NEWS_VIEWS = new Map<string, (requestPath: string, news: NewsReads) => Promise<ViewAnswer>>([
+  ['/valley', (_requestPath, news) => answerSection('valley', news)],
+  ['/dev', (_requestPath, news) => answerSection('dev', news)],
+  ['/wire', (_requestPath, news) => answerSection('wire', news)],
+  ['/story', answerStory],
+]);
+
 /** A request path without its query string. */
 const pathOf = (requestPath: string): string => requestPath.split('?')[0] ?? requestPath;
 
@@ -734,6 +746,27 @@ export const handleResolveHttpFetch = async (
     const answer = await forumView(payload.path, deps);
     // No page was served, so nothing is recorded — as for chainit's failed read.
     if (answer === null) return { status: 500, body: { error: 'forum_lookup_failed' } };
+    const content = answer.status === 200 ? answer.page : '';
+    await logFetch(deps, target, publicKey, standing.standingEssid, {
+      path: loggedPath,
+      status: answer.status,
+      size: content.length,
+    });
+    return answer.status === 200
+      ? { status: 200, body: { ok: true, content, server: target.server } }
+      : NOT_FOUND;
+  }
+
+  // valleynews answers its sections and stories from the stories table: a root on the
+  // paper can deface its masthead or plant a file at a view's path, but cannot change what
+  // the paper printed. Reached only after the target resolved, so a dark paper answers no
+  // view at all.
+  const newsView =
+    target.essid === VALLEYNEWS_NETWORK ? NEWS_VIEWS.get(pathOf(payload.path)) : undefined;
+  if (newsView !== undefined) {
+    const answer = await newsView(payload.path, deps);
+    // No page was served, so nothing is recorded — as for talkit's failed read.
+    if (answer === null) return { status: 500, body: { error: 'news_lookup_failed' } };
     const content = answer.status === 200 ? answer.page : '';
     await logFetch(deps, target, publicKey, standing.standingEssid, {
       path: loggedPath,
