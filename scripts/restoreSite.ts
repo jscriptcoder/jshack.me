@@ -1,7 +1,8 @@
 // Operator restore for a fixed box (findit.io, hackademy.io, mapit.io, emailit.io,
-// chainit.io, talkit.io, hireme.io, and boards.hireme.io, the server every contractor board is
-// served from) — returns a rooted, defaced or bricked box to its generated state. The operator
-// runs it by hand; nothing in the world heals a fixed box on its own.
+// chainit.io, talkit.io, hireme.io, valleynews.io, and boards.hireme.io, the server every
+// contractor board is served from) — returns a rooted, defaced or bricked box to its
+// generated state. The operator runs it by hand; nothing in the world heals a fixed box on
+// its own.
 //
 // A box is named by its key. A site's key is its domain; the boards' server has no domain of
 // its own, so its key is the only name it has.
