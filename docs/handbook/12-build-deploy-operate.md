@@ -170,7 +170,10 @@ installed with until it is reinstalled.
     reads `#n [removed]`. There is no undo.
   - `scripts/valleynews.ts post <file>` posts a story to valleynews.io from a story file:
     `section:`, `title:` and `byline:` headers, a blank line, then the body. A file that is not
-    exactly a story is refused before anything is written.
+    exactly a story is refused before anything is written. `edit <id> <file>` rewrites a story
+    from a file, keeping its id and its day; `remove <id>` deletes it, and its address is a 404
+    from then on. Each prints the story it is about to change, and the database, before it
+    writes. There is no undo.
 - **Querying the local database**:
   `docker exec supabase_db_jshack-me psql -U postgres -tAc "select count(*) from patches"`.
   (`supabase db psql -c` does not exist in the CLI version used.)

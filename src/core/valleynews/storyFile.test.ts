@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { postedLine, postingLine, readStoryFile } from './storyFile.js';
+import {
+  editedLine,
+  editingLines,
+  noStoryLine,
+  postedLine,
+  postingLine,
+  readDeskOrder,
+  readStoryFile,
+  removedLine,
+  removingLine,
+} from './storyFile.js';
 
 /**
  * What the operator's story file says, read before anything is posted. Nothing checks a
@@ -237,6 +247,51 @@ describe('refusing a file that is not a story', () => {
   });
 });
 
+describe("reading the operator's order", () => {
+  it('reads a post of a file', () => {
+    expect(readDeskOrder(['post', 'story.txt'])).toEqual({ verb: 'post', file: 'story.txt' });
+  });
+
+  it('reads an edit of a story from a file', () => {
+    expect(readDeskOrder(['edit', '7', 'fixed.txt'])).toEqual({
+      verb: 'edit',
+      id: 7,
+      file: 'fixed.txt',
+    });
+  });
+
+  it('reads a removal of a story', () => {
+    expect(readDeskOrder(['remove', '12'])).toEqual({ verb: 'remove', id: 12 });
+  });
+
+  it('reads the longest id a story can have', () => {
+    expect(readDeskOrder(['remove', '999999999999999'])).toEqual({
+      verb: 'remove',
+      id: 999999999999999,
+    });
+  });
+
+  it.each([
+    ['nothing', []],
+    ['an unknown verb', ['delete', '7']],
+    ['a verb in capitals', ['Post', 'story.txt']],
+    ['a post with no file', ['post']],
+    ['a post with a word too many', ['post', 'story.txt', 'more.txt']],
+    ['an edit with no file', ['edit', '7']],
+    ['an edit with a word too many', ['edit', '7', 'fixed.txt', 'more.txt']],
+    ['an edit of an id that is not a number', ['edit', 'seven', 'fixed.txt']],
+    ['a removal with no id', ['remove']],
+    ['a removal with a word too many', ['remove', '7', '8']],
+    ['an id of 0', ['remove', '0']],
+    ['an id with a leading zero', ['remove', '07']],
+    ['an id with a sign', ['remove', '+7']],
+    ['an id too long to stay exact', ['remove', '1000000000000000']],
+    ['an edit with a leading zero', ['edit', '07', 'fixed.txt']],
+  ])('refuses %s', (_case, words) => {
+    expect(readDeskOrder(words)).toBeNull();
+  });
+});
+
 describe('what the script prints', () => {
   it('names the story, its section, its byline and the database before posting', () => {
     expect(
@@ -254,5 +309,37 @@ describe('what the script prints', () => {
 
   it("names the posted story's id and address", () => {
     expect(postedLine(42)).toBe('Posted story 42: http://valleynews.io/story?id=42');
+  });
+
+  it('names the story an edit is about to change, and what it becomes, before editing', () => {
+    expect(
+      editingLines(
+        7,
+        { section: 'valley', title: 'Fog over Ridgemont' },
+        { section: 'dev', title: 'Fog lifts over Ridgemont', byline: 'Mara Ellis', body: 'x' },
+        'db.example.co',
+      ),
+    ).toBe(
+      'Editing story 7 "Fog over Ridgemont" in /valley on db.example.co:\n' +
+        '  now "Fog lifts over Ridgemont" in /dev as Mara Ellis',
+    );
+  });
+
+  it("names the edited story's id and its unchanged address", () => {
+    expect(editedLine(7)).toBe('Edited story 7: http://valleynews.io/story?id=7');
+  });
+
+  it('names the story a removal is about to take down, before removing', () => {
+    expect(removingLine(7, { section: 'wire', title: 'Old news' }, 'db.example.co')).toBe(
+      'Removing story 7 "Old news" from /wire on db.example.co',
+    );
+  });
+
+  it('names the removed story', () => {
+    expect(removedLine(7)).toBe('Removed story 7');
+  });
+
+  it('says when the id names no story on the database', () => {
+    expect(noStoryLine(99, 'db.example.co')).toBe('No story 99 on db.example.co');
   });
 });

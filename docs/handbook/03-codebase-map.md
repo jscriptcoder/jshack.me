@@ -126,7 +126,7 @@ builders), `lanDatabase.ts` and `lanStore.ts` (find real generated database and 
 | `restoreSite.ts`           | Operator tool: reset a fixed box (a site's domain, e.g. `chainit.io`, or `boards.hireme.io`) to its generated state. Can target production.     |
 | `mintCoins.ts`             | Operator tool: credit a ledger address with new coins. Can target production.                                                    |
 | `talkitRemove.ts`          | Operator tool: remove a talkit.io thread, or one comment, which then reads `#n [removed]`. Can target production.                |
-| `valleynews.ts`            | Operator tool: post a story to valleynews.io from a story file (`post <file>`). Can target production.                            |
+| `valleynews.ts`            | Operator tool: post, edit or remove a valleynews.io story (`post <file>`, `edit <id> <file>`, `remove <id>`). Can target production. |
 | `verifyPatchesRls.ts`      | Checks row-level security on `patches` (anonymous access denied).                                                                |
 
 Run any of them with `npx dotenv -e .env.development.local -- npx tsx scripts/<name>.ts`.

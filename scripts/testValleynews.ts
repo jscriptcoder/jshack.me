@@ -8,6 +8,11 @@
 //   - THE OPERATOR POSTS. `scripts/valleynews.ts post <file>` reads a story file, CRLF and
 //     all, prints what it will post and where, inserts it into `news_stories`, and prints
 //     its id and address. A file that is not a story, or no file, posts nothing.
+//   - THE OPERATOR EDITS. `edit <id> <file>` names the story as it stands and what it
+//     becomes, then rewrites it in place: same id, same day, its section moved if the file
+//     says so. A file that is not a story, or an id that names none, changes nothing.
+//   - THE OPERATOR REMOVES. `remove <id>` names the story, then deletes it: gone from its
+//     section, its address a 404. A second removal finds nothing to remove.
 //   - A SECTION READS THE TABLE. `/valley`, `/dev` and `/wire` are answered from
 //     `news_stories` through api/network.ts's own select: that section alone, the newest
 //     first; an empty one says so.
@@ -162,21 +167,42 @@ const seedRootWrite = async (path: string, content: string | null) => {
 
 const storyDir = mkdtempSync(join(tmpdir(), 'valleynews-'));
 
-/** The operator's script, run as the operator runs it, on a story file holding `text`. */
-const runPost = (name: string, text: string | null) => {
+/** The operator's script, run as the operator runs it, with the words they typed. */
+const runDesk = (...words: readonly string[]) => {
+  const run = spawnSync(process.execPath, ['--import', 'tsx', 'scripts/valleynews.ts', ...words], {
+    env: process.env,
+    encoding: 'utf8',
+  });
+  return { status: run.status, stdout: run.stdout, stderr: run.stderr };
+};
+
+/** The path of a story file named `name` in the check's own folder, holding `text` when it
+ *  is given, and left as it is, or absent, when it is not. */
+const storyPath = (name: string, text: string | null = null): string => {
   const file = join(storyDir, name);
   if (text !== null) writeFileSync(file, text);
-  const run = spawnSync(
-    process.execPath,
-    ['--import', 'tsx', 'scripts/valleynews.ts', 'post', file],
-    {
-      env: process.env,
-      encoding: 'utf8',
-    },
-  );
-  const id = Number(/Posted story (\d+):/.exec(run.stdout)?.[1] ?? 0);
-  return { status: run.status, stdout: run.stdout, stderr: run.stderr, id };
+  return file;
 };
+
+/** The operator's script posting a story file holding `text`. */
+const runPost = (name: string, text: string | null) => {
+  const run = runDesk('post', storyPath(name, text));
+  const id = Number(/Posted story (\d+):/.exec(run.stdout)?.[1] ?? 0);
+  return { ...run, id };
+};
+
+/** A story's `posted_at` exactly as the table holds it. */
+const postedAt = async (id: number): Promise<string> => {
+  const { data } = await sr.from('news_stories').select('posted_at').eq('id', id).maybeSingle();
+  return (data as { posted_at?: string } | null)?.posted_at ?? '';
+};
+
+const storyTitle = async (id: number): Promise<string> => {
+  const { data } = await sr.from('news_stories').select('title').eq('id', id).maybeSingle();
+  return (data as { title?: string } | null)?.title ?? '';
+};
+
+const USAGE = 'Usage: valleynews.ts post <file> | edit <id> <file> | remove <id>';
 
 const storyFile = (headers: readonly string[], body: string): string =>
   `${headers.join('\n')}\n\n${body}\n`;
@@ -347,18 +373,21 @@ const main = async () => {
       `exit ${refused.status}; ${refused.stderr.trim()}`,
     );
   }
-  for (const words of [[], ['publish', 'story.txt'], ['post'], ['post', 'a.txt', 'b.txt']]) {
-    const misused = spawnSync(
-      process.execPath,
-      ['--import', 'tsx', 'scripts/valleynews.ts', ...words],
-      {
-        env: process.env,
-        encoding: 'utf8',
-      },
-    );
+  for (const words of [
+    [],
+    ['publish', 'story.txt'],
+    ['post'],
+    ['post', 'a.txt', 'b.txt'],
+    ['edit', '7'],
+    ['edit', '07', 'a.txt'],
+    ['remove'],
+    ['remove', '+7'],
+    ['remove', '7', '8'],
+  ]) {
+    const misused = runDesk(...words);
     check(
       `the script refuses "${words.join(' ')}" with its usage, and exits 2`,
-      misused.status === 2 && misused.stderr.includes('Usage: valleynews.ts post <file>'),
+      misused.status === 2 && misused.stderr.includes(USAGE) && misused.stdout === '',
       `exit ${misused.status}; ${misused.stderr.trim()}`,
     );
   }
@@ -463,6 +492,102 @@ const main = async () => {
     `restore exit ${restored.status}; views ${viewsAfterRestore
       .map((view) => view.status)
       .join(', ')}; ${await storyCount()} stories`,
+  );
+
+  // 11. THE OPERATOR EDITS A STORY IN PLACE, MOVING IT TO ANOTHER SECTION.
+  const firstPostedAt = await postedAt(first.id);
+  const fixed = storyPath(
+    'fixed.txt',
+    storyFile(
+      ['section: valley', 'title: The wire moved to the valley', `byline: ${BYLINE}`],
+      'Rewritten\nby hand.\n\nSecond paragraph.',
+    ),
+  );
+  const edited = runDesk('edit', String(first.id), fixed);
+  check(
+    'edit names the story as it stands and what it becomes, then its unchanged address',
+    edited.status === 0 &&
+      edited.stdout.includes(
+        `Editing story ${first.id} "${MARKUP_TITLE}" in /wire on ${host}:\n` +
+          `  now "The wire moved to the valley" in /valley as ${BYLINE}\n` +
+          `Edited story ${first.id}: http://valleynews.io/story?id=${first.id}`,
+      ),
+    `exit ${edited.status}; ${edited.stdout.trim() || edited.stderr.trim()}`,
+  );
+  const editedStory = contentOf((await fetchPath(`/story?id=${first.id}`)).body);
+  check(
+    'the edited story reads its new words at its old id, under the day it was first posted',
+    editedStory.includes(
+      '<p><a href="/valley">The valley</a>: News from Harrow Valley</p>\n' +
+        '<h2>The wire moved to the valley</h2>\n' +
+        `<p>by ${BYLINE}, ${day}</p>\n` +
+        '<p>Rewritten by hand.</p>\n<p>Second paragraph.</p>',
+    ) &&
+      (await postedAt(first.id)) === firstPostedAt &&
+      (await storyCount()) === 4,
+    `${firstPostedAt} → ${await postedAt(first.id)}; ` +
+      editedStory.slice(editedStory.indexOf('<hr>'), editedStory.indexOf('<hr>') + 120),
+  );
+  const wireAfterEdit = listedIds(contentOf((await fetchPath('/wire')).body));
+  const valleyAfterEdit = listedIds(contentOf((await fetchPath('/valley')).body));
+  check(
+    'the edited story left /wire and sits in /valley at its first date',
+    JSON.stringify(wireAfterEdit) === JSON.stringify([second.id]) &&
+      JSON.stringify(valleyAfterEdit) === JSON.stringify([valley.id, first.id]),
+    `wire ${JSON.stringify(wireAfterEdit)}; valley ${JSON.stringify(valleyAfterEdit)}`,
+  );
+  for (const [what, file, said] of [
+    ['a file that is not a story', storyPath('sports.txt'), 'Not edited: Unknown section "sports"'],
+    ['a file that is not there', storyPath('absent.txt'), 'Cannot read'],
+  ] as const) {
+    const refused = runDesk('edit', String(second.id), file);
+    check(
+      `edit refuses ${what}, exits 2, and leaves the story as it was`,
+      refused.status === 2 &&
+        refused.stderr.includes(said) &&
+        refused.stdout === '' &&
+        (await storyTitle(second.id)) === 'Second on the wire',
+      `exit ${refused.status}; ${refused.stderr.trim()}`,
+    );
+  }
+  const editNobody = runDesk('edit', '999999999', fixed);
+  check(
+    'edit of an id that names no story says so, exits 1, and writes nothing',
+    editNobody.status === 1 &&
+      editNobody.stderr.includes(`No story 999999999 on ${host}`) &&
+      editNobody.stdout === '' &&
+      (await storyCount()) === 4,
+    `exit ${editNobody.status}; ${editNobody.stderr.trim()}`,
+  );
+
+  // 12. THE OPERATOR REMOVES A STORY FOR GOOD.
+  const removed = runDesk('remove', String(second.id));
+  check(
+    'remove names the story it takes down, then says it is gone',
+    removed.status === 0 &&
+      removed.stdout.includes(
+        `Removing story ${second.id} "Second on the wire" from /wire on ${host}\n` +
+          `Removed story ${second.id}`,
+      ),
+    `exit ${removed.status}; ${removed.stdout.trim() || removed.stderr.trim()}`,
+  );
+  const gone = await fetchPath(`/story?id=${second.id}`);
+  const wireAfterRemoval = contentOf((await fetchPath('/wire')).body);
+  check(
+    'the removed story is a 404 and in no section',
+    gone.status === 404 &&
+      wireAfterRemoval.includes('<p>No stories yet.</p>') &&
+      (await storyCount()) === 3,
+    `${gone.status}; wire ${JSON.stringify(listedIds(wireAfterRemoval))}; ` +
+      `${await storyCount()} stories`,
+  );
+  const removedAgain = runDesk('remove', String(second.id));
+  check(
+    'a second removal of the same story finds nothing, says so, and exits 1',
+    removedAgain.status === 1 &&
+      removedAgain.stderr.includes(`No story ${second.id} on ${host}`) &&
+      removedAgain.stdout === '',
+    `exit ${removedAgain.status}; ${removedAgain.stderr.trim()}`,
   );
 
   await cleanup();

@@ -1,5 +1,6 @@
 /**
- * What the operator's story file says, and what the script prints around posting it.
+ * The operator's desk at valleynews.io: the order they type, the story file it names, and
+ * what the script prints around posting, editing or removing a story.
  *
  * A story file is three headers, `section:`, `title:` and `byline:`, in any order, a blank
  * line, then the body. Nothing checks a story again on its way to the paper, so a file that
@@ -13,6 +14,10 @@
 export const NEWS_SECTIONS = ['valley', 'dev', 'wire'] as const;
 
 export type NewsSection = (typeof NEWS_SECTIONS)[number];
+
+/** A story id, as a reader's address and the operator's order spell it: no sign, no leading
+ *  zero, and short enough to stay exact as a number. */
+export const STORY_ID = /^[1-9][0-9]{0,14}$/;
 
 export type Story = {
   readonly section: NewsSection;
@@ -110,6 +115,29 @@ export const readStoryFile = (text: string): StoryFileReading => {
   return fault === null ? { ok: true, story: { section, title, byline, body } } : refused(fault);
 };
 
+export type DeskOrder =
+  | { readonly verb: 'post'; readonly file: string }
+  | { readonly verb: 'edit'; readonly id: number; readonly file: string }
+  | { readonly verb: 'remove'; readonly id: number };
+
+/** What the operator typed after the script's name, or `null` when it is not exactly
+ *  `post <file>`, `edit <id> <file>` or `remove <id>`. An id is read by the rule a
+ *  reader's address is, so a near miss is refused, never taken for another story. */
+export const readDeskOrder = (words: readonly string[]): DeskOrder | null => {
+  const [verb, first = '', second = ''] = words;
+  if (verb === 'post' && words.length === 2) return { verb, file: first };
+  if (!STORY_ID.test(first)) return null;
+  const id = Number(first);
+  if (verb === 'edit' && words.length === 3) return { verb, id, file: second };
+  if (verb === 'remove' && words.length === 2) return { verb, id };
+  return null;
+};
+
+/** A story as its row stands, named in the line printed before it is changed. */
+export type StandingStory = { readonly section: string; readonly title: string };
+
+const storyAddress = (id: number): string => `http://valleynews.io/story?id=${id}`;
+
 /** The line printed before a story is posted: what it is, where it goes, and the database
  *  it goes to, the one guard against posting to the wrong one. */
 export const postingLine = (story: Story, host: string): string =>
@@ -117,5 +145,26 @@ export const postingLine = (story: Story, host: string): string =>
 
 /** The line printed once a story is up: its id, which `edit` and `remove` take, and the
  *  address a reader opens it at. */
-export const postedLine = (id: number): string =>
-  `Posted story ${id}: http://valleynews.io/story?id=${id}`;
+export const postedLine = (id: number): string => `Posted story ${id}: ${storyAddress(id)}`;
+
+/** The lines printed before an edit: the story the id names as it stands, so that a
+ *  mistyped id shows the wrong story before it is overwritten, and what it becomes. */
+export const editingLines = (
+  id: number,
+  standing: StandingStory,
+  story: Story,
+  host: string,
+): string =>
+  `Editing story ${id} "${standing.title}" in /${standing.section} on ${host}:\n` +
+  `  now "${story.title}" in /${story.section} as ${story.byline}`;
+
+/** The line printed once a story is edited: its address, the one it always had. */
+export const editedLine = (id: number): string => `Edited story ${id}: ${storyAddress(id)}`;
+
+/** The line printed before a removal, naming the story the id names as it stands. */
+export const removingLine = (id: number, standing: StandingStory, host: string): string =>
+  `Removing story ${id} "${standing.title}" from /${standing.section} on ${host}`;
+
+export const removedLine = (id: number): string => `Removed story ${id}`;
+
+export const noStoryLine = (id: number, host: string): string => `No story ${id} on ${host}`;
