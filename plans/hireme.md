@@ -3,7 +3,8 @@
 **Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-20. Slice 1 shipped
 (v0.420.0, PR #719, 2026-10-20; migration on `jshack-dev` and `jshack-prod`). Slice 2, the board
 answers, shipped (v0.421.0, PR #721, 2026-10-21; no migration). Slice 3, a root on the boards'
-server, is next and not yet planned. The browser run waits for the epic's close-out.
+server, is planned below, its choices confirmed 2026-10-21, and in progress on
+`feat/hireme-board-root`. The browser run waits for the epic's close-out.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 
@@ -482,3 +483,94 @@ the same box through the same lookup.
 - Mutation gate at PR readiness over `core/hireme/boards.ts`, the board page, the dispatch and
   `isPublicIp`/`whois`.
 - No browser run: one at the epic's close-out.
+
+## Slice 3 plan: a root on the boards' server
+
+**Branch**: `feat/hireme-board-root` · **Version**: 0.421.0 → 0.422.0 · **Class**: behaviour
+change · **Delivery**: one PR against `main`; no migration (the table and its service-role access
+exist since slice 1).
+
+**Value.** A player who gets root on the boards' server finds `/etc/hireme/boards`, every
+applicant's handle beside their board's address, and so every board at once. The operator can
+put the boards' server back with the restore script, as for every fixed site.
+
+**Path.** A root session on the boards' server → the signed `resolveCrossPlayerFs` → the box is
+built as today → for a root session on this one machine, the boards are read from
+`hireme_boards` and laid in as `/etc/hireme/boards` → the journal is replayed over it → the
+tree is pruned to the tier and sent. The operator runs `restoreSite.ts boards.hireme.io`.
+
+### Facts read while planning (2026-10-21)
+
+- **emailit's view is the template** (`network/resolveCrossPlayerFs.ts`): a dep,
+  `findMailSpool`, is asked only when the machine is emailit's and the session is root; a failed
+  read is a 500 `mail_spool_lookup_failed`, never an empty view; the files are laid in by a pure
+  `withMailSpool(box, accounts)` (`emailit/spool.ts`, over `withFiles`) before
+  `materializeMachineFs` replays the journal. Below root nothing is read, and the root-only
+  directory is pruned before the wire.
+- **emailit's box is born with an empty root-only `/etc/emailit`** (`generation/fixedSiteFs.ts`,
+  `keepsMail`), so the directory is there even when nobody has signed up.
+- **`restoreSite.ts` finds a site with `FIXED_SITES.find(domain)`**, and `testRestoreSite.ts`
+  likewise, reaching it at `siteAddress(domain)`. The boards' server is outside `FIXED_SITES`,
+  and its domain is hireme.io's, so neither can name it today. `fixedSite(key)` finds both kinds
+  of box, and every listed site's key is its domain.
+- **The adapter reads with the service role** (`api/network.ts`, beside `findMailSpool`), which
+  is what `hireme_boards` allows.
+
+### Choices made while planning (owner to confirm with the plan)
+
+- **The file**: `/etc/hireme/boards`, root-only (`ROOT_FILE`) in a root-only `/etc/hireme`
+  (`ROOT_DIR`) the box is born with, one line per board in the order they were applied for,
+  `neo 194.12.40.7`, and empty when nobody has applied. Built by a pure `withBoardsList(box,
+  boards)` in `core/hireme/boards.ts`, beside the lookup.
+- **Read only for a root session on the boards' server**: a `findBoards` dep in
+  `ResolveCrossPlayerFsDeps`; a failed read is a 500 `boards_lookup_failed`, never an empty file.
+  A root who rewrites or removes the file changes what the next root sees and nobody's board.
+- **The restore takes a box's key**: `restoreSite.ts <name>` looks the name up with
+  `fixedSite()`, so `boards.hireme.io` names the boards' server and every domain used today
+  still works unchanged. The usage line lists every name. No new flag.
+- **Working from the boards' server still traces as `unknown`**, as slice 2 left it: the box has
+  16.7M addresses and none is its own, and a root there is meant to be hard to trace.
+- **No new client bytes** beyond the empty `/etc/hireme` on the box; the file is built on the
+  server only.
+
+### Acceptance criteria
+
+1. A root session on the boards' server reads `/etc/hireme/boards`: one line per applicant,
+   `<handle> <address>`, in application order; an empty file when nobody has applied.
+2. A `user` or `guest` session there sees no `/etc/hireme`, and no board is read from the table
+   for it; no other box has `/etc/hireme`.
+3. A root who rewrites or deletes the file sees that on the next read, and so does the next root;
+   every board still answers at its address for its handle.
+4. A failed read of the boards is an error to the caller, never an empty file.
+5. `restoreSite.ts boards.hireme.io` closes every session on the boards' server, empties its
+   journal and leaves one fresh boot marker; the file is built from the table again and every
+   board answers; `hireme_boards` is untouched.
+6. `restoreSite.ts <domain>` for every listed site behaves as before; an unknown name is refused
+   before anything is touched, and the usage line names the boards' server.
+7. emailit's view and every other box read as before; the bundle check passes.
+
+### Increments (each RED → GREEN → REFACTOR; commit on approval)
+
+1. **The box keeps an empty `/etc/hireme`**: the boards' server's tree, root-only, and no other
+   box; criterion 2's pruning half in `fixedSiteFs.test.ts`.
+2. **The view**: `withBoardsList` in `core/hireme/boards.ts`; criteria 1 at the function.
+3. **The read lays it in**: the `findBoards` dep and the root-only dispatch in
+   `resolveCrossPlayerFs`; criteria 1–4 at the handler with fake deps.
+4. **The adapter, the restore and the wire-checks**: `findBoards` over `hireme_boards` in
+   `api/network.ts`; `restoreSite.ts` by key; `testRestoreSite.ts` able to take
+   `boards.hireme.io` (reaching it at an address a seeded handle holds); a new
+   `scripts/testHiremeBoardRoot.ts` for criteria 1–5 live, with a seeded root session as
+   `testMailSpool.ts` does; `testMailSpool`, `testRestoreSite hireme.io` and `testHiremeBoard`
+   rerun.
+5. **Docs and version 0.422.0**: `restoreSite.ts`'s comment; the tier-read audit's footnote;
+   `docs/cross-player-architecture.md`; the handbook glossary ("Boards' server"); the e2e
+   fixed-sites reference; `docs/project-status.md`; this plan's status.
+
+### Evidence
+
+- Unit tests under `npm test`; `npm run typecheck`; `npm run lint`; the bundle check.
+- Wire-checks `scripts/testHiremeBoardRoot.ts` and `testRestoreSite.ts boards.hireme.io`
+  against `vercel dev` + local supabase, with the reruns above.
+- Mutation gate at PR readiness over `core/hireme/boards.ts` and the `resolveCrossPlayerFs`
+  dispatch.
+- No browser run in the slice: the epic's close-out run follows it.
