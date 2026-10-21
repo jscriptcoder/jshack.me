@@ -225,6 +225,7 @@ the `ed25519:` prefix.
 | A player's LAN address      | A **lease** in `network_lan_leases`, permanent per (ESSID, player), never on a generated octet | Server    |
 | Deep subnet `10.a.b`        | `generateDeepLayer`                                                                            | Pure      |
 | An access point's public IP | Its place in the world (`publicAddress` in `world.ts`), even before anybody joins              | Pure      |
+| A contractor board's address | Drawn in `194` when a handle applies, stored in `hireme_boards`; read by `networkByPublicIp`  | Server    |
 
 `isPublicIp(target)` is the switch between "resolve this through the server, cross-player" and
 "resolve this on my own LAN".

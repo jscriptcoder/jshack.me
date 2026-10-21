@@ -91,7 +91,7 @@ src/
 | `emailit/`         | emailit.io's pages, sign-up, `mail`'s server side, and the mail root finds on emailit.io's box.                           | —       |
 | `chainit/`         | chainit.io's pages, and its views from the ledger: `/address`, `/recent` and `/rich`.                                     | —       |
 | `talkit/`          | talkit.io's pages, player text shown safely, its views from the forum tables, the checks on a new thread or comment, the operator's removal words. | —       |
-| `hireme/`          | hireme.io's pages, and an application: the address read as `mail` reads it, its refusals, the board address drawn and drawn again. | —       |
+| `hireme/`          | hireme.io's pages, and an application: the address read as `mail` reads it, its refusals, the board address drawn and drawn again; the board page, and the lookup that finds the boards' server at a held address. | —       |
 | `logging/`         | One formatter per log file; source-IP and writer-key rules.                                                               | 8       |
 | `patches/`         | Server handlers for the journal (write, list, remove, log appends, traces), L1, L2, the read filter.                      | 9, 10   |
 | `signedRequest/`   | Envelope schema, signing, verification.                                                                                   | 9       |
