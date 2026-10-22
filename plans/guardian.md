@@ -1,7 +1,8 @@
 # Plan: the guardian's rounds over the public web
 
-**Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-22. Slice 1 is planned,
-its choices and criteria confirmed; `feat/guardian-patch` is next.
+**Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-22. Slice 1 shipped in
+#725 (v0.425.0). Slice 2 is planned, its choices and
+criteria confirmed; `feat/guardian-restore` is next.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 
@@ -131,6 +132,9 @@ slice 3.
 
 ## Slice 1 plan: the guardian patches
 
+**Shipped** in #725 (v0.425.0), 2026-10-22: every criterion below met; `testGuardian.ts` passed
+12 of 12 live.
+
 **Branch**: `feat/guardian-patch` · **Version**: 0.424.0 → 0.425.0 · **Class**: behaviour change
 · **Delivery**: one PR against `main`; no migration.
 
@@ -242,4 +246,114 @@ authorization) replays it like any other row.
 - Unit tests under `npm test`; `npm run typecheck`; `npm run lint`; the bundle check.
 - Wire-check `scripts/testGuardian.ts` against `vercel dev` + local supabase.
 - Mutation gate at PR readiness over `core/guardian/` and `planUpgrade`.
+- No browser run: one at the close-out round.
+
+## Slice 2 plan: the guardian restores
+
+**Branch**: `feat/guardian-restore` · **Version**: 0.425.0 → 0.426.0 · **Class**: behaviour change
+· **Delivery**: one PR against `main`; no migration.
+
+**Value.** The operator runs `restore millbrook.gov`, and a council site a player defaced, rooted
+or bricked comes back as generated, already on today's fixes, with every player on it thrown
+off. Until now only the 9 fixed boxes could come back, and they came back on their vulnerable
+start tuple.
+
+**Path.** `scripts/guardian.ts restore <domain…>` → the same name resolution as `patch`
+(`boxesNamed`, but an empty order is refused) → for each box: end every open session on the site
+server, and every chain standing on them → delete its whole journal → write the patched manifest
+and a fresh boot marker, both under `ap:<key>` → every reader replays the clean box.
+
+### Facts read while planning (2026-10-22)
+
+- **`restoreSite.ts` ends only the sessions on the box.** An in-world reboot
+  (`core/sessions/rebootSequence.ts`, used by `reboot` and a firmware flash) also ends every
+  session stacked above the closed ones, as `upstream_lost`, through `endChainsAbove`
+  (`core/sessions/upstreamLost.ts`). So a player who hopped from a restored site onto another box
+  keeps that hop open today, standing on a session that no longer exists.
+- **A site server keeps no state outside `patches` and `sessions`.** The other machine-keyed
+  tables (`hireme_boards`, `news_stories`, `talkit_*`, `wallet_*`, `email_*`) belong to fixed
+  sites, and a restore has never touched them; nothing changes there.
+- **Five wire-checks spawn `restoreSite.ts`**: `testRestoreSite.ts`, `testHiremeBoardRoot.ts`,
+  `testChainit.ts`, `testTalkit.ts` and `testValleynews.ts`. Two of them
+  (`testRestoreSite.ts`, `testHiremeBoardRoot.ts`) assert the journal holds the boot marker and
+  nothing else, which stops being true once a restore ends patched.
+- **On game day 102 a restored box always gets a manifest row**: every patrol box moves all 11–12
+  packages off its start tuple (measured in slice 1). A box with nothing to install would get only
+  the marker.
+- **`decidePatch` on an empty journal is exactly "a reinstalled box, then upgraded"**, so the
+  restore reuses it rather than deciding the manifest a second way.
+
+### Choices made while planning (owner-confirmed 2026-10-22)
+
+- **A restore is a reboot, all the way up.** It ends every open session on the box as
+  `rebooted`, and every chain standing on those as `upstream_lost`, through the same
+  `endChainsAbove` an in-world reboot uses: two kinds of reboot that end sessions differently
+  would be a bug. Rejected: keeping today's machine-only end.
+- **Order**: end the sessions (and chains) → delete the journal → write the manifest and the
+  marker in one upsert. Sessions close first, as today, so a shell standing on the old box can
+  write nothing that survives onto the clean one.
+- **One line per box, after a header naming the database host**:
+  - `millbrook.gov: restored (2 sessions closed, 23 rows removed), 11 upgraded (nginx 1.26.0 → 1.27.4, …), 1 held (libpam: no fix yet — ETA ~2 days)`
+  - `findit.io: restored (0 sessions closed, 4 rows removed), up to date`
+
+  The part after the brackets is the patch line's own wording. Then a total:
+  `Restored 2 boxes.` The boot id isn't printed; nothing reads it.
+- **`restore` always names its boxes.** With no name it exits 2 (`restore names the boxes it
+  restores`) before reading anything. An unknown or repeated name, or missing env, exits 2 as
+  `patch` does. Usage: `Usage: guardian.ts patch [name…] | restore <name…>`.
+- **Exit 1 on a database error**, naming the box and the step that failed. The boxes restored
+  before it stay restored, and a restore is safe to run again on the one that failed.
+- **A restored box always boots.** A unit test holds every public box's generated tree to
+  `canBoot`, so a restore can never end on a brick.
+- **The wire-checks**: `testGuardian.ts` gains the restore of a patrol site server (the new
+  ground: a network's site, not a fixed box). `testRestoreSite.ts` keeps its name and its story (a
+  fixed site falls and comes back), spawns `guardian.ts restore`, and expects the marker plus the
+  patched manifest. The other four spawn `guardian.ts restore` instead, and
+  `testHiremeBoardRoot.ts` expects the manifest too.
+- **Docs move with the script**: every place listed under "Where it starts from" names
+  `guardian.ts restore` instead, and `vulnerability-architecture.md` says a restore ends patched.
+  `restoreSite.ts` is deleted.
+
+### Acceptance criteria
+
+1. `guardian.ts restore millbrook.gov` on a council site that a player defaced, holds a root
+   shell on, and has rolled a package back on: the front page is generated again, every package
+   sits on today's fix or is held, the journal holds exactly the manifest and one fresh boot
+   marker, both under `ap:<key>`, and the player's session is closed as `rebooted`.
+2. A session the player stacked on top of the one on the site is closed as `upstream_lost`.
+3. A session the player holds on that network's gateway stays open (decision 5).
+4. The CVE that opened the shell before the restore is refused after it.
+5. A bricked site server comes back booting and patched.
+6. The 9 fixed boxes restore as before, now ending patched: `testRestoreSite.ts` (findit.io and
+   hackademy.io), `testHiremeBoardRoot.ts`, `testChainit.ts`, `testTalkit.ts` and
+   `testValleynews.ts` all pass against `guardian.ts restore`, with their tables untouched.
+7. Restoring a box twice runs clean both times and leaves the same two rows.
+8. `restore` with no name, an unknown or repeated name, or missing env exits 2 having read and
+   written nothing.
+9. `restoreSite.ts` is gone, and nothing in the repo names it outside this plan and the git
+   history.
+
+### Increments (each RED → GREEN → REFACTOR; commit on approval)
+
+1. **The restore decision** (`core/guardian/`): one box and today's day → the rows a restore
+   writes after the wipe (the patched manifest when anything moves, and the marker), the box's
+   line and the total, and the order that refuses an empty name list; the "every public box
+   boots" guard. Criteria 5, 7 and 8 at the function.
+2. **The script and its wire-check**: `guardian.ts restore`, with the chain end; the restore
+   checks in `testGuardian.ts`, run live. Criteria 1–5, 7 and 8.
+3. **The fixed boxes move over**: the five wire-checks spawn `guardian.ts restore`, run live;
+   `restoreSite.ts` deleted. Criteria 6 and 9.
+4. **Docs and version 0.426.0**: the handbook (03, 08, 12, glossary), every fixed site's
+   architecture doc, `discovery-`, `email-`, `wallet-`, `tutorials-`, `talkit-`, `hireme-` and
+   `valleynews-architecture.md`, `vulnerability-architecture.md`, the e2e skill's
+   `fixed-sites.md`, `backlog.md` and `project-status.md`.
+
+### Evidence
+
+- Unit tests under `npm test`; `npm run typecheck`; `npm run lint`; the bundle check (no change
+  expected: everything new is script-side).
+- Wire-checks against `vercel dev` + local supabase: `testGuardian.ts`, `testRestoreSite.ts`
+  (findit.io and hackademy.io), `testHiremeBoardRoot.ts`, `testChainit.ts`, `testTalkit.ts`,
+  `testValleynews.ts`.
+- Mutation gate at PR readiness over `core/guardian/`.
 - No browser run: one at the close-out round.
