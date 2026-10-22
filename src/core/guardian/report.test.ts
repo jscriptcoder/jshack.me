@@ -47,6 +47,14 @@ const journalRow = (overrides?: Partial<OwnerPatchRow>): OwnerPatchRow => ({
   ...overrides,
 });
 
+/** A box with nothing to install and nobody on it, unless told otherwise. */
+const reportOf = (overrides?: Partial<Report>): Report => ({
+  patch: { kind: 'up-to-date', held: [] },
+  openSessions: [],
+  written: [],
+  ...overrides,
+});
+
 /** A line the box itself logged about a visitor, under the key its logs accrete under. */
 const ownLog = (box: PublicBox, path: string): OwnerPatchRow =>
   journalRow({ path, content: 'a visitor\n', writer_key: `ap:${box.networkKey}` });
@@ -203,13 +211,7 @@ describe('reportLine', () => {
   });
 
   it('reads a box with nothing to install and nobody on it as up to date', () => {
-    const report: Report = {
-      patch: { kind: 'up-to-date', held: [] },
-      openSessions: [],
-      written: [],
-    };
-
-    expect(reportLine('flyridgemont.com', report)).toBe('flyridgemont.com: up to date');
+    expect(reportLine('flyridgemont.com', reportOf())).toBe('flyridgemont.com: up to date');
   });
 });
 
@@ -222,23 +224,18 @@ describe('reportHeader', () => {
 
 describe('reportTotal', () => {
   it('counts the boxes behind, the boxes tampered with, and the bricked among them', () => {
-    const clean: Report = {
-      patch: { kind: 'up-to-date', held: [] },
-      openSessions: [],
-      written: [],
-    };
     const box = boxNamed('findit.io');
     const gameDay = dayWithFixes(box);
     const visited = decideReport({ box, journal: null, openSessions: [], gameDay });
     const entered = decideReport({ box, journal: null, openSessions: ['root'], gameDay });
-    const bricked: Report = {
-      patch: { kind: 'bricked' },
-      openSessions: [],
-      written: ['/boot'],
-    };
+    const bricked = reportOf({ patch: { kind: 'bricked' }, written: ['/boot'] });
 
-    expect(reportTotal([clean, visited, entered, bricked])).toBe(
-      'Looked over 4 boxes: 2 behind, 2 tampered, 1 bricked.',
+    expect(reportTotal([reportOf(), visited, visited, entered, bricked])).toBe(
+      'Looked over 5 boxes: 3 behind, 2 tampered, 1 bricked.',
     );
+  });
+
+  it('counts one box in the singular', () => {
+    expect(reportTotal([reportOf()])).toBe('Looked over 1 box: 0 behind, 0 tampered, 0 bricked.');
   });
 });
