@@ -135,11 +135,11 @@ server** answers at every board's address.
 
 ## 6. The operator
 
-`scripts/restoreSite.ts <name>` looks a fixed box up by its key (`fixedSite()`): a site's key is
-its domain, and the boards' server's is `boards.hireme.io`, the only name it has. A restore ends
-every session on the box, empties its journal and writes a fresh boot marker; the boards' list,
-like every board, is built from the table again, and `hireme_boards` is never touched. The usage
-line lists every name.
+`scripts/guardian.ts restore <name…>` names a fixed box by its key: a site's key is its domain,
+and the boards' server's is `boards.hireme.io`, the only name it has. A restore ends every session
+on the box, empties its journal and writes today's patched manifest and a fresh boot marker; the
+boards' list, like every board, is built from the table again, and `hireme_boards` is never
+touched.
 
 ## 7. The bundle
 
@@ -170,7 +170,7 @@ ceiling at v0.422.0, with no raise.
   address was refused; `nmap -sV` showed `http` and `ssh`. No release on day 101 had a root-tier
   hole, so the root view rests on its wire-check; a staged nginx manifest gave bob a user-tier
   shell, where `/etc/hireme` was hidden and `access.log` showed both board reads, alice's and
-  his. `restoreSite.ts boards.hireme.io` closed bob's shell ("Connection to ap-gw closed by
+  his. The operator's restore of `boards.hireme.io` closed bob's shell ("Connection to ap-gw closed by
   remote host."), the staged version was gone and alice's board still answered. No defect; a
   shell on any fixed site prompts `root@ap-gw`, a known cosmetic issue
   (`e2e-shared-network-verification.md`).
@@ -194,4 +194,4 @@ and what the root view adds. A second, darknet operator stays open as later cont
   `core/generation/fixedSites.ts`, `core/generation/fixedSiteFs.ts`, `core/generation/world.ts`,
   `core/generation/ip.ts`, `core/commands/whois.ts`, `core/emailit/signup.ts`
   (`RESERVED_HANDLES`), `core/emailit/mailrc.ts` (`typedAddress`).
-- **Operator**: `scripts/restoreSite.ts hireme.io`, `scripts/restoreSite.ts boards.hireme.io`.
+- **Operator**: `scripts/guardian.ts restore hireme.io`, `scripts/guardian.ts restore boards.hireme.io`.

@@ -252,11 +252,12 @@ source IP, and the log records the raw path including the query — so a rooted 
 shell (`access.log` is world-readable); defacing the front page needs a root-tier full
 shell, whose window is on the world clock (nginx's opens ~day 106).
 
-Nothing in the world heals findit. `scripts/restoreSite.ts findit.io` is the operator's undo, and
-it is a **reboot**: it ends every open session on findit (`rebooted`), empties its
-`patches`, and writes a fresh boot marker — in that order, so a shell that stood on the old
-box has its writes refused mid-restore and cannot survive onto the clean one. Wiping the
-journal alone would leave a standing root shell still root on the clean box.
+Nothing in the world heals findit. `scripts/guardian.ts restore findit.io` is the operator's
+undo, and it is a **reboot**: it ends every open session on findit (`rebooted`) and every
+session stacked on those (`upstream_lost`), empties its `patches`, and writes today's patched
+manifest and a fresh boot marker — in that order, so a shell that stood on the old box has its
+writes refused mid-restore and cannot survive onto the clean one. Wiping the journal alone would
+leave a standing root shell still root on the clean box.
 
 ### mapit.io: the map
 
@@ -272,7 +273,7 @@ replaced the backlog's `map` overlay, and fog of war, a per-player record of wha
   `FIXED_SITES` and an ordinary fixed site: `sshd` and nginx, a root password no wordlist
   holds, an `access.log` of its own, at `193.10.253.15` in the placeless block after
   hackademy.io, so no other address moved. Whoever roots it rewrites the map for everybody,
-  and `scripts/restoreSite.ts mapit.io` puts it back.
+  and `scripts/guardian.ts restore mapit.io` puts it back.
 - **A place is on the map** when it stands in a town, publishes a site and is not unlisted
   (`placesIn`). Homes, unlisted sites, branches and the 28 placeless corporations stay off, so
   leads, the council directories, `whois` and findit stay the way to them. A test holds every

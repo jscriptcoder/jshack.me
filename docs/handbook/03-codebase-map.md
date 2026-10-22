@@ -124,8 +124,7 @@ builders), `lanDatabase.ts` and `lanStore.ts` (find real generated database and 
 | `test*.ts` (129 files)     | Wire-checks: drive the real `api/` endpoints against `vercel dev` and local Supabase.                                            |
 | `publicAddressOf.ts`       | A declared network's derived public address, for a wire-check to aim at; stops the run for a network the world does not declare. |
 | `seedCrossPlayerTarget.ts` | One-shot setup for a two-player browser run (not self-cleaning; run with `clean` after).                                         |
-| `restoreSite.ts`           | Operator tool: reset a fixed box (a site's domain, e.g. `chainit.io`, or `boards.hireme.io`) to its generated state. Can target production.     |
-| `guardian.ts`              | Operator tool: the guardian's round. `patch [name…]` moves every package on each named public website (or the patrol) onto its shipped fix, as `apt upgrade` would. Can target production. |
+| `guardian.ts`              | Operator tool: the guardian's round. `patch [name…]` moves every package on each named public website (or the patrol) onto its shipped fix, as `apt upgrade` would; `restore <name…>` reboots each named public website into its generated state, patched. Can target production. |
 | `mintCoins.ts`             | Operator tool: credit a ledger address with new coins. Can target production.                                                    |
 | `talkitRemove.ts`          | Operator tool: remove a talkit.io thread, or one comment, which then reads `#n [removed]`. Can target production.                |
 | `valleynews.ts`            | Operator tool: post, edit or remove a valleynews.io story (`post <file>`, `edit <id> <file>`, `remove <id>`). Can target production. |

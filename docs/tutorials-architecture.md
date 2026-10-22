@@ -7,7 +7,7 @@ ordinary machine: it can be found, scanned, rooted and defaced like any other, a
 restores it the way findit is restored.
 
 Built 2026-10-09 in six PRs, v0.335.0–v0.340.0: #631 (the walking skeleton: the box, the
-README, chapter 1, `restoreSite.ts`), #632 (findit lists it), #633–#635 (chapters 2–10 and the
+README, chapter 1, the operator's restore), #632 (findit lists it), #633–#635 (chapters 2–10 and the
 example scripts), #636 (the fixes a close-out browser run found).
 
 ## The rules
@@ -49,7 +49,7 @@ breaks one is a design change, not an edit.
 | The fixed-site table: hackademy.io, findit.io, mapit.io and emailit.io, names only (a leaf, to dodge an init cycle through `publisher`)                            | `generation/fixedSites.ts`                                    |
 | The box: one machine that is its own gateway, the files of `HACKADEMY_PAGES` under `/var/www/html` (a key with a path, `scripts/hello.js`, lands in its directory) | `generation/fixedSiteFs.ts`                                   |
 | findit's listing of a fixed site, under its domain                                                                                                                 | `findit/webIndex.ts` (see `discovery-architecture.md`)        |
-| The operator's undo                                                                                                                                                | `scripts/restoreSite.ts <domain>`                             |
+| The operator's undo                                                                                                                                                | `scripts/guardian.ts restore <domain>`                        |
 
 hackademy.io answers at `193.249.140.121`. The pages are part of the box's generated tree, so
 a content change reaches the live site at once — unless a player has written over that page,
@@ -141,9 +141,9 @@ hackademy.io` checks the restore.
 
 ## Operating it
 
-`npx dotenv -e .env.development.local -- npx tsx scripts/restoreSite.ts hackademy.io` ends every
-session on the box, deletes its journal (a defacement, a planted file, its logs) and writes a
-fresh boot marker — a reboot into the current generated site. It is safe to run twice; with no
+`npx dotenv -e .env.development.local -- npx tsx scripts/guardian.ts restore hackademy.io` ends
+every session on the box, deletes its journal (a defacement, a planted file, its logs) and writes
+today's patched manifest and a fresh boot marker — a reboot into the current generated site. It is safe to run twice; with no
 `SUPABASE_*` env it exits 2 without touching anything.
 
 ## Accepted gaps

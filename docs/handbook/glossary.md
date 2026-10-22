@@ -36,7 +36,7 @@ here refers to a real network or system.
 | **talkit.io**               | The valley's forum (`/threads`, `/thread?id=<n>`, `POST /post` and `/comment`), a one-machine network on the public web, its views from its tables. |
 | **hireme.io**               | A contracting agency where a player applies with their emailit.io address (`curl -d` to `/apply`) and is mailed their private board's address, a one-machine network on the public web. |
 | **Contractor board**        | A handle's private page at a `194.x.y.z` address drawn once and kept for good, mailed from jobs@hireme.io; whoever has the address can read it. Every board is served at `/` by the one boards' server. |
-| **Boards' server**          | `boards.hireme.io`, the fixed box every board's address reaches: `http` and `ssh` like a fixed site, but no address, domain or findit listing of its own. Its root reads every handle's address in `/etc/hireme/boards`; `restoreSite.ts boards.hireme.io` restores it. |
+| **Boards' server**          | `boards.hireme.io`, the fixed box every board's address reaches: `http` and `ssh` like a fixed site, but no address, domain or findit listing of its own. Its root reads every handle's address in `/etc/hireme/boards`; `guardian.ts restore boards.hireme.io` restores it. |
 | **valleynews.io**           | The Harrow Valley paper, in three sections: `/valley` (the valley's news), `/dev` (from the people who build the game) and `/wire` (real-world security news), each story at `/story?id=<n>`. A one-machine network on the public web, its sections from its table; the operator posts, edits and removes stories with `scripts/valleynews.ts`. |
 | **`~/.mailrc`**             | The login `mail` uses: an emailit.io address and its password in plain text, per user per box. It signs talkit.io posts and comments too.           |
 | **Forward**                 | A line `forward <public port> to <ip>:<port>` in a router's `/etc/iptables/rules.v4`.                                                               |
@@ -103,7 +103,7 @@ here refers to a real network or system.
 | **Axis**       | Where a vulnerability lives: a service (reached through a port), a library (reached locally through a command), or router firmware. |
 | **Effect**     | What firing a vulnerability grants: one of eight kinds, from a full shell to reading one file.                                      |
 | **Tier floor** | The lowest tier a vulnerability grants, set by its severity.                                                                        |
-| **Guardian**   | The operator looking after the public web by hand: `scripts/guardian.ts patch` moves a public website onto every shipped fix, as `apt upgrade` would. |
+| **Guardian**   | The operator looking after the public web by hand: `scripts/guardian.ts patch` moves a public website onto every shipped fix, as `apt upgrade` would, and `restore` reboots one into its generated state, patched. |
 | **Patrol**     | The boxes a guardian round walks when it names none: every fixed box, then each `government` and `public` network's site (51).      |
 
 ## Client and shell

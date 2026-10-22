@@ -156,7 +156,7 @@ a second route to a key file, beside rooting the box.
 
 - **Loss is final.** A deleted key, a bricked box or a cleared browser leaves the coins
   visible at their address and unspendable. The operator can mint again but never restores a
-  key. `scripts/restoreSite.ts` deletes a box's journal, so a key hidden on a site the
+  key. `scripts/guardian.ts restore` deletes a box's journal, so a key hidden on a site the
   operator restores is gone with it.
 - **Two holders of one key race**; the first transfer to land wins and nothing detects a
   copy. The remedy is the player's: a new wallet and a `send` of everything to its address.
@@ -235,7 +235,7 @@ watching the whole chain leaves that line, and avoiding it takes a hop or a root
 nothing more: no ledger files and no planted wallet (generated wallets as loot are deferred in
 `backlog.md`). A dark or bricked chainit answers no view, while `wallet balance` and
 `wallet history` keep working, since they ask `api/wallet.ts` directly. The operator's
-`scripts/restoreSite.ts chainit.io` brings it back and never touches the ledger.
+`scripts/guardian.ts restore chainit.io` brings it back and never touches the ledger.
 
 **Rejected, and why.** Laying the views under the box's journal as emailit's spool is (the
 public ledger would be only as honest as the last person to root it); `/` as the live recent
@@ -249,7 +249,7 @@ logged paths (it is the one thing worth rooting chainit for); a hackademy page.
 and `resolveHttpFetch.ts`. The wire-check `scripts/testChainit.ts` (22 checks) mints and moves
 coins through the service role, checks each view against `/api/wallet`, the rich list's tie and
 emptied address, the access-log lines and planted files, then bricks chainit and runs the real
-`restoreSite.ts chainit.io`. Browser close-out (2026-10-16, v0.394.0, one player on
+`guardian.ts restore chainit.io`. Browser close-out (2026-10-16, v0.394.0, one player on
 QUAYLES-BOOKS): `wallet init`, an operator mint of 500 and `wallet send … 40`; in `lynx
 chainit.io` the address typed into the form showed `460 JSC` and both of `wallet history`'s
 lines, and its link opened the other address; the front page's links opened `/recent` (the send,
@@ -258,4 +258,4 @@ then the mints, from `coinbase`) and `/rich` (a 460 tie ordered by address). Tha
 manifest was staged to nginx 1.28.3 (a user-tier full shell) as findit's close-out staged
 findit's; `msfconsole chainit.io 80` then landed, `cat /var/log/access.log` showed every lookup,
 `/recent` and `/rich` under the player's network address `87.1.124.70`, `ls /var/www/html` held
-only `index.html`, and `restoreSite.ts chainit.io` cleared the staging and the log. No defect.
+only `index.html`, and the operator's restore cleared the staging and the log. No defect.
