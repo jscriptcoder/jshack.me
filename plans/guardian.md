@@ -1,8 +1,8 @@
 # Plan: the guardian's rounds over the public web
 
 **Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-22. Slice 1 shipped in
-#725 (v0.425.0), slice 2 in #726 (v0.426.0). Slice 3 is planned, its choices and criteria
-confirmed; `feat/guardian-report` is next.
+#725 (v0.425.0), slice 2 in #726 (v0.426.0), slice 3 in #727 (v0.427.0). Next is the close-out:
+the first `/guardian` round on prod with the owner picking, and the browser run.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 
@@ -363,6 +363,10 @@ and a fresh boot marker, both under `ap:<key>` → every reader replays the clea
 
 ## Slice 3 plan: the guardian reports, and the round is a skill
 
+**Shipped** in #727 (v0.427.0), 2026-10-22: criteria 1–9 met, `testGuardian.ts` passed 29 of 29
+live; criterion 10 (the skill's round) waits for the close-out. The prod allow rule is in the
+owner's `.claude/settings.local.json`.
+
 **Branch**: `feat/guardian-report` · **Version**: 0.426.0 → 0.427.0 · **Class**: behaviour change
 · **Delivery**: one PR against `main`; no migration and no `api/` change.
 
@@ -383,8 +387,9 @@ and a total, with nothing written → the owner picks → `restore <picked…>` 
   `vsftpd.log` and the rest; `core/patches/appendMachineLog.ts`, the scan's `kern.log` trace). A
   daemon a visitor talks to also writes its own data under that key: `mysql` and `redis` their
   datadir, `snmpset` the file its OID names (`core/sessions/mysqlStatement.ts`,
-  `redisStatement.ts`, `snmpSet.ts`). No patrol box runs any of the three (openssh, a web server,
-  vsftpd), but a shop's site server named by its domain may.
+  `redisStatement.ts`, `snmpSet.ts`). Some patrol boxes run one beside openssh, a web server
+  and vsftpd: the live wire-check found `mysql` on ridgemontlibrary.org and `redis` on
+  ridgemontparks.gov (an earlier reading of this fact said none did).
 - **A player's own write lands under the player's key**: a root shell's edit or `rm`
   (`upsertPatch`, `removePatch`), an `ftp put`, every file an exploit drops (the written file,
   `/etc/passwd`, a listener's pidfile; `exploitCreateSession.ts`, `exploitLocalElevate.ts`), a
