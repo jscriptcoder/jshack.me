@@ -160,10 +160,17 @@ installed with until it is reinstalled.
   `[patches]` or `[sessions]` and a label. Read them in the Vercel dashboard or with `vercel logs`.
   There are no metrics, alerts or error tracker.
 - **Data fixes.** There are no admin endpoints. Operators use the service-role key directly, through
-  Supabase Studio's SQL editor or a script. Four operator scripts exist, each pointed at production
+  Supabase Studio's SQL editor or a script. Five operator scripts exist, each pointed at production
   by supplying production credentials by hand, and each printing the database host it writes to:
   - `scripts/restoreSite.ts <domain>` resets a fixed site, any domain in `FIXED_SITES` (ends its
     sessions, deletes its journal, writes a fresh boot marker).
+  - `scripts/guardian.ts patch [name…]` is the guardian's round. Each named public website (a
+    domain, any case, or `boards.hireme.io`), or with no name the patrol (every fixed box, then
+    each `government` and `public` network's site, 51 boxes), has every package moved onto the
+    fix that has shipped for it today, exactly as a root's `apt upgrade` would; a hole whose fix
+    is still in its patch delay stays open. It evicts nobody and leaves no trace but the moved
+    versions; a bricked box is named and left for a restore. One line per box, then a total. An
+    unknown or repeated name refuses the whole round before anything is read.
   - `scripts/mintCoins.ts <address> <amount>` credits a ledger address with new coins.
   - `scripts/talkitRemove.ts thread <id>` or `comment <id> <n>` takes a thread, with all its
     comments, or one comment off talkit.io. A thread is deleted; a comment keeps its number and

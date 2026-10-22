@@ -84,7 +84,7 @@ src/
 | `snmp/`            | SNMP config files, walk rendering, set grammar.                                                                           | 7       |
 | `sessions/`        | Server handlers for every login door, elevation, exploit, sweep, database/store/SNMP door, reboot.                        | 8       |
 | `mysql/`, `redis/` | Datadir schemas and statement engines for the database and key-value store.                                               | 8       |
-| `cve/`             | The world clock and the vulnerability derivation.                                                                         | 8       |
+| `cve/`             | The world clock, the vulnerability derivation, and `planUpgrade` (the upgrade decision `apt` and the guardian share).     | 8       |
 | `findit/`          | The in-game search engine.                                                                                                | 8       |
 | `hackademy/`       | hackademy.io's pages and the home `README`.                                                                               | —       |
 | `mapit/`           | mapit.io's pages: the valley's drawing and each town's seeded plan.                                                       | —       |
@@ -93,6 +93,7 @@ src/
 | `talkit/`          | talkit.io's pages, player text shown safely, its views from the forum tables, the checks on a new thread or comment, the operator's removal words. | —       |
 | `hireme/`          | hireme.io's pages, and an application: the address read as `mail` reads it, its refusals, the board address drawn and drawn again; the board page, and the lookup that finds the boards' server at a held address. | —       |
 | `valleynews/`      | valleynews.io's pages, its sections and stories read from the stories table, and the operator's story file and the lines its script prints. | —       |
+| `guardian/`        | The operator's guardian: which box a public website's name reaches, the patrol a round walks, and a patch's decision and the lines its script prints. | 12      |
 | `logging/`         | One formatter per log file; source-IP and writer-key rules.                                                               | 8       |
 | `patches/`         | Server handlers for the journal (write, list, remove, log appends, traces), L1, L2, the read filter.                      | 9, 10   |
 | `signedRequest/`   | Envelope schema, signing, verification.                                                                                   | 9       |
@@ -120,10 +121,11 @@ builders), `lanDatabase.ts` and `lanStore.ts` (find real generated database and 
 | `encode.ts`                | Writes `src/core/secrets/__encoded.ts` (uncrackable pool as md5s) and the test-only `__plaintext.ts`.                            |
 | `checkSecrets.ts`          | Post-build: fails if any uncrackable password appears in `dist/`.                                                                |
 | `checkBudgets.ts`          | Post-build bundle-size and per-box timing budget.                                                                                |
-| `test*.ts` (128 files)     | Wire-checks: drive the real `api/` endpoints against `vercel dev` and local Supabase.                                            |
+| `test*.ts` (129 files)     | Wire-checks: drive the real `api/` endpoints against `vercel dev` and local Supabase.                                            |
 | `publicAddressOf.ts`       | A declared network's derived public address, for a wire-check to aim at; stops the run for a network the world does not declare. |
 | `seedCrossPlayerTarget.ts` | One-shot setup for a two-player browser run (not self-cleaning; run with `clean` after).                                         |
 | `restoreSite.ts`           | Operator tool: reset a fixed box (a site's domain, e.g. `chainit.io`, or `boards.hireme.io`) to its generated state. Can target production.     |
+| `guardian.ts`              | Operator tool: the guardian's round. `patch [name…]` moves every package on each named public website (or the patrol) onto its shipped fix, as `apt upgrade` would. Can target production. |
 | `mintCoins.ts`             | Operator tool: credit a ledger address with new coins. Can target production.                                                    |
 | `talkitRemove.ts`          | Operator tool: remove a talkit.io thread, or one comment, which then reads `#n [removed]`. Can target production.                |
 | `valleynews.ts`            | Operator tool: post, edit or remove a valleynews.io story (`post <file>`, `edit <id> <file>`, `remove <id>`). Can target production. |
