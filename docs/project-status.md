@@ -1230,9 +1230,14 @@ agreed order:
     `rebooted` and every session stacked on those as `upstream_lost`, as an in-world reboot does;
     the network's gateway keeps its sessions. `testGuardian.ts` restores a defaced, rooted
     library site and a bricked one live, and every fixed site's wire-check restores through it.
-    Slice 3 (the report and the `/guardian` skill) follows. The decisions and slices are in
+    Slice 3 (v0.427.0): `scripts/guardian.ts report [name…]` reads each box as behind (what a
+    patch would move) and tampered (an open session, a write that is not the box's own log line,
+    or a brick), writing nothing, and the checked-in `/guardian` skill runs a round on prod:
+    report, the owner picks the restores, restore those, patch. `testGuardian.ts` (29 checks)
+    tells a visited box from a broken-into one live. The decisions and slices are in
     `plans/guardian.md`.
-    **Pick up here (2026-10-22):** guardian slice 3, then the items still open in `backlog.md`.
+    **Pick up here (2026-10-22):** the guardian's close-out: the first `/guardian` round on prod
+    with the owner picking, and the browser run; then the items still open in `backlog.md`.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

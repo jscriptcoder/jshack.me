@@ -162,17 +162,23 @@ installed with until it is reinstalled.
 - **Data fixes.** There are no admin endpoints. Operators use the service-role key directly, through
   Supabase Studio's SQL editor or a script. Four operator scripts exist, each pointed at production
   by supplying production credentials by hand, and each printing the database host it writes to:
-  - `scripts/guardian.ts patch [name…]` is the guardian's round. Each named public website (a
-    domain, any case, or `boards.hireme.io`), or with no name the patrol (every fixed box, then
-    each `government` and `public` network's site, 51 boxes), has every package moved onto the
-    fix that has shipped for it today, exactly as a root's `apt upgrade` would; a hole whose fix
-    is still in its patch delay stays open. It evicts nobody and leaves no trace but the moved
-    versions; a bricked box is named and left for a restore. One line per box, then a total. An
-    unknown or repeated name refuses the whole round before anything is read.
-    `restore <name…>` reboots each named public website into its generated state, patched: it
-    ends every session on the box (`rebooted`) and every one stacked on those (`upstream_lost`),
-    deletes its journal, and writes today's manifest and a fresh boot marker. Only the site's own
-    box; its gateway and a fixed site's tables keep what they hold. It always names its boxes.
+  - `scripts/guardian.ts` is the guardian's round, which the owner runs on production with the
+    checked-in `/guardian` skill (`.claude/skills/guardian/SKILL.md`): report, the owner picks the
+    tampered boxes to restore, restore those, patch. `report [name…]` writes nothing. For each box
+    it prints how many packages a patch would move today, and whether it is tampered: an open
+    session on it (with the account), every path written that is not the box's own log line or the
+    guardian's manifest or boot marker (a player's write, a wiped log, a database rewritten through
+    its port), or a brick. A visit's log lines are never tampering. `patch [name…]`: each named
+    public website (a domain, any case, or `boards.hireme.io`), or with no name the patrol (every
+    fixed box, then each `government` and `public` network's site, 51 boxes), has every package
+    moved onto the fix that has shipped for it today, exactly as a root's `apt upgrade` would; a
+    hole whose fix is still in its patch delay stays open. It evicts nobody and leaves no trace but
+    the moved versions; a bricked box is named and left for a restore. One line per box, then a
+    total. An unknown or repeated name refuses the whole round before anything is read.
+    `restore <name…>` reboots each named public website into its generated state, patched: it ends
+    every session on the box (`rebooted`) and every one stacked on those (`upstream_lost`), deletes
+    its journal, and writes today's manifest and a fresh boot marker. Only the site's own box; its
+    gateway and a fixed site's tables keep what they hold. It always names its boxes.
   - `scripts/mintCoins.ts <address> <amount>` credits a ledger address with new coins.
   - `scripts/talkitRemove.ts thread <id>` or `comment <id> <n>` takes a thread, with all its
     comments, or one comment off talkit.io. A thread is deleted; a comment keeps its number and

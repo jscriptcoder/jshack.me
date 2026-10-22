@@ -4,6 +4,12 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
 the project stands is in [`project-status.md`](./project-status.md); the working rules and
 invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
 
+- **A scheduled guardian.** The guardian's rounds (`scripts/guardian.ts`, run by the
+  `/guardian` skill) happen only when the owner invokes them, so players have no day to time an
+  exploit to. Once the owner knows which rhythm feels right, a round could run on a timer. It
+  needs production credentials in a cloud routine, and a rule for restores with nobody there to
+  pick them (patch only, or restore only a brick).
+
 - **Crypto wallet — follow-ups deferred.** The wallet epic shipped at v0.362.0 (as-built:
   [`wallet-architecture.md`](./wallet-architecture.md)). Four things were left out on purpose:
   **recognition**, the other half of a mission reward, to be designed with missions; **anything to
