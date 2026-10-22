@@ -1,8 +1,8 @@
 # Plan: the guardian's rounds over the public web
 
 **Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-22. Slice 1 shipped in
-#725 (v0.425.0). Slice 2 is planned, its choices and
-criteria confirmed; `feat/guardian-restore` is next.
+#725 (v0.425.0), slice 2 in #726 (v0.426.0). Slice 3 is planned, its choices and criteria
+confirmed; `feat/guardian-report` is next.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 
@@ -250,6 +250,9 @@ authorization) replays it like any other row.
 
 ## Slice 2 plan: the guardian restores
 
+**Shipped** in #726 (v0.426.0), 2026-10-22: every criterion below met; `testGuardian.ts` passed
+21 of 21 live, and the five fixed-site wire-checks passed through `guardian.ts restore`.
+
 **Branch**: `feat/guardian-restore` · **Version**: 0.425.0 → 0.426.0 · **Class**: behaviour change
 · **Delivery**: one PR against `main`; no migration.
 
@@ -357,3 +360,125 @@ and a fresh boot marker, both under `ap:<key>` → every reader replays the clea
   `testValleynews.ts`.
 - Mutation gate at PR readiness over `core/guardian/`.
 - No browser run: one at the close-out round.
+
+## Slice 3 plan: the guardian reports, and the round is a skill
+
+**Branch**: `feat/guardian-report` · **Version**: 0.426.0 → 0.427.0 · **Class**: behaviour change
+· **Delivery**: one PR against `main`; no migration and no `api/` change.
+
+**Value.** The owner types `/guardian`, and Claude looks the patrol over on prod. It shows which
+boxes are behind and which players have tampered with, asks which to restore, restores those and
+patches the rest. Until now a round meant the owner knowing the commands, and nothing told them
+which boxes needed a restore.
+
+**Path.** `/guardian [name…]` (`.claude/skills/guardian/SKILL.md`) → `guardian.ts report
+[name…]` on prod → for each box, its journal and its open sessions read with the service role →
+`core/guardian/report.ts` decides behind (through `decidePatch`) and tampered → one line per box
+and a total, with nothing written → the owner picks → `restore <picked…>` → `patch [name…]`.
+
+### Facts read while planning (2026-10-22)
+
+- **A visit writes only under the box's own key.** Every log line on a public website lands
+  under `ap:<key>`, all of them under `/var/log/` (`access.log`, `auth.log`, `kern.log`,
+  `vsftpd.log` and the rest; `core/patches/appendMachineLog.ts`, the scan's `kern.log` trace). A
+  daemon a visitor talks to also writes its own data under that key: `mysql` and `redis` their
+  datadir, `snmpset` the file its OID names (`core/sessions/mysqlStatement.ts`,
+  `redisStatement.ts`, `snmpSet.ts`). No patrol box runs any of the three (openssh, a web server,
+  vsftpd), but a shop's site server named by its domain may.
+- **A player's own write lands under the player's key**: a root shell's edit or `rm`
+  (`upsertPatch`, `removePatch`), an `ftp put`, every file an exploit drops (the written file,
+  `/etc/passwd`, a listener's pidfile; `exploitCreateSession.ts`, `exploitLocalElevate.ts`), a
+  brick's `/boot` tombstone, and an in-world reboot's boot marker (under the caller's key,
+  `api/sessions.ts`, `api/patches.ts`). A root wiping their trail out of a log writes a
+  player-keyed row under `/var/log/`.
+- **The guardian's own rows are two paths under the box's key**: the manifest
+  (`/var/lib/dpkg/status`) a patch or a restore writes, and the boot marker (`/var/run/boot-id`)
+  a restore writes.
+- **An open session may be stale, and is still a foothold.** A session ends on `exit`, on a
+  reboot, or as `abandoned` when the player's next boot finds it still open
+  (`core/sessions/endSession.ts`). A player who closed the tab keeps the row open, and their next
+  boot rebuilds the hop on it. The row carries the account it was opened as
+  (`credentials.username`).
+
+### Choices made while planning (owner-confirmed 2026-10-22)
+
+- **A box is tampered** when any of these holds:
+  1. a player holds an open session on it;
+  2. its journal holds a row that is not the box's own. A row is the box's own when it is written
+     under `ap:<key>` and is either a log under `/var/log/` or one of the guardian's two files.
+     Everything else is a write somebody made: every player-keyed row, logs included, and a
+     daemon's datadir rewritten through its port;
+  3. it is bricked (which always comes with its player-keyed `/boot` tombstone).
+
+  A visit's log lines, however many, are not tampering. Rejected: every player-keyed row and
+  nothing else (it misses a database rewritten through its port, which lands under the box's
+  key); a path list without the key (a root's wipe of `auth.log` would read as a visit).
+- **Behind** is the number of packages a patch would move today, from the same `decidePatch`, so
+  a report and the patch after it cannot disagree. The report gives the count; the patch prints
+  the versions.
+- **A report writes nothing.** One line per box, after a header naming the database host:
+  - `findit.io: 11 packages behind`
+  - `flyridgemont.com: up to date`
+  - `millbrook.gov: 11 packages behind, tampered (2 open sessions: root, www-data; 3 paths written: /etc/passwd, /var/log/auth.log, /var/www/html/index.html)`
+  - `ridgemontparks.gov: bricked, tampered (1 path written: /boot)`
+
+  Every path written is listed, each once, sorted; the session accounts come in the order they
+  were opened. Header `Looking over 51 boxes on <host>`, then a total:
+  `Looked over 51 boxes: 49 behind, 2 tampered, 1 bricked.`
+- **The order works as `patch`'s does**: with no name, the patrol; an unknown or repeated name,
+  or missing env, exits 2 before anything is read. Exit 1 on a database error, naming the box and
+  the read that failed. Usage: `Usage: guardian.ts report [name…] | patch [name…] | restore
+  <name…>`.
+- **The skill** (`.claude/skills/guardian/SKILL.md`, invoked as `/guardian [name…]`) runs one
+  round:
+  1. `report` on prod, for the names given or the patrol, checking the header names prod's host;
+  2. shows the owner every tampered box with its reasons, and the behind and bricked totals;
+  3. asks which tampered boxes to restore, "none" being an answer;
+  4. `restore` the boxes picked, only those, and nothing when none is;
+  5. `patch` the report's scope (a box just restored prints `up to date`);
+  6. gives the owner the three totals.
+
+  It runs no other prod command, never prints any part of the key, and stops on a non-zero exit
+  with the line that says why. Reading a defaced page before choosing is done in the game (a
+  `curl`), not by the skill.
+- **The prod allow rule**: `.claude/settings.local.json` (gitignored, the owner's local setup)
+  gains `npx dotenv -e .env.production.local -- npx tsx scripts/guardian.ts *`, for Bash and
+  PowerShell, beside the valleynews rule. It goes in last, once the wire-check is green on dev.
+- **Backlog**: a "Scheduled guardian" entry in `backlog.md`: rounds on a timer, and what that
+  needs (prod credentials in a cloud routine, and a rule for restores with nobody there to pick),
+  to revisit once the owner knows which rhythm feels right.
+
+### Acceptance criteria
+
+1. `guardian.ts report` with no name prints the 51 patrol boxes, one line each, then the total.
+2. A box that was only visited (curled, scanned, logged into and out of) reports
+   `N packages behind` or `up to date`, never `tampered`.
+3. A box a player holds an open session on reports it, with the account.
+4. A box a player wrote to (a defaced page, `/etc/passwd`, an edited log) reports every path
+   written.
+5. A bricked box reports `bricked, tampered`.
+6. A box's `N packages behind` is the number a `patch` run right after it moves.
+7. A report writes nothing: the box's journal and sessions are the same after it.
+8. A box just restored reports `up to date` and untampered.
+9. An unknown or repeated name, or missing env, exits 2 having read nothing.
+10. `/guardian` runs a round as above, restores only the boxes the owner picked, and patches the
+    rest.
+
+### Increments (each RED → GREEN → REFACTOR; commit on approval)
+
+1. **The report decision** (`core/guardian/report.ts`): one box's journal, its open sessions and
+   the day → behind and tampered; the line, the header and the total. Criteria 2–6 and 8 at the
+   function.
+2. **The script and its wire-check**: `guardian.ts report`; report checks in `testGuardian.ts`,
+   run live. Criteria 1–9.
+3. **The skill, docs and version 0.427.0**: `SKILL.md`; the handbook (03, 12, glossary);
+   `backlog.md`'s scheduled guardian; `project-status.md`. Then the allow rule, locally.
+
+### Evidence
+
+- Unit tests under `npm test`; `npm run typecheck`; `npm run lint`; the bundle check (no change
+  expected: everything new is script-side).
+- Wire-check `scripts/testGuardian.ts` against `vercel dev` + local supabase.
+- Mutation gate at PR readiness over `core/guardian/report.ts`.
+- Criterion 10 at the close-out: the first `/guardian` round on prod, with the owner picking. The
+  browser run comes with it.
