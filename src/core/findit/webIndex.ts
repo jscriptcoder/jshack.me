@@ -27,8 +27,8 @@
 import { DECLARED_NETWORKS, publicAddress } from '../generation/world.js';
 import { publisherIp } from '../generation/publisher.js';
 import { FINDIT_NETWORK, FIXED_SITES } from '../generation/fixedSites.js';
-import { siteServer } from '../generation/siteServer.js';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { PUBLISHERS, type Publisher } from '../generation/publishers.js';
 import { computeApGatewayId } from '../identity/router.js';
 import { materializeApGatewayFs } from '../network/materializeRouterFs.js';
 import { materializeMachineFs, type OwnerPatchRow } from '../network/materializeMachineFs.js';
@@ -41,7 +41,6 @@ import { readPage } from './readPage.js';
 import { robotsAllowFindit } from './robots.js';
 import type { IndexedPage } from './search.js';
 import type { Directory } from '../filesystem/types.js';
-import type { LanHost } from '../generation/generateHomeLan.js';
 
 /** A journal row as the batched read returns it: which machine it belongs to, beside
  *  everything a single-machine read already gives. */
@@ -67,31 +66,6 @@ export type WebIndexDeps = {
  *  in 6.7 KB was answered and one naming 529 in 12.6 KB was not. 200 keeps a read near
  *  5 KB, so the index costs a few round trips rather than one per site. */
 const MACHINES_PER_READ = 200;
-
-/** An institution that publishes, with the two machines a visit to it passes through. */
-type Publisher = {
-  readonly essid: string;
-  readonly domain: string;
-  readonly gatewayId: string;
-  /** The machine the institution serves its site from — kept whole, because the box it
-   *  rebuilds into is seeded from its name as well as its address. */
-  readonly server: LanHost;
-  readonly serverId: string;
-};
-
-const PUBLISHERS: readonly Publisher[] = DECLARED_NETWORKS.flatMap((network) => {
-  const server = network.site === undefined ? undefined : siteServer(network.key);
-  if (network.site === undefined || server === undefined) return [];
-  return [
-    {
-      essid: network.key,
-      domain: network.site.domain,
-      gatewayId: computeApGatewayId(network.key),
-      server,
-      serverId: resolveLanHostIdentity(server, network.key).machineId,
-    },
-  ];
-});
 
 /** A site that is its own gateway: one box answering the web at its own address, with no
  *  network behind it. */

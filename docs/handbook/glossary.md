@@ -103,6 +103,8 @@ here refers to a real network or system.
 | **Axis**       | Where a vulnerability lives: a service (reached through a port), a library (reached locally through a command), or router firmware. |
 | **Effect**     | What firing a vulnerability grants: one of eight kinds, from a full shell to reading one file.                                      |
 | **Tier floor** | The lowest tier a vulnerability grants, set by its severity.                                                                        |
+| **Guardian**   | The operator looking after the public web by hand: `scripts/guardian.ts patch` moves a public website onto every shipped fix, as `apt upgrade` would. |
+| **Patrol**     | The boxes a guardian round walks when it names none: every fixed box, then each `government` and `public` network's site (51).      |
 
 ## Client and shell
 

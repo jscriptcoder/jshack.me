@@ -78,7 +78,7 @@ import { gameDayAt } from '../cve/worldClock.js';
 import { firmwareMoveBetween } from '../packages/packageVersions.js';
 import { isOwnWorkstation } from '../identity/workstation.js';
 import { connectionClosedLine, leaveRebootedBox } from './leaveRebootedBox.js';
-import { liveCve } from '../cve/liveCve.js';
+import { planUpgrade, type Exposure } from '../cve/planUpgrade.js';
 import { libraryDeps } from './libraryDeps.js';
 import { binaryExists } from './availability.js';
 import { errorLine, streamedResult, text } from './streaming.js';
@@ -326,41 +326,15 @@ async function* listPackages(
 const noFixYet = (etaDays: number): string =>
   `no fix yet — ETA ~${etaDays} day${etaDays === 1 ? '' : 's'}`;
 
-/** A package that needs a move, and the hole that is why. */
-type Exposure = {
-  readonly status: Extract<UpgradeStatus, { kind: 'upgradable' | 'no-fix-yet' }>;
-  /** `CVE-… high`: the id and severity, never what firing it would grant — that stays
-   *  the act of firing. Severity forecasts the privilege; the id is what a defender
-   *  matches against a scan. */
-  readonly hole: string;
-};
-
-/** Where a package on the box stands, when it needs a move at all. The hole comes from
- *  the same derivation a scan answers from, so `apt` and `nmap -sV` cannot name
- *  different CVEs for one package — and one format serves services and libraries alike. */
-const exposureOf = (pkg: string, version: string, gameDay: number): Exposure | undefined => {
-  const status = upgradeStatusFor(pkg, version, gameDay);
-  const live = liveCve(pkg, version, gameDay);
-  if (live === undefined) return undefined;
-  if (status.kind !== 'upgradable' && status.kind !== 'no-fix-yet') return undefined;
-  return { status, hole: `${live.cve} ${live.severity}` };
-};
-
-/** One package's row, or none. Only a package that needs a move is listed, as real
+/** One package's row. Only a package that needs a move is listed, as real
  *  `apt list --upgradable` does; a package with no timeline has nothing to offer and
  *  is left out rather than given a version it does not have.
  *  The version shown is the one the FILE claims, as a scan shows it, so a hand-edited
  *  manifest reads back exactly as its owner wrote it. */
-const upgradableRow = (
-  pkg: string,
-  version: string,
-  exposure: Exposure | undefined,
-): readonly TerminalLine[] => {
-  if (exposure === undefined) return [];
-  const { status, hole } = exposure;
+const upgradableRow = ({ pkg, version, status, hole }: Exposure): TerminalLine => {
   const move =
     status.kind === 'upgradable' ? `upgradable → ${status.target}` : noFixYet(status.etaDays);
-  return [text(`  ${pkg} ${version} [${hole} · ${move}]`)];
+  return text(`  ${pkg} ${version} [${hole} · ${move}]`);
 };
 
 /** Every package in the manifest of the box the player is STANDING on, against today's
@@ -371,16 +345,12 @@ async function* listUpgradable(env: CommandEnv): AsyncGenerator<TerminalLine, nu
   yield text('Listing...');
   await env.sleep(STEP_DELAY_MS);
 
-  const gameDay = gameDayAt(env.now());
-  const rows = Array.from(parseDpkgVersions(readDpkgStatus(env.fs.root())), ([pkg, version]) =>
-    upgradableRow(pkg, version, exposureOf(pkg, version, gameDay)),
-  ).flat();
-  yield* rows.length > 0 ? rows : [text('All packages are up to date.')];
+  const { exposures } = planUpgrade(readDpkgStatus(env.fs.root()), gameDayAt(env.now()));
+  yield* exposures.length > 0
+    ? exposures.map(upgradableRow)
+    : [text('All packages are up to date.')];
   return 0;
 }
-
-/** One package leaving the release it is on for the one that fixes it. */
-type Upgrade = { readonly pkg: string; readonly from: string; readonly to: string };
 
 /** The upgrade itself, once a preamble has been printed: every exposed package on the box
  *  the player is standing on — or only the one named — moved onto the release that fixes
@@ -397,25 +367,16 @@ async function* applyUpgrades(
   packageName: string | undefined,
   shell: StandingShell | undefined,
 ): AsyncGenerator<TerminalLine, number> {
-  const gameDay = gameDayAt(env.now());
   const manifest = readDpkgStatus(env.fs.root());
-  const installed = parseDpkgVersions(manifest);
   // Only discoverable by reading the box's own manifest, so it reports beneath the
   // preamble — where an unknown package reports for `install`, and for the same reason.
-  if (packageName !== undefined && !installed.has(packageName)) {
+  if (packageName !== undefined && !parseDpkgVersions(manifest).has(packageName)) {
     yield errorLine(`E: Package '${packageName}' is not installed, so not upgraded`);
     return APT_ERROR;
   }
-  const rows = Array.from(installed)
-    .filter(([pkg]) => packageName === undefined || pkg === packageName)
-    .flatMap(([pkg, version]) => {
-      const exposure = exposureOf(pkg, version, gameDay);
-      return exposure === undefined ? [] : [{ pkg, version, ...exposure }];
-    });
-  const upgrades = rows.flatMap(({ pkg, version, status }): readonly Upgrade[] =>
-    status.kind === 'upgradable' ? [{ pkg, from: version, to: status.target }] : [],
-  );
-  const warnings = rows.flatMap(({ pkg, version, status, hole }) =>
+  const plan = planUpgrade(manifest, gameDayAt(env.now()), packageName);
+  const { upgrades, manifest: upgraded } = plan;
+  const warnings = plan.exposures.flatMap(({ pkg, version, status, hole }) =>
     status.kind === 'no-fix-yet'
       ? [errorLine(`W: ${pkg} ${version} (${hole}) is vulnerable, ${noFixYet(status.etaDays)}`)]
       : [],
@@ -437,10 +398,6 @@ async function* applyUpgrades(
 
   await env.sleep(STEP_DELAY_MS);
   yield* upgrades.map(({ pkg, from, to }) => text(`Unpacking ${pkg} (${to}) over (${from}) ...`));
-  const upgraded = upgrades.reduce(
-    (content, { pkg, to }) => withPackageVersion(content, pkg, to),
-    manifest,
-  );
   const written = await env.patches.write(
     asAbsPath(DPKG_STATUS_PATH),
     upgraded,
@@ -479,12 +436,8 @@ async function* upgradePackages(
 
 /** How many packages on the box a fix has shipped for — the ones `upgrade` would move.
  *  A package still inside its patch delay has nothing newer to take, so it is not one. */
-const upgradableCount = (env: CommandEnv): number => {
-  const gameDay = gameDayAt(env.now());
-  return Array.from(parseDpkgVersions(readDpkgStatus(env.fs.root()))).filter(
-    ([pkg, version]) => exposureOf(pkg, version, gameDay)?.status.kind === 'upgradable',
-  ).length;
-};
+const upgradableCount = (env: CommandEnv): number =>
+  planUpgrade(readDpkgStatus(env.fs.root()), gameDayAt(env.now())).upgrades.length;
 
 /** The `update` operation: the lists read, then what they mean for this box, in apt's own
  *  words — the singular names the package `it`, as real apt does. */

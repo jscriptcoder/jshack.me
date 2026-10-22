@@ -1215,7 +1215,19 @@ agreed order:
     `backlog.md` under "valleynews — follow-ups deferred". The opening stories are on prod, the
     last of them the `/dev` launch note (story 13, 2026-10-22), whose scale numbers come from
     [`world-in-numbers.md`](./world-in-numbers.md), refreshed at v0.424.0 to count the paper.
-    **Pick up here (2026-10-22):** the items still open in `backlog.md`.
+30. 🔄 **The guardian's rounds over the public web (from v0.425.0, 2026-10-22).** Players are
+    on the game and every public website was open to them for good, since NPC boxes freeze at
+    their start tuple. The operator now looks after the public web by hand, on rounds nobody can
+    predict. Slice 1 (v0.425.0): `scripts/guardian.ts patch [name…]` moves every package on a
+    public website onto the fix that has shipped, through the `planUpgrade` decision `apt
+    upgrade` shares, as one manifest row written as the box itself; with no name it walks the
+    patrol of 51 boxes (every fixed box, then each `government` and `public` network's site).
+    `scripts/testGuardian.ts` proves it live: a CVE that opened a shell on a patrol site is
+    refused after the round, the intruder already inside keeps their session, a second round the
+    same day writes nothing, and a bricked site is left for a restore. Slices 2 (restore, which
+    always ends patched, absorbing `restoreSite.ts`) and 3 (the report and the `/guardian`
+    skill) follow. The decisions and slices are in `plans/guardian.md`.
+    **Pick up here (2026-10-22):** guardian slice 2, then the items still open in `backlog.md`.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
