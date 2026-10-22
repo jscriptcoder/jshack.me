@@ -1,7 +1,7 @@
 # Plan: the guardian's rounds over the public web
 
-**Status**: Grilled. Decisions confirmed by the owner 2026-10-22. No slice is planned yet; the
-slice plan is next.
+**Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-22. Slice 1 is planned,
+its choices and criteria confirmed; `feat/guardian-patch` is next.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 
@@ -112,3 +112,134 @@ rounds are run by a skill the owner invokes, which drives one operator script ag
   invokes it as `/guardian`.
 - **The script is proven against dev first** by a wire-check (`scripts/testGuardian.ts`) against
   `vercel dev` and local supabase, before it ever runs on prod.
+
+## Slices
+
+1. **The guardian patches.** `scripts/guardian.ts patch [domain…]`: the patrol list, any public
+   website resolved by its domain, apt's upgrade decision shared with the script, a bricked box
+   skipped, and a `scripts/testGuardian.ts` wire-check.
+2. **The guardian restores.** `restore <domain…>` on the same script, for any public website,
+   ending patched; `restoreSite.ts` deleted, and its wire-checks, docs and skill reference moved
+   to the guardian.
+3. **The guardian reports, and the round is a skill.** `report [domain…]` (behind and tampered),
+   the checked-in `/guardian` skill that runs a round, the prod allow rule, and the scheduled
+   guardian in `backlog.md`.
+
+Patch comes first because a restore ends with one (decision 4), so slice 2 reuses it rather than
+building it twice. The first round on prod, with the owner choosing, closes out the work after
+slice 3.
+
+## Slice 1 plan: the guardian patches
+
+**Branch**: `feat/guardian-patch` · **Version**: 0.424.0 → 0.425.0 · **Class**: behaviour change
+· **Delivery**: one PR against `main`; no migration.
+
+**Value.** The operator runs `patch`, and every box on the patrol (or only the ones named) moves
+each package with a shipped fix onto it, exactly as a root's `apt upgrade` would. A door that
+fired before the round is shut after it, for every player.
+
+**Path.** `scripts/guardian.ts patch [domain…]` → `core/guardian/` resolves each name to its box
+(machine id, generated base tree, the network key its logs accrete under) → the script reads the
+box's journal with the service role and materializes it → `canBoot` decides a brick → the shared
+upgrade decision rewrites the manifest for today's game day → one `patches` upsert of
+`/var/lib/dpkg/status` → every reader (`nmap -sV`, `msfconsole`, `apt`, the server's exploit
+authorization) replays it like any other row.
+
+### Facts read while planning (2026-10-22)
+
+- **apt's decision lives in `core/commands/apt.ts`**: `exposureOf(pkg, version, gameDay)` pairs
+  `upgradeStatusFor` with `liveCve`; `applyUpgrades` turns the exposed rows into upgrades (fix
+  shipped) and warnings (no fix yet), and folds the upgrades into the manifest with
+  `withPackageVersion` (`core/packages/dpkgStatus.ts`). It writes `DPKG_STATUS_PATH` with
+  `DPKG_STATUS_OWNER` / `DPKG_STATUS_PERMISSIONS` restated. None of that decision is reachable from
+  a script today.
+- **Every patrol box carries 11 packages and no firmware**: `openssh-server`, a web server
+  (`nginx` on a fixed box, `nginx` or `apache2` on a site server), `vsftpd`, and the eight
+  libraries (findit.io and millbrook.gov's `portal-58`, measured). No firmware row, so a patch never
+  takes the flash-reboot path.
+- **A public website resolves already**: `core/findit/webIndex.ts` derives `PUBLISHERS` (each
+  declared network with a `site`: its key, domain, `siteServer`, and the server's machine id from
+  `resolveLanHostIdentity`) and the fixed listings (`computeApGatewayId(site.key)`). Both are
+  module-private. `FIXED_BOXES` includes `boards.hireme.io`, which findit does not list.
+- **A box's network key** is `apGatewayLogWriterKey(key)` = `ap:<key>`: the writer every log line
+  on a site server lands under when no player's workstation owns it (`rebootSequence.ts`
+  `resolveLogWriterKey`), and the one `restoreSite.ts` writes its boot marker under.
+- **Replay takes the newest row** per path (`orderPatchesForReplay`: `updated_at`, then
+  `writer_key`), and a trigger stamps `updated_at` on every write
+  (`patches_shared_journal.sql`). A guardian row written after a root's hand edit wins; a root's
+  later `apt` write, read against the old content, is refused by `handleUpsertPatch`'s
+  `base_hash` check, as any stale write is.
+- **A brick** is the `/boot` tombstone in the journal; `canBoot(root)` (`core/boot/bootFiles.ts`)
+  reads it off a materialized tree.
+- **A game day is a real day** (`gameDayAt(now)`); on 2026-10-22 the world is about 102 days old,
+  so every start tuple is long exposed and most fixes have shipped.
+
+### Choices made while planning (owner-confirmed 2026-10-22)
+
+- **apt's decision moves to one shared function**, `planUpgrade(manifest, gameDay)` in
+  `core/packages/`, returning the upgrades, the held packages (no fix yet, with their hole and
+  ETA) and the rewritten manifest. `apt upgrade` and the guardian both call it, so the two cannot
+  disagree (decision 3). A pure refactor, done first, under apt's existing tests.
+- **The public-box lookup moves out of `webIndex.ts`** into `core/guardian/` (or a shared
+  `generation/` module), and findit's index reuses it: one derivation of "the box a domain is
+  served from", not two.
+- **The guardian's manifest row is written under the box's network key** (`ap:<key>`), the same
+  writer as its logs and a restore's boot marker. No new writer shape, so nothing about the row
+  marks it as the operator's (decision 7).
+- **Names are refused as a whole order.** An unknown domain, a repeated one, or missing env exits
+  2 naming it, before anything is read or written. A domain is matched case-insensitively.
+- **One line per box**, after a header naming the database host:
+  - `millbrook.gov: 3 upgraded (nginx 1.26.0 → 1.26.2, libssl 3.2.1 → 3.2.4, vsftpd 3.0.6 → 3.0.8), 1 held (libpam: no fix yet — ETA ~2 days)`
+  - `millbrook.gov: up to date` when nothing moved (and nothing is written)
+  - `millbrook.gov: bricked — restore it to bring it back` (nothing is written)
+
+  Then a total: `Patched 51 boxes: 38 upgraded, 11 up to date, 2 bricked.`
+- **Exit 0** when the round ran (bricked boxes included), **1** on a database error (the boxes
+  already patched stay patched; the line says which box failed), **2** on a refused order.
+- **The patrol** is `FIXED_BOXES` plus every publisher whose network's category is `government`
+  or `public`: 51 boxes, in that order.
+- **Bundle**: `planUpgrade` moves bytes inside apt; the guardian and the lookup are script-side.
+  Measured at the refactor; a growth is raised with the owner.
+
+### Acceptance criteria
+
+1. `apt upgrade` and `apt list -u` print exactly what they print today, on every case apt's tests
+   hold.
+2. `guardian.ts patch` with no domain names the 51 patrol boxes, each with one line, then the
+   total.
+3. `guardian.ts patch millbrook.gov findit.io` patches only those two. Any public website can be
+   named: a shop's site (`*.com`) and `boards.hireme.io` both resolve.
+4. After a patch, every package on the box either sits on the newest release `upgradeStatusFor`
+   offers today, or is held with its ETA. The manifest row is owned `root`, keeps its
+   permissions, and is written under `ap:<key>`.
+5. A second patch the same day prints `up to date` and writes nothing.
+6. A root's hand edit of the manifest (a downgrade) is upgraded from the version it claims, as
+   apt would.
+7. A bricked box is reported and left untouched.
+8. A patch ends no session on the box.
+9. The CVE that fired against a site server's web service before the patch is refused after it.
+10. An unknown or repeated domain, or missing env, exits 2 having read and written nothing.
+11. findit lists every site it listed before, by the same box.
+
+### Increments (each RED → GREEN → REFACTOR; commit on approval)
+
+1. **`planUpgrade`** (pure refactor): extracted from `apt.ts` under apt's existing tests, plus its
+   own tests; criterion 1.
+2. **The public-box lookup**: moved out of `webIndex.ts`, reused by it, and the patrol list;
+   criteria 2, 3 and 11 at the function.
+3. **The guardian's patch decision** (`core/guardian/`): one box's materialized tree and today's
+   day → the row to write or the reason not to, and the box's line and the total; criteria 4–7
+   and 10 at the function.
+4. **The script and the wire-check**: `scripts/guardian.ts patch`; a new `scripts/testGuardian.ts`
+   that runs the real script as the operator would against `vercel dev` + local supabase and checks
+   criteria 3–10 live (its rows on the chosen boxes deleted before and after).
+5. **Docs and version 0.425.0**: the handbook's codebase map, glossary and operate chapter;
+   `vulnerability-architecture.md` (the guardian patches the patrol, so a patrol box is no longer
+   frozen at its start tuple); `docs/project-status.md`.
+
+### Evidence
+
+- Unit tests under `npm test`; `npm run typecheck`; `npm run lint`; the bundle check.
+- Wire-check `scripts/testGuardian.ts` against `vercel dev` + local supabase.
+- Mutation gate at PR readiness over `core/guardian/` and `planUpgrade`.
+- No browser run: one at the close-out round.
