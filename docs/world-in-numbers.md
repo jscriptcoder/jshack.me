@@ -3,7 +3,7 @@
 A census of the game as shipped: the world's towns and networks, the public web, every
 generated machine and what it runs, the command surface, and the ways into a box. Every
 number here was measured by running the generators over the whole declared world, not
-copied from another doc. **Measured at v0.422.0 (2026-10-21).**
+copied from another doc. **Measured at v0.424.0 (2026-10-22).**
 
 The world is a pure function of its declaration, so these numbers move only when a change
 moves them: a new town, a new kind of place, a retuned placement rate, a new command. Such a
@@ -15,7 +15,7 @@ each number is in [`procedural-world-architecture.md`](./procedural-world-archit
 
 ## The world
 
-One region, **Harrow Valley**, holds **11 towns** and **612 declared networks**, plus 8 boxes
+One region, **Harrow Valley**, holds **11 towns** and **612 declared networks**, plus 9 boxes
 that live on the internet alone (below).
 
 | Town                                 | Size    | Networks | NPC machines |
@@ -78,15 +78,16 @@ landmarks, which are always deep.
 - **Fixed sites**, each a single box owning its public address with no WiFi and no LAN
   (`generation/fixedSites.ts`):
 
-| Site         | What it is                             |
-| ------------ | -------------------------------------- |
-| findit.io    | the search engine                      |
-| hackademy.io | the tutorials (ten chapters)           |
-| mapit.io     | the map of Harrow Valley and its towns |
-| emailit.io   | mail                                   |
-| chainit.io   | the JSC block explorer                 |
-| talkit.io    | the forum                              |
-| hireme.io    | the contractor-board front door        |
+| Site          | What it is                             |
+| ------------- | -------------------------------------- |
+| findit.io     | the search engine                      |
+| hackademy.io  | the tutorials (ten chapters)           |
+| mapit.io      | the map of Harrow Valley and its towns |
+| emailit.io    | mail                                   |
+| chainit.io    | the JSC block explorer                 |
+| talkit.io     | the forum                              |
+| hireme.io     | the contractor-board front door        |
+| valleynews.io | the valley's paper                     |
 
 - **One hidden fixed box**, `boards.hireme.io`, which answers at every board address hireme.io
   mails out and is listed nowhere.
@@ -96,7 +97,7 @@ landmarks, which are always deep.
 
 ## Machines
 
-**3,735 boxes**: 3,727 generated across the declared networks, plus the 8 fixed boxes.
+**3,736 boxes**: 3,727 generated across the declared networks, plus the 9 fixed boxes.
 
 | Kind                                                        | Count |
 | ----------------------------------------------------------- | ----- |
@@ -106,7 +107,7 @@ landmarks, which are always deep.
 | LAN switches                                                | 174   |
 | Deep routers                                                | 109   |
 | Deep switches                                               | 53    |
-| Fixed boxes                                                 | 8     |
+| Fixed boxes                                                 | 9     |
 
 174 networks (the 117 drawn deep ones and the 57 landmarks) hide a deep chain, 1–3 layers
 behind the inner router.
