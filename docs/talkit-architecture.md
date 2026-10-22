@@ -178,8 +178,9 @@ Nothing warns a poster.
 
 ## 7. The operator
 
-- **`scripts/restoreSite.ts talkit.io`** works from the fixed-site row alone: it ends every
-  session on the box, deletes its journal and writes a fresh boot marker, so a defaced page, a
+- **`scripts/guardian.ts restore talkit.io`** works from the fixed-site row alone: it ends every
+  session on the box, deletes its journal and writes today's patched manifest and a fresh boot
+  marker, so a defaced page, a
   brick and a doctored `talkit.log` all go. Posts are in the database, never on the box, so a
   restore leaves every thread as it was.
 - **`scripts/talkitRemove.ts`** is the only way anything a player wrote goes; nobody edits, and
@@ -256,4 +257,4 @@ Nothing warns a poster.
   `core/generation/fixedSiteFs.ts`, `core/emailit/signup.ts` (`RESERVED_HANDLES`).
 - **Client**: `core/emailit/mailrc.ts` (the login), `core/commands/webPage.ts` (attaching it),
   `core/commands/curl.ts`, `core/commands/lynx.ts`, `ui/renderPage.ts`, `ui/screens/Lynx.tsx`.
-- **Operator**: `scripts/talkitRemove.ts`, `scripts/restoreSite.ts talkit.io`.
+- **Operator**: `scripts/talkitRemove.ts`, `scripts/guardian.ts restore talkit.io`.

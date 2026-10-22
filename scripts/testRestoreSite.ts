@@ -1,8 +1,8 @@
 // Wire-payload smoke for A FIXED SITE FALLS AND COMES BACK — findit.io or hackademy.io
 // rooted through the REAL /api/sessions endpoint, read and defaced through the REAL
 // /api/network and /api/patches endpoints, then put back by the operator's
-// `scripts/restoreSite.ts <domain>`, run as a child process exactly as the operator runs
-// it. Against a running `vercel dev` + supabase. Run it once per fixed site.
+// `scripts/guardian.ts restore <domain>`, run as a child process exactly as the operator
+// runs it. Against a running `vercel dev` + supabase. Run it once per fixed site.
 //
 // Net-new under test:
 //   - THE LOG IS THE PRIZE. A player holding root on the site reads its `access.log`, and
@@ -10,10 +10,11 @@
 //   - THE FRONT DOOR IS THE SITE'S OWN FILE. Rewriting `/var/www/html/index.html` changes
 //     what every other player's `curl` gets — and on findit a search is still answered.
 //   - THE RESTORE IS A REBOOT. After the script, the site serves its generated front page
-//     again, its journal holds one fresh boot marker and nothing else, every session on it
-//     is closed as `rebooted`, and the intruder's next write is refused.
+//     again, its journal holds today's patched manifest and one fresh boot marker and
+//     nothing else, every session on it is closed as `rebooted`, and the intruder's next
+//     write is refused.
 //   - THE SCRIPT IS SAFE TO REPEAT, will not run without its env, and touches nothing when
-//     the domain names no fixed site.
+//     the domain names no public website.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testRestoreSite.ts findit.io
@@ -34,7 +35,8 @@ import { buildFixedSiteFs } from '../src/core/generation/fixedSiteFs.js';
 import { FINDIT_NETWORK, FIXED_SITES } from '../src/core/generation/fixedSites.js';
 import { WEB_PAGE_FILE } from '../src/core/generation/baseFs.js';
 import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js';
-import { BOOT_ID_PATH } from '../src/core/boot/bootId.js';
+import { decideRestore } from '../src/core/guardian/restore.js';
+import { publicBox } from '../src/core/guardian/publicBoxes.js';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 import {
   DPKG_STATUS_PATH,
@@ -54,7 +56,7 @@ import { publicAddressOf } from './publicAddressOf.js';
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
-const RESTORE_SCRIPT = 'scripts/restoreSite.ts';
+const GUARDIAN_SCRIPT = 'scripts/guardian.ts';
 const site = FIXED_SITES.find((candidate) => candidate.domain === process.argv[2]);
 if (site === undefined) {
   console.error(`Usage: testRestoreSite.ts <${FIXED_SITES.map(({ domain }) => domain).join('|')}>`);
@@ -230,7 +232,22 @@ const attackerSessions = async (): Promise<readonly { ended_at: string | null; e
 };
 
 const restore = (env: NodeJS.ProcessEnv = process.env, domain: string = site.domain) =>
-  spawnSync(process.execPath, ['--import', 'tsx', RESTORE_SCRIPT, domain], { env, encoding: 'utf8' });
+  spawnSync(process.execPath, ['--import', 'tsx', GUARDIAN_SCRIPT, 'restore', domain], {
+    env,
+    encoding: 'utf8',
+  });
+
+/** What a restore leaves on the server's day: the patched manifest when a fix has shipped
+ *  for anything the site runs, and the boot marker — both written as the site itself. */
+const restoredPaths = decideRestore({
+  box: publicBox(site.domain)!,
+  gameDay: today,
+  bootId: 'expected',
+}).rows.map(({ path }) => path);
+const isRestored = (journal: readonly { path: string; writer_key: string }[]): boolean =>
+  journal.length === restoredPaths.length &&
+  restoredPaths.every((path) => journal.some((row) => row.path === path)) &&
+  journal.every((row) => row.writer_key === apGatewayLogWriterKey(site.key));
 
 const cleanup = async () => {
   for (const player of [attacker, searcher]) {
@@ -335,10 +352,8 @@ const main = async () => {
   );
   const journal = await siteJournal();
   check(
-    `${site.domain}’s journal holds one fresh boot marker and nothing else`,
-    journal.length === 1 &&
-      journal[0]!.path === BOOT_ID_PATH &&
-      journal[0]!.writer_key === apGatewayLogWriterKey(site.key),
+    `${site.domain}’s journal holds today’s manifest and one fresh boot marker, nothing else`,
+    isRestored(journal),
     JSON.stringify(journal),
   );
   const sessions = await attackerSessions();
@@ -363,12 +378,11 @@ const main = async () => {
   );
 
   // 7. TWICE IS HARMLESS.
-  const markerBefore = (await siteJournal()).filter((row) => row.path === BOOT_ID_PATH);
   const again = restore();
   const afterAgain = await siteJournal();
   check(
-    'a second restore runs clean and leaves one marker',
-    again.status === 0 && markerBefore.length === 1 && afterAgain.length === 1,
+    'a second restore runs clean and leaves the same rows',
+    again.status === 0 && isRestored(afterAgain),
     `exit ${again.status}; ${JSON.stringify(afterAgain)}`,
   );
 
@@ -376,7 +390,7 @@ const main = async () => {
   const bare = restore({ ...process.env, SUPABASE_URL: '', SUPABASE_SERVICE_ROLE_KEY: '' });
   check('the script refuses to run without its env', bare.status === 2, `exit ${bare.status}`);
 
-  // 9. A DOMAIN THAT NAMES NO FIXED SITE TOUCHES NOTHING.
+  // 9. A DOMAIN THAT NAMES NO PUBLIC WEBSITE TOUCHES NOTHING.
   await seedDefacement(DEFACED);
   const beforeUnknown = await siteJournal();
   const unknown = restore(process.env, 'example.com');

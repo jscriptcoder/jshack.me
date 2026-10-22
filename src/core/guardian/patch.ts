@@ -87,7 +87,7 @@ export const decidePatch = ({ box, journal, gameDay }: PatchInput): PatchOutcome
   };
 };
 
-const plural = (count: number, one: string, many: string): string =>
+export const plural = (count: number, one: string, many: string): string =>
   `${count} ${count === 1 ? one : many}`;
 
 const heldPart = (held: readonly Held[]): string => {
@@ -97,16 +97,18 @@ const heldPart = (held: readonly Held[]): string => {
   return `${held.length} held (${waiting.join(', ')})`;
 };
 
-/** The operator's line for one box. */
-export const patchLine = (name: string, outcome: PatchOutcome): string => {
-  if (outcome.kind === 'bricked') return `${name}: bricked — restore it to bring it back`;
+/** What a patch did, in the operator's words — the line, without the box's name. */
+export const patchSummary = (outcome: PatchOutcome): string => {
+  if (outcome.kind === 'bricked') return 'bricked — restore it to bring it back';
   const holding = outcome.held.length > 0 ? [heldPart(outcome.held)] : [];
-  if (outcome.kind === 'up-to-date') return [`${name}: up to date`, ...holding].join(', ');
+  if (outcome.kind === 'up-to-date') return ['up to date', ...holding].join(', ');
   const moved = outcome.upgrades.map(({ pkg, from, to }) => `${pkg} ${from} → ${to}`);
-  return [`${name}: ${outcome.upgrades.length} upgraded (${moved.join(', ')})`, ...holding].join(
-    ', ',
-  );
+  return [`${outcome.upgrades.length} upgraded (${moved.join(', ')})`, ...holding].join(', ');
 };
+
+/** The operator's line for one box. */
+export const patchLine = (name: string, outcome: PatchOutcome): string =>
+  `${name}: ${patchSummary(outcome)}`;
 
 /** The line before the round: how many boxes, and the database the rows go to. */
 export const patchHeader = (count: number, host: string): string =>

@@ -23,7 +23,7 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
 - **Email — follow-ups deferred.** The email epic shipped at v0.389.0 (as-built:
   [`email-architecture.md`](./email-architecture.md)). Left out on purpose: **reporting and
   blocking** for player mail, and an **operator tool** to delete an abusive message or close an
-  account (like `restoreSite.ts`), both before multiplayer is announced; a **local-mbox mode for
+  account (like `guardian.ts restore`), both before multiplayer is announced; a **local-mbox mode for
   `mail`** that reads `/var/mail/<user>` on the box when not logged in to emailit.io and comes
   preinstalled on NPC boxes with mail; an **`smtp` service on emailit.io** (port 25 in a scan,
   its own versions and CVEs); a **`/var/log/mail.log` on emailit.io**, one line per mail login

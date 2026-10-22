@@ -685,7 +685,7 @@ agreed order:
    "a firmware flash reboots the router" (item 16).
 7. ✅ In-game tutorials (#631–#636, v0.335.0–v0.340.0, 2026-10-09): a `README` in the player's
    home walks them online and into `lynx`, and `hackademy.io` — an in-world site built like
-   findit, attackable and restored by `scripts/restoreSite.ts <domain>` — teaches the world in
+   findit, attackable and restored by `scripts/guardian.ts restore <domain>` — teaches the world in
    ten chapters, each practised on the reader's own box, with example scripts under `/scripts/`.
    findit lists it under its domain. A close-out browser run walked the README, all ten
    chapters and the findit search, and typed the examples on a new player's box; the broken ones
@@ -873,7 +873,7 @@ agreed order:
     102 scattered markers over its legend, and its `[5]` opened Dunder Mifflin's site; the web
     chapter served the new sentence; a search for `map` answered with mapit.io and no pointer;
     a defaced front page planted in the journal was served to `lynx`, and
-    `scripts/restoreSite.ts mapit.io` brought the map back. No defect. What was dropped and
+    the operator's restore brought the map back. No defect. What was dropped and
     what waits are in `backlog.md` under "Procedural world deferred". **Pick up here
     (2026-10-14):** item 8's list and item 6, still the agreed work until the owner reopens
     missions.
@@ -923,7 +923,7 @@ agreed order:
     the balance and the latest 20 transfers in `wallet history`'s words (`historyLine`, now in
     `core/wallet/`), each address at the other end a link. Every lookup is logged on chainit with
     the visitor's address, a dark chainit answers none while `wallet` keeps working,
-    `restoreSite.ts chainit.io` restores it, and `man wallet` names the site. Slice 2 (v0.394.0):
+    the operator's restore brings it back, and `man wallet` names the site. Slice 2 (v0.394.0):
     `/recent` lists the latest 20 transfers on the chain and `/rich` the 20 largest non-zero
     balances, both from the ledger, linked from the front page and logged like a lookup; no
     migration. Browser close-out (2026-10-16, v0.394.0) walked the form, the address links, both
@@ -1106,7 +1106,7 @@ agreed order:
     seeds the operator's welcome thread. Every player string is escaped, and a body links only
     strict `http://` addresses (`core/talkit/playerText.ts`); the table's CHECKs refuse control
     characters. `talkit` is a reserved emailit handle, `man mail` names the forum, and
-    `restoreSite.ts talkit.io` restores it with every thread kept. The bundle had 661 B left
+    the operator's restore brings it back with every thread kept. The bundle had 661 B left
     after the slice (284,314 B), so slice 2 raises the ceiling as decided. Slice 2 (v0.411.0,
     PR #709, merged 2026-10-19): a form POSTed to talkit's `/post` starts a thread, signed as the
     emailit.io login in the `~/.mailrc` of the user the tool runs as, which only a POST to
@@ -1193,7 +1193,7 @@ agreed order:
     nothing, and an unlisted boards' server answers "Welcome back, neo." and a placeholder at `/`,
     logging each read in absolute form. Slice 3 (v0.422.0): a root on the boards' server reads
     every handle's address in `/etc/hireme/boards`, built from the table under the journal, and
-    `restoreSite.ts boards.hireme.io` restores it. The bundle grew by 409 B in all, to 285,770 B
+    the operator's restore brings it back. The bundle grew by 409 B in all, to 285,770 B
     of 286,975 B. Browser close-out (2026-10-21, v0.422.0, two players): an application from lynx
     with a bare handle, the mail, the board in lynx; a second player on the leaked address; a
     staged user-tier shell on the boards' server with `/etc/hireme` hidden and both reads in
@@ -1224,10 +1224,15 @@ agreed order:
     patrol of 51 boxes (every fixed box, then each `government` and `public` network's site).
     `scripts/testGuardian.ts` proves it live: a CVE that opened a shell on a patrol site is
     refused after the round, the intruder already inside keeps their session, a second round the
-    same day writes nothing, and a bricked site is left for a restore. Slices 2 (restore, which
-    always ends patched, absorbing `restoreSite.ts`) and 3 (the report and the `/guardian`
-    skill) follow. The decisions and slices are in `plans/guardian.md`.
-    **Pick up here (2026-10-22):** guardian slice 2, then the items still open in `backlog.md`.
+    same day writes nothing, and a bricked site is left for a restore. Slice 2 (v0.426.0):
+    `scripts/guardian.ts restore <name…>` reboots any public website into its generated state,
+    patched, and replaces the fixed-site-only restore script. It ends every session on the box as
+    `rebooted` and every session stacked on those as `upstream_lost`, as an in-world reboot does;
+    the network's gateway keeps its sessions. `testGuardian.ts` restores a defaced, rooted
+    library site and a bricked one live, and every fixed site's wire-check restores through it.
+    Slice 3 (the report and the `/guardian` skill) follows. The decisions and slices are in
+    `plans/guardian.md`.
+    **Pick up here (2026-10-22):** guardian slice 3, then the items still open in `backlog.md`.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

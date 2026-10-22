@@ -25,7 +25,7 @@
 //   - EVERY LOOK IS LOGGED in valleynews's own access.log, a 404 included.
 //   - THE PAPER IS NOT A FILE. A root's `/var/www/html/wire` or `story` changes no view; a
 //     rewritten masthead is served; a stopped or bricked paper answers none; the operator's
-//     real `scripts/restoreSite.ts valleynews.io` brings them back with every story kept.
+//     real `scripts/guardian.ts restore valleynews.io` brings them back with every story kept.
 //
 // It needs the paper to be empty, as a fresh database is: the stories it posts and seeds are
 // bylined `wirecheck`, and it deletes them before and after.
@@ -478,13 +478,13 @@ const main = async () => {
   );
   const restored = spawnSync(
     process.execPath,
-    ['--import', 'tsx', 'scripts/restoreSite.ts', 'valleynews.io'],
+    ['--import', 'tsx', 'scripts/guardian.ts', 'restore', 'valleynews.io'],
     { env: process.env, encoding: 'utf8' },
   );
   const frontAfterRestore = await fetchPath('/');
   const viewsAfterRestore = await views();
   check(
-    'restoreSite.ts valleynews.io brings back the masthead and the views, every story kept',
+    'guardian.ts restore valleynews.io brings back the masthead and the views, every story kept',
     restored.status === 0 &&
       contentOf(frontAfterRestore.body) === VALLEYNEWS_FRONT_PAGE &&
       viewsAfterRestore.every((view) => view.status === 200) &&

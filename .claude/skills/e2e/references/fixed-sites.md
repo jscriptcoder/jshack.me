@@ -55,10 +55,11 @@ guest-tier, which is enough to READ but not to write its root-owned `/var/www/ht
 - **Reading a rooted findit works because the exploit session records findit's OWN network**, not
   the WiFi the attack came from — without that the box resolves to nothing and the shell reads an
   empty tree. Fixed in this slice; the guard is `scripts/testRestoreSite.ts findit.io`.
-- **`scripts/restoreSite.ts findit.io` is the undo, and it is a reboot.** `npx dotenv -e
-  .env.development.local -- npx tsx scripts/restoreSite.ts findit.io` closes every session on
-  findit, empties its journal (defacement, planted manifest, logs, all of it) and leaves a fresh
-  boot marker. Run it twice and nothing breaks; run it with no `SUPABASE_*` env and it exits 2
+- **`scripts/guardian.ts restore findit.io` is the undo, and it is a reboot.** `npx dotenv -e
+  .env.development.local -- npx tsx scripts/guardian.ts restore findit.io` closes every session
+  on findit and every one stacked on those, empties its journal (defacement, planted manifest,
+  logs, all of it) and leaves today's patched manifest and a fresh boot marker. A restored site
+  is on today's fixes, so a CVE staged before it no longer fires. Run it twice and nothing breaks; run it with no `SUPABASE_*` env and it exits 2
   rather than touching anything.
 - **After the restore the standing shell has LOST the box.** Its session is closed server-side, so a
   write is refused (`no_session`) and the next `cat` reads nothing of findit — the box is
@@ -75,7 +76,7 @@ does: a temp file inside the repo upserting one `patches` row with the service-r
 `machine_id` = `computeApGatewayId('<domain>')`, `path` `/var/www/html/index.html`, `owner`
 `root`, `permissions` `WEB_PAGE_FILE`, `node_type` `file`, any `writer_key`, `is_new` false,
 `onConflict` `machine_id,path,writer_key`. `lynx <domain>` serves it to the player at once;
-`scripts/restoreSite.ts <domain>` deletes it with every other row on the box, and the next
+`scripts/guardian.ts restore <domain>` deletes it with every other row on the box, and the next
 `lynx` shows the generated page.
 
 - **findit's front page opens typing in its search field.** To reach the link under the form,
@@ -101,7 +102,7 @@ then `ArrowDown`. To read the log, a shell on chainit is enough; no root tier is
   field, so a second `Escape` there drops you at the prompt and the `ArrowDown`s and `Enter` that
   follow land in the shell. Read the footer first: `Esc Leave field` means you are in the field,
   `← Back q Quit` means you are not.
-- `scripts/restoreSite.ts chainit.io` clears the staged manifest and the log with everything else.
+- `scripts/guardian.ts restore chainit.io` clears the staged manifest and the log with everything else.
 
 **Reaching hireme.io's boards' server** (verified 2026-10-21, v0.422.0, game day 101). It has no
 domain and no address of its own: it answers at every board's address, and a board's address
@@ -117,7 +118,7 @@ command at that `194.` address.
   directory". The root view needs a root-tier hole; on a day without one it rests on
   `testHiremeBoardRoot.ts`. `access.log` is readable at any tier and names each board read as
   `"GET http://<address>/ HTTP/1.1"` beside the reader's address.
-- `scripts/restoreSite.ts boards.hireme.io` restores it; the standing shell's next command prints
+- `scripts/guardian.ts restore boards.hireme.io` restores it; the standing shell's next command prints
   "Connection to ap-gw closed by remote host." Boards and `hireme_boards` are untouched.
 
 **Reading valleynews.io while the operator posts** (verified 2026-10-21, v0.424.0). Stories
@@ -135,6 +136,6 @@ every visit, so a lynx reload shows a change at once.
   section's stories follow from `[4]`. A `Source: …https://…` line carries no number: it is text.
 - **The defaced masthead** is planted as for mapit (`computeApGatewayId(fixedSite(
   VALLEYNEWS_NETWORK).key)` at `/var/www/html/index.html`); the views keep answering from the
-  table, and `restoreSite.ts valleynews.io` brings the masthead back with every story kept.
+  table, and `guardian.ts restore valleynews.io` brings the masthead back with every story kept.
 - **Clean up** by `remove`-ing each story the run posted: the paper opens empty, and
   `testValleynews.ts` refuses a paper that holds stories.

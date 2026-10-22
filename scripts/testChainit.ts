@@ -16,7 +16,7 @@
 //     gone. Both are logged like a lookup.
 //   - THE LEDGER IS NOT A FILE. A root's `/var/www/html/address`, `recent` or `rich`
 //     changes no view; a bricked chainit answers none; the operator's real
-//     `scripts/restoreSite.ts chainit.io` brings them back.
+//     `scripts/guardian.ts restore chainit.io` brings them back.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testChainit.ts
@@ -403,14 +403,14 @@ const main = async () => {
   );
   const restored = spawnSync(
     process.execPath,
-    ['--import', 'tsx', 'scripts/restoreSite.ts', 'chainit.io'],
+    ['--import', 'tsx', 'scripts/guardian.ts', 'restore', 'chainit.io'],
     { env: process.env, encoding: 'utf8' },
   );
   const afterRestore = await lookUp(FUNDED);
   const frontAfterRestore = await fetchPath('/');
   const viewsAfterRestore = [await fetchPath('/recent'), await fetchPath('/rich')];
   check(
-    'restoreSite.ts chainit.io brings back the front page, the lookups and the views',
+    'guardian.ts restore chainit.io brings back the front page, the lookups and the views',
     restored.status === 0 &&
       afterRestore.status === 200 &&
       contentOf(afterRestore.body).includes(`${FUNDED}  460 JSC`) &&

@@ -159,7 +159,7 @@ every line it prints are read and built in `core/valleynews/storyFile.ts`, where
 
 The masthead, `access.log` and the power to brick, and nothing built from the table: the stories
 live off the box. A rewritten `index.html` is served at `/`; a file planted at
-`/var/www/html/valley` or `story` changes no view. `scripts/restoreSite.ts valleynews.io` puts the
+`/var/www/html/valley` or `story` changes no view. `scripts/guardian.ts restore valleynews.io` puts the
 masthead back, empties the journal (the log with it) and leaves every story as it was.
 
 ## 6. The bundle
@@ -192,7 +192,7 @@ together added 105 B, to 286,170 B of the 286,975 B ceiling at v0.424.0, with no
   number. After `edit 51` from `/valley` to `/dev`: the same address with the new words and the
   first day, `/valley` empty, `/dev` in date order. After `remove 53`: lynx's 404, `/wire` empty,
   and a second removal's `No story 53`. findit's `news` search listed the paper first. A planted
-  masthead was served ("EXTRA EXTRA"), and `restoreSite.ts valleynews.io` brought the real one
+  masthead was served ("EXTRA EXTRA"), and the operator's restore brought the real one
   back with both stories kept. No release had a root-tier hole that day, so the defacement was
   planted through the service role, as the e2e runbook prescribes. No defect.
 
@@ -211,4 +211,4 @@ could read, both mission-shaped; a small markup for code blocks if a dev post ne
 - **Wiring**: `core/network/resolveHttpFetch.ts` (`NEWS_VIEWS`), `core/generation/fixedSites.ts`,
   `core/generation/fixedSiteFs.ts`, `core/generation/world.ts`, `core/emailit/signup.ts`
   (`RESERVED_HANDLES`), `core/hackademy/readme.ts`.
-- **Operator**: `scripts/valleynews.ts`, `scripts/restoreSite.ts valleynews.io`.
+- **Operator**: `scripts/valleynews.ts`, `scripts/guardian.ts restore valleynews.io`.

@@ -191,7 +191,7 @@ journal, a root's write, `rm`, `mv` or `chmod` lands in emailit.io's journal and
 root reader sees it: `rm -r /var/mail` shows an empty spool, a rewritten `/etc/emailit/passwd`
 is a honeypot whose cracked hashes fail at login, a written `/var/mail/trin` stops showing
 trin's new mail. **The tables never change**, so no player's real mail is touched, and
-`scripts/restoreSite.ts emailit.io` wipes the journal and brings the true view back. This
+`scripts/guardian.ts restore emailit.io` wipes the journal and brings the true view back. This
 replaced an earlier read-only-view design, whose one unattackable file on an otherwise
 attackable box was the odd exception, and the real-files design, where one root could take
 every account by writing a hash with no way to undo it.
@@ -252,4 +252,4 @@ Either way, `mail passwd` finishes the takeover and the victim's next check tell
   `core/generation/mailbox.ts`, `core/generation/fixedSites.ts`.
 - **Client**: `core/commands/mail.ts`; the new-mail check and mail API wiring in
   `ui/state.ts`; `core/logging/accessLog.ts` (the request method).
-- **Operator**: `scripts/restoreSite.ts emailit.io`.
+- **Operator**: `scripts/guardian.ts restore emailit.io`.

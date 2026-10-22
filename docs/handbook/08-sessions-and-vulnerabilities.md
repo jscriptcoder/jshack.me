@@ -236,8 +236,10 @@ world's DNS (chapter 7). Its search is computed at request time on the server:
 - `findit/page.ts` renders the results page; everything interpolated is escaped.
 
 Rooting findit and restoring it are covered in [`discovery-architecture.md`](../discovery-architecture.md).
-`scripts/restoreSite.ts <name>` is the operator tool that resets a fixed box's journal and
-sessions: a site by its domain, the boards' server as `boards.hireme.io`.
+`scripts/guardian.ts restore <name…>` is the operator tool that reboots a public website into
+its generated state, patched: it ends its sessions and the ones stacked on them, deletes its
+journal, and writes today's manifest and a fresh boot marker. A site is named by its domain, the
+boards' server as `boards.hireme.io`.
 
 ## Traces: actions leave log lines
 

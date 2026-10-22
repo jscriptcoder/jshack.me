@@ -16,7 +16,7 @@
 //   - EVERY LOOK IS LOGGED in talkit's own access.log, a 404 included.
 //   - THE FORUM IS NOT A FILE. A root's `/var/www/html/threads` or `thread` changes no
 //     view; a stopped or bricked talkit answers none; the operator's real
-//     `scripts/restoreSite.ts talkit.io` brings them back with every thread untouched.
+//     `scripts/guardian.ts restore talkit.io` brings them back with every thread untouched.
 //   - A PLAYER STARTS A THREAD. A form POSTed to `/post` with an emailit.io login beside
 //     it goes up through api/network.ts's `talkit_post` call, signed with the handle, its
 //     line breaks kept; the list shows it first, talkit.log names who posted from where,
@@ -471,7 +471,7 @@ const main = async () => {
   );
   const restored = spawnSync(
     process.execPath,
-    ['--import', 'tsx', 'scripts/restoreSite.ts', 'talkit.io'],
+    ['--import', 'tsx', 'scripts/guardian.ts', 'restore', 'talkit.io'],
     { env: process.env, encoding: 'utf8' },
   );
   const frontAfterRestore = await fetchPath('/');
@@ -481,7 +481,7 @@ const main = async () => {
     .select('id', { count: 'exact', head: true })
     .eq('author', SEEDER);
   check(
-    'restoreSite.ts talkit.io brings back the front page and the views, every thread kept',
+    'guardian.ts restore talkit.io brings back the front page and the views, every thread kept',
     restored.status === 0 &&
       contentOf(frontAfterRestore.body) === TALKIT_FRONT_PAGE &&
       viewsAfterRestore.every((view) => view.status === 200) &&

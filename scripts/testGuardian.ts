@@ -1,8 +1,9 @@
-// Wire-payload smoke for THE GUARDIAN PATCHES — the operator's `scripts/guardian.ts patch`,
-// run as a child process exactly as the operator runs it, against a running `vercel dev` +
-// supabase. A player breaks into a town's site through a live hole on its web server; the
-// guardian's round closes that hole for everybody, through the REAL /api/sessions endpoint
-// the exploit fires at.
+// Wire-payload smoke for THE GUARDIAN PATCHES AND RESTORES — the operator's
+// `scripts/guardian.ts patch` and `restore`, run as a child process exactly as the operator
+// runs them, against a running `vercel dev` + supabase. A player breaks into a town's site
+// through a live hole on its web server; the guardian's round closes that hole for
+// everybody, and a restore brings the site back, through the REAL /api/sessions and
+// /api/network endpoints the exploit and the visitor's fetch go to.
 //
 // Net-new under test:
 //   - A PATCH IS AN APT UPGRADE. The site's manifest — as the intruder left it — moves onto
@@ -14,6 +15,13 @@
 //   - A BRICKED BOX IS LEFT ALONE and named as needing a restore.
 //   - ANY PUBLIC WEBSITE CAN BE NAMED: a shop's site and the boards' server both patch.
 //   - A REFUSED ORDER TOUCHES NOTHING: an unknown name, or missing env.
+//   - A RESTORE IS A REBOOT ONTO TODAY'S FIXES. The defaced, rolled-back site serves its
+//     generated page again, its journal holds the patched manifest and a fresh boot marker
+//     and nothing else, the intruder's shell on it is closed as `rebooted` and the hop they
+//     stacked on it as `upstream_lost`, and the CVE that opened it is refused. Their foothold
+//     on the network's gateway is not the site's, and stays.
+//   - A BRICKED SITE COMES BACK, booting and patched; A SECOND RESTORE RUNS CLEAN; and a
+//     restore that names no box, or no public website, touches nothing.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testGuardian.ts
@@ -30,6 +38,8 @@ import { publisherIp } from '../src/core/generation/publisher.js';
 import { PATROL, publicBox, type PublicBox } from '../src/core/guardian/publicBoxes.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
 import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js';
+import { BOOT_ID_PATH } from '../src/core/boot/bootId.js';
+import type { Directory, FileNode } from '../src/core/filesystem/types.js';
 import {
   DPKG_STATUS_PATH,
   DPKG_STATUS_PERMISSIONS,
@@ -79,6 +89,20 @@ const post = async (
 
 const errorOf = (body: unknown): string | undefined =>
   (body as { error?: string } | null)?.error ?? undefined;
+
+const contentOf = (body: unknown): string => {
+  const content = (body as { content?: unknown } | null)?.content;
+  return typeof content === 'string' ? content : '';
+};
+
+const fileAt = (tree: Directory, ...segments: readonly string[]): string | null => {
+  let node: FileNode | undefined = tree;
+  for (const segment of segments) {
+    if (node === undefined || node.kind !== 'directory') return null;
+    node = node.entries.get(segment);
+  }
+  return node?.kind === 'file' ? node.content : null;
+};
 
 const boxNamed = (name: string): PublicBox => {
   const box = publicBox(name);
@@ -139,6 +163,10 @@ if (SITE_IP === undefined) {
 const siteBase = SITE.baseFs();
 const webPackage = webPackageOf(SITE);
 const shellRelease = shellReleaseOn(SITE)!;
+/** The page the site was generated with — what a restore must bring back. */
+const generatedFrontPage = fileAt(siteBase, 'var', 'www', 'html', 'index.html');
+const FRONT_PAGE = '/var/www/html/index.html';
+const DEFACED = '<html><body>the guardian sleeps</body></html>\n';
 const outcome = exploitOutcome(webPackage, shellRelease.version, today)!;
 
 const attackerEssid = crackableEssidPool.find((essid) => essid !== SITE.networkKey)!;
@@ -204,12 +232,15 @@ const writeAsAttacker = async (box: PublicBox, path: string, content: string | n
 };
 
 let fired = 0;
+/** Fire the exploit, answering with the session id the client minted for it, as
+ *  `msfconsole` does — the row the shell stands on. */
 const fire = async () => {
   fired += 1;
-  return post(
+  const sessionId = `guardian-${fired}-${Date.now()}`;
+  const response = await post(
     SESSIONS,
     signRequest(attacker, 'exploitCreateSession', {
-      session_id: `guardian-${fired}-${Date.now()}`,
+      session_id: sessionId,
       essid: attackerEssid,
       target_ip: SITE_IP,
       port: WEB_PORT,
@@ -217,7 +248,67 @@ const fire = async () => {
       parent_session_id: null,
     }),
   );
+  return { ...response, sessionId };
 };
+
+/** The intruder's foothold beside the site — a session seeded via service_role, standing
+ *  on `machineId` and, when `parent` names one, stacked on that session. */
+const seedSession = async (machineId: string, parent: string | null): Promise<string> => {
+  fired += 1;
+  const sessionId = `guardian-seeded-${fired}-${Date.now()}`;
+  const { error } = await sr.from('sessions').insert({
+    session_id: sessionId,
+    player_key: attacker.publicKeyHex,
+    machine_id: machineId,
+    credentials: { username: 'root', userType: 'root' },
+    kind: 'ssh',
+    essid: SITE.networkKey,
+    parent_session_id: parent,
+  });
+  if (error) throw new Error(`session seed failed: ${error.message}`);
+  return sessionId;
+};
+
+/** How a session stands: `null` while open, its end reason once closed. */
+const endOf = async (sessionId: string): Promise<string | null | undefined> => {
+  const { data, error } = await sr
+    .from('sessions')
+    .select('ended_at, end_reason')
+    .eq('session_id', sessionId)
+    .maybeSingle();
+  if (error) throw new Error(`session read failed: ${error.message}`);
+  if (data === null) return undefined;
+  return data.ended_at === null ? null : (data.end_reason as string);
+};
+
+type JournalRow = {
+  readonly path: string;
+  readonly writer_key: string;
+  readonly content: string | null;
+};
+
+const journalOf = async (box: PublicBox): Promise<readonly JournalRow[]> => {
+  const { data, error } = await sr
+    .from('patches')
+    .select('path, writer_key, content')
+    .eq('machine_id', box.machineId);
+  if (error) throw new Error(`journal read failed: ${error.message}`);
+  return (data ?? []) as readonly JournalRow[];
+};
+
+/** Whether a box's journal is exactly what a restore leaves: today's manifest and a boot
+ *  marker, both written as the box itself. */
+const restoredJournal = (box: PublicBox, rows: readonly JournalRow[]): boolean =>
+  rows.length === 2 &&
+  rows.every((row) => row.writer_key === apGatewayLogWriterKey(box.networkKey)) &&
+  rows.some((row) => row.path === BOOT_ID_PATH) &&
+  rows.some((row) => row.path === DPKG_STATUS_PATH && fullyPatched(row.content ?? ''));
+
+const fetchFrontPage = () =>
+  post(
+    NETWORK,
+    signRequest(attacker, 'resolveHttpFetch', { target: SITE_IP, port: WEB_PORT, path: '/' }),
+  );
 
 const openSessions = async (): Promise<number> => {
   const { data, error } = await sr
@@ -227,6 +318,18 @@ const openSessions = async (): Promise<number> => {
     .is('ended_at', null);
   if (error) throw new Error(`session read failed: ${error.message}`);
   return data?.length ?? 0;
+};
+
+/** Every open session standing on `box`, whoever's — a local database can carry a stray
+ *  one from an earlier run, and a restore closes that too. */
+const openSessionsOn = async (box: PublicBox): Promise<number> => {
+  const { count, error } = await sr
+    .from('sessions')
+    .select('session_id', { count: 'exact', head: true })
+    .eq('machine_id', box.machineId)
+    .is('ended_at', null);
+  if (error) throw new Error(`session count failed: ${error.message}`);
+  return count ?? 0;
 };
 
 const registerAttackerHome = async (): Promise<boolean> => {
@@ -387,6 +490,107 @@ const main = async () => {
       noEnv.status === 2 &&
       (await rowCount(SITE)) === before,
     `unknown exit ${unknown.status} (${unknown.stderr.trim().split('\n')[0]}), no-env exit ${noEnv.status}`,
+  );
+
+  // 8. THE SITE FALLS AGAIN — rolled back, defaced, and held three ways.
+  await writeAsAttacker(
+    SITE,
+    DPKG_STATUS_PATH,
+    withPackageVersion(readDpkgStatus(siteBase), webPackage, shellRelease.version),
+  );
+  await writeAsAttacker(SITE, FRONT_PAGE, DEFACED);
+  const reopened = await fire();
+  const shellId = reopened.sessionId;
+  const hopId = await seedSession(boxNamed('findit.io').machineId, shellId);
+  const gatewayId = await seedSession(computeApGatewayId(SITE.networkKey), null);
+  const defaced = await fetchFrontPage();
+  check(
+    'the site falls again: a shell on it, and its front page defaced for every visitor',
+    reopened.status === 200 && contentOf(defaced.body) === DEFACED,
+    `exploit ${reopened.status}, session ${shellId}, ` +
+      `page ${contentOf(defaced.body).slice(0, 60)}`,
+  );
+
+  // 9. THE RESTORE.
+  // Everything on the box, and the one hop stacked on it.
+  const closedSessions = (await openSessionsOn(SITE)) + 1;
+  const removedRows = await rowCount(SITE);
+  const restored = runGuardian(['restore', SITE.name]);
+  const restoreLines = restored.stdout.trim().split('\n');
+  check(
+    'restore exits 0 and names the box, what it threw off and wiped, and the total',
+    restored.status === 0 &&
+      restoreLines[0]?.startsWith('Restoring 1 box on ') === true &&
+      restoreLines[1]
+        ?.trimStart()
+        .startsWith(
+          `${SITE.name}: restored (${closedSessions} sessions closed, ${removedRows} rows removed), `,
+        ) === true &&
+      restoreLines[2] === 'Restored 1 box.',
+    `exit ${restored.status}; ${JSON.stringify(restoreLines)} ${restored.stderr.trim()}`,
+  );
+  const journal = await journalOf(SITE);
+  check(
+    "the site's journal holds today's manifest and a fresh boot marker, as the box itself",
+    restoredJournal(SITE, journal),
+    JSON.stringify(journal.map(({ path, writer_key }) => ({ path, writer_key }))),
+  );
+  const back = await fetchFrontPage();
+  check(
+    'the site serves its generated front page again',
+    generatedFrontPage !== null && contentOf(back.body) === generatedFrontPage,
+    contentOf(back.body).slice(0, 80) || `status ${back.status}`,
+  );
+  const ends = [await endOf(shellId), await endOf(hopId), await endOf(gatewayId)];
+  check(
+    'the shell on the site ends rebooted, the hop on it upstream_lost, and the gateway stays',
+    ends[0] === 'rebooted' && ends[1] === 'upstream_lost' && ends[2] === null,
+    `shell ${ends[0]}, hop ${ends[1]}, gateway ${ends[2] === null ? 'open' : ends[2]}`,
+  );
+  const shut = await fire();
+  check(
+    'after the restore, the CVE that opened the shell is refused',
+    shut.status === 404 && errorOf(shut.body) === 'not_vulnerable',
+    `status ${shut.status}, body ${JSON.stringify(shut.body)}`,
+  );
+
+  // 10. TWICE IS HARMLESS — what the visits since have logged goes with the rest.
+  const loggedSince = await rowCount(SITE);
+  const twice = runGuardian(['restore', SITE.name]);
+  check(
+    'a second restore runs clean and leaves the same two rows',
+    twice.status === 0 &&
+      twice.stdout.includes(
+        `${SITE.name}: restored (0 sessions closed, ${loggedSince} rows removed), `,
+      ) &&
+      restoredJournal(SITE, await journalOf(SITE)),
+    `exit ${twice.status}; ${twice.stdout.trim().split('\n')[1] ?? ''} ${twice.stderr.trim()}`,
+  );
+
+  // 11. A BRICKED SITE COMES BACK.
+  const revived = runGuardian(['restore', BRICKED.name]);
+  check(
+    'the bricked site comes back booting and patched',
+    revived.status === 0 && restoredJournal(BRICKED, await journalOf(BRICKED)),
+    `exit ${revived.status}; ${revived.stdout.trim().split('\n')[1] ?? ''} ` +
+      revived.stderr.trim(),
+  );
+
+  // 12. A RESTORE NAMES ITS BOXES.
+  await writeAsAttacker(SITE, FRONT_PAGE, DEFACED);
+  const standing = await rowCount(SITE);
+  const unnamed = runGuardian(['restore']);
+  const nowhere = runGuardian(['restore', SITE.name, 'nowhere.example']);
+  const bare = runGuardian(['restore', SITE.name], { ...process.env, SUPABASE_URL: '' });
+  check(
+    'a restore naming no box or no public website, or without env, exits 2 touching nothing',
+    unnamed.status === 2 &&
+      unnamed.stderr.includes('restore names the boxes it restores') &&
+      nowhere.status === 2 &&
+      nowhere.stderr.includes('nowhere.example is no public website') &&
+      bare.status === 2 &&
+      (await rowCount(SITE)) === standing,
+    `no name exit ${unnamed.status}, unknown exit ${nowhere.status}, no-env exit ${bare.status}`,
   );
 
   await cleanup();
