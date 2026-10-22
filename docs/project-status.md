@@ -1212,10 +1212,10 @@ agreed order:
     across sections at the same address, a removal's 404, findit, a planted masthead and the
     restore with every story kept. No defect. As built:
     [`valleynews-architecture.md`](./valleynews-architecture.md); what it left out is in
-    `backlog.md` under "valleynews — follow-ups deferred". **Pick up here (2026-10-21):** the
-    paper opens empty, so the opening stories (a `/dev` launch note, a couple of `/wire` pieces, a
-    few `/valley` stories) are drafted by Claude as story files for the owner to read and posted
-    to prod with the script on release day; then the items still open in `backlog.md`.
+    `backlog.md` under "valleynews — follow-ups deferred". The opening stories are on prod, the
+    last of them the `/dev` launch note (story 13, 2026-10-22), whose scale numbers come from
+    [`world-in-numbers.md`](./world-in-numbers.md), refreshed at v0.424.0 to count the paper.
+    **Pick up here (2026-10-22):** the items still open in `backlog.md`.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
