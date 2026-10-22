@@ -1,5 +1,5 @@
 // Wire-payload smoke for the ROOT VIEW of hireme.io's boards' server — `resolveCrossPlayerFs`
-// on the boards' server, and the operator's `scripts/restoreSite.ts boards.hireme.io`, against a
+// on the boards' server, and the operator's `scripts/guardian.ts restore boards.hireme.io`, against a
 // running `vercel dev` + supabase.
 //
 // Net-new under test (the locally-untypechecked api/ runtime):
@@ -9,7 +9,8 @@
 //   - A JOURNAL ROW SITS OVER THE VIEW: a root's rewrite is what the next root reads, while
 //     the table is untouched and every board still answers at its address.
 //   - THE RESTORE NAMES THE BOX BY ITS KEY: the script closes every session there, empties
-//     its journal down to one boot marker, and the list comes back from the table.
+//     its journal down to today's patched manifest and one boot marker, and the list comes
+//     back from the table.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testHiremeBoardRoot.ts
@@ -28,7 +29,10 @@ import { BOARD_SERVER_NETWORK } from '../src/core/generation/fixedSites.js';
 import { BOARD_FIRST_OCTET } from '../src/core/generation/world.js';
 import { ROOT_FILE } from '../src/core/generation/baseFs.js';
 import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js';
-import { BOOT_ID_PATH } from '../src/core/boot/bootId.js';
+import { decideRestore } from '../src/core/guardian/restore.js';
+import { publicBox } from '../src/core/guardian/publicBoxes.js';
+import { gameDayAt } from '../src/core/cve/worldClock.js';
+import { asEpochMs } from '../src/core/types.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { boardPage } from '../src/core/hireme/pages.js';
 import { deserializeTree, type SerializedDirectory } from '../src/core/filesystem/treeCodec.js';
@@ -38,7 +42,7 @@ type Identity = ReturnType<typeof generateIdentity>;
 
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
 const PATCHES = process.env.PATCHES_ENDPOINT ?? 'http://localhost:3100/api/patches';
-const RESTORE_SCRIPT = 'scripts/restoreSite.ts';
+const GUARDIAN_SCRIPT = 'scripts/guardian.ts';
 const url = process.env.SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
@@ -183,7 +187,7 @@ const fetchBoard = (address: string) =>
   );
 
 const restore = (name: string) =>
-  spawnSync(process.execPath, ['--import', 'tsx', RESTORE_SCRIPT, name], {
+  spawnSync(process.execPath, ['--import', 'tsx', GUARDIAN_SCRIPT, 'restore', name], {
     env: process.env,
     encoding: 'utf8',
   });
@@ -305,16 +309,24 @@ const main = async () => {
   // 4. THE OPERATOR RESTORES THE BOX BY ITS KEY.
   const restored = restore(BOARD_SERVER_NETWORK);
   check(
-    `restoreSite.ts ${BOARD_SERVER_NETWORK} runs to completion`,
+    `guardian.ts restore ${BOARD_SERVER_NETWORK} runs to completion`,
     restored.status === 0,
     `exit ${restored.status}; ${(restored.stdout + restored.stderr).trim().split('\n').join(' | ')}`,
   );
   const rows = await journal();
+  // What a restore writes on the server's day: the patched manifest when a fix has shipped
+  // for anything the box runs, and the boot marker.
+  const restoredPaths = decideRestore({
+    box: publicBox(BOARD_SERVER_NETWORK)!,
+    gameDay: gameDayAt(asEpochMs(Date.now())),
+    bootId: 'expected',
+  }).rows.map(({ path }) => path);
+  const journalPaths = rows.map(({ path }) => path);
   check(
-    "the boards' server's journal holds one fresh boot marker and nothing else",
-    rows.length === 1 &&
-      rows[0]?.path === BOOT_ID_PATH &&
-      rows[0]?.writer_key === apGatewayLogWriterKey(BOARD_SERVER_NETWORK),
+    "the boards' server's journal holds today's manifest and a fresh boot marker, nothing else",
+    journalPaths.length === restoredPaths.length &&
+      restoredPaths.every((path) => journalPaths.includes(path)) &&
+      rows.every((row) => row.writer_key === apGatewayLogWriterKey(BOARD_SERVER_NETWORK)),
     JSON.stringify(rows),
   );
   const closed = [...(await sessionsOf(root)), ...(await sessionsOf(nextRoot))];
@@ -339,11 +351,11 @@ const main = async () => {
     `fetch status ${boardAfter.status}`,
   );
 
-  // 5. THE USAGE LINE NAMES THE BOARDS' SERVER.
+  // 5. A NAME NO PUBLIC WEBSITE ANSWERS TO IS REFUSED.
   const unknown = restore('example.com');
   check(
-    "an unknown name is refused, and the usage names the boards' server",
-    unknown.status === 2 && unknown.stderr.includes(BOARD_SERVER_NETWORK),
+    'an unknown name is refused, and named',
+    unknown.status === 2 && unknown.stderr.includes('example.com is no public website'),
     `exit ${unknown.status}; ${unknown.stderr.trim()}`,
   );
 
