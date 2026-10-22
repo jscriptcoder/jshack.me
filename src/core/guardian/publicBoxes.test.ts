@@ -6,6 +6,8 @@ import { siteServer } from '../generation/siteServer.js';
 import { DECLARED_NETWORKS } from '../generation/world.js';
 import { FIXED_BOXES } from '../generation/fixedSites.js';
 import { readDpkgStatus } from '../packages/dpkgStatus.js';
+import { materializeApGatewayFs } from '../network/materializeRouterFs.js';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
 import { createFsView } from '../filesystem/fsView.js';
 import { asAbsPath } from '../types.js';
 import type { Directory } from '../filesystem/types.js';
@@ -73,6 +75,18 @@ describe('publicBox', () => {
   it("generates the box's own tree, manifest and all", () => {
     expect(readDpkgStatus(publicBox('ashby.gov')!.baseFs())).toContain('Package: openssh-server');
     expect(readDpkgStatus(publicBox('findit.io')!.baseFs())).toContain('Package: nginx');
+  });
+
+  it('generates the same tree the server rebuilds the box from, before any journal', () => {
+    const network = networkServing('ashby.gov');
+    const server = siteServer(network.key)!;
+
+    expect(publicBox('findit.io')!.baseFs()).toEqual(
+      materializeApGatewayFs({ essid: 'findit.io' }, null),
+    );
+    expect(publicBox('ashby.gov')!.baseFs()).toEqual(
+      resolveLanHostIdentity(server, network.key).baseFs,
+    );
   });
 });
 
