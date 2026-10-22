@@ -1,5 +1,6 @@
-// Wire-payload smoke for THE GUARDIAN PATCHES AND RESTORES — the operator's
-// `scripts/guardian.ts patch` and `restore`, run as a child process exactly as the operator
+// Wire-payload smoke for THE GUARDIAN REPORTS, PATCHES AND RESTORES — the operator's
+// `scripts/guardian.ts report`, `patch` and `restore`, run as a child process exactly as the
+// operator
 // runs them, against a running `vercel dev` + supabase. A player breaks into a town's site
 // through a live hole on its web server; the guardian's round closes that hole for
 // everybody, and a restore brings the site back, through the REAL /api/sessions and
@@ -22,6 +23,10 @@
 //     on the network's gateway is not the site's, and stays.
 //   - A BRICKED SITE COMES BACK, booting and patched; A SECOND RESTORE RUNS CLEAN; and a
 //     restore that names no box, or no public website, touches nothing.
+//   - A REPORT TELLS A VISIT FROM A BREAK-IN, AND WRITES NOTHING. The intruder's open
+//     session, every path they wrote (the log they wiped included) and a brick each read as
+//     tampered; a box visited and logged into and out of since its restore reads up to date;
+//     the count behind is what the patch then moves; with no name it covers the patrol.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testGuardian.ts
@@ -304,6 +309,31 @@ const restoredJournal = (box: PublicBox, rows: readonly JournalRow[]): boolean =
   rows.some((row) => row.path === BOOT_ID_PATH) &&
   rows.some((row) => row.path === DPKG_STATUS_PATH && fullyPatched(row.content ?? ''));
 
+/** The line a guardian run gave `box`. */
+const lineFor = (run: ReturnType<typeof runGuardian>, box: PublicBox): string =>
+  run.stdout
+    .split('\n')
+    .map((line) => line.trim())
+    .find((line) => line.startsWith(`${box.name}: `)) ?? '';
+
+/** The account each open session on `box` was opened as, oldest first — whoever's, as a
+ *  report reads them. */
+const openAccountsOn = async (box: PublicBox): Promise<readonly string[]> => {
+  const { data, error } = await sr
+    .from('sessions')
+    .select('credentials')
+    .eq('machine_id', box.machineId)
+    .is('ended_at', null)
+    .order('created_at', { ascending: true });
+  if (error) throw new Error(`session read failed: ${error.message}`);
+  return ((data ?? []) as readonly { credentials: { username: string } }[]).map(
+    (row) => row.credentials.username,
+  );
+};
+
+const sessionsPart = (accounts: readonly string[]): string =>
+  `${accounts.length} open session${accounts.length === 1 ? '' : 's'}: ${accounts.join(', ')}`;
+
 const fetchFrontPage = () =>
   post(
     NETWORK,
@@ -389,6 +419,30 @@ const main = async () => {
     opened.status === 200 && (opened.body as { cve?: string } | null)?.cve === outcome.cve,
     `status ${opened.status}, body ${JSON.stringify(opened.body).slice(0, 140)}`,
   );
+  // ...and a report, before the round, names them and writes nothing.
+  const rowsBeforeReport = await rowCount(SITE);
+  const openBeforeReport = await openSessionsOn(SITE);
+  const looked = runGuardian(['report', SITE.name]);
+  const lookedLine = lineFor(looked, SITE);
+  const intruders = await openAccountsOn(SITE);
+  check(
+    "report exits 0 and reads the site as behind and tampered: the intruder's session and manifest",
+    looked.status === 0 &&
+      looked.stdout.startsWith('Looking over 1 box on ') &&
+      / packages? behind, tampered \(/.test(lookedLine) &&
+      lookedLine.includes(`${sessionsPart(intruders)}; `) &&
+      lookedLine.includes(DPKG_STATUS_PATH) &&
+      looked.stdout.includes('Looked over 1 box: 1 behind, 1 tampered, 0 bricked.'),
+    `exit ${looked.status}; ${looked.stdout.trim()} ${looked.stderr.trim()}`,
+  );
+  check(
+    'a report writes nothing, and closes nothing',
+    (await rowCount(SITE)) === rowsBeforeReport &&
+      (await openSessionsOn(SITE)) === openBeforeReport,
+    `rows ${rowsBeforeReport} → ${await rowCount(SITE)}, ` +
+      `open ${openBeforeReport} → ${await openSessionsOn(SITE)}`,
+  );
+  const behindBefore = /: (\d+) packages? behind/.exec(lookedLine)?.[1];
 
   // 2. THE ROUND.
   const round = runGuardian(['patch', SITE.name, 'findit.io']);
@@ -406,6 +460,11 @@ const main = async () => {
     'the site upgrades the web server from the version the intruder left it on',
     lines[1]?.includes(`${webPackage} ${shellRelease.version} → `) === true,
     lines[1] ?? 'no line',
+  );
+  check(
+    'the report counted behind exactly the packages the patch moved',
+    behindBefore !== undefined && lines[1]?.includes(`: ${behindBefore} upgraded (`) === true,
+    `report ${behindBefore} behind; ${lines[1] ?? 'no line'}`,
   );
 
   const written = await guardianRow(SITE);
@@ -467,6 +526,15 @@ const main = async () => {
       (await guardianRow(BRICKED)) === undefined,
     `exit ${bricked.status}; ${bricked.stdout.trim()}`,
   );
+  const brickedReport = runGuardian(['report', BRICKED.name]);
+  check(
+    'a report reads the bricked site as bricked and tampered, with the write that killed it',
+    brickedReport.status === 0 &&
+      lineFor(brickedReport, BRICKED) ===
+        `${BRICKED.name}: bricked, tampered (1 path written: /boot/vmlinuz)` &&
+      brickedReport.stdout.includes('Looked over 1 box: 0 behind, 1 tampered, 1 bricked.'),
+    `exit ${brickedReport.status}; ${brickedReport.stdout.trim()} ${brickedReport.stderr.trim()}`,
+  );
 
   // 6. ANY PUBLIC WEBSITE CAN BE NAMED.
   const shop = runGuardian(['patch', 'kwikemart.com', 'boards.hireme.io']);
@@ -499,6 +567,8 @@ const main = async () => {
     withPackageVersion(readDpkgStatus(siteBase), webPackage, shellRelease.version),
   );
   await writeAsAttacker(SITE, FRONT_PAGE, DEFACED);
+  // ...and wipes their trail out of the box's log.
+  await writeAsAttacker(SITE, '/var/log/auth.log', '');
   const reopened = await fire();
   const shellId = reopened.sessionId;
   const hopId = await seedSession(boxNamed('findit.io').machineId, shellId);
@@ -509,6 +579,17 @@ const main = async () => {
     reopened.status === 200 && contentOf(defaced.body) === DEFACED,
     `exploit ${reopened.status}, session ${shellId}, ` +
       `page ${contentOf(defaced.body).slice(0, 60)}`,
+  );
+  const fallen = runGuardian(['report', SITE.name]);
+  const fallenLine = lineFor(fallen, SITE);
+  check(
+    'a report names every account open on the fallen site and every path written, the log too',
+    fallen.status === 0 &&
+      fallenLine.includes(
+        `tampered (${sessionsPart(await openAccountsOn(SITE))}; 3 paths written: `,
+      ) &&
+      fallenLine.endsWith(`: ${DPKG_STATUS_PATH}, /var/log/auth.log, ${FRONT_PAGE})`),
+    `exit ${fallen.status}; ${fallenLine} ${fallen.stderr.trim()}`,
   );
 
   // 9. THE RESTORE.
@@ -566,6 +647,24 @@ const main = async () => {
       restoredJournal(SITE, await journalOf(SITE)),
     `exit ${twice.status}; ${twice.stdout.trim().split('\n')[1] ?? ''} ${twice.stderr.trim()}`,
   );
+  // A visitor since: a page fetched, a login and a logout. The box logs them; none of it is
+  // a break-in.
+  await fetchFrontPage();
+  const visit = await seedSession(SITE.machineId, null);
+  await sr
+    .from('sessions')
+    .update({ ended_at: new Date().toISOString(), end_reason: 'user_exit' })
+    .eq('session_id', visit);
+  const visitedRows = await rowCount(SITE);
+  const visited = runGuardian(['report', SITE.name]);
+  check(
+    'a report reads the restored site, visited since, as up to date and untouched',
+    visitedRows > 2 &&
+      visited.status === 0 &&
+      lineFor(visited, SITE) === `${SITE.name}: up to date` &&
+      visited.stdout.includes('Looked over 1 box: 0 behind, 0 tampered, 0 bricked.'),
+    `${visitedRows} rows; exit ${visited.status}; ${visited.stdout.trim()} ${visited.stderr.trim()}`,
+  );
 
   // 11. A BRICKED SITE COMES BACK.
   const revived = runGuardian(['restore', BRICKED.name]);
@@ -591,6 +690,31 @@ const main = async () => {
       bare.status === 2 &&
       (await rowCount(SITE)) === standing,
     `no name exit ${unnamed.status}, unknown exit ${nowhere.status}, no-env exit ${bare.status}`,
+  );
+
+  // 13. A REPORT COVERS THE PATROL, AND REFUSES AN ORDER AS A PATCH DOES.
+  const patrol = runGuardian(['report']);
+  const patrolLines = patrol.stdout.trim().split('\n');
+  check(
+    'a report with no name reads every patrol box, one line each, then the total',
+    patrol.status === 0 &&
+      patrolLines.length === PATROL.length + 2 &&
+      patrolLines[0]?.startsWith(`Looking over ${PATROL.length} boxes on `) === true &&
+      PATROL.every((box, index) =>
+        patrolLines[index + 1]?.trimStart().startsWith(`${box.name}: `),
+      ) &&
+      patrolLines.at(-1)?.startsWith(`Looked over ${PATROL.length} boxes: `) === true,
+    `exit ${patrol.status}; ${patrolLines.length} lines; ${patrolLines.at(-1)} ` +
+      patrol.stderr.trim(),
+  );
+  const unreadable = runGuardian(['report', SITE.name, 'nowhere.example']);
+  const unconfigured = runGuardian(['report', SITE.name], { ...process.env, SUPABASE_URL: '' });
+  check(
+    'a report naming no public website, or without env, exits 2',
+    unreadable.status === 2 &&
+      unreadable.stderr.includes('nowhere.example is no public website') &&
+      unconfigured.status === 2,
+    `unknown exit ${unreadable.status}, no-env exit ${unconfigured.status}`,
   );
 
   await cleanup();

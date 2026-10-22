@@ -1,6 +1,12 @@
 // The guardian's rounds over the public web — the operator looking after the valley's
 // public websites by hand, on rounds nobody can predict.
 //
+//   report [name…]    Read each box and say how it stands, writing nothing
+//                     (`core/guardian/report.ts`): how many packages a patch would move
+//                     today, and whether a player has done more than visit — an open
+//                     session on it, a write that is not the box's own log line, or a
+//                     brick. What the operator reads before picking the boxes to restore.
+//
 //   patch [name…]     Move every package on each box onto the fix that has shipped for it,
 //                     exactly as a root's `apt upgrade` would (`core/guardian/patch.ts`). A
 //                     hole whose fix is still inside its patch delay stays open until a later
@@ -29,10 +35,11 @@
 //
 // A name is a public website's domain (`millbrook.gov`, `findit.io`, `kwikemart.com`) or
 // `boards.hireme.io`, whatever its case. With no name, a patch walks the patrol: every fixed
-// box, then each government and public network's site (`core/guardian/publicBoxes.ts`). A
-// restore always names its boxes.
+// box, then each government and public network's site (`core/guardian/publicBoxes.ts`), for
+// a report as for a patch. A restore always names its boxes.
 //
 // Usage (local):
+//   npx dotenv -e .env.development.local -- npx tsx scripts/guardian.ts report [name…]
 //   npx dotenv -e .env.development.local -- npx tsx scripts/guardian.ts patch [name…]
 //   npx dotenv -e .env.development.local -- npx tsx scripts/guardian.ts restore <name…>
 //
@@ -60,6 +67,13 @@ import {
   restoreOrder,
   restoreTotal,
 } from '../src/core/guardian/restore.js';
+import {
+  decideReport,
+  reportHeader,
+  reportLine,
+  reportTotal,
+  type Report,
+} from '../src/core/guardian/report.js';
 import type { PublicBox } from '../src/core/guardian/publicBoxes.js';
 import type { OwnerPatchRow } from '../src/core/network/materializeMachineFs.js';
 import {
@@ -70,11 +84,15 @@ import {
 import { gameDayAt } from '../src/core/cve/worldClock.js';
 import { asEpochMs } from '../src/core/types.js';
 
-const USAGE = 'Usage: guardian.ts patch [name…] | restore <name…>';
+const USAGE = 'Usage: guardian.ts report [name…] | patch [name…] | restore <name…>';
 
 const [command, ...names] = process.argv.slice(2);
 const order: BoxesOrder | undefined =
-  command === 'patch' ? boxesNamed(names) : command === 'restore' ? restoreOrder(names) : undefined;
+  command === 'report' || command === 'patch'
+    ? boxesNamed(names)
+    : command === 'restore'
+      ? restoreOrder(names)
+      : undefined;
 if (order === undefined) {
   console.error(USAGE);
   process.exit(2);
@@ -99,17 +117,32 @@ const fail = (box: PublicBox, label: string, error: { message: string }): never 
   process.exit(1);
 };
 
-const patch = async (box: PublicBox, gameDay: number): Promise<PatchOutcome> => {
+const journalOf = async (box: PublicBox): Promise<readonly OwnerPatchRow[] | null> => {
   const journal = await sr
     .from('patches')
     .select('path, content, owner, permissions, node_type, updated_at, writer_key')
     .eq('machine_id', box.machineId);
   if (journal.error) fail(box, 'reading the journal', journal.error);
-  const outcome = decidePatch({
-    box,
-    journal: journal.data as readonly OwnerPatchRow[] | null,
-    gameDay,
-  });
+  return journal.data as readonly OwnerPatchRow[] | null;
+};
+
+const report = async (box: PublicBox, gameDay: number): Promise<Report> => {
+  const journal = await journalOf(box);
+  const open = await sr
+    .from('sessions')
+    .select('credentials')
+    .eq('machine_id', box.machineId)
+    .is('ended_at', null)
+    .order('created_at', { ascending: true });
+  if (open.error) fail(box, 'reading the open sessions', open.error);
+  const accounts = ((open.data ?? []) as readonly { credentials: { username: string } }[]).map(
+    (row) => row.credentials.username,
+  );
+  return decideReport({ box, journal, openSessions: accounts, gameDay });
+};
+
+const patch = async (box: PublicBox, gameDay: number): Promise<PatchOutcome> => {
+  const outcome = decidePatch({ box, journal: await journalOf(box), gameDay });
   if (outcome.kind === 'upgraded') {
     const written = await sr
       .from('patches')
@@ -164,6 +197,17 @@ const restore = async (box: PublicBox, gameDay: number): Promise<string> => {
   });
 };
 
+const reportRound = async (boxes: readonly PublicBox[], gameDay: number) => {
+  console.log(reportHeader(boxes.length, new URL(url).host));
+  const reports: Report[] = [];
+  for (const box of boxes) {
+    const read = await report(box, gameDay);
+    console.log(`  ${reportLine(box.name, read)}`);
+    reports.push(read);
+  }
+  console.log(reportTotal(reports));
+};
+
 const patchRound = async (boxes: readonly PublicBox[], gameDay: number) => {
   console.log(patchHeader(boxes.length, new URL(url).host));
   const outcomes: PatchOutcome[] = [];
@@ -185,7 +229,8 @@ const main = async () => {
   // One day for the whole round, so a round that runs across midnight treats every box
   // against the same world.
   const gameDay = gameDayAt(asEpochMs(Date.now()));
-  if (command === 'restore') await restoreRound(order.boxes, gameDay);
+  if (command === 'report') await reportRound(order.boxes, gameDay);
+  else if (command === 'restore') await restoreRound(order.boxes, gameDay);
   else await patchRound(order.boxes, gameDay);
   process.exit(0);
 };
