@@ -238,7 +238,8 @@ the `ed25519:` prefix.
    time: while `wlan0` is associated, a connect to another network is refused (`nmcli: already
    connected to <name> — run 'nmcli disconnect' first`) before the password is checked.
 2. The client posts a signed `registerNetwork` action. The server first refuses a network outside
-   Ridgemont, or one the world does not declare, with `403 network_not_joinable` and writes
+   the town the player stands in (the one they last travelled to, else the one their key draws),
+   or one the world does not declare, with `403 network_not_joinable` and writes
    nothing (the local-only `JSHACK_ADMIT_LAB_NETWORKS=1` admits the wire-checks' undeclared lab
    networks). Then it allocates or reuses the player's LAN lease. It then takes the box off every
    other network it occupies, exactly as a disconnect would (step 4), which holds the one-network
