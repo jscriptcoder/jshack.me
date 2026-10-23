@@ -8,7 +8,8 @@
  * reconnaissance.
  *
  * Plain HTML within what `lynx` renders. It has no drop-down list, so each town is its
- * own small form whose one button boards for it.
+ * own small form whose one button boards for it, set in a table row beside the town so
+ * the buttons line up in a column instead of trailing names of different lengths.
  */
 
 import { escapeHtml } from '../findit/page.js';
@@ -70,15 +71,20 @@ export const ticketPage = ({
     `<p>One fare to anywhere: ${RIDE_FARE} JSC, paid to this ticket's own address:</p>`,
     `<p>${address}</p>`,
     `<p>Paid so far: ${paidOf(paid)}.</p>`,
+    '<table>',
     ...TOWNS.map((town) =>
       [
-        `<form action="${BOARD_PATH}" method="post">`,
-        `<p>${escapeHtml(town.name)}`,
+        '<tr>',
+        // A cell is no list item, so the bullet a list would draw is written into it.
+        `<td>* ${escapeHtml(town.name)}</td>`,
+        `<td><form action="${BOARD_PATH}" method="post">`,
         `<input type="hidden" name="town" value="${escapeHtml(town.name)}">`,
-        '<input type="submit" value="Board"></p>',
-        '</form>',
+        '<input type="submit" value="Board">',
+        '</form></td>',
+        '</tr>',
       ].join('\n'),
     ),
+    '</table>',
     '<p>Or from a terminal:</p>',
     '<pre>',
     `$ wallet send ${address} ${RIDE_FARE}`,

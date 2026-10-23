@@ -71,8 +71,9 @@ describe("rideit.io's front page", () => {
 /**
  * The ticket page is the booking form, written for the reader: the fare, the address their
  * next trip is paid to, and how much has arrived there. lynx draws no drop-down list, so
- * every town is its own small form: the town's name, the town sent as a field nobody
- * types, and one button that boards for it. It never says where the reader stands.
+ * every town is its own table row: the town's name, then a small form holding the town
+ * sent as a field nobody types and one button that boards for it. It never says where
+ * the reader stands.
  */
 describe("rideit.io's ticket page", () => {
   const ADDRESS = 'jsc0612820023d341ff3ace924e0e4cafda09b51a98';
@@ -93,7 +94,7 @@ describe("rideit.io's ticket page", () => {
 
   it('quotes the fare, the address it is paid to and how much has arrived, before the towns', () => {
     expect(TICKET_PAGE).toContain(
-      `<h2>Book a ticket</h2>\n<p>One fare to anywhere: 25 JSC, paid to this ticket's own address:</p>\n<p>${ADDRESS}</p>\n<p>Paid so far: 10 of 25 JSC.</p>\n<form`,
+      `<h2>Book a ticket</h2>\n<p>One fare to anywhere: 25 JSC, paid to this ticket's own address:</p>\n<p>${ADDRESS}</p>\n<p>Paid so far: 10 of 25 JSC.</p>\n<table>`,
     );
   });
 
@@ -103,15 +104,19 @@ describe("rideit.io's ticket page", () => {
     );
   });
 
-  it('writes each form on lines of its own, as curl prints it', () => {
+  it('writes each town as a table row on lines of its own, as curl prints it', () => {
     expect(TICKET_PAGE).toContain(
-      `<form action="/board" method="post">\n<p>${TOWNS[0]!.name}\n<input type="hidden" name="town" value="${TOWNS[0]!.name}">\n<input type="submit" value="Board"></p>\n</form>\n<form`,
+      `<table>\n<tr>\n<td>* ${TOWNS[0]!.name}</td>\n<td><form action="/board" method="post">\n<input type="hidden" name="town" value="${TOWNS[0]!.name}">\n<input type="submit" value="Board">\n</form></td>\n</tr>\n<tr>`,
     );
   });
 
-  it('offers one form per town, in the order the world declares them', () => {
-    expect(forms().map((form) => form.textContent?.trim())).toEqual(
-      TOWNS.map((town) => town.name),
+  it('offers one row per town, its form beside its name, in the order the world declares them', () => {
+    const rows = [...parsed(TICKET_PAGE).querySelectorAll('tr')];
+    expect(rows.map((row) => row.querySelector('td')?.textContent)).toEqual(
+      TOWNS.map((town) => `* ${town.name}`),
+    );
+    expect(rows.map((row) => row.querySelector('td + td > form') !== null)).toEqual(
+      TOWNS.map(() => true),
     );
   });
 
@@ -140,7 +145,7 @@ describe("rideit.io's ticket page", () => {
 
   it('shows how to pay and board from a terminal, for the first town', () => {
     expect(TICKET_PAGE).toContain(
-      `</form>\n<p>Or from a terminal:</p>\n<pre>\n$ wallet send ${ADDRESS} 25\n$ curl -d "town=${TOWNS[0]!.name}" http://rideit.io/board\n</pre>\n</body>`,
+      `</table>\n<p>Or from a terminal:</p>\n<pre>\n$ wallet send ${ADDRESS} 25\n$ curl -d "town=${TOWNS[0]!.name}" http://rideit.io/board\n</pre>\n</body>`,
     );
   });
 });
