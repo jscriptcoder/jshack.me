@@ -4,6 +4,7 @@ import { CHAINIT_FRONT_PAGE } from '../chainit/pages.js';
 import { TALKIT_FRONT_PAGE } from '../talkit/pages.js';
 import { HIREME_FRONT_PAGE } from '../hireme/pages.js';
 import { VALLEYNEWS_FRONT_PAGE } from '../valleynews/pages.js';
+import { RIDEIT_FRONT_PAGE } from '../rideit/pages.js';
 import { MAIL_SPOOL_DIR, ROOT_DIR } from './baseFs.js';
 import { filterTreeForSession } from '../patches/readFilter.js';
 import { materializeApGatewayFs } from '../network/materializeRouterFs.js';
@@ -41,6 +42,7 @@ describe.each([
   ['talkit.io', 'talkit', 'talkit.io'],
   ['hireme.io', 'hireme', 'hireme.io'],
   ['valleynews.io', 'valleynews', 'valleynews.io'],
+  ['rideit.io', 'rideit', 'rideit.io'],
   // The contractor boards' server: hireme's back office, under hireme's domain.
   ['boards.hireme.io', 'boards', 'hireme.io'],
 ])('the box %s runs on', (key, hostname, domain) => {
@@ -125,6 +127,7 @@ describe('the fixed sites, side by side', () => {
       'talkit.io',
       'hireme.io',
       'valleynews.io',
+      'rideit.io',
       'boards.hireme.io',
     ].map(rootHash);
     expect(new Set(hashes).size).toBe(hashes.length);
@@ -183,6 +186,12 @@ describe("valleynews.io's box", () => {
       expect(read(siteBox('valleynews.io'), `/var/www/html/${path}`)).toBeNull();
     },
   );
+});
+
+describe("rideit.io's box", () => {
+  it("serves the booking office's front page, a file a root can deface like any other", () => {
+    expect(read(siteBox('rideit.io'), '/var/www/html/index.html')).toBe(RIDEIT_FRONT_PAGE);
+  });
 });
 
 const nodeAt = (tree: Directory, path: string): FileNode | undefined =>

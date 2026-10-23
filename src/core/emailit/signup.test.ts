@@ -169,6 +169,7 @@ describe('a sign-up refused before the store is asked', () => {
     'talkit',
     'hireme',
     'valleynews',
+    'rideit',
     'guest',
     'nobody',
   ])('refuses the reserved handle %s', async (handle) => {

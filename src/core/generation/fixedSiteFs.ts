@@ -50,6 +50,7 @@ import { CHAINIT_FRONT_PAGE } from '../chainit/pages.js';
 import { TALKIT_FRONT_PAGE } from '../talkit/pages.js';
 import { HIREME_FRONT_PAGE } from '../hireme/pages.js';
 import { VALLEYNEWS_FRONT_PAGE } from '../valleynews/pages.js';
+import { RIDEIT_FRONT_PAGE } from '../rideit/pages.js';
 import {
   BOARD_SERVER_NETWORK,
   CHAINIT_NETWORK,
@@ -60,6 +61,7 @@ import {
   MAPIT_NETWORK,
   TALKIT_NETWORK,
   VALLEYNEWS_NETWORK,
+  RIDEIT_NETWORK,
   type FixedSite,
 } from './fixedSites.js';
 
@@ -84,6 +86,7 @@ const WEB_ROOTS: ReadonlyMap<string, Readonly<Record<string, string>>> = new Map
   [TALKIT_NETWORK, { 'index.html': TALKIT_FRONT_PAGE }],
   [HIREME_NETWORK, { 'index.html': HIREME_FRONT_PAGE, apply: HIREME_FRONT_PAGE }],
   [VALLEYNEWS_NETWORK, { 'index.html': VALLEYNEWS_FRONT_PAGE }],
+  [RIDEIT_NETWORK, { 'index.html': RIDEIT_FRONT_PAGE }],
 ]);
 
 /** The site whose box keeps everybody's mail. Its files are not generated: the server lays

@@ -1067,6 +1067,24 @@ describe('valleynews.io, on the web findit searches', () => {
   });
 });
 
+describe('rideit.io, on the web findit searches', () => {
+  it('comes first for anybody who asks for a ticket', async () => {
+    expect(rankPages(await indexWith(), 'ticket')[0]?.address).toBe('rideit.io');
+  });
+
+  it('is found by anybody who wants to travel', async () => {
+    expect(rankPages(await indexWith(), 'travel').map((page) => page.address)).toContain(
+      'rideit.io',
+    );
+  });
+
+  it('is listed by what it says of itself: one fare to every town in the valley', async () => {
+    expect((await found('rideit.io'))?.description).toBe(
+      'Coach and rail tickets to every town in Harrow Valley. One fare, any town.',
+    );
+  });
+});
+
 describe('the map of the world, on the web findit searches', () => {
   it('comes first for anybody who asks for a map', async () => {
     expect(rankPages(await indexWith(), 'map')[0]?.address).toBe('mapit.io');

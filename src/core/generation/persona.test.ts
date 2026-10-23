@@ -121,6 +121,15 @@ describe('networkPersona', () => {
     });
   });
 
+  it('keeps rideit the ticket office, however many kinds of place the world grows', () => {
+    expect(networkPersona('rideit.io')).toEqual({
+      category: 'hacker',
+      place: 'the ticket office',
+      domain: 'rideit-io.lan',
+      town: 'Ridgemont',
+    });
+  });
+
   it("keeps the contractor boards' server hireme's back office", () => {
     expect(networkPersona('boards.hireme.io')).toEqual({
       category: 'hacker',

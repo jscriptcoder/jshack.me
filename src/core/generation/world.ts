@@ -43,6 +43,7 @@ import {
   MAPIT_NETWORK,
   TALKIT_NETWORK,
   VALLEYNEWS_NETWORK,
+  RIDEIT_NETWORK,
 } from './fixedSites.js';
 
 /** How much stands behind a network's gateway: one machine, a few, or today's inner
@@ -823,6 +824,8 @@ const ADDRESS_BY_KEY: ReadonlyMap<string, string> = new Map([
   [HIREME_NETWORK, placelessAddress(6 + LANDMARK_CORPORATIONS.length + CORPORATIONS.length)],
   // valleynews came after hireme, and takes the next address.
   [VALLEYNEWS_NETWORK, placelessAddress(7 + LANDMARK_CORPORATIONS.length + CORPORATIONS.length)],
+  // rideit came after valleynews, and takes the next address.
+  [RIDEIT_NETWORK, placelessAddress(8 + LANDMARK_CORPORATIONS.length + CORPORATIONS.length)],
   ...DRAWN_TOWNS.flatMap((drawn) =>
     townAddresses(drawn.town, [...drawn.networks, ...drawn.landmarks]),
   ),

@@ -282,6 +282,24 @@ describe('whois', () => {
     });
   });
 
+  it('names rideit, the ticket office, by its domain spelt as a network name', async () => {
+    const address = addressOf('rideit.io');
+
+    const { lines, exitCode } = await run(address);
+
+    expect({ lines, exitCode }).toEqual({
+      lines: [
+        '% Harrow Valley registry',
+        '',
+        `inetnum:        ${address} - ${address}`,
+        'netname:        RIDEIT-IO',
+        'org-name:       rideit.io',
+        'domain:         rideit.io',
+      ],
+      exitCode: 0,
+    });
+  });
+
   it('names valleynews, the paper, by its domain spelt as a network name', async () => {
     const address = addressOf('valleynews.io');
 
