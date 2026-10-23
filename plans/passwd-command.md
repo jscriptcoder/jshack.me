@@ -1,6 +1,7 @@
 # Plan: the `passwd` command — change an account's password
 
-**Status:** grill complete + plan drafted (2026-10-23) — ready to implement (TDD). Not yet started.
+**Status:** grill complete + plan drafted + find-gaps pass (2026-10-23) — ready to implement
+(TDD). Not yet started.
 
 A player-facing `passwd` command that rewrites an account's md5 hash in `/etc/passwd`.
 On the player's own workstation it changes their own account (user/guest/root). On a
@@ -46,6 +47,13 @@ _Decisions are numbered as they are confirmed. Open questions sit at the bottom 
    user/guest changing their own password on their own box. Rejected: skipping it because the
    caller already holds the session — it is the most recognizable piece of real `passwd`, costs
    one masked prompt in one case, and reuses machinery `su` already has.
+   - **Empty-hash exception (refines 3, find-gaps 2026-10-23).** The prompt is **skipped when
+     the account being changed currently has an empty hash** (a password-less account, e.g. a
+     default `guest`), exactly as `su`'s `needsPassword = userType !== 'root' && hash !== ''`
+     does. Otherwise the check could never pass — `md5(anything)` is a 32-char hex string,
+     never the empty string — and decision 1's promise that "a guest can change the guest
+     password" would be impossible. So a guest with an empty hash goes straight to `New
+     password:`; a user with a real hash is still prompted.
 
 4. **New-password entry: double masked prompt, must match, no quality rules, empty rejected.**
    `passwd` prompts `New password:` then `Retype new password:`, both masked via `env.prompt`.
@@ -87,6 +95,14 @@ _Decisions are numbered as they are confirmed. Open questions sit at the bottom 
    write's existing `writer_key` provenance (`traceProvenance`) can trace who. The act is
    harsh but not invisible. Rejected: a silent change (stealthier but less real) and victim
    notification (softens the mechanic against "learn the hard way").
+   - **Success only; failures are not logged (refines 7b, find-gaps 2026-10-23).** The
+     `auth.log` line is written on a **successful** change only — unlike `su`, which logs both
+     outcomes. The only failure that can reach a log point is an own-box wrong-current-password
+     (decision 3); foreign writes are always root with no old-password check (2), and privilege
+     refusals are up-front client-side with no server call (9). That lone failure is always the
+     box's own owner fumbling their own password — no second party to inform, no guardian/
+     defender value — so logging it would be self-noise. The meaningful event is that a
+     password *did* change, and that is what the line records.
 
 8. **Surface is `passwd [username]`, no flags.** The command is named `passwd`. `passwd`
    (no arg) targets the caller's current account; `passwd <username>` targets a named account
@@ -99,6 +115,12 @@ _Decisions are numbered as they are confirmed. Open questions sit at the bottom 
    - **Unknown account:** `passwd: user '<name>' does not exist` (mirrors `su`'s wording),
      including when the box has no `/etc/passwd` at all (a rooted owner deleted it — no
      accounts, so the name doesn't exist).
+   - **No-arg target resolution (find-gaps 2026-10-23).** `passwd` with no argument targets
+     `env.session.username` — the account named on the current session row, the same identity
+     `su` uses — then looks that name up in `/etc/passwd`. If that account has **no row** (a
+     synthetic/exploit session account, or a box whose `/etc/passwd` was deleted), it falls
+     through to the unknown-account error above: `passwd: user '<name>' does not exist`. No
+     "create the row" behaviour — `passwd` changes existing accounts, it does not mint them.
    - **Privilege refusals happen up front, before any prompt** (the client knows its own
      tier, so prompting then failing is pointless): own box, a user/guest running `passwd
      root` (or another account) → `passwd: you may not change the password for '<name>'`;
@@ -107,10 +129,26 @@ _Decisions are numbered as they are confirmed. Open questions sit at the bottom 
      after.)
    - **Row integrity:** only field 2 (the hash) is rewritten; `uid:gid:gecos:home:shell` are
      preserved exactly.
+   - **Stale-buffer refusal (find-gaps 2026-10-23).** `env.patches.write` refuses the write if
+     the box's `/etc/passwd` changed between the read and the write (a second `passwd`, the
+     `--local systemctl` row append, an `apt` action). On that refusal `passwd` prints
+     `passwd: /etc/passwd changed underneath you — try again` (error), exits non-zero, and
+     writes **nothing** — the typed new password is discarded and the player re-runs. Honest,
+     recoverable, and matches real `passwd`'s file-locking spirit; silently re-reading and
+     re-applying could clobber the other writer, which `baseContent` exists to prevent.
+   - **Actor success feedback (find-gaps 2026-10-23).** On a successful change `passwd` prints
+     `passwd: password updated successfully` (normal output) and exits 0, on both own and
+     foreign boxes. Unlike `su` (which stays silent because it hands you a visibly new shell),
+     `passwd` has no other visible effect, so this line is the actor's only confirmation the
+     change landed — and on a foreign box, the attacker's confirmation the lockout is set.
    - **Self-lockout: no safety net.** No confirmation, no recovery. Change your own root
      password and forget it and the only way back is the operator **restore** script,
      consistent with "every machine is attackable → the remedy is an operator restore." You
      lock yourself out, you learn the hard way.
+   - **Prompt-abort and scripted calls inherit `su` (find-gaps 2026-10-23).** No bespoke
+     handling: cancelling any of the three masked prompts (Ctrl-C) returns exit 130 and writes
+     nothing, exactly as `su` does; a scripted `passwd` hits `NOT_IMPLEMENTED('prompt')` and
+     fails like a scripted `su` (decision 5), no special message.
 
 ---
 
@@ -208,7 +246,9 @@ harness between increments — once at the end-of-phase PR gate.
    can't be unit-proven: a root session on a foreign box rewrites its `/etc/passwd` and the
    change persists + hides from the owner; a non-root foreign write is **refused** by L2; the
    server stamps the `auth.log` line (client can't forge time); the owner's next `su`/ssh with
-   the old password now fails and with the new one succeeds.
+   the old password now fails and with the new one succeeds; and a `passwd` whole-file rewrite
+   composes correctly **over a prior `/etc/passwd` patch from a different writer** (e.g. the
+   systemctl-hole row append) rather than erasing it.
 
 ## Evidence & gates
 
@@ -230,3 +270,24 @@ harness between increments — once at the end-of-phase PR gate.
 - A scripted/`chpasswd` form (decision 5).
 - `/etc/shadow` modelling — the game keeps the hash in `/etc/passwd` directly (deliberately
   md5); no shadow split.
+
+---
+
+## Gaps closed — find-gaps session, 2026-10-23
+
+Resolved (7):
+```
+[Blocker → decision 3]        Empty-hash account could never pass the old-password check →
+                              skip the prompt when the stored hash is empty (mirrors `su`)
+[Should  → decision 9 + §5]   Stale-buffer write refusal → message + nothing written, plus a
+                              slice-5 wire-check that a rewrite composes over another writer's
+                              prior /etc/passwd patch
+[Should  → decision 9]        No-arg target = `env.session.username`; missing row falls through
+                              to the unknown-account error (no row minting)
+[Should  → decision 7b]       Failures are not logged — success only (the lone failure is the
+                              owner fumbling their own password; self-noise)
+[Should  → decision 9]        Actor success feedback → `passwd: password updated successfully`
+[Nice    → decision 9]        Ctrl-C prompt-abort inherits `su` (exit 130, nothing written)
+[Nice    → decision 9]        Scripted `passwd` fails like scripted `su` (decision 5)
+```
+Parked: none. No cross-decision contradictions found.
