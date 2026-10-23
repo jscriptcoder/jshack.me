@@ -4,7 +4,8 @@ import { signRequest } from '../signedRequest/sign.js';
 import { generateIdentity } from '../identity/identity.js';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
 import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer.js';
-import { crackableEssidPool } from '../generation/generateWifi.js';
+import { wifiPoolOf } from '../generation/generateWifi.js';
+import { RIDGEMONT } from '../generation/world.js';
 import { computeDeepGatewayId, computeInnerGatewayId } from '../identity/router.js';
 import { buildDeepGatewayBaseFs, buildDeepSwitchBaseFs } from '../generation/routerFs.js';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
@@ -58,7 +59,7 @@ const deepDevice = (): {
   readonly deviceId: string;
   readonly subnet: string;
 } => {
-  for (const essid of crackableEssidPool) {
+  for (const essid of wifiPoolOf(RIDGEMONT)) {
     if (seedNetworkDepth(essid) < 2) continue;
     const gateway = generateHomeLan(essid).hosts.find(
       (host) => host.kind === 'router' && octetOf(host) !== 1,
@@ -211,7 +212,7 @@ describe('walking a device behind an inner gateway', () => {
 /** An inner gateway that answers SNMP at its OWN address — the device a player meets
  *  first, one hop before anything hidden. */
 const innerGatewayWithAnAgent = (): { readonly essid: string; readonly gateway: LanHost } => {
-  for (const essid of crackableEssidPool) {
+  for (const essid of wifiPoolOf(RIDGEMONT)) {
     const gateway = generateHomeLan(essid).hosts.find(
       (host) => host.kind === 'router' && octetOf(host) !== 1,
     );

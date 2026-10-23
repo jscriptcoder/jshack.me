@@ -12,7 +12,8 @@
  */
 
 import { generateHomeLan, type LanHost } from '../../core/generation/generateHomeLan.js';
-import { crackableEssidPool } from '../../core/generation/generateWifi.js';
+import { wifiPoolOf } from '../../core/generation/generateWifi.js';
+import { RIDGEMONT } from '../../core/generation/world.js';
 import { generateDeepLayer, type DeepLayer } from '../../core/generation/generateDeepLayer.js';
 import { buildDeepHostFs } from '../../core/generation/deepHostFs.js';
 import { computeInnerGatewayId } from '../../core/identity/router.js';
@@ -138,7 +139,7 @@ const deepDatabaseOn = (essid: string): DeepDatabaseFixture | null => {
 };
 
 export const deepDatabaseFixture = (): DeepDatabaseFixture => {
-  const essid = crackableEssidPool.find((candidate) => deepDatabaseOn(candidate) !== null);
+  const essid = wifiPoolOf(RIDGEMONT).find((candidate) => deepDatabaseOn(candidate) !== null);
   const fixture = essid === undefined ? null : deepDatabaseOn(essid);
   if (fixture === null) throw new Error('no network fronts a deep database');
   return fixture;

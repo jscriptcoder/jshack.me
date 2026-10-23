@@ -27,9 +27,9 @@ import { signRequest } from '../src/core/signedRequest/sign.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
-import { crackableEssidPool } from '../src/core/generation/generateWifi.js';
+import { wifiPoolOf } from '../src/core/generation/generateWifi.js';
 import { siteAddress } from '../src/core/generation/publisher.js';
-import { networkAt } from '../src/core/generation/world.js';
+import { networkAt, RIDGEMONT } from '../src/core/generation/world.js';
 import {
   BOARD_SERVER_NETWORK,
   HIREME_DOMAIN,
@@ -96,7 +96,7 @@ const handleFor = (name: string): string => `${name}${RUN}`;
 /** The player every account here is signed up by, so they can all be removed afterwards. */
 const owner = generateIdentity();
 const visitor = generateIdentity();
-const [visitorEssid] = crackableEssidPool;
+const [visitorEssid] = wifiPoolOf(RIDGEMONT);
 
 const openAccount = async (handle: string) => {
   const { error } = await sr.from('email_accounts').insert({

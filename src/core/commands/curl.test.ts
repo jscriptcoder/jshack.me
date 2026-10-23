@@ -47,7 +47,8 @@ import { HTTP_DEFAULT_PORT, METHOD_NOT_ALLOWED_PAGE } from '../network/http.js';
 import { asAbsPath, asMachineId, asPlayerKeyHex } from '../types.js';
 import { chainLinks } from '../generation/lanTopology.js';
 import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
-import { crackableEssidPool } from '../generation/generateWifi.js';
+import { wifiPoolOf } from '../generation/generateWifi.js';
+import { RIDGEMONT } from '../generation/world.js';
 import { buildDirectory } from '../../test/factories/filesystem.js';
 
 /**
@@ -1079,7 +1080,7 @@ describe('curl from a hop', () => {
     readonly host: LanHost;
     readonly port: number;
   } => {
-    for (const essid of crackableEssidPool) {
+    for (const essid of wifiPoolOf(RIDGEMONT)) {
       for (const link of chainLinks(essid)) {
         if (link.host.kind === 'switch') continue;
         const layer = resolveDeepScanHosts(essid, link, buildDirectory({}));
@@ -1129,7 +1130,7 @@ describe('curl from a hop', () => {
   it('does not reach the player home LAN from a foreign hop', async () => {
     // Standing on BEAN-THERE-WIFI: a private address on a DIFFERENT home LAN is off this
     // network, so it resolves to nothing, exactly as any address this LAN does not hold.
-    const homeEssid = crackableEssidPool.find((candidate) => candidate !== ESSID)!;
+    const homeEssid = wifiPoolOf(RIDGEMONT).find((candidate) => candidate !== ESSID)!;
     const homeWebHost = generateHomeLan(homeEssid).hosts.find(
       (candidate) =>
         candidate.kind === 'machine' &&

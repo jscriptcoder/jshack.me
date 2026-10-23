@@ -33,8 +33,8 @@ import { buildDeepHostFs } from '../src/core/generation/deepHostFs.js';
 import { hostMachineId } from '../src/core/generation/remoteHostId.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
 import { seedApGatewayAdminHash } from '../src/core/generation/routerFs.js';
-import { crackableEssidPool } from '../src/core/generation/generateWifi.js';
-import { publicAddress } from '../src/core/generation/world.js';
+import { wifiPoolOf } from '../src/core/generation/generateWifi.js';
+import { publicAddress, RIDGEMONT } from '../src/core/generation/world.js';
 import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js';
 import { AUTH_LOG_PATH } from '../src/core/logging/authLog.js';
 import { accountsIn, accountIn } from '../src/core/sessions/passwdAccount.js';
@@ -103,7 +103,7 @@ const sshMachinesOn = (essid: string): readonly LanHost[] =>
 // ─── Network N: a crackable network with a public face and two ssh machines that each
 //     carry a crackable account — one the op stands on (the hop), one it sweeps. ───
 const findN = () => {
-  for (const essid of crackableEssidPool) {
+  for (const essid of wifiPoolOf(RIDGEMONT)) {
     if (publicAddress(essid) === undefined) continue;
     const machines = sshMachinesOn(essid);
     const crackable = machines
@@ -121,7 +121,7 @@ const findN = () => {
 // ─── Network D: an inner SWITCH fronting a deep layer whose deep host runs ssh with a
 //     crackable guest — the deep-by-address and switch-ACL cases. ───
 const findDeep = () => {
-  for (const essid of crackableEssidPool) {
+  for (const essid of wifiPoolOf(RIDGEMONT)) {
     const innerSwitch = chainLinks(essid).find(
       (link) => link.parentMachineId === null && link.host.kind === 'switch',
     );
@@ -163,7 +163,7 @@ if (deep === null) {
 // Home (H) and the public target (P): two more declared crackable networks, distinct from N
 // and D, so the public addresses this check contrasts are all different. P's gateway sshd is
 // the public target, crackable via its seeded admin password.
-const spare = crackableEssidPool.filter(
+const spare = wifiPoolOf(RIDGEMONT).filter(
   (essid) =>
     essid !== n.essid && essid !== deep.essid && publicAddress(essid) !== undefined,
 );

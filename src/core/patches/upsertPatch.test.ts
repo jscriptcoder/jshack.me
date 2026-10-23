@@ -21,7 +21,8 @@ import { signRequest } from '../signedRequest/sign.js';
 import { generateIdentity } from '../identity/identity.js';
 import { computeWorkstationId } from '../identity/workstation.js';
 import { generateHomeLan } from '../generation/generateHomeLan.js';
-import { crackableEssidPool } from '../generation/generateWifi.js';
+import { wifiPoolOf } from '../generation/generateWifi.js';
+import { RIDGEMONT } from '../generation/world.js';
 import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer.js';
 import { computeDeepGatewayId, computeInnerGatewayId } from '../identity/router.js';
 import { hostMachineId } from '../generation/remoteHostId.js';
@@ -184,7 +185,7 @@ const ownFields = (publicKeyHex: string) => ({
  *  Not a `generateHomeLan` host, so a write there exercises the deep-chain resolution
  *  rather than the LAN lookup. */
 const chainDoor = (): { essid: string; machineId: string } => {
-  for (const essid of crackableEssidPool) {
+  for (const essid of wifiPoolOf(RIDGEMONT)) {
     if (seedNetworkDepth(essid) < 2) continue;
     const inner = generateHomeLan(essid).hosts.find(
       (host) => host.kind === 'router' && Number(host.ip.split('.')[3]) !== 1,

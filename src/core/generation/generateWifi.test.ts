@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { crackableEssidPool, generateWifi } from './generateWifi.js';
-import { DECLARED_NETWORKS, isLandmark } from './world.js';
+import { generateWifi, wifiPoolOf } from './generateWifi.js';
+import { startingTown } from './startingTown.js';
+import { DECLARED_NETWORKS, isLandmark, RIDGEMONT, TOWNS } from './world.js';
 import { ESSID_CATALOG } from './pools/essidCatalog.js';
 import { bssidFromEssid, type WifiNetwork } from '../network/wifi.js';
 import { secrets } from '../secrets/__encoded.js';
@@ -25,6 +26,22 @@ const SEED_B = 'b'.repeat(64);
 // ESSID substitution and the derive-BSSID-from-the-ORIGINAL-essid rule.
 const SEED_HIDDEN = '0'.repeat(64);
 
+/** The first `count` of the keys `<town>-0`, `<town>-1`, … that start a player in
+ *  `town`, so a test can stand its players wherever it needs them. */
+const keysIn = (town: string, count: number): readonly string[] => {
+  const keys: string[] = [];
+  for (let index = 0; keys.length < count; index++) {
+    if (startingTown(`${town}-${index}`) === town) keys.push(`${town}-${index}`);
+  }
+  return keys;
+};
+
+/** A player who starts in Ridgemont. */
+const RIDGEMONT_KEY = 'player-0';
+
+/** The network the world declares under `key`. */
+const declaredAs = (key: string) => DECLARED_NETWORKS.find((network) => network.key === key);
+
 const isCrackable = (network: WifiNetwork): network is Extract<WifiNetwork, { crackable: true }> =>
   network.crackable;
 
@@ -47,25 +64,30 @@ describe('generateWifi', () => {
     expect(bssidsA).not.toEqual(bssidsB);
   });
 
-  it('offers an identity the same crackable networks it has always been offered', () => {
-    // The scan picks from Ridgemont's networks by position, so this holds their order:
+  it('offers a player in Ridgemont the same crackable networks they have always been offered', () => {
+    // The scan picks from the town's networks by position, so this holds their order:
     // reordering them would hand every player a different set of networks.
     const offered = (seedPubkeyHex: string): readonly string[] =>
       generateWifi({ seedPubkeyHex })
         .filter(isCrackable)
         .map((network) => network.essid);
 
-    expect(offered('id-0')).toEqual(['r0/t0/n102', 'r0/t0/n73', 'r0/t0/n100']);
-    expect(offered('id-1')).toEqual(['WEYLAND-NET', 'r0/t0/n173']);
-    expect(offered('id-2')).toEqual(['r0/t0/n143', 'LIBRARY-PATRON']);
+    expect(['player-0', 'player-5', 'player-9'].map((key) => startingTown(key))).toEqual([
+      RIDGEMONT,
+      RIDGEMONT,
+      RIDGEMONT,
+    ]);
+    expect(offered('player-0')).toEqual(['OSCORP-GUEST', 'BREW-AND-CODE']);
+    expect(offered('player-5')).toEqual(['r0/t0/n118', 'r0/t0/n120']);
+    expect(offered('player-9')).toEqual(['LIBRARY-PATRON', 'r0/t0/n134']);
   });
 
-  it("draws from every one of Ridgemont's 178 networks, the landmarks first in the catalog's order", () => {
+  it("draws a player in Ridgemont from every one of its 178 networks, the landmarks first in the catalog's order", () => {
     const drawn = DECLARED_NETWORKS.filter(
-      (network) => network.town === 'Ridgemont' && !isLandmark(network.key),
+      (network) => network.town === RIDGEMONT && !isLandmark(network.key),
     );
     expect(drawn).toHaveLength(121);
-    expect(crackableEssidPool).toEqual([
+    expect(wifiPoolOf(RIDGEMONT)).toEqual([
       ...ESSID_CATALOG.map((entry) => entry.essid),
       ...drawn.map((network) => network.key),
     ]);
@@ -73,7 +95,7 @@ describe('generateWifi', () => {
 
   it('offers a network Ridgemont draws as it offers a landmark, under the key its password and BSSID derive from', () => {
     const offered = Array.from({ length: 40 }, (_, scanIndex) =>
-      generateWifi({ seedPubkeyHex: SEED_A, scanIndex }).filter(isCrackable),
+      generateWifi({ seedPubkeyHex: RIDGEMONT_KEY, scanIndex }).filter(isCrackable),
     ).flat();
     const drawn = offered.filter((network) => network.essid.startsWith('r0/t0/'));
     expect(drawn.length).toBeGreaterThan(0);
@@ -84,16 +106,32 @@ describe('generateWifi', () => {
     }
   });
 
-  it('offers only networks in the town the player stands in', () => {
-    // Everybody stands in Ridgemont: another town's networks are out of wifi range and
-    // reachable over the internet alone.
-    const elsewhere = DECLARED_NETWORKS.filter((network) => network.town !== 'Ridgemont');
-    expect(elsewhere.length).toBeGreaterThan(0);
-    const names = new Set(elsewhere.flatMap((network) => [network.key, network.essid]));
-    for (let scan = 0; scan < 500; scan++) {
-      for (const network of generateWifi({ seedPubkeyHex: SEED_A, scanIndex: scan })) {
-        expect(names.has(network.essid), network.essid).toBe(false);
-      }
+  it("offers only the networks of the town the player's key starts them in, homes among them", () => {
+    // Another town's networks are out of wifi range and reachable over the internet alone.
+    for (const town of TOWNS) {
+      const offered = keysIn(town.name, 5).flatMap((seedPubkeyHex) =>
+        Array.from({ length: 100 }, (_, scanIndex) =>
+          generateWifi({ seedPubkeyHex, scanIndex }).filter(isCrackable),
+        ).flat(),
+      );
+      const elsewhere = offered
+        .map((network) => ({ essid: network.essid, town: declaredAs(network.essid)?.town }))
+        .filter((network) => network.town !== town.name);
+
+      expect(elsewhere).toEqual([]);
+      expect(offered.some((network) => declaredAs(network.essid)?.category === 'residential')).toBe(
+        true,
+      );
+    }
+  });
+
+  it("offers a town's networks in the order the world declares them", () => {
+    for (const town of TOWNS) {
+      expect(wifiPoolOf(town.name)).toEqual(
+        DECLARED_NETWORKS.filter((network) => network.town === town.name).map(
+          (network) => network.key,
+        ),
+      );
     }
   });
 
@@ -164,9 +202,10 @@ describe('generateWifi', () => {
 
   it('shuffles crackable and noise together into a stable seeded order', () => {
     // Golden snapshot for SEED_A's first scan: locks the seeded selection +
-    // interleave. The crackable APs (GROUND-ZERO-COFFEE / UPSTAIRS-NEIGHBOR) sit at positions 3
-    // and 6, interleaved with noise rather than grouped — proof the final shuffle
-    // actually mixes the two populations.
+    // interleave. SEED_A starts in Stonebury, so its crackable APs are two of that town's
+    // networks (its town hall and LIGHTHOUSE-COFFEE, under their keys). They sit at
+    // positions 3 and 6, interleaved with noise rather than grouped — proof the final
+    // shuffle actually mixes the two populations.
     const order = generateWifi({ seedPubkeyHex: SEED_A }).map((network) => ({
       essid: network.essid,
       encryption: network.encryption,
@@ -175,10 +214,10 @@ describe('generateWifi', () => {
     expect(order).toEqual([
       { essid: '<hidden>', encryption: 'WPA2', crackable: false },
       { essid: '<hidden>', encryption: 'WPA2', crackable: false },
-      { essid: 'GROUND-ZERO-COFFEE', encryption: 'WPA2', crackable: true },
+      { essid: 'r0/t10/n0', encryption: 'WPA2', crackable: true },
       { essid: 'SUBWAY_WIFI', encryption: 'WPA2', crackable: false },
       { essid: 'FREE_INTERNET', encryption: 'WPA3', crackable: false },
-      { essid: 'UPSTAIRS-NEIGHBOR', encryption: 'WPA2', crackable: true },
+      { essid: 'r0/t10/n7', encryption: 'WPA2', crackable: true },
       { essid: 'ASUS_RT_AC68U', encryption: 'WPA3', crackable: false },
     ]);
   });
@@ -249,24 +288,33 @@ describe('generateWifi', () => {
   });
 
   describe("another player's network", () => {
-    // A scan of a player standing in Ridgemont: many players, each scanning many times.
+    const RIDGEMONT_CROWD = keysIn(RIDGEMONT, 40);
+
+    // A scan of a player standing in the crowd's town: many players, each scanning many
+    // times.
     const scanOf = (
       index: number,
       occupiedEssids: readonly string[] = [],
+      crowd: readonly string[] = RIDGEMONT_CROWD,
     ): readonly WifiNetwork[] =>
-      generateWifi({ seedPubkeyHex: `player-${index % 40}`, scanIndex: index, occupiedEssids });
+      generateWifi({
+        seedPubkeyHex: crowd[index % crowd.length]!,
+        scanIndex: index,
+        occupiedEssids,
+      });
 
     /** The networks a scan shows only because somebody occupies them. */
     const injectedInto = (
       index: number,
       occupiedEssids: readonly string[],
+      crowd: readonly string[] = RIDGEMONT_CROWD,
     ): readonly WifiNetwork[] => {
       const drawn = new Set(
-        scanOf(index)
+        scanOf(index, [], crowd)
           .filter(isCrackable)
           .map((network) => network.essid),
       );
-      return scanOf(index, occupiedEssids).filter(
+      return scanOf(index, occupiedEssids, crowd).filter(
         (network) => network.crackable && !drawn.has(network.essid),
       );
     };
@@ -285,20 +333,30 @@ describe('generateWifi', () => {
       expect(Math.max(...injections.map((injected) => injected.length))).toBe(1);
     });
 
-    it('surfaces only from Ridgemont, the town the player stands in', () => {
-      const elsewhere = DECLARED_NETWORKS.find((network) => network.town === 'Millbrook');
-      if (elsewhere === undefined) throw new Error('Millbrook declares no network');
-      // Another town's network, a lab network a dev stack admits, and a name nobody declares.
-      const outside = [elsewhere.key, 'MYSQL-LAB-3', 'PLAYER-A-LIVE-NET'];
-      const inside = 'r0/t0/n100';
+    it('surfaces only from the town the player stands in', () => {
+      const firstIn = (town: string): string => {
+        const network = DECLARED_NETWORKS.find((declared) => declared.town === town);
+        if (network === undefined) throw new Error(`${town} declares no network`);
+        return network.key;
+      };
+      // One network in each town, a lab network a dev stack admits, and a name nobody
+      // declares.
+      const occupied = [
+        ...TOWNS.map((town) => firstIn(town.name)),
+        'MYSQL-LAB-3',
+        'PLAYER-A-LIVE-NET',
+      ];
 
-      const surfaced = new Set(
-        Array.from({ length: SCANS }, (_, index) =>
-          injectedInto(index, [...outside, inside]).map((network) => network.essid),
-        ).flat(),
-      );
+      for (const town of [RIDGEMONT, 'Kingsford', 'Ely']) {
+        const crowd = keysIn(town, 40);
+        const surfaced = new Set(
+          Array.from({ length: SCANS }, (_, index) =>
+            injectedInto(index, occupied, crowd).map((network) => network.essid),
+          ).flat(),
+        );
 
-      expect([...surfaced]).toEqual([inside]);
+        expect({ town, surfaced: [...surfaced] }).toEqual({ town, surfaced: [firstIn(town)] });
+      }
     });
 
     it('leaves a scan with nothing to inject exactly as it would be with nobody about', () => {
@@ -312,7 +370,7 @@ describe('generateWifi', () => {
     });
 
     it('reads the same whatever order the occupied networks are listed in', () => {
-      const occupied = crackableEssidPool.slice(40, 80);
+      const occupied = wifiPoolOf(RIDGEMONT).slice(40, 80);
       const reversed = [...occupied].reverse();
 
       for (let index = 0; index < SCANS; index++) {

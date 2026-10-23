@@ -37,8 +37,8 @@ import { machineIdForLanHost } from '../src/core/generation/lanTopology.js';
 import { generateDeepLayer } from '../src/core/generation/generateDeepLayer.js';
 import { hostMachineId } from '../src/core/generation/remoteHostId.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
-import { crackableEssidPool } from '../src/core/generation/generateWifi.js';
-import { publicAddress } from '../src/core/generation/world.js';
+import { wifiPoolOf } from '../src/core/generation/generateWifi.js';
+import { publicAddress, RIDGEMONT } from '../src/core/generation/world.js';
 import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js';
 import { REDIS_LOG_PATH } from '../src/core/logging/redisLog.js';
 import { SNMPD_LOG_PATH } from '../src/core/logging/snmpdLog.js';
@@ -91,7 +91,7 @@ const servesOpenRedis = (essid: string, host: LanHost): boolean => {
 };
 
 const redisLan = (deepEssid: string) => {
-  for (const essid of crackableEssidPool) {
+  for (const essid of wifiPoolOf(RIDGEMONT)) {
     if (essid === deepEssid || publicAddress(essid) === undefined) continue;
     const machines = generateHomeLan(essid).hosts.filter((host) => host.kind === 'machine');
     const storeHost = machines.find((host) => servesOpenRedis(essid, host));
@@ -122,7 +122,10 @@ const deepSwitch = (essid: string) => {
   };
 };
 
-const deep = crackableEssidPool.map(deepSwitch).find((found) => found !== null) ?? null;
+const deep =
+  wifiPoolOf(RIDGEMONT)
+    .map(deepSwitch)
+    .find((found) => found !== null) ?? null;
 if (deep === null) {
   console.error('no crackable network fronts a deep layer behind an inner switch');
   process.exit(2);
@@ -135,7 +138,7 @@ if (lan === null) {
 
 // Home (H) and the public SNMP target (M): two more declared crackable networks, distinct
 // from N and D, so the three public addresses this check contrasts are all different.
-const spare = crackableEssidPool.filter(
+const spare = wifiPoolOf(RIDGEMONT).filter(
   (essid) => essid !== lan.essid && essid !== deep.essid && publicAddress(essid) !== undefined,
 );
 const HOME = spare[0];

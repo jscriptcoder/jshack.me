@@ -15,7 +15,8 @@ import {
 import { chainLinks, type ChainLink } from '../generation/lanTopology.js';
 import { generateDeepLayer } from '../generation/generateDeepLayer.js';
 import { buildDeepHostFs } from '../generation/deepHostFs.js';
-import { crackableEssidPool } from '../generation/generateWifi.js';
+import { wifiPoolOf } from '../generation/generateWifi.js';
+import { RIDGEMONT } from '../generation/world.js';
 import { computeInnerGatewayId, computeApGatewayId } from '../identity/router.js';
 import { assignHomeNetwork } from '../network/homeNetwork.js';
 import { materializeWorkstationFs, type OwnerPatchRow } from '../network/materializeWorkstationFs.js';
@@ -1203,7 +1204,7 @@ describe('handleNmapScan — on a deep layer', () => {
   });
 
   it('logs a child switch on its own switch box, not as the generic host at its address', async () => {
-    const essid = crackableEssidPool.find(
+    const essid = wifiPoolOf(RIDGEMONT).find(
       (candidate) => layerOf(chainLinks(candidate)[0], candidate).childGateway?.kind === 'switch',
     );
     if (essid === undefined) throw new Error('no network fronts a child switch');

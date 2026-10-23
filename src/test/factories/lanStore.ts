@@ -18,7 +18,8 @@
  */
 
 import { generateHomeLan, type LanHost } from '../../core/generation/generateHomeLan.js';
-import { crackableEssidPool } from '../../core/generation/generateWifi.js';
+import { wifiPoolOf } from '../../core/generation/generateWifi.js';
+import { RIDGEMONT } from '../../core/generation/world.js';
 import { generateDeepLayer, type DeepLayer } from '../../core/generation/generateDeepLayer.js';
 import { buildDeepHostFs } from '../../core/generation/deepHostFs.js';
 import { computeInnerGatewayId } from '../../core/identity/router.js';
@@ -95,7 +96,7 @@ const deepStoreAt = (essid: string, gateway: LanHost): DeepStoreFixture | null =
  *  a world that fronts neither is a world this door cannot be played in, and a silent
  *  pass would hide that. */
 export const deepStoreFixture = (want: { readonly locked: boolean }): DeepStoreFixture => {
-  for (const essid of crackableEssidPool) {
+  for (const essid of wifiPoolOf(RIDGEMONT)) {
     for (const gateway of generateHomeLan(essid).hosts) {
       const fixture = deepStoreAt(essid, gateway);
       if (fixture !== null && (fixture.password !== null) === want.locked) return fixture;

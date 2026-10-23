@@ -4,7 +4,8 @@ import { commandRegistry } from '../commands/registry.js';
 import { generateHomeLan } from './generateHomeLan.js';
 import { buildRemoteHostFs } from './remoteHostFs.js';
 import { buildDeepHostFs } from './deepHostFs.js';
-import { crackableEssidPool } from './generateWifi.js';
+import { wifiPoolOf } from './generateWifi.js';
+import { RIDGEMONT } from './world.js';
 import { DRAWN_ROLES } from './machineRole.js';
 import { NETWORK_CATEGORIES } from './pools/essidCatalog.js';
 import { GATEWAY_ROOT_HISTORY, ROLE_ROOT_HISTORY, ROOT_HISTORY } from './pools/rootContent.js';
@@ -125,7 +126,7 @@ const shapeOf = (line: string): string => {
 const plantedShapes = (): readonly string[] => {
   const trees: readonly Directory[] = [
     ...lanBoxes(ALL_ESSIDS).map(({ essid, host }) => buildRemoteHostFs(essid, host)),
-    ...deepBoxes(crackableEssidPool).map(({ essid, host }) => buildDeepHostFs(essid, host)),
+    ...deepBoxes(wifiPoolOf(RIDGEMONT)).map(({ essid, host }) => buildDeepHostFs(essid, host)),
     ...gatewaysOn(ALL_ESSIDS).map((gateway) => gateway.tree),
   ];
   const lines = trees.flatMap((tree) =>

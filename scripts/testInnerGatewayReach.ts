@@ -26,7 +26,8 @@ import { generateIdentity } from '../src/core/identity/identity.js';
 import { computeDeepGatewayId, computeInnerGatewayId } from '../src/core/identity/router.js';
 import { seedDeepGatewayAdminHash, seedInnerGatewayAdminHash } from '../src/core/generation/routerFs.js';
 import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
-import { crackableEssidPool } from '../src/core/generation/generateWifi.js';
+import { wifiPoolOf } from '../src/core/generation/generateWifi.js';
+import { RIDGEMONT } from '../src/core/generation/world.js';
 import { generateDeepLayer, seedNetworkDepth } from '../src/core/generation/generateDeepLayer.js';
 import { buildDeepHostFs } from '../src/core/generation/deepHostFs.js';
 import { hostMachineId } from '../src/core/generation/remoteHostId.js';
@@ -78,7 +79,7 @@ const userTypeOf = (body: unknown): string | undefined =>
 //     2223 forward reaches it) — depth is a per-network roll, so an arbitrary ESSID could
 //     front none. The acting player is any identity: the chain belongs to the access point,
 //     so alice brings a session and a signature rather than a private world. ---
-const ESSID = crackableEssidPool.find((essid) => seedNetworkDepth(essid) >= 2);
+const ESSID = wifiPoolOf(RIDGEMONT).find((essid) => seedNetworkDepth(essid) >= 2);
 if (ESSID === undefined) {
   console.error('no network in the crackable pool seeds a depth-≥2 chain');
   process.exit(2);

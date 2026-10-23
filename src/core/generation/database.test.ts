@@ -16,7 +16,8 @@ import { createPrng } from './prng.js';
 import { networkPersona } from './persona.js';
 import { roleOfHostname } from './pools/hostnames.js';
 import { usernamePool } from './pools/usernames.js';
-import { crackableEssidPool } from './generateWifi.js';
+import { wifiPoolOf } from './generateWifi.js';
+import { RIDGEMONT } from './world.js';
 import { CRACK_CHANCE, CRACKABLE_PASSWORDS } from './passwordPools.js';
 
 import { MYSQL_USERNAMES } from './pools/database.js';
@@ -350,7 +351,7 @@ describe('the application a database holds', () => {
   });
 
   it('keeps case files on a government office’s network: its cases, who is party to them, and notes', () => {
-    const essids = crackableEssidPool.filter((essid) => networkPersona(essid).category === 'government');
+    const essids = wifiPoolOf(RIDGEMONT).filter((essid) => networkPersona(essid).category === 'government');
     const wrong = essids.flatMap((essid) => {
       const host = { ip: '10.40.0.9', hostname: 'db-9', kind: 'machine' as const };
       const { name, tables } = buildApplication({

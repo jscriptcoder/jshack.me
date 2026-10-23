@@ -7,7 +7,8 @@ import { generateIdentity } from '../identity/identity.js';
 import { generateHomeLan } from '../generation/generateHomeLan.js';
 import { seedApGatewayCommunityHash, seedSnmpCommunityHash } from '../generation/routerFs.js';
 import { generateDeepLayer } from '../generation/generateDeepLayer.js';
-import { crackableEssidPool } from '../generation/generateWifi.js';
+import { wifiPoolOf } from '../generation/generateWifi.js';
+import { RIDGEMONT } from '../generation/world.js';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
 import { computeApGatewayId } from '../identity/router.js';
 import { pidfilePath, formatPidfileContent, readOpenPorts } from '../services/pidfile.js';
@@ -521,7 +522,7 @@ describe('the forward a stranger opened, resolved by the world that has to honou
  */
 describe('rewriting a generated router behind a forward, from the other side of the world', () => {
   const innerRouterWithAnAgent = () => {
-    for (const essid of crackableEssidPool) {
+    for (const essid of wifiPoolOf(RIDGEMONT)) {
       const gateway = generateHomeLan(essid).hosts.find(
         (host) => host.kind === 'router' && host.ip.split('.')[3] !== '1',
       );

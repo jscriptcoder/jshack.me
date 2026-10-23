@@ -17,7 +17,8 @@ import { chainLinks, segmentsReachedFrom, type ChainLink } from '../generation/l
 import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
 import { chainGatewayBaseFs } from '../generation/lanHostIdentity.js';
 import { hostMachineId } from '../generation/remoteHostId.js';
-import { crackableEssidPool } from '../generation/generateWifi.js';
+import { wifiPoolOf } from '../generation/generateWifi.js';
+import { RIDGEMONT } from '../generation/world.js';
 import { md5 } from '../generation/md5.js';
 import { asAbsPath } from '../types.js';
 import type { ApNetworkLookup, NatOccupantRow } from '../network/resolvePublicTarget.js';
@@ -1010,7 +1011,7 @@ const deepSshTarget = (
   readonly machineId: string;
   readonly port: number;
 } => {
-  for (const essid of crackableEssidPool) {
+  for (const essid of wifiPoolOf(RIDGEMONT)) {
     for (const gateway of chainLinks(essid)) {
       if (frontedBy !== undefined && gateway.host.kind !== frontedBy) continue;
       const onLayer = resolveDeepScanHosts(essid, gateway, chainGatewayBaseFs(essid, gateway)).hosts.find(

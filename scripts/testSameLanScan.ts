@@ -24,7 +24,8 @@ import { signRequest } from '../src/core/signedRequest/sign.js';
 import { standOnNetwork } from './standVantage.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
 import { generateHomeLan, type LanHost } from '../src/core/generation/generateHomeLan.js';
-import { crackableEssidPool } from '../src/core/generation/generateWifi.js';
+import { wifiPoolOf } from '../src/core/generation/generateWifi.js';
+import { RIDGEMONT } from '../src/core/generation/world.js';
 import { buildRemoteHostFs } from '../src/core/generation/remoteHostFs.js';
 import { buildApGatewayBaseFs } from '../src/core/generation/routerFs.js';
 import { machineIdForLanHost } from '../src/core/generation/lanHostIdentity.js';
@@ -111,7 +112,7 @@ const GAME_DAY = gameDayAt(asEpochMs(Date.now()));
  *  rather than named: which package is inside its window is a seeded roll against a
  *  window only 1-2 days wide, so no fixed ESSID can be counted on to hold one. */
 const findCandidate = () => {
-  for (const essid of crackableEssidPool) {
+  for (const essid of wifiPoolOf(RIDGEMONT)) {
     for (const host of generateHomeLan(essid).hosts) {
       if (host.kind !== 'machine') continue;
       const seededFs = buildRemoteHostFs(essid, host);

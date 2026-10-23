@@ -3,7 +3,8 @@ import { lanZoneName, resolveLanName } from '../network/resolveName.js';
 import { buildDirectory } from '../../test/factories/filesystem.js';
 import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
 import { generateHomeLan, type LanHost } from './generateHomeLan.js';
-import { crackableEssidPool } from './generateWifi.js';
+import { wifiPoolOf } from './generateWifi.js';
+import { RIDGEMONT } from './world.js';
 import { chainLinks } from './lanTopology.js';
 import { roleOfHostname } from './pools/hostnames.js';
 import {
@@ -384,7 +385,7 @@ describe('a name that two hosts on one network answer to', () => {
   it('never collapses two hosts into one record, on any network in the pool', () => {
     const collided: string[] = [];
 
-    for (const essid of crackableEssidPool) {
+    for (const essid of wifiPoolOf(RIDGEMONT)) {
       const records = zoneRecordsFor(essid);
       const addresses = records.map(({ ip }) => ip);
 

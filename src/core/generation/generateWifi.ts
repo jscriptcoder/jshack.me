@@ -23,19 +23,21 @@
  *
  * Each scan is a FRESH ROLL, not a once-per-identity fixture: the seed mixes in
  * a per-scan index, so re-scanning ("relocating") re-draws which subset of APs is
- * in range. On top of the base draw from Ridgemont it can INJECT one network another
- * player occupies (the caller passes the occupancy table's names), as a normal
- * crackable AP — that is how a stranger stumbles onto another player's live network
- * and cracks it to the key that actually works. It happens in about one scan in
- * twenty, so landing on somebody's network stays rare in a world this size, and it
- * draws only from Ridgemont's own networks the scan does not already show: the
- * player stands in Ridgemont, so nothing else is in range.
+ * in range. Every AP it draws stands in the town the player's key starts them in
+ * (`startingTown`), homes included: another town's networks are out of wifi range. On
+ * top of that base draw it can INJECT one network another player occupies (the caller
+ * passes the occupancy table's names), as a normal crackable AP — that is how a
+ * stranger stumbles onto another player's live network and cracks it to the key that
+ * actually works. It happens in about one scan in twenty, so landing on somebody's
+ * network stays rare in a world this size, and it draws only from the player's own
+ * town's networks the scan does not already show, since nothing else is in range.
  */
 
 import { bssidFromEssid, type WifiNetwork } from '../network/wifi.js';
 import { createPrng } from './prng.js';
 import { secrets } from '../secrets/__encoded.js';
-import { DECLARED_NETWORKS, RIDGEMONT } from './world.js';
+import { startingTown } from './startingTown.js';
+import { DECLARED_NETWORKS } from './world.js';
 
 /** The keys a crackable AP can hold, read from `JSHACK_SECRETS` through the build-time
  *  codec (`scripts/encode.ts`) so the bundle does not print them. */
@@ -48,14 +50,13 @@ const wifiPasswords: readonly string[] = JSON.parse(secrets.WIFI_PASSWORDS) as r
 const passwordForEssid = (essid: string): string =>
   createPrng(`wifi-pw-${essid}`).pick(wifiPasswords);
 
-// Every network in Ridgemont, where everybody stands, by the key it is known by: the
-// landmarks in the catalog's order, then the networks the town draws. The scan picks from
-// this list by position, so its order decides which networks every player is offered. A
-// landmark's key is the name it broadcasts; a drawn network's is not, and is shown by its
-// name wherever a player reads it.
-export const crackableEssidPool: readonly string[] = DECLARED_NETWORKS.filter(
-  (network) => network.town === RIDGEMONT,
-).map((network) => network.key);
+// Every network in `town`, by the key it is known by, in the order the world declares
+// them: for Ridgemont the landmarks in the catalog's order, then the networks the town
+// draws. The scan picks from this list by position, so its order decides which networks
+// every player there is offered. A landmark's key is the name it broadcasts; a drawn
+// network's is not, and is shown by its name wherever a player reads it.
+export const wifiPoolOf = (town: string): readonly string[] =>
+  DECLARED_NETWORKS.filter((network) => network.town === town).map((network) => network.key);
 
 // Noise ESSIDs — cosmetic only, never crackable. Real-world consumer brand
 // names, mobile hotspot defaults, joke / paranoia entries, big-chain free WiFi.
@@ -142,16 +143,17 @@ export const generateWifi = ({
   occupiedEssids = [],
 }: GenerateWifiInput): readonly WifiNetwork[] => {
   const prng = createPrng(`wifi-${seedPubkeyHex}-${scanIndex}`);
+  const pool = wifiPoolOf(startingTown(seedPubkeyHex));
 
   const crackableCount = prng.nextInt(2, 3);
-  const pickedEssids = prng.pickN(crackableEssidPool, crackableCount);
+  const pickedEssids = prng.pickN(pool, crackableCount);
 
-  // Another player's network is in range only if it is one of Ridgemont's and the scan
-  // does not already show it. Read in the pool's order, so the order the server lists
+  // Another player's network is in range only if it stands in the player's town and the
+  // scan does not already show it. Read in the pool's order, so the order the server lists
   // occupants in never changes a scan. With none in range the scan takes NO prng draw,
   // so it stays byte-identical to the base roll.
   const occupied = new Set(occupiedEssids);
-  const injectableEssids = crackableEssidPool.filter(
+  const injectableEssids = pool.filter(
     (essid) => occupied.has(essid) && !pickedEssids.includes(essid),
   );
   const injectedEssids =

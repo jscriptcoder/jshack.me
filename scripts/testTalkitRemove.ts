@@ -31,7 +31,8 @@ import { signRequest } from '../src/core/signedRequest/sign.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
-import { crackableEssidPool } from '../src/core/generation/generateWifi.js';
+import { wifiPoolOf } from '../src/core/generation/generateWifi.js';
+import { RIDGEMONT } from '../src/core/generation/world.js';
 import { siteAddress } from '../src/core/generation/publisher.js';
 import { TALKIT_NETWORK, fixedSite } from '../src/core/generation/fixedSites.js';
 import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js';
@@ -98,7 +99,7 @@ const remove = (words: readonly string[], env: NodeJS.ProcessEnv = process.env) 
 };
 
 const visitor = generateIdentity();
-const [visitorEssid] = crackableEssidPool;
+const [visitorEssid] = wifiPoolOf(RIDGEMONT);
 
 /** Every thread the writer started, by id. */
 const writerThreadIds = async (): Promise<readonly number[]> => {

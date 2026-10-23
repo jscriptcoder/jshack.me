@@ -3,7 +3,8 @@ import { handleResolveSameLanScan, type ResolveSameLanScanDeps } from './resolve
 import { signRequest } from '../signedRequest/sign.js';
 import { generateIdentity } from '../identity/identity.js';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
-import { crackableEssidPool } from '../generation/generateWifi.js';
+import { wifiPoolOf } from '../generation/generateWifi.js';
+import { RIDGEMONT } from '../generation/world.js';
 import { buildRemoteHostFs } from '../generation/remoteHostFs.js';
 import { buildApGatewayBaseFs } from '../generation/routerFs.js';
 import { machineIdForLanHost } from '../generation/lanHostIdentity.js';
@@ -81,7 +82,7 @@ type VulnerableSibling = {
 const DAYS_SEARCHED = 40;
 
 const findVulnerableSibling = (): VulnerableSibling => {
-  for (const essid of crackableEssidPool) {
+  for (const essid of wifiPoolOf(RIDGEMONT)) {
     for (const host of generateHomeLan(essid).hosts) {
       if (host.kind !== 'machine') continue;
       const seededFs = buildRemoteHostFs(essid, host);

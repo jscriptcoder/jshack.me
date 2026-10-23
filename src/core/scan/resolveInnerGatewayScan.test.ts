@@ -6,7 +6,8 @@ import {
 import { signRequest } from '../signedRequest/sign.js';
 import { generateIdentity } from '../identity/identity.js';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
-import { crackableEssidPool } from '../generation/generateWifi.js';
+import { wifiPoolOf } from '../generation/generateWifi.js';
+import { RIDGEMONT } from '../generation/world.js';
 import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer.js';
 import { computeDeepGatewayId, computeInnerGatewayId } from '../identity/router.js';
 import { hostMachineId } from '../generation/remoteHostId.js';
@@ -33,7 +34,7 @@ const octetOf = (host: LanHost): number => Number(host.ip.split('.')[3]);
  *  needs. A depth-2 network is the shallowest whose inner router hangs a child gateway
  *  (the forward-to-child test needs the chain door); a depth-1 one hangs none. */
 const networkWithDepth = (depth: number): string => {
-  const found = crackableEssidPool.find((essid) => seedNetworkDepth(essid) === depth);
+  const found = wifiPoolOf(RIDGEMONT).find((essid) => seedNetworkDepth(essid) === depth);
   if (found === undefined) throw new Error(`no network seeds depth ${depth}`);
   return found;
 };
@@ -62,7 +63,7 @@ const networkWithAllRouterChain = (depth: number): string => {
     }
     return true;
   };
-  const found = crackableEssidPool.find(isAllRouterChain);
+  const found = wifiPoolOf(RIDGEMONT).find(isAllRouterChain);
   if (found === undefined) throw new Error(`no network seeds an all-router depth-${depth} chain`);
   return found;
 };

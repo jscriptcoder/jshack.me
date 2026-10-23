@@ -5,7 +5,8 @@ import { signRequest } from '../signedRequest/sign.js';
 import { generateIdentity } from '../identity/identity.js';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
 import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer.js';
-import { crackableEssidPool } from '../generation/generateWifi.js';
+import { wifiPoolOf } from '../generation/generateWifi.js';
+import { RIDGEMONT } from '../generation/world.js';
 import { computeDeepGatewayId, computeInnerGatewayId } from '../identity/router.js';
 import { buildDeepSwitchBaseFs, seedSnmpCommunityHash } from '../generation/routerFs.js';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
@@ -57,7 +58,7 @@ const innerGatewayWithAnAgent = (): {
   readonly community: string;
   readonly deepSubnet: string;
 } => {
-  for (const essid of crackableEssidPool) {
+  for (const essid of wifiPoolOf(RIDGEMONT)) {
     const gateway = generateHomeLan(essid).hosts.find(
       (host) => host.kind === 'router' && octetOf(host) !== 1,
     );
@@ -85,7 +86,7 @@ const deepSwitchWithAnAgent = (): {
   readonly deviceId: string;
   readonly community: string;
 } => {
-  for (const essid of crackableEssidPool) {
+  for (const essid of wifiPoolOf(RIDGEMONT)) {
     if (seedNetworkDepth(essid) < 2) continue;
     const gateway = generateHomeLan(essid).hosts.find(
       (host) => host.kind === 'router' && octetOf(host) !== 1,

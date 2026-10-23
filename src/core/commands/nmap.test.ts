@@ -25,7 +25,8 @@ import { baseFsForLanHost, machineIdForLanHost } from '../generation/lanHostIden
 import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer.js';
 import { chainLinks, type ChainLink } from '../generation/lanTopology.js';
 import { hostMachineId } from '../generation/remoteHostId.js';
-import { crackableEssidPool } from '../generation/generateWifi.js';
+import { wifiPoolOf } from '../generation/generateWifi.js';
+import { RIDGEMONT } from '../generation/world.js';
 import { computeDeepGatewayId } from '../identity/router.js';
 import type { Directory } from '../filesystem/types.js';
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces.js';
@@ -1810,7 +1811,7 @@ describe('nmap — reachability-pivot from an inner gateway (5b.2)', () => {
 describe('nmap — chain pivot to L3 from a deep child gateway', () => {
   // A depth-2 network: the inner router hangs the L2 chain door, and the layer BEHIND that
   // door is terminal — which is the bound this suite is about.
-  const ESSID = crackableEssidPool.find((essid) => seedNetworkDepth(essid) === 2);
+  const ESSID = wifiPoolOf(RIDGEMONT).find((essid) => seedNetworkDepth(essid) === 2);
   if (ESSID === undefined) throw new Error('no network seeds a depth-2 chain');
   const lan = generateHomeLan(ESSID);
   const octetOf = (host: LanHost): number => Number(host.ip.split('.')[3]);
@@ -1915,9 +1916,9 @@ describe('nmap — variable network depth', () => {
   // Which networks these are is itself seeded, so search rather than hardcode: one whose
   // inner router fronts a single TERMINAL layer, and one whose WHOLE gateway chain is
   // routers three deep (a switch would cap it short).
-  const DEPTH1_ESSID = crackableEssidPool.find((essid) => seedNetworkDepth(essid) === 1);
+  const DEPTH1_ESSID = wifiPoolOf(RIDGEMONT).find((essid) => seedNetworkDepth(essid) === 1);
   if (DEPTH1_ESSID === undefined) throw new Error('no network seeds a depth-1 chain');
-  const DEPTH3_ESSID = crackableEssidPool.find((essid) => {
+  const DEPTH3_ESSID = wifiPoolOf(RIDGEMONT).find((essid) => {
     if (seedNetworkDepth(essid) !== 3) return false;
     const l2 = generateDeepLayer(essid, { machineId: innerRouterIdOf(essid), kind: 'router' })
       .childGateway;
@@ -2021,7 +2022,7 @@ describe('nmap — pivot from a deep SWITCH child gateway, ACL-filtered', () => 
   // A network whose inner router's first deep child seeds as a SWITCH (a chain leaf), so
   // the switch sits one layer down — reached + rooted through a forward. Which network
   // that is depends on the ESSID, so search for it rather than pinning one.
-  const ESSID = crackableEssidPool.find((essid) => {
+  const ESSID = wifiPoolOf(RIDGEMONT).find((essid) => {
     const innerId = innerRouterIdOn(essid);
     if (innerId === null || seedNetworkDepth(essid) < 2) return false;
     return (

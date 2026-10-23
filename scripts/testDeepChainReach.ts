@@ -26,7 +26,8 @@ import { generateIdentity } from '../src/core/identity/identity.js';
 import { computeDeepGatewayId, computeInnerGatewayId } from '../src/core/identity/router.js';
 import { seedDeepGatewayAdminHash } from '../src/core/generation/routerFs.js';
 import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
-import { crackableEssidPool } from '../src/core/generation/generateWifi.js';
+import { wifiPoolOf } from '../src/core/generation/generateWifi.js';
+import { RIDGEMONT } from '../src/core/generation/world.js';
 import { generateDeepLayer, seedNetworkDepth } from '../src/core/generation/generateDeepLayer.js';
 import { leaveNetwork, standOnNetwork } from './standVantage.js';
 import { plaintextFor } from '../src/test/passwords.js';
@@ -121,7 +122,9 @@ const allRouterDepth3 = (essid: string): ChainFixture | null => {
   };
 };
 
-const chain = crackableEssidPool.map(allRouterDepth3).find((found) => found !== null);
+const chain = wifiPoolOf(RIDGEMONT)
+  .map(allRouterDepth3)
+  .find((found) => found !== null);
 if (chain === undefined || chain === null) {
   console.error('no network in the crackable pool seeds an all-router depth-3 chain');
   process.exit(2);

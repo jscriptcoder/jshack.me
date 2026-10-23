@@ -38,7 +38,8 @@ import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
-import { crackableEssidPool } from '../src/core/generation/generateWifi.js';
+import { wifiPoolOf } from '../src/core/generation/generateWifi.js';
+import { RIDGEMONT } from '../src/core/generation/world.js';
 import { publisherIp } from '../src/core/generation/publisher.js';
 import { PATROL, publicBox, type PublicBox } from '../src/core/guardian/publicBoxes.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
@@ -174,7 +175,7 @@ const FRONT_PAGE = '/var/www/html/index.html';
 const DEFACED = '<html><body>the guardian sleeps</body></html>\n';
 const outcome = exploitOutcome(webPackage, shellRelease.version, today)!;
 
-const attackerEssid = crackableEssidPool.find((essid) => essid !== SITE.networkKey)!;
+const attackerEssid = wifiPoolOf(RIDGEMONT).find((essid) => essid !== SITE.networkKey)!;
 const attacker = generateIdentity();
 
 const runGuardian = (args: readonly string[], env: NodeJS.ProcessEnv = process.env) =>

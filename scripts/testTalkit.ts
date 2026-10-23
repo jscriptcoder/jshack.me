@@ -48,7 +48,8 @@ import { signRequest } from '../src/core/signedRequest/sign.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
-import { crackableEssidPool } from '../src/core/generation/generateWifi.js';
+import { wifiPoolOf } from '../src/core/generation/generateWifi.js';
+import { RIDGEMONT } from '../src/core/generation/world.js';
 import { siteAddress } from '../src/core/generation/publisher.js';
 import { FINDIT_DOMAIN, TALKIT_NETWORK, fixedSite } from '../src/core/generation/fixedSites.js';
 import { WEB_PAGE_FILE } from '../src/core/generation/baseFs.js';
@@ -157,7 +158,7 @@ const pagingLinks = (page: string): readonly string[] =>
   );
 
 const visitor = generateIdentity();
-const [visitorEssid] = crackableEssidPool;
+const [visitorEssid] = wifiPoolOf(RIDGEMONT);
 
 const threadCount = async (): Promise<number | null> => {
   const { count } = await sr.from('talkit_threads').select('id', { count: 'exact', head: true });
