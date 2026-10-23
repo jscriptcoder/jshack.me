@@ -12,6 +12,7 @@
 import type { Command, CommandEnv, CommandResult } from './types.js';
 import { PATCH_ERROR_REASON } from './types.js';
 import { md5 } from '../generation/md5.js';
+import { isOwnWorkstation } from '../identity/workstation.js';
 import { accountIn, withAccountHash, PASSWD_PATH } from '../sessions/passwdAccount.js';
 
 const refusal = (content: string): CommandResult => ({
@@ -37,6 +38,74 @@ const askMasked = async (env: CommandEnv, message: string): Promise<string | typ
 };
 
 const ABORTED: CommandResult = { kind: 'sync', lines: [], exitCode: 130 };
+
+/** The actor's only confirmation the change landed: `passwd` has no other visible effect
+ *  (unlike `su`, which hands you a new shell), and on a foreign box this is the attacker's
+ *  confirmation the lockout is set. */
+const succeeded = (): CommandResult => ({
+  kind: 'sync',
+  lines: [{ kind: 'text', content: 'passwd: password updated successfully' }],
+  exitCode: 0,
+});
+
+/** The new password, entered twice and agreeing — or the `CommandResult` that ends the
+ *  command before anything is written: a cancelled prompt (exit 130), an empty entry, or a
+ *  mismatch. One helper for both boxes, because the double-masked entry is identical
+ *  whether the write lands locally or through the server. */
+type NewPassword =
+  | { readonly ok: true; readonly password: string }
+  | { readonly ok: false; readonly result: CommandResult };
+
+const collectNewPassword = async (env: CommandEnv): Promise<NewPassword> => {
+  const newPassword = await askMasked(env, NEW_PROMPT);
+  if (newPassword === CANCELLED) return { ok: false, result: ABORTED };
+  const retyped = await askMasked(env, RETYPE_PROMPT);
+  if (retyped === CANCELLED) return { ok: false, result: ABORTED };
+  // An empty hash is how this engine marks a password-less account, so an empty new
+  // password is rejected rather than silently stripping the account's password.
+  if (newPassword === '') return { ok: false, result: refusal('passwd: No password supplied') };
+  if (newPassword !== retyped) {
+    return { ok: false, result: refusal('passwd: Sorry, passwords do not match') };
+  }
+  return { ok: true, password: newPassword };
+};
+
+const NEEDS_ROOT = 'passwd: you need root to change passwords on this machine';
+
+/** Change an account's password on a box that is NOT the player's own. Every such change
+ *  needs root (decision 2): the server composes the row rewrite against the box's live
+ *  `/etc/passwd`, writes it, and stamps the trace — one authorized act. The command never
+ *  reads the foreign box's `/etc/passwd` (it is not the browser's to read, exactly as `su`
+ *  elsewhere is the server's to judge) and asks for no current password (there is nobody's
+ *  old password to prove on a box that isn't yours). */
+const changeOnForeignBox = async (env: CommandEnv, target: string): Promise<CommandResult> => {
+  // The client knows its own tier, so refuse before a wasted prompt; the server enforces
+  // the same rule (L2) for a tampered client that skips this.
+  if (env.session.userType !== 'root') {
+    return refusal(NEEDS_ROOT);
+  }
+
+  const entered = await collectNewPassword(env);
+  if (!entered.ok) return entered.result;
+
+  const result = await env.passwd.change({
+    machineId: env.session.machineId,
+    username: target,
+    newHash: md5(entered.password),
+  });
+  if (!result.ok) {
+    if (result.error === 'user_not_found') {
+      return refusal(`passwd: user '${target}' does not exist`);
+    }
+    if (result.error === 'network_error') {
+      return refusal('passwd: I/O error');
+    }
+    // not_authorized: the session dropped below root between the up-front check and the
+    // call — the same sentence the up-front refusal gives.
+    return refusal(NEEDS_ROOT);
+  }
+  return succeeded();
+};
 
 /** Leave the real-`passwd` breadcrumb on the box's own `/var/log/auth.log` — a later
  *  root (or the guardian's round) reads it back to see that, and when, a password
@@ -70,6 +139,15 @@ const readPasswd = (env: CommandEnv): string => {
 
 const execute: Command['execute'] = async (env, args) => {
   const target = args[0] ?? env.session.username;
+
+  // Only the player's own workstation is theirs to rewrite directly. Everywhere else the
+  // change is the server's (see `changeOnForeignBox`), exactly as `su` is judged there:
+  // the box's `/etc/passwd` is not the browser's to read, and only a server-written row
+  // can rewrite it against the box as it stands.
+  if (!isOwnWorkstation(env.session.machineId, env.identity.publicKeyHex)) {
+    return changeOnForeignBox(env, target);
+  }
+
   const isOwnAccount = target === env.session.username;
   const callerIsRoot = env.session.userType === 'root';
 
@@ -99,20 +177,10 @@ const execute: Command['execute'] = async (env, args) => {
     }
   }
 
-  const newPassword = await askMasked(env, NEW_PROMPT);
-  if (newPassword === CANCELLED) return ABORTED;
-  const retyped = await askMasked(env, RETYPE_PROMPT);
-  if (retyped === CANCELLED) return ABORTED;
-  // An empty hash is how this engine marks a password-less account, so an empty new
-  // password is rejected rather than silently stripping the account's password.
-  if (newPassword === '') {
-    return refusal('passwd: No password supplied');
-  }
-  if (newPassword !== retyped) {
-    return refusal('passwd: Sorry, passwords do not match');
-  }
+  const entered = await collectNewPassword(env);
+  if (!entered.ok) return entered.result;
 
-  const rewritten = withAccountHash(root, target, md5(newPassword));
+  const rewritten = withAccountHash(root, target, md5(entered.password));
   const result = await env.patches.write(PASSWD_PATH, rewritten, { baseContent: readPasswd(env) });
   if (!result.ok) {
     // A stale buffer gets its own sentence: the file moved under us, so the typed
@@ -125,11 +193,7 @@ const execute: Command['execute'] = async (env, args) => {
   }
 
   await logChange(env, target);
-  return {
-    kind: 'sync',
-    lines: [{ kind: 'text', content: 'passwd: password updated successfully' }],
-    exitCode: 0,
-  };
+  return succeeded();
 };
 
 export const passwd: Command = {

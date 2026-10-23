@@ -9,6 +9,7 @@ import {
   mockPatchApi,
   mockSession,
 } from '../../test/factories/commandEnv.js';
+import type { PasswdChangeParams, PasswdChangeResult } from './types.js';
 import { computeWorkstationId } from '../identity/workstation.js';
 import {
   asAbsPath,
@@ -131,6 +132,60 @@ const passwdEnv = (opts: PasswdEnvOpts = {}) => {
   });
 
   return { env, promptCalls, writes, authLogEvents };
+};
+
+// A box that is NOT the player's own workstation — a `passwd` here is answered by the
+// server, never composed locally (the foreign box's /etc/passwd is not the browser's to
+// read, exactly as `su` elsewhere is the server's to judge).
+const FOREIGN = asMachineId('skylab-deadbeef');
+
+type ChangeCall = PasswdChangeParams;
+
+type ForeignEnvOpts = {
+  /** The tier of the session running `passwd`. Defaults to root (the only tier that may). */
+  readonly callerType?: UserType;
+  /** The account the caller session is sitting as on the foreign box. Defaults to guest. */
+  readonly callerName?: string;
+  readonly promptResponses?: Readonly<Record<string, string>>;
+  readonly abortPromptMessage?: string;
+  /** What `env.passwd.change` resolves to. Defaults to a clean success. */
+  readonly changeResult?: PasswdChangeResult;
+};
+
+/** Build an env standing on a FOREIGN box (not the player's own workstation), with a
+ *  spy on the server-side `change` seam so a test can prove exactly what crossed the wire
+ *  — and that nothing did when the command refused before reaching it. */
+const foreignPasswdEnv = (opts: ForeignEnvOpts = {}) => {
+  const promptResponses = opts.promptResponses ?? {};
+  const promptCalls: PromptCall[] = [];
+  const changeCalls: ChangeCall[] = [];
+
+  const env = mockCommandEnv({
+    identity: mockIdentity({ publicKeyHex: PUBKEY }),
+    session: mockSession({
+      machineId: FOREIGN,
+      playerKey: PUBKEY,
+      username: opts.callerName ?? 'guest',
+      userType: opts.callerType ?? 'root',
+      essid: 'BEAN-THERE-WIFI',
+    }),
+    now: () => asEpochMs(123),
+    prompt: async (promptOpts) => {
+      promptCalls.push(promptOpts);
+      if (promptOpts.message === opts.abortPromptMessage) {
+        throw new Error('prompt cancelled');
+      }
+      return promptResponses[promptOpts.message] ?? '';
+    },
+    passwd: {
+      change: async (params) => {
+        changeCalls.push(params);
+        return opts.changeResult ?? { ok: true };
+      },
+    },
+  });
+
+  return { env, promptCalls, changeCalls };
 };
 
 const syncResult = (
@@ -418,5 +473,136 @@ describe('passwd', () => {
     expect(exitCode).toBe(0);
     expect(text).toContain('passwd: password updated successfully');
     expect(writes).toHaveLength(1);
+  });
+
+  describe('on a foreign box', () => {
+    it('refuses any passwd from a non-root caller, before any prompt or server call', async () => {
+      // A foreign box is nobody's to change but root's (decision 2): the server enforces
+      // it (L2), but the client knows its own tier, so it refuses before a wasted prompt.
+      const { env, promptCalls, changeCalls } = foreignPasswdEnv({
+        callerType: 'user',
+        callerName: 'neo',
+      });
+
+      const { text, exitCode } = syncResult(await passwd.execute(env, ['root'], NO_FLAGS));
+
+      expect(text).toContain('passwd: you need root to change passwords on this machine');
+      expect(exitCode).toBe(1);
+      expect(promptCalls).toEqual([]);
+      expect(changeCalls).toEqual([]);
+    });
+
+    it('lets root change an account through the server, with no current-password prompt', async () => {
+      // Root is never asked for a current password — on a foreign box there is nobody's
+      // old password to prove, only a new one to set. The plaintext is md5'd client-side
+      // so only the hash crosses the wire.
+      const { env, promptCalls, changeCalls } = foreignPasswdEnv({
+        callerType: 'root',
+        promptResponses: { [NEW_PROMPT]: 'lockout', [RETYPE_PROMPT]: 'lockout' },
+      });
+
+      const { text, exitCode } = syncResult(await passwd.execute(env, ['root'], NO_FLAGS));
+
+      expect(promptCalls).toEqual([
+        { message: NEW_PROMPT, masked: true },
+        { message: RETYPE_PROMPT, masked: true },
+      ]);
+      expect(changeCalls).toEqual([
+        { machineId: FOREIGN, username: 'root', newHash: md5('lockout') },
+      ]);
+      expect(text).toContain('passwd: password updated successfully');
+      expect(exitCode).toBe(0);
+    });
+
+    it('targets the caller’s own foreign account when no username is given', async () => {
+      const { env, changeCalls } = foreignPasswdEnv({
+        callerType: 'root',
+        callerName: 'root',
+        promptResponses: { [NEW_PROMPT]: 'x', [RETYPE_PROMPT]: 'x' },
+      });
+
+      await passwd.execute(env, [], NO_FLAGS);
+
+      expect(changeCalls[0]?.username).toBe('root');
+    });
+
+    it('rejects an empty new password without ever calling the server', async () => {
+      const { env, changeCalls } = foreignPasswdEnv({
+        callerType: 'root',
+        promptResponses: { [NEW_PROMPT]: '', [RETYPE_PROMPT]: '' },
+      });
+
+      const { text, exitCode } = syncResult(await passwd.execute(env, ['root'], NO_FLAGS));
+
+      expect(text).toContain('passwd: No password supplied');
+      expect(exitCode).toBe(1);
+      expect(changeCalls).toEqual([]);
+    });
+
+    it('aborts on a mismatch without ever calling the server', async () => {
+      const { env, changeCalls } = foreignPasswdEnv({
+        callerType: 'root',
+        promptResponses: { [NEW_PROMPT]: 'alpha', [RETYPE_PROMPT]: 'beta' },
+      });
+
+      const { text, exitCode } = syncResult(await passwd.execute(env, ['root'], NO_FLAGS));
+
+      expect(text).toContain('passwd: Sorry, passwords do not match');
+      expect(exitCode).toBe(1);
+      expect(changeCalls).toEqual([]);
+    });
+
+    it('reports an unknown account when the server has no such row', async () => {
+      const { env } = foreignPasswdEnv({
+        callerType: 'root',
+        promptResponses: { [NEW_PROMPT]: 'x', [RETYPE_PROMPT]: 'x' },
+        changeResult: { ok: false, error: 'user_not_found' },
+      });
+
+      const { text, exitCode } = syncResult(await passwd.execute(env, ['ghost'], NO_FLAGS));
+
+      expect(text).toContain("passwd: user 'ghost' does not exist");
+      expect(exitCode).toBe(1);
+    });
+
+    it('reports an I/O error when the change cannot reach the server', async () => {
+      const { env } = foreignPasswdEnv({
+        callerType: 'root',
+        promptResponses: { [NEW_PROMPT]: 'x', [RETYPE_PROMPT]: 'x' },
+        changeResult: { ok: false, error: 'network_error' },
+      });
+
+      const { text, exitCode } = syncResult(await passwd.execute(env, ['root'], NO_FLAGS));
+
+      expect(text).toContain('passwd: I/O error');
+      expect(exitCode).toBe(1);
+    });
+
+    it('reports the root requirement when the server refuses a lapsed session', async () => {
+      // The up-front check already caught the common case; this is the race where the
+      // session dropped below root between the check and the call, and L2 refused.
+      const { env } = foreignPasswdEnv({
+        callerType: 'root',
+        promptResponses: { [NEW_PROMPT]: 'x', [RETYPE_PROMPT]: 'x' },
+        changeResult: { ok: false, error: 'not_authorized' },
+      });
+
+      const { text, exitCode } = syncResult(await passwd.execute(env, ['root'], NO_FLAGS));
+
+      expect(text).toContain('passwd: you need root to change passwords on this machine');
+      expect(exitCode).toBe(1);
+    });
+
+    it('aborts with exit 130 on a cancelled prompt, without ever calling the server', async () => {
+      const { env, changeCalls } = foreignPasswdEnv({
+        callerType: 'root',
+        abortPromptMessage: NEW_PROMPT,
+      });
+
+      const { exitCode } = syncResult(await passwd.execute(env, ['root'], NO_FLAGS));
+
+      expect(exitCode).toBe(130);
+      expect(changeCalls).toEqual([]);
+    });
   });
 });

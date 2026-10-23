@@ -35,6 +35,7 @@ import type {
   HydraApi,
   ExploitApi,
   SuApi,
+  PasswdApi,
   RebootApi,
   ChainApi,
   AptApi,
@@ -248,6 +249,11 @@ export type BuildCommandEnvArgs = {
    *  own-box/test setups leave it unwired (a `su` elsewhere without it surfaces the
    *  missing wiring). */
   readonly onSuElevate?: SuApi['elevate'];
+  /** The `passwd` seam for a box that is not the player's own — backs `env.passwd.change`.
+   *  The UI wires it to the `changeServerPasswd` adapter (signed `passwdChange` round-trip).
+   *  Optional here: only a `passwd` typed off a FOREIGN box calls it, so own-box/test setups
+   *  leave it unwired (a foreign `passwd` without it surfaces the missing wiring). */
+  readonly onPasswdChange?: PasswdApi['change'];
 
   /** Backs `env.reboot.evict` — the signed act that ends the machine's sessions. */
   readonly onRebootEvict?: RebootApi['evict'];
@@ -531,6 +537,9 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
   },
   su: {
     elevate: args.onSuElevate ?? notWired('su.elevate'),
+  },
+  passwd: {
+    change: args.onPasswdChange ?? notWired('passwd.change'),
   },
   reboot: {
     // Loud when unwired, alone among the session writes. Every other one is
