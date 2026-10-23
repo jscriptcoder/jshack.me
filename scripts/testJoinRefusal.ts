@@ -3,11 +3,14 @@
 // `vercel dev` + supabase, then reads the two tables a join writes.
 //
 // Net-new under test (the locally-untypechecked api/ runtime):
-//   - A signed join to a network Ridgemont draws beyond its landmarks is admitted, under the
-//     key it is known by, with a LAN lease and an occupant row.
-//   - A signed join to a network in another town is refused with 403 network_not_joinable,
+//   - A player may join only the networks of the town their key starts them in.
+//   - A signed join by a player who starts in Ridgemont, to a network Ridgemont draws beyond
+//     its landmarks, is admitted, under the key it is known by, with a LAN lease and an
+//     occupant row.
+//   - Their join to a network in another town is refused with 403 network_not_joinable,
 //     and leaves no LAN lease and no occupant row behind.
 //   - So is a join to a corporation the world draws, which stands in no town at all.
+//   - A player who starts in that other town joins its network, and is refused Ridgemont's.
 //   - With `JSHACK_ADMIT_LAB_NETWORKS=1` in `.env.development.local`, a join to a network the
 //     world does not declare still succeeds and records its occupant, which is what every
 //     lab-network wire-check relies on.
@@ -20,6 +23,7 @@
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
+import { generateIdentityIn } from '../src/test/factories/identityIn.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { DECLARED_NETWORKS, isLandmark, RIDGEMONT } from '../src/core/generation/world.js';
@@ -63,13 +67,14 @@ const joinEnvelope = (identity: ReturnType<typeof generateIdentity>, essid: stri
     workstation_root_hash: md5('root-secret'),
   });
 
-// Every row a join can leave behind for one network, one table at a time.
-const rowsFor = async (essid: string) => {
+// Every row a join can leave behind for one network, one table at a time, or only the
+// rows of the player under `ownerKey` when it is given.
+const rowsFor = async (essid: string, ownerKey?: string) => {
   const count = async (table: string) => {
-    const { count: rows } = await sr
-      .from(table)
-      .select('*', { count: 'exact', head: true })
-      .eq('essid', essid);
+    const query = sr.from(table).select('*', { count: 'exact', head: true }).eq('essid', essid);
+    const { count: rows } = await (ownerKey === undefined
+      ? query
+      : query.eq('owner_key', ownerKey));
     return rows ?? 0;
   };
   return {
@@ -83,11 +88,11 @@ const OUT_OF_TOWN = DECLARED_NETWORKS.find(
 );
 // A corporation the world draws stands in no town at all.
 const PLACELESS = DECLARED_NETWORKS.find((network) => network.town === undefined);
-// A network Ridgemont draws, which everybody stands among and so may join.
+// A network Ridgemont draws, which a player who starts in Ridgemont may join.
 const RIDGEMONT_DRAWN = DECLARED_NETWORKS.find(
   (network) => network.town === RIDGEMONT && !isLandmark(network.key),
 );
-if (OUT_OF_TOWN === undefined || PLACELESS === undefined || RIDGEMONT_DRAWN === undefined) {
+if (OUT_OF_TOWN?.town === undefined || PLACELESS === undefined || RIDGEMONT_DRAWN === undefined) {
   console.error('The world declares no network to refuse, or none Ridgemont draws to admit.');
   process.exit(2);
 }
@@ -102,7 +107,9 @@ const cleanup = async () => {
 };
 await cleanup();
 
-const player = generateIdentity();
+const player = generateIdentityIn(RIDGEMONT);
+// A player who starts in the other town.
+const outsider = generateIdentityIn(OUT_OF_TOWN.town);
 
 // === 0. A join to a network Ridgemont draws is admitted under its key. ===
 const joinedDrawn = await post(joinEnvelope(player, RIDGEMONT_DRAWN.key));
@@ -150,7 +157,28 @@ check(
   `leases=${placelessLeft.leases} occupants=${placelessLeft.occupants}`,
 );
 
-// === 3. With the local flag set, a lab network still joins and records its occupant. ===
+// === 3. A player who starts in the other town joins there, and is refused Ridgemont. ===
+const joinedHome = await post(joinEnvelope(outsider, OUT_OF_TOWN.key));
+const homeRows = await rowsFor(OUT_OF_TOWN.key, outsider.publicKeyHex);
+check(
+  `a player who starts in ${OUT_OF_TOWN.town} joins ${OUT_OF_TOWN.key} there`,
+  joinedHome.status === 200 && homeRows.leases === 1 && homeRows.occupants === 1,
+  `status=${joinedHome.status} error=${errorOf(joinedHome.body)} leases=${homeRows.leases} occupants=${homeRows.occupants}`,
+);
+const refusedRidgemont = await post(joinEnvelope(outsider, RIDGEMONT_DRAWN.key));
+const ridgemontRows = await rowsFor(RIDGEMONT_DRAWN.key, outsider.publicKeyHex);
+check(
+  `the same player's join to ${RIDGEMONT_DRAWN.key} (${RIDGEMONT}) is refused with 403 network_not_joinable`,
+  refusedRidgemont.status === 403 && errorOf(refusedRidgemont.body) === 'network_not_joinable',
+  `status=${refusedRidgemont.status} error=${errorOf(refusedRidgemont.body)}`,
+);
+check(
+  'the refused join leaves them no LAN lease or occupant row in Ridgemont',
+  ridgemontRows.leases === 0 && ridgemontRows.occupants === 0,
+  `leases=${ridgemontRows.leases} occupants=${ridgemontRows.occupants}`,
+);
+
+// === 4. With the local flag set, a lab network still joins and records its occupant. ===
 const admitted = await post(joinEnvelope(player, LAB_NETWORK));
 const labRows = await rowsFor(LAB_NETWORK);
 check(

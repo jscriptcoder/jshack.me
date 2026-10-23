@@ -18,7 +18,8 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
-import { generateIdentity } from '../src/core/identity/identity.js';
+import { generateIdentityIn } from '../src/test/factories/identityIn.js';
+import { RIDGEMONT } from '../src/core/generation/world.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
 import { lanAddressFor } from '../src/core/network/lanAddress.js';
@@ -86,10 +87,10 @@ const fileContent = (node: FileNode | undefined): string | null =>
 
 // --- Identities: A (owner), B (root session on A's ROUTER), C (no session),
 //     D (a non-root session on A's router — should be denied). ---
-const alice = generateIdentity();
-const bob = generateIdentity();
-const carol = generateIdentity();
-const dave = generateIdentity();
+const alice = generateIdentityIn(RIDGEMONT);
+const bob = generateIdentityIn(RIDGEMONT);
+const carol = generateIdentityIn(RIDGEMONT);
+const dave = generateIdentityIn(RIDGEMONT);
 
 const ESSID = 'ABSTERGO-NET';
 const A_WS = computeWorkstationId('skylab', alice.publicKeyHex);

@@ -41,7 +41,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
-import { generateIdentity } from '../src/core/identity/identity.js';
+import { generateIdentityIn } from '../src/test/factories/identityIn.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
 import { wifiPoolOf } from '../src/core/generation/generateWifi.js';
@@ -137,7 +137,7 @@ const postedDay = async (id: number): Promise<string> => {
   return at === undefined ? '' : new Date(at).toISOString().slice(0, 10);
 };
 
-const visitor = generateIdentity();
+const visitor = generateIdentityIn(RIDGEMONT);
 const [visitorEssid] = wifiPoolOf(RIDGEMONT);
 
 const cleanup = async () => {

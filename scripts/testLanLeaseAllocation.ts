@@ -28,6 +28,8 @@
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
+import { generateIdentityIn } from '../src/test/factories/identityIn.js';
+import { RIDGEMONT } from '../src/core/generation/world.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
 import { assignHomeNetwork } from '../src/core/network/homeNetwork.js';
@@ -123,7 +125,7 @@ const SOLO_NPCS = npcOctets(SOLO_ESSID);
 // really is seeded from the derivation rather than accidentally passing on a redraw.
 const findIdentityDeriving = (essid: string, wantNpc: boolean) => {
   for (let attempt = 0; attempt < 4000; attempt += 1) {
-    const identity = generateIdentity();
+    const identity = generateIdentityIn(RIDGEMONT);
     if (npcOctets(essid).has(derivedOctet(identity.publicKeyHex, essid)) === wantNpc) {
       return identity;
     }
@@ -146,7 +148,7 @@ if (alice === null || squatter === null) {
 const findCollidingPair = (essid: string) => {
   const seen = new Map<number, ReturnType<typeof generateIdentity>>();
   for (let attempt = 0; attempt < 400; attempt += 1) {
-    const identity = generateIdentity();
+    const identity = generateIdentityIn(RIDGEMONT);
     const octet = derivedOctet(identity.publicKeyHex, essid);
     const rival = seen.get(octet);
     if (rival !== undefined) return { first: rival, second: identity, octet };

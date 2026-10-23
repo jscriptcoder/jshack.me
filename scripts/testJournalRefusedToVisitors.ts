@@ -33,7 +33,8 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
-import { generateIdentity } from '../src/core/identity/identity.js';
+import { generateIdentityIn } from '../src/test/factories/identityIn.js';
+import { RIDGEMONT } from '../src/core/generation/world.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
 import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
@@ -106,10 +107,10 @@ const MARK = '/tmp/visitor-mark';
 
 // --- Identities: A owns the workstation, B visits everything, C holds a session opened
 // on another network, D holds nothing. ---
-const alice = generateIdentity();
-const bob = generateIdentity();
-const carol = generateIdentity();
-const dave = generateIdentity();
+const alice = generateIdentityIn(RIDGEMONT);
+const bob = generateIdentityIn(RIDGEMONT);
+const carol = generateIdentityIn(RIDGEMONT);
+const dave = generateIdentityIn(RIDGEMONT);
 
 const A_MACHINE = computeWorkstationId('skylab', alice.publicKeyHex);
 const GATEWAY = computeApGatewayId(ESSID);

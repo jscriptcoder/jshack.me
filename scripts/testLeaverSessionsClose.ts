@@ -28,6 +28,8 @@
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
+import { generateIdentityIn } from '../src/test/factories/identityIn.js';
+import { RIDGEMONT } from '../src/core/generation/world.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { lanAddressFor } from '../src/core/network/lanAddress.js';
 import { formatPidfileContent } from '../src/core/services/pidfile.js';
@@ -76,9 +78,9 @@ type Identity = ReturnType<typeof generateIdentity>;
 
 // --- Identities: A (who leaves), B (whose box A stands on) and C (a neighbour A knocks
 //     on from B's box). ---
-const alice = generateIdentity();
-const bob = generateIdentity();
-const carol = generateIdentity();
+const alice = generateIdentityIn(RIDGEMONT);
+const bob = generateIdentityIn(RIDGEMONT);
+const carol = generateIdentityIn(RIDGEMONT);
 
 const ESSID = 'LEAVER-WIFI';
 const OTHER_ESSID = 'LEAVER-WIFI-2';

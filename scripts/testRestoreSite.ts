@@ -27,6 +27,7 @@ import { spawnSync } from 'node:child_process';
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
+import { generateIdentityIn } from '../src/test/factories/identityIn.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
 import { wifiPoolOf } from '../src/core/generation/generateWifi.js';
@@ -151,8 +152,8 @@ if (door === undefined) {
 
 /** The intruder and the searcher, each on a network of their own so the log has an
  *  address to name them by. */
-const attacker = generateIdentity();
-const searcher = generateIdentity();
+const attacker = generateIdentityIn(RIDGEMONT);
+const searcher = generateIdentityIn(RIDGEMONT);
 const [attackerEssid, searcherEssid] = wifiPoolOf(RIDGEMONT);
 const TERM = `quokka${Date.now().toString(36)}`;
 const DEFACED = '<html><head><title>owned</title></head><body>we were here</body></html>\n';

@@ -24,6 +24,8 @@
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
+import { generateIdentityIn } from '../src/test/factories/identityIn.js';
+import { RIDGEMONT } from '../src/core/generation/world.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { md5 } from '../src/core/generation/md5.js';
 
@@ -75,9 +77,9 @@ const readAuthLog = async (machineId: string, ownerKey: string): Promise<string>
 const lastLine = (log: string): string => log.trim().split('\n').slice(-1)[0] ?? '(empty)';
 
 // --- Identities: A (the target/owner), B + C (two attackers standing on A's box). ---
-const alice = generateIdentity();
-const bob = generateIdentity();
-const carol = generateIdentity();
+const alice = generateIdentityIn(RIDGEMONT);
+const bob = generateIdentityIn(RIDGEMONT);
+const carol = generateIdentityIn(RIDGEMONT);
 
 const A_ESSID = 'ABSTERGO-NET';
 const A_WS_NAME = 'skylab';
@@ -194,7 +196,7 @@ check(
 );
 
 // === 4. A caller with no shell on the box is refused and writes nothing. ===
-const dave = generateIdentity();
+const dave = generateIdentityIn(RIDGEMONT);
 const before = await readAuthLog(A_WS, alice.publicKeyHex);
 const s4 = await post(
   SESSIONS,

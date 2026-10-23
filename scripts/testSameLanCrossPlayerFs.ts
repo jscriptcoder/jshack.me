@@ -25,6 +25,8 @@
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
+import { generateIdentityIn } from '../src/test/factories/identityIn.js';
+import { RIDGEMONT } from '../src/core/generation/world.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { lanAddressFor } from '../src/core/network/lanAddress.js';
 import { formatPidfileContent } from '../src/core/services/pidfile.js';
@@ -67,8 +69,8 @@ const post = async (
 };
 
 // --- Identities: A (the earlier joiner / target), B (the later joiner / attacker). ---
-const alice = generateIdentity();
-const bob = generateIdentity();
+const alice = generateIdentityIn(RIDGEMONT);
+const bob = generateIdentityIn(RIDGEMONT);
 
 const ESSID = 'CROSSFS-LAN-WIFI';
 const A_WS_NAME = 'skylab';

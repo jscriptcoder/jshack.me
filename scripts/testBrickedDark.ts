@@ -22,7 +22,8 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
-import { generateIdentity } from '../src/core/identity/identity.js';
+import { generateIdentityIn } from '../src/test/factories/identityIn.js';
+import { RIDGEMONT } from '../src/core/generation/world.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
 import { md5 } from '../src/core/generation/md5.js';
@@ -73,8 +74,8 @@ const machineIdOf = (body: unknown): string | undefined =>
     : undefined;
 
 // --- Identities: A (owner/victim), B (the scanner / would-be guest). ---
-const alice = generateIdentity();
-const bob = generateIdentity();
+const alice = generateIdentityIn(RIDGEMONT);
+const bob = generateIdentityIn(RIDGEMONT);
 const A_MACHINE = computeWorkstationId('skylab', alice.publicKeyHex);
 // Story 5.1.1b: the public IP now resolves to A's ROUTER (a distinct machine) for
 // scans; ssh still lands on the workstation until 5.1.2. So a bricked-box wire-check

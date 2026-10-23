@@ -19,7 +19,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
-import { generateIdentity } from '../src/core/identity/identity.js';
+import { generateIdentityIn } from '../src/test/factories/identityIn.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
 import { wifiPoolOf } from '../src/core/generation/generateWifi.js';
@@ -106,7 +106,7 @@ const siteLog = async (path: string): Promise<string> => {
 const firstResultHost = (resultsPage: string): string =>
   /<li>\s*<h2><a href="http:\/\/([^/"]+)\//.exec(resultsPage)?.[1] ?? '';
 
-const visitor = generateIdentity();
+const visitor = generateIdentityIn(RIDGEMONT);
 const [visitorEssid] = wifiPoolOf(RIDGEMONT);
 
 const cleanup = async () => {

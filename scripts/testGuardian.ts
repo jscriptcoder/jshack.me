@@ -36,7 +36,7 @@
 import { spawnSync } from 'node:child_process';
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
-import { generateIdentity } from '../src/core/identity/identity.js';
+import { generateIdentityIn } from '../src/test/factories/identityIn.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { wifiPoolOf } from '../src/core/generation/generateWifi.js';
 import { RIDGEMONT } from '../src/core/generation/world.js';
@@ -176,7 +176,7 @@ const DEFACED = '<html><body>the guardian sleeps</body></html>\n';
 const outcome = exploitOutcome(webPackage, shellRelease.version, today)!;
 
 const attackerEssid = wifiPoolOf(RIDGEMONT).find((essid) => essid !== SITE.networkKey)!;
-const attacker = generateIdentity();
+const attacker = generateIdentityIn(RIDGEMONT);
 
 const runGuardian = (args: readonly string[], env: NodeJS.ProcessEnv = process.env) =>
   spawnSync(process.execPath, ['--import', 'tsx', GUARDIAN_SCRIPT, ...args], {

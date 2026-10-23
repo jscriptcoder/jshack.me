@@ -25,7 +25,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
-import { generateIdentity } from '../src/core/identity/identity.js';
+import { generateIdentityIn } from '../src/test/factories/identityIn.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { wifiPoolOf } from '../src/core/generation/generateWifi.js';
 import { siteAddress } from '../src/core/generation/publisher.js';
@@ -90,7 +90,7 @@ const campusServerId = resolveLanHostIdentity(campusServer, CAMPUS).machineId;
 const finditMachineId = computeApGatewayId(FINDIT_NETWORK);
 
 /** The searcher, standing on a network of their own so the trace has an address to name. */
-const searcher = generateIdentity();
+const searcher = generateIdentityIn(RIDGEMONT);
 const searcherEssid = wifiPoolOf(RIDGEMONT).find((essid) => essid !== CAMPUS)!;
 
 const fetchPath = async (target: string, path: string) =>
@@ -152,7 +152,7 @@ const registerSearcherHome = async (): Promise<string | null> => {
 
 /** A player who publishes: somebody on a home network nobody else publishes for, who has
  *  forwarded its public `:80` to their own box and is serving a page there. */
-const player = generateIdentity();
+const player = generateIdentityIn(RIDGEMONT);
 const PLAYER_ESSID = 'FAMILY-WIFI-2G';
 const PLAYER_IP = publicAddressOf(PLAYER_ESSID);
 const PLAYER_GATEWAY = computeApGatewayId(PLAYER_ESSID);

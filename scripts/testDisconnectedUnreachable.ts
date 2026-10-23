@@ -38,6 +38,8 @@
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
+import { generateIdentityIn } from '../src/test/factories/identityIn.js';
+import { RIDGEMONT } from '../src/core/generation/world.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { lanAddressFor } from '../src/core/network/lanAddress.js';
 import { formatPidfileContent } from '../src/core/services/pidfile.js';
@@ -82,9 +84,9 @@ const post = async (
 
 // --- Identities: A (the target, who will disconnect), B (the attacker, who stays), and
 //     C (a bystander on the same WiFi, whose web server B knocks on from A's box). ---
-const alice = generateIdentity();
-const bob = generateIdentity();
-const carol = generateIdentity();
+const alice = generateIdentityIn(RIDGEMONT);
+const bob = generateIdentityIn(RIDGEMONT);
+const carol = generateIdentityIn(RIDGEMONT);
 
 const ESSID = 'DISCONNECT-WIFI';
 const A_WS_NAME = 'quarantine';

@@ -22,6 +22,7 @@ import { randomInt } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
+import { generateIdentityIn } from '../src/test/factories/identityIn.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { wifiPoolOf } from '../src/core/generation/generateWifi.js';
@@ -98,12 +99,12 @@ const drawnAddress = (): string =>
   `${BOARD_FIRST_OCTET}.${randomInt(256)}.${randomInt(256)}.${2 + randomInt(253)}`;
 
 /** The player every account here is signed up by, so they can all be removed afterwards. */
-const owner = generateIdentity();
-const visitor = generateIdentity();
+const owner = generateIdentityIn(RIDGEMONT);
+const visitor = generateIdentityIn(RIDGEMONT);
 const [visitorEssid] = wifiPoolOf(RIDGEMONT);
 const players: Identity[] = [];
 const newPlayer = (): Identity => {
-  const player = generateIdentity();
+  const player = generateIdentityIn(RIDGEMONT);
   players.push(player);
   return player;
 };

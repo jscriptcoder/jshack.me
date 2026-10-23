@@ -24,7 +24,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
-import { generateIdentity } from '../src/core/identity/identity.js';
+import { generateIdentityIn } from '../src/test/factories/identityIn.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { wifiPoolOf } from '../src/core/generation/generateWifi.js';
@@ -94,8 +94,8 @@ const RUN = Date.now().toString(36).slice(-6);
 const handleFor = (name: string): string => `${name}${RUN}`;
 
 /** The player every account here is signed up by, so they can all be removed afterwards. */
-const owner = generateIdentity();
-const visitor = generateIdentity();
+const owner = generateIdentityIn(RIDGEMONT);
+const visitor = generateIdentityIn(RIDGEMONT);
 const [visitorEssid] = wifiPoolOf(RIDGEMONT);
 
 const openAccount = async (handle: string) => {

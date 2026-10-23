@@ -45,7 +45,7 @@
 import { spawnSync } from 'node:child_process';
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
-import { generateIdentity } from '../src/core/identity/identity.js';
+import { generateIdentityIn } from '../src/test/factories/identityIn.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
 import { wifiPoolOf } from '../src/core/generation/generateWifi.js';
@@ -157,7 +157,7 @@ const pagingLinks = (page: string): readonly string[] =>
     (match) => `${match[2]} ${match[1]}`,
   );
 
-const visitor = generateIdentity();
+const visitor = generateIdentityIn(RIDGEMONT);
 const [visitorEssid] = wifiPoolOf(RIDGEMONT);
 
 const threadCount = async (): Promise<number | null> => {
