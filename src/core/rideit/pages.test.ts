@@ -3,7 +3,8 @@ import {
   arrivedPage,
   NOWHERE_PAGE,
   RIDEIT_FRONT_PAGE,
-  TICKET_PAGE,
+  ticketPage,
+  unpaidPage,
   USED_TICKET_PAGE,
 } from './pages.js';
 import { TOWNS } from '../generation/world.js';
@@ -68,11 +69,14 @@ describe("rideit.io's front page", () => {
 });
 
 /**
- * The ticket page is the booking form. lynx draws no drop-down list, so every town is its
- * own small form: the town's name, the town sent as a field nobody types, and one button
- * that boards for it. It never says where the reader stands.
+ * The ticket page is the booking form, written for the reader: the fare, the address their
+ * next trip is paid to, and how much has arrived there. lynx draws no drop-down list, so
+ * every town is its own small form: the town's name, the town sent as a field nobody
+ * types, and one button that boards for it. It never says where the reader stands.
  */
 describe("rideit.io's ticket page", () => {
+  const ADDRESS = 'jsc0612820023d341ff3ace924e0e4cafda09b51a98';
+  const TICKET_PAGE = ticketPage({ address: ADDRESS, paid: 10 });
   const forms = () => [...parsed(TICKET_PAGE).querySelectorAll('form')];
 
   it('is a whole rideit.io page, its head holding only its title', () => {
@@ -85,6 +89,18 @@ describe("rideit.io's ticket page", () => {
         '<html>\n<head>\n<title>rideit.io - book a ticket</title>\n</head>\n<body>\n<h1>rideit.io</h1>\n',
       ),
     ).toBe(true);
+  });
+
+  it('quotes the fare, the address it is paid to and how much has arrived, before the towns', () => {
+    expect(TICKET_PAGE).toContain(
+      `<h2>Book a ticket</h2>\n<p>One fare to anywhere: 25 JSC, paid to this ticket's own address:</p>\n<p>${ADDRESS}</p>\n<p>Paid so far: 10 of 25 JSC.</p>\n<form`,
+    );
+  });
+
+  it('says nothing has arrived at an address nobody paid', () => {
+    expect(parsed(ticketPage({ address: ADDRESS, paid: 0 })).body.textContent).toContain(
+      'Paid so far: 0 of 25 JSC.',
+    );
   });
 
   it('writes each form on lines of its own, as curl prints it', () => {
@@ -122,9 +138,9 @@ describe("rideit.io's ticket page", () => {
     );
   });
 
-  it('shows how to board from a terminal, for the first town', () => {
+  it('shows how to pay and board from a terminal, for the first town', () => {
     expect(TICKET_PAGE).toContain(
-      `</form>\n<p>Or from a terminal:</p>\n<pre>\n$ curl -d "town=${TOWNS[0]!.name}" http://rideit.io/board\n</pre>\n</body>`,
+      `</form>\n<p>Or from a terminal:</p>\n<pre>\n$ wallet send ${ADDRESS} 25\n$ curl -d "town=${TOWNS[0]!.name}" http://rideit.io/board\n</pre>\n</body>`,
     );
   });
 });
@@ -150,6 +166,16 @@ describe("rideit.io's answers to a boarding", () => {
     const page = parsed(NOWHERE_PAGE);
     expect(page.title).toBe('rideit.io - no such town');
     expect(page.body.textContent).toContain('We do not go there.');
+    expect(page.querySelector('a')?.getAttribute('href')).toBe('/ticket');
+  });
+
+  it('refuses a boarding before the whole fare has arrived, says how much has, and links back', () => {
+    const page = parsed(unpaidPage(10));
+    expect(page.title).toBe('rideit.io - fare not paid');
+    expect(page.querySelector('h1')?.textContent).toBe('rideit.io');
+    expect(page.querySelector('h1 + p')?.textContent).toBe(
+      'The fare has not arrived: 10 of 25 JSC.',
+    );
     expect(page.querySelector('a')?.getAttribute('href')).toBe('/ticket');
   });
 
