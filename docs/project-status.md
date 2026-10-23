@@ -1215,7 +1215,8 @@ agreed order:
     `backlog.md` under "valleynews — follow-ups deferred". The opening stories are on prod, the
     last of them the `/dev` launch note (story 13, 2026-10-22), whose scale numbers come from
     [`world-in-numbers.md`](./world-in-numbers.md), refreshed at v0.424.0 to count the paper.
-30. 🔄 **The guardian's rounds over the public web (from v0.425.0, 2026-10-22).** Players are
+30. ✅ **The guardian's rounds over the public web (v0.425.0–v0.427.0, PRs #725, #726, #727,
+    2026-10-22).** Players are
     on the game and every public website was open to them for good, since NPC boxes freeze at
     their start tuple. The operator now looks after the public web by hand, on rounds nobody can
     predict. Slice 1 (v0.425.0): `scripts/guardian.ts patch [name…]` moves every package on a
@@ -1234,10 +1235,21 @@ agreed order:
     patch would move) and tampered (an open session, a write that is not the box's own log line,
     or a brick), writing nothing, and the checked-in `/guardian` skill runs a round on prod:
     report, the owner picks the restores, restore those, patch. `testGuardian.ts` (29 checks)
-    tells a visited box from a broken-into one live. The decisions and slices are in
-    `plans/guardian.md`.
-    **Pick up here (2026-10-22):** the guardian's close-out: the first `/guardian` round on prod
-    with the owner picking, and the browser run; then the items still open in `backlog.md`.
+    tells a visited box from a broken-into one live. As built: `vulnerability-architecture.md`,
+    "What a box sits on"; the commands in the handbook's chapter 12, "Data fixes"; what it left
+    out is in `backlog.md` ("A scheduled guardian"). First round on prod (2026-10-23, v0.433.0):
+    the patrol, 52 boxes since rideit.io joined it, read 1 behind, 0 tampered, 0 bricked; the
+    owner patched rideit.io (11 upgraded). A report naming the 28 landmark sites of the other
+    towns, off the patrol by design, read 28 behind and none tampered, and they were left open.
+    Browser close-out (2026-10-23, v0.433.0): a fresh player in Oakhurst joined THE-GRANARY and
+    read millbrook.gov's front page and `nmap -sV` (Apache 2.4.62 with a high hole on 80); a
+    page planted on the site's box showed through `curl` at once, and `report millbrook.gov`
+    named it tampered with its one path. `restore millbrook.gov` (11 upgraded) brought the
+    generated page back, `nmap -sV` showed Apache 3.0.4 on 80 with no hole, and the report read
+    up to date. Ports 22, 161 and 2222 on the same address kept their old versions: they are the
+    network's gateway and a forward to a neighbour, which a restore leaves alone by design. No
+    defect.
+    **Pick up here (2026-10-23):** the owner's choice from the items still open in `backlog.md`.
 31. ✅ **Players start in different towns (v0.428.0, PR #728, 2026-10-23).** Every player stood in
     Ridgemont, so all of them shared its 178 networks and the chance of landing on somebody grew
     with the share of those occupied. Now `startingTown(publicKeyHex)` draws each player's town
