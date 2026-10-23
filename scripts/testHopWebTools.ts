@@ -32,7 +32,8 @@ import { chainLinks, machineIdForLanHost } from '../src/core/generation/lanTopol
 import { resolveDeepScanHosts } from '../src/core/scan/deepScanHosts.js';
 import { chainGatewayBaseFs } from '../src/core/generation/lanHostIdentity.js';
 import { hostMachineId } from '../src/core/generation/remoteHostId.js';
-import { crackableEssidPool } from '../src/core/generation/generateWifi.js';
+import { wifiPoolOf } from '../src/core/generation/generateWifi.js';
+import { RIDGEMONT } from '../src/core/generation/world.js';
 import { siteServer } from '../src/core/generation/siteServer.js';
 import { publisherIp } from '../src/core/generation/publisher.js';
 import { buildRemoteHostFs } from '../src/core/generation/remoteHostFs.js';
@@ -94,7 +95,7 @@ const httpPortOf = (essid: string, host: LanHost): number | null => {
 const HOME = 'SMART-FRIDGE-NET';
 const HOME_PUBLIC = publicAddressOf(HOME);
 
-const N = crackableEssidPool.find((essid) => {
+const N = wifiPoolOf(RIDGEMONT).find((essid) => {
   const machines = generateHomeLan(essid).hosts.filter((host) => host.kind === 'machine');
   return (
     machines.filter((host) => httpPortOf(essid, host) !== null).length >= 1 && machines.length >= 2
@@ -115,7 +116,7 @@ const SERVING_ID = hostMachineId(nServing, N);
 // --- The deep hop network D: a router-fronted layer with a web host. ---
 type Deep = { essid: string; gatewayMachineId: string; subnet: string; hostId: string; ip: string; port: number };
 const findDeep = (): Deep | undefined => {
-  for (const essid of crackableEssidPool) {
+  for (const essid of wifiPoolOf(RIDGEMONT)) {
     for (const gateway of chainLinks(essid)) {
       if (gateway.host.kind !== 'router') continue;
       const layer = generateDeepLayer(

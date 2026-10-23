@@ -29,7 +29,8 @@ import { readOpenPorts } from '../services/pidfile.js';
 import { createFsView } from '../filesystem/fsView.js';
 import { resolveWebPath } from './http.js';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
-import { crackableEssidPool } from '../generation/generateWifi.js';
+import { wifiPoolOf } from '../generation/generateWifi.js';
+import { RIDGEMONT } from '../generation/world.js';
 import { chainLinks } from '../generation/lanTopology.js';
 import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
 import { computeApGatewayId } from '../identity/router.js';
@@ -959,7 +960,7 @@ describe('a box on a deep layer the caller’s shell reaches', () => {
   /** The first crackable network whose inner ROUTER fronts a layer with a web host: the
    *  network, that gateway (where the shell stands), the layer's subnet, and the host. */
   const deep = (() => {
-    for (const essid of crackableEssidPool) {
+    for (const essid of wifiPoolOf(RIDGEMONT)) {
       for (const gateway of chainLinks(essid)) {
         if (gateway.host.kind !== 'router') continue;
         const web = resolveDeepScanHosts(
@@ -1050,7 +1051,7 @@ describe('a box on a deep layer behind a switch', () => {
   /** The first crackable network with a web host behind a SWITCH, whose live ACL can shut
    *  a port the box behind it still serves. */
   const behind = (() => {
-    for (const essid of crackableEssidPool) {
+    for (const essid of wifiPoolOf(RIDGEMONT)) {
       for (const link of chainLinks(essid)) {
         if (link.host.kind !== 'switch') continue;
         const web = resolveDeepScanHosts(essid, link, chainGatewayBaseFs(essid, link)).hosts.find(

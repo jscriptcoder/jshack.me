@@ -1261,7 +1261,8 @@ real endpoints against `vercel dev` + local supabase.
   `500 {"error":"not_configured"}` from the `SUPABASE_URL`/`SERVICE_ROLE_KEY` guard. The tell is
   that `{}` returns 500 instead of 400 — check that before blaming the seed data or the handler.
 - **`.env.development.local` must set `JSHACK_ADMIT_LAB_NETWORKS=1`.** The server refuses a
-  join to any network outside Ridgemont or undeclared by the world
+  join to any network outside the town the player's key starts them in, or undeclared by the
+  world
   (`403 network_not_joinable`), and most wire-checks join a made-up network (`LEASE-TEST-NET`,
   `MYSQL-LAB-3`, …) so each run starts on a gateway nobody has written to. The flag admits the
   undeclared ones on local `vercel dev` only; another town's networks stay refused. It is set on

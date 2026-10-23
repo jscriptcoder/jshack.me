@@ -19,7 +19,8 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
-import { generateIdentity } from '../src/core/identity/identity.js';
+import { generateIdentityIn } from '../src/test/factories/identityIn.js';
+import { RIDGEMONT } from '../src/core/generation/world.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
 import { machineIdForLanHost } from '../src/core/generation/lanTopology.js';
@@ -70,7 +71,7 @@ const portsOf = (body: unknown): readonly WirePort[] =>
 
 // --- The university publishes; BOB browses it from nowhere in particular, and later
 //     joins its wifi. ---
-const bob = generateIdentity();
+const bob = generateIdentityIn(RIDGEMONT);
 
 const ESSID = 'CAMPUS-GUEST-OPEN';
 const SITE_IP = publisherIp(ESSID);

@@ -50,8 +50,9 @@ export const networkPersona = (essid: string): NetworkPersona => {
   const site = fixedSite(essid);
   if (site !== undefined) return { ...site.place, domain, town: RIDGEMONT };
   // A network another player named, or one that left the catalog, still belongs
-  // somewhere: its own stream picks a kind of place and a name for it. It stands where
-  // everybody who could have joined it stands.
+  // somewhere: its own stream picks a kind of place and a name for it. It stands in
+  // Ridgemont: only a lab stack lets a player join a network the world does not declare,
+  // and there its town decides nothing.
   const prng = createPrng(`network-persona-${essid}`);
   const category = prng.pick(NETWORK_CATEGORIES);
   return { category, place: prng.pick(UNNAMED_PLACES[category]), domain, town: RIDGEMONT };

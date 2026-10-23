@@ -28,8 +28,8 @@ import { hostServices } from '../src/core/generation/remoteHostFs.js';
 import { resolveLanHostIdentity } from '../src/core/generation/lanHostIdentity.js';
 import { machineIdForLanHost } from '../src/core/generation/lanTopology.js';
 import { storeIn } from '../src/core/redis/datadir.js';
-import { crackableEssidPool } from '../src/core/generation/generateWifi.js';
-import { publicAddress } from '../src/core/generation/world.js';
+import { wifiPoolOf } from '../src/core/generation/generateWifi.js';
+import { publicAddress, RIDGEMONT } from '../src/core/generation/world.js';
 import { RULES_V4_PATH, RULES_V4_OWNER } from '../src/core/network/iptablesRules.js';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 import { standOnNetwork, leaveNetwork } from './standVantage.js';
@@ -77,7 +77,7 @@ const servesOpenRedis = (essid: string, host: LanHost): boolean => {
 };
 
 const redisLan = () => {
-  for (const essid of crackableEssidPool) {
+  for (const essid of wifiPoolOf(RIDGEMONT)) {
     if (publicAddress(essid) === undefined) continue;
     const machines = generateHomeLan(essid).hosts.filter((host) => host.kind === 'machine');
     const storeHost = machines.find((host) => servesOpenRedis(essid, host));

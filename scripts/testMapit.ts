@@ -19,14 +19,14 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
-import { generateIdentity } from '../src/core/identity/identity.js';
+import { generateIdentityIn } from '../src/test/factories/identityIn.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
-import { crackableEssidPool } from '../src/core/generation/generateWifi.js';
+import { wifiPoolOf } from '../src/core/generation/generateWifi.js';
 import { siteAddress } from '../src/core/generation/publisher.js';
 import { buildFixedSiteFs } from '../src/core/generation/fixedSiteFs.js';
 import { FINDIT_DOMAIN, fixedSite, MAPIT_NETWORK } from '../src/core/generation/fixedSites.js';
-import { HARROW_VALLEY } from '../src/core/generation/world.js';
+import { HARROW_VALLEY, RIDGEMONT } from '../src/core/generation/world.js';
 import { MAPIT_PAGES } from '../src/core/mapit/pages.js';
 import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js';
 import { createFsView } from '../src/core/filesystem/fsView.js';
@@ -106,8 +106,8 @@ const siteLog = async (path: string): Promise<string> => {
 const firstResultHost = (resultsPage: string): string =>
   /<li>\s*<h2><a href="http:\/\/([^/"]+)\//.exec(resultsPage)?.[1] ?? '';
 
-const visitor = generateIdentity();
-const [visitorEssid] = crackableEssidPool;
+const visitor = generateIdentityIn(RIDGEMONT);
+const [visitorEssid] = wifiPoolOf(RIDGEMONT);
 
 const cleanup = async () => {
   await sr.from('sessions').delete().eq('player_key', visitor.publicKeyHex);

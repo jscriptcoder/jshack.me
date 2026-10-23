@@ -26,10 +26,11 @@
 import { spawnSync } from 'node:child_process';
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
-import { generateIdentity } from '../src/core/identity/identity.js';
+import { generateIdentityIn } from '../src/test/factories/identityIn.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
-import { crackableEssidPool } from '../src/core/generation/generateWifi.js';
+import { wifiPoolOf } from '../src/core/generation/generateWifi.js';
+import { RIDGEMONT } from '../src/core/generation/world.js';
 import { siteAddress } from '../src/core/generation/publisher.js';
 import { CHAINIT_NETWORK, FINDIT_DOMAIN, fixedSite } from '../src/core/generation/fixedSites.js';
 import { WEB_PAGE_FILE } from '../src/core/generation/baseFs.js';
@@ -121,8 +122,8 @@ const EMPTIED = generateWalletKey().address;
 const EVERY_ADDRESS = [FUNDED, PAID, BUSY, UNSEEN, ...TIED, EMPTIED];
 const BUSY_MINTS = 25;
 
-const visitor = generateIdentity();
-const [visitorEssid] = crackableEssidPool;
+const visitor = generateIdentityIn(RIDGEMONT);
+const [visitorEssid] = wifiPoolOf(RIDGEMONT);
 
 const cleanup = async () => {
   await sr.from('wallet_transfers').delete().in('to_address', EVERY_ADDRESS);

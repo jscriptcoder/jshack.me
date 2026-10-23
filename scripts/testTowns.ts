@@ -25,7 +25,7 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
-import { generateIdentity } from '../src/core/identity/identity.js';
+import { generateIdentityIn } from '../src/test/factories/identityIn.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
 import { md5 } from '../src/core/generation/md5.js';
@@ -106,8 +106,8 @@ if (TOWNS.length < 2 || FINDIT_IP === undefined) {
   process.exit(2);
 }
 
-const visitor = generateIdentity();
-const player = generateIdentity();
+const visitor = generateIdentityIn(RIDGEMONT);
+const player = generateIdentityIn(RIDGEMONT);
 
 const joinEnvelope = (essid: string) =>
   signRequest(player, 'registerNetwork', {

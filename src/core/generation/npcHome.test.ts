@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { buildRemoteHostFs, hostServices, npcUsername } from './remoteHostFs.js';
 import { machineCommandOptions } from './npcHome.js';
 import { buildDeepHostFs } from './deepHostFs.js';
-import { crackableEssidPool } from './generateWifi.js';
+import { wifiPoolOf } from './generateWifi.js';
+import { RIDGEMONT } from './world.js';
 import { generateHomeLan, type LanHost } from './generateHomeLan.js';
 import { generateDeepLayer } from './generateDeepLayer.js';
 import { chainLinks } from './lanTopology.js';
@@ -57,7 +58,7 @@ const notesOf = (files: ReadonlyMap<string, string>): readonly string[] =>
 
 describe('an NPC desktop reads as somebody’s', () => {
   it('keeps a shell history that names a machine on its own network', () => {
-    const [desktop] = deskBoxes(crackableEssidPool);
+    const [desktop] = deskBoxes(wifiPoolOf(RIDGEMONT));
     if (desktop === undefined) throw new Error('no catalog network carries a desktop');
 
     const history = homeFilesOf(desktop).get('.bash_history') ?? '';
@@ -73,7 +74,7 @@ describe('an NPC desktop reads as somebody’s', () => {
   });
 
   it('holds the dotfiles and a few notes of the person it belongs to, theirs to read and write', () => {
-    deskBoxes(crackableEssidPool).forEach((box) => {
+    deskBoxes(wifiPoolOf(RIDGEMONT)).forEach((box) => {
       const username = npcUsername(box.essid, box.host);
       const home = homeOf(buildRemoteHostFs(box.essid, box.host), username);
       const files = filesUnder(home);
@@ -105,7 +106,7 @@ describe('an NPC desktop reads as somebody’s', () => {
   });
 
   it('shows a guest none of it', () => {
-    const [desktop] = deskBoxes(crackableEssidPool);
+    const [desktop] = deskBoxes(wifiPoolOf(RIDGEMONT));
     if (desktop === undefined) throw new Error('no catalog network carries a desktop');
     const username = npcUsername(desktop.essid, desktop.host);
     const guest = createFsView(buildRemoteHostFs(desktop.essid, desktop.host), {
@@ -120,7 +121,7 @@ describe('an NPC desktop reads as somebody’s', () => {
   });
 
   it('is one person: their git identity and every note they signed carry the same name', () => {
-    deskBoxes(crackableEssidPool).forEach((box) => {
+    deskBoxes(wifiPoolOf(RIDGEMONT)).forEach((box) => {
       const username = npcUsername(box.essid, box.host);
       const person = inhabitant({ essid: box.essid, host: box.host, username });
       const files = homeFilesOf(box);
@@ -176,7 +177,7 @@ describe('an NPC desktop reads as somebody’s', () => {
   });
 
   it('is built the same way every time it is read', () => {
-    deskBoxes(crackableEssidPool.slice(0, 5)).forEach((box) => {
+    deskBoxes(wifiPoolOf(RIDGEMONT).slice(0, 5)).forEach((box) => {
       expect(serialise(buildRemoteHostFs(box.essid, box.host))).toEqual(
         serialise(buildRemoteHostFs(box.essid, box.host)),
       );
@@ -233,7 +234,7 @@ describe('what a home names is really there', () => {
     // not covered by whichever line a random pick happened to take.
     let sshBoxesSeen = 0;
     let httpBoxesSeen = 0;
-    crackableEssidPool.forEach((essid) => {
+    wifiPoolOf(RIDGEMONT).forEach((essid) => {
       const hosts = generateHomeLan(essid).hosts;
       const machines = hosts.filter((host) => host.kind === 'machine');
       const [reader] = machines;
@@ -282,7 +283,7 @@ describe('what a home names is really there', () => {
 });
 
 describe('a desktop on a deep layer', () => {
-  const deepDesks = crackableEssidPool.flatMap((essid) =>
+  const deepDesks = wifiPoolOf(RIDGEMONT).flatMap((essid) =>
     chainLinks(essid)
       .map((link) => ({
         essid,
@@ -381,7 +382,7 @@ describe('no two homes are the same', () => {
   });
 
   it('keeps histories and notes distinct across every catalog network', () => {
-    const homes = deskBoxes(crackableEssidPool).map(homeFilesOf);
+    const homes = deskBoxes(wifiPoolOf(RIDGEMONT)).map(homeFilesOf);
     const histories = homes.map((files) => files.get('.bash_history'));
     const notes = homes.flatMap(notesOf);
 

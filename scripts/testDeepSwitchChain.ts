@@ -22,7 +22,8 @@ import { generateIdentity } from '../src/core/identity/identity.js';
 import { computeDeepGatewayId, computeInnerGatewayId } from '../src/core/identity/router.js';
 import { seedDeepGatewayAdminHash } from '../src/core/generation/routerFs.js';
 import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
-import { crackableEssidPool } from '../src/core/generation/generateWifi.js';
+import { wifiPoolOf } from '../src/core/generation/generateWifi.js';
+import { RIDGEMONT } from '../src/core/generation/world.js';
 import { generateDeepLayer, seedNetworkDepth } from '../src/core/generation/generateDeepLayer.js';
 import { leaveNetwork, standOnNetwork } from './standVantage.js';
 import { plaintextFor } from '../src/test/passwords.js';
@@ -92,7 +93,9 @@ const innerSwitchChild = (essid: string) => {
   return { essid, innerIp: innerHost.ip, innerId, switchIp: child.ip };
 };
 
-const found = crackableEssidPool.map(innerSwitchChild).find((layout) => layout !== null);
+const found = wifiPoolOf(RIDGEMONT)
+  .map(innerSwitchChild)
+  .find((layout) => layout !== null);
 if (found === undefined || found === null) {
   console.error('no network in the crackable pool seeds an inner router -> switch child chain');
   process.exit(2);

@@ -28,10 +28,11 @@
 import { spawnSync } from 'node:child_process';
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
-import { generateIdentity } from '../src/core/identity/identity.js';
+import { generateIdentityIn } from '../src/test/factories/identityIn.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
-import { crackableEssidPool } from '../src/core/generation/generateWifi.js';
+import { wifiPoolOf } from '../src/core/generation/generateWifi.js';
+import { RIDGEMONT } from '../src/core/generation/world.js';
 import { siteAddress } from '../src/core/generation/publisher.js';
 import { TALKIT_NETWORK, fixedSite } from '../src/core/generation/fixedSites.js';
 import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js';
@@ -97,8 +98,8 @@ const remove = (words: readonly string[], env: NodeJS.ProcessEnv = process.env) 
   return { status: run.status, out: run.stdout.trim(), err: run.stderr.trim() };
 };
 
-const visitor = generateIdentity();
-const [visitorEssid] = crackableEssidPool;
+const visitor = generateIdentityIn(RIDGEMONT);
+const [visitorEssid] = wifiPoolOf(RIDGEMONT);
 
 /** Every thread the writer started, by id. */
 const writerThreadIds = async (): Promise<readonly number[]> => {

@@ -28,6 +28,8 @@
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
+import { generateIdentityIn } from '../src/test/factories/identityIn.js';
+import { RIDGEMONT } from '../src/core/generation/world.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
 import { lanAddressFor } from '../src/core/network/lanAddress.js';
@@ -79,10 +81,10 @@ const machineIdOf = (body: unknown): string | undefined =>
 
 // --- Identities: A + B are occupants of one AP; C joins AFTER the brick; D scans from
 //     outside. B is the griefer who roots the shared gateway and bricks it. ---
-const alice = generateIdentity();
-const bob = generateIdentity();
-const carol = generateIdentity();
-const dave = generateIdentity();
+const alice = generateIdentityIn(RIDGEMONT);
+const bob = generateIdentityIn(RIDGEMONT);
+const carol = generateIdentityIn(RIDGEMONT);
+const dave = generateIdentityIn(RIDGEMONT);
 
 const ESSID = 'SMART-FRIDGE-NET';
 const A_WS_NAME = 'skylab';

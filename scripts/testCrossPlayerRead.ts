@@ -20,7 +20,8 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
-import { generateIdentity } from '../src/core/identity/identity.js';
+import { generateIdentityIn } from '../src/test/factories/identityIn.js';
+import { RIDGEMONT } from '../src/core/generation/world.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
 import { md5 } from '../src/core/generation/md5.js';
@@ -67,9 +68,9 @@ const get = (tree: Directory, ...segments: readonly string[]): FileNode | undefi
 };
 
 // --- Identities: A (owner), B (has a guest session on A), C (no session). ---
-const alice = generateIdentity();
-const bob = generateIdentity();
-const carol = generateIdentity();
+const alice = generateIdentityIn(RIDGEMONT);
+const bob = generateIdentityIn(RIDGEMONT);
+const carol = generateIdentityIn(RIDGEMONT);
 const A_MACHINE = computeWorkstationId('skylab', alice.publicKeyHex);
 const ROOT_HASH = md5('alice-root-secret');
 
@@ -282,7 +283,7 @@ check(
 const GATEWAY = computeApGatewayId('BEAN-THERE-WIFI');
 const gatewayHolders: string[] = [];
 for (const userType of ['guest', 'user'] as const) {
-  const holder = generateIdentity();
+  const holder = generateIdentityIn(RIDGEMONT);
   gatewayHolders.push(holder.publicKeyHex);
   await sr.from('sessions').insert({
     session_id: `gw-${userType}-${Date.now()}`,

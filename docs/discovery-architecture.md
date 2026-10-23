@@ -314,8 +314,8 @@ data (and anything reading them, such as `ping` by distance), and travel.
 Every town the world draws keeps homes as well as publishers, Ridgemont beyond its
 landmarks among them (Millbrook draws 4–8 on `town-homes-<town key>`, appended after its
 businesses so no earlier key or address moves). A home publishes nothing: no domain, no
-findit listing, no place on the town directory, and outside Ridgemont no wifi a player can
-scan. `whois` on its address still answers, with
+findit listing, no place on the town directory, and no wifi a player can scan outside the town
+they start in. `whois` on its address still answers, with
 `<Town> Broadband` as its organisation, but nothing tells a player that address exists.
 
 What leads there is a **relation** (`generation/relations.ts`): a lead kept on a

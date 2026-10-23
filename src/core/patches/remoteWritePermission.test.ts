@@ -7,7 +7,8 @@ import {
 import { generateIdentity } from '../identity/identity.js';
 import { computeDeepGatewayId, computeInnerGatewayId, computeApGatewayId } from '../identity/router.js';
 import { generateHomeLan } from '../generation/generateHomeLan.js';
-import { crackableEssidPool } from '../generation/generateWifi.js';
+import { wifiPoolOf } from '../generation/generateWifi.js';
+import { RIDGEMONT } from '../generation/world.js';
 import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer.js';
 import { chainLinks } from '../generation/lanTopology.js';
 import { hostMachineId } from '../generation/remoteHostId.js';
@@ -236,7 +237,7 @@ describe('enforceRemoteWriteL2 — a deep chain gateway', () => {
   // router-OR-switch; pick a NETWORK whose inner gateway hangs a child of the kind the test
   // configures — a router exposes a NAT `rules.v4`, a switch an `acl.conf`.
   const chainDoorOfKind = (kind: 'router' | 'switch'): { essid: string; machineId: string } => {
-    for (const essid of crackableEssidPool) {
+    for (const essid of wifiPoolOf(RIDGEMONT)) {
       if (seedNetworkDepth(essid) < 2) continue;
       const inner = generateHomeLan(essid).hosts.find(
         (host) => host.kind === 'router' && Number(host.ip.split('.')[3]) !== 1,
@@ -340,7 +341,7 @@ describe('enforceRemoteWriteL2 — a host on a deep layer', () => {
     );
     return hostMachineId(layer.host, essid);
   };
-  const [ESSID, OTHER_ESSID] = crackableEssidPool;
+  const [ESSID, OTHER_ESSID] = wifiPoolOf(RIDGEMONT);
   if (ESSID === undefined || OTHER_ESSID === undefined) throw new Error('the pool is empty');
 
   it('allows a root shell on the box to write a file there', async () => {

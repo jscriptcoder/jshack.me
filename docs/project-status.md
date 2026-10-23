@@ -1238,6 +1238,22 @@ agreed order:
     `plans/guardian.md`.
     **Pick up here (2026-10-22):** the guardian's close-out: the first `/guardian` round on prod
     with the owner picking, and the browser run; then the items still open in `backlog.md`.
+31. 🔄 **Players start in different towns (v0.428.0, 2026-10-23).** Every player stood in
+    Ridgemont, so all of them shared its 178 networks and the chance of landing on somebody grew
+    with the share of those occupied. Now `startingTown(publicKeyHex)` draws each player's town
+    from their key by weighted rendezvous hashing, each of the eleven towns weighted by its
+    networks, so the room players share is 584 networks and a network is about as likely to have
+    company wherever it is. A player's scan shows their own town's networks, homes included, and
+    the 5% occupied network only from that town; the join admits only their town's networks and
+    answers `403 network_not_joinable` everywhere else. Nothing new tells a player their town; the
+    scan, `whois` and findit show it. A reload keeps a player on the network they are on, so the
+    players who joined before stay put. Every joining wire-check signs up with
+    `generateIdentityIn(town)`, and `testJoinRefusal` joins a player from another town at home
+    and refuses them Ridgemont. As built: `procedural-world-architecture.md`, "Where a player
+    stands" and "Joining"; the decisions and the slice are in `plans/starting-towns.md`.
+    **Pick up here (2026-10-23):** its close-out: the browser run (a fresh local player's scan
+    shows their town, they join one, `whois` names the town, a reload keeps them on it), then
+    whether `kestrel` is signed up again to stand in the owner's town, which is the owner's call.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

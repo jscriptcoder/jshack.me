@@ -4,7 +4,7 @@ import {
   type InnerGatewayTargetDeps,
 } from './resolveInnerGatewayTarget.js';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
-import { crackableEssidPool } from '../generation/generateWifi.js';
+import { wifiPoolOf } from '../generation/generateWifi.js';
 import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer.js';
 import { buildDeepHostFs } from '../generation/deepHostFs.js';
 import { computeDeepGatewayId, computeInnerGatewayId } from '../identity/router.js';
@@ -13,7 +13,7 @@ import { accountIn } from '../sessions/passwdAccount.js';
 import { formatPidfileContent, pidfilePath, readOpenPorts } from '../services/pidfile.js';
 import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import type { OwnerPatchRow } from './materializeMachineFs.js';
-import { DECLARED_NETWORKS } from '../generation/world.js';
+import { DECLARED_NETWORKS, RIDGEMONT } from '../generation/world.js';
 import { chainLinks } from '../generation/lanTopology.js';
 
 /**
@@ -36,7 +36,7 @@ const octetOf = (host: LanHost): number => Number(host.ip.split('.')[3]);
 /** A network seeded to EXACTLY `depth` layers. Depth is a per-network roll, so pick
  *  deterministically rather than hoping an arbitrary ESSID lands where a test needs it. */
 const networkWithDepth = (depth: number): string => {
-  const found = crackableEssidPool.find((essid) => seedNetworkDepth(essid) === depth);
+  const found = wifiPoolOf(RIDGEMONT).find((essid) => seedNetworkDepth(essid) === depth);
   if (found === undefined) throw new Error(`no network seeds depth ${depth}`);
   return found;
 };

@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { buildRemoteHostFs, hostServices, npcUsername } from './remoteHostFs.js';
 import { buildDeepHostFs } from './deepHostFs.js';
-import { crackableEssidPool } from './generateWifi.js';
+import { wifiPoolOf } from './generateWifi.js';
+import { RIDGEMONT } from './world.js';
 import { generateHomeLan } from './generateHomeLan.js';
 import { roleOfHostname } from './pools/hostnames.js';
 import { createFsView } from '../filesystem/fsView.js';
@@ -42,7 +43,7 @@ const everyBox = (): readonly Built[] => [
     tree: buildRemoteHostFs(box.essid, box.host),
     onLan: true,
   })),
-  ...deepBoxes(crackableEssidPool).map(({ essid, host }) => ({
+  ...deepBoxes(wifiPoolOf(RIDGEMONT)).map(({ essid, host }) => ({
     box: { essid, host },
     tree: buildDeepHostFs(essid, host),
     onLan: false,
@@ -678,7 +679,7 @@ describe('no two boxes lived the same day', () => {
 
   it('keeps each day distinct across every catalog network', () => {
     const catalog = everyBox().filter(
-      ({ box, onLan }) => onLan && crackableEssidPool.includes(box.essid),
+      ({ box, onLan }) => onLan && wifiPoolOf(RIDGEMONT).includes(box.essid),
     );
     const syslogs = catalog.map(({ tree }) => logsOf(tree).get('syslog.1'));
     const auths = catalog.flatMap(({ tree }) => rotatedOf(tree).get('auth.log.1') ?? []);

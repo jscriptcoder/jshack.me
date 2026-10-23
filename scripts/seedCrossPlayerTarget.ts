@@ -37,7 +37,8 @@ const sr = createClient(url, serviceKey, { auth: { persistSession: false } });
 
 // A FIXED 64-hex private key so the target is reproducible across runs (same pubkey →
 // same workstation id + guest password; the public IP is the network's place in the
-// world) and `clean` matches by owner_key + ESSID.
+// world) and `clean` matches by owner_key + ESSID. The key starts its player in Ridgemont,
+// which is the only town whose networks, EV-CHARGER-LOT-3 among them, it may join.
 const A_PRIV = 'a1b2c3d4'.repeat(8);
 const privBytes = hexToBytes(A_PRIV);
 if (privBytes === null) throw new Error('bad A private key');

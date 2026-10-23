@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { buildRemoteHostFs, hostServices, npcUsername } from './remoteHostFs.js';
 import { buildDeepHostFs } from './deepHostFs.js';
-import { crackableEssidPool } from './generateWifi.js';
+import { wifiPoolOf } from './generateWifi.js';
+import { RIDGEMONT } from './world.js';
 import { generateHomeLan, type LanHost } from './generateHomeLan.js';
 import { generateDeepLayer } from './generateDeepLayer.js';
 import { generateApplication } from './generateDatabase.js';
@@ -69,7 +70,7 @@ const subnetOf = (ip: string): string => ip.split('.').slice(0, 3).join('.');
 
 describe('a guest who lands on a generated box', () => {
   it('lands in a home of their own, holding the stock dotfiles and nothing else', () => {
-    lanBoxes(crackableEssidPool.slice(0, 5)).forEach(({ essid, host }) => {
+    lanBoxes(wifiPoolOf(RIDGEMONT).slice(0, 5)).forEach(({ essid, host }) => {
       const guest = createFsView(buildRemoteHostFs(essid, host), { userType: 'guest' });
 
       const listing = guest.list(asAbsPath('/home/guest'));
@@ -94,7 +95,7 @@ describe('a guest who lands on a generated box', () => {
 
 describe('the /etc anyone on a generated box can read', () => {
   it('names the box, its resolver, its disks, its jobs and its greeting, for any tier to read', () => {
-    lanBoxes(crackableEssidPool.slice(0, 5)).forEach(({ essid, host }) => {
+    lanBoxes(wifiPoolOf(RIDGEMONT).slice(0, 5)).forEach(({ essid, host }) => {
       const tree = buildRemoteHostFs(essid, host);
       const etc = tree.entries.get('etc');
       if (etc?.kind !== 'directory') throw new Error('no /etc');
@@ -204,7 +205,7 @@ describe('the /etc anyone on a generated box can read', () => {
 
 describe('the /etc of a box on a deep layer', () => {
   it('names only itself, and resolves through the gateway in front of it', () => {
-    const boxes = deepBoxes(crackableEssidPool);
+    const boxes = deepBoxes(wifiPoolOf(RIDGEMONT));
     expect(boxes.length).toBeGreaterThan(0);
     boxes.forEach(({ essid, host }) => {
       const tree = buildDeepHostFs(essid, host);
@@ -217,7 +218,7 @@ describe('the /etc of a box on a deep layer', () => {
   });
 
   it('is the same box whether or not its layer hangs another gateway', () => {
-    deepBoxes(crackableEssidPool).forEach(({ essid, gateway }) => {
+    deepBoxes(wifiPoolOf(RIDGEMONT)).forEach(({ essid, gateway }) => {
       const terminal = generateDeepLayer(essid, gateway, { hangsChild: false }).host;
       const fronting = generateDeepLayer(essid, gateway, { hangsChild: true }).host;
       expect(serialise(buildDeepHostFs(essid, fronting))).toEqual(
@@ -264,7 +265,7 @@ const everyBox = () => [
     box: { essid, host },
     tree: buildRemoteHostFs(essid, host),
   })),
-  ...deepBoxes(crackableEssidPool).map(({ essid, host }) => ({
+  ...deepBoxes(wifiPoolOf(RIDGEMONT)).map(({ essid, host }) => ({
     box: { essid, host },
     tree: buildDeepHostFs(essid, host),
   })),
@@ -272,7 +273,7 @@ const everyBox = () => [
 
 describe('what root keeps in /root', () => {
   it('holds root’s dotfiles and shell history, which nobody but root can read', () => {
-    lanBoxes(crackableEssidPool.slice(0, 5)).forEach(({ essid, host }) => {
+    lanBoxes(wifiPoolOf(RIDGEMONT).slice(0, 5)).forEach(({ essid, host }) => {
       const tree = buildRemoteHostFs(essid, host);
       const files = rootFilesOf(tree);
       ROOT_DOTFILES.forEach((name) => {
@@ -360,7 +361,7 @@ describe('what root keeps in /root', () => {
   });
 
   it('names nothing on a deep layer, whose neighbours the box cannot know', () => {
-    deepBoxes(crackableEssidPool).forEach(({ essid, host }) => {
+    deepBoxes(wifiPoolOf(RIDGEMONT)).forEach(({ essid, host }) => {
       const history = rootFilesOf(buildDeepHostFs(essid, host)).get('.bash_history') ?? '';
       expect(history).not.toBe('');
       expect(history).not.toMatch(/^(ssh|curl|ping|nslookup) /m);
@@ -405,7 +406,7 @@ describe('no two roots are the same', () => {
   });
 
   it('keeps histories and notes distinct across every catalog network', () => {
-    const roots = lanBoxes(crackableEssidPool).map(({ essid, host }) =>
+    const roots = lanBoxes(wifiPoolOf(RIDGEMONT)).map(({ essid, host }) =>
       rootFilesOf(buildRemoteHostFs(essid, host)),
     );
     const histories = roots.map((files) => files.get('.bash_history'));
@@ -564,7 +565,7 @@ describe('who a box remembers meeting', () => {
   });
 
   it('remembers nobody on a deep layer', () => {
-    deepBoxes(crackableEssidPool).forEach(({ essid, host }) => {
+    deepBoxes(wifiPoolOf(RIDGEMONT)).forEach(({ essid, host }) => {
       const tree = buildDeepHostFs(essid, host);
       const view = createFsView(tree, { userType: 'root' });
       expect(view.stat(asAbsPath('/root/.ssh'))).toBeNull();
@@ -1182,7 +1183,7 @@ describe('what a tier may add to on a generated box', () => {
           buildRemoteHostFs(box.essid, box.host),
         ],
       ),
-      ...deepBoxes(crackableEssidPool).map(
+      ...deepBoxes(wifiPoolOf(RIDGEMONT)).map(
         ({ essid, host }): readonly [string, Directory] => [
           `${essid} ${host.ip}`,
           buildDeepHostFs(essid, host),

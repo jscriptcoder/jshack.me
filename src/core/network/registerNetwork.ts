@@ -22,7 +22,8 @@ import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify.js';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
 import { lanAddressFor } from './lanAddress.js';
-import { declaredNetwork, RIDGEMONT } from '../generation/world.js';
+import { declaredNetwork } from '../generation/world.js';
+import { startingTown } from '../generation/startingTown.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import { dropConnectionsThrough, type DropConnectionsDeps } from './unregisterOccupant.js';
 
@@ -106,13 +107,15 @@ export const handleRegisterNetwork = async (
   }
   const { publicKey, payload } = verified;
 
-  // Every player lives in Ridgemont until travel exists, so its networks are the only
-  // ones a join may reach. Another town's are never offered on WiFi and their keys are
-  // guessable, so the client cannot be trusted to stay home. Refused before the lease,
-  // so a refused join leaves nothing behind.
+  // A player lives in the town their verified key starts them in until travel exists, so
+  // its networks are the only ones a join may reach. Another town's are never offered on
+  // their WiFi and their keys are guessable, so the client cannot be trusted to stay home.
+  // Refused before the lease, so a refused join leaves nothing behind.
   const network = declaredNetwork(payload.essid);
   const joinable =
-    network === undefined ? deps.admitsUndeclaredNetworks : network.town === RIDGEMONT;
+    network === undefined
+      ? deps.admitsUndeclaredNetworks
+      : network.town === startingTown(publicKey);
   if (!joinable) {
     return { status: 403, body: { error: 'network_not_joinable' } };
   }

@@ -35,6 +35,8 @@
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
+import { generateIdentityIn } from '../src/test/factories/identityIn.js';
+import { RIDGEMONT } from '../src/core/generation/world.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
 import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
@@ -94,14 +96,14 @@ const SHELL_ESSID = 'SOME-OTHER-WIFI';
 // --- Identities: A owns a workstation; B holds a guest shell on every box; C holds a
 // guest shell on A's box for the changed password; D holds no shell anywhere; E holds a
 // shell on a box that is on no network. ---
-const alice = generateIdentity();
-const bob = generateIdentity();
-const carol = generateIdentity();
-const dave = generateIdentity();
-const erin = generateIdentity();
+const alice = generateIdentityIn(RIDGEMONT);
+const bob = generateIdentityIn(RIDGEMONT);
+const carol = generateIdentityIn(RIDGEMONT);
+const dave = generateIdentityIn(RIDGEMONT);
+const erin = generateIdentityIn(RIDGEMONT);
 
 const A_MACHINE = computeWorkstationId('skylab', alice.publicKeyHex);
-const OFF_NETWORK = computeWorkstationId('adrift', generateIdentity().publicKeyHex);
+const OFF_NETWORK = computeWorkstationId('adrift', generateIdentityIn(RIDGEMONT).publicKeyHex);
 const GATEWAY = computeApGatewayId(ESSID);
 const npc = generateHomeLan(ESSID).hosts.find((candidate) => candidate.kind === 'machine');
 if (npc === undefined) {

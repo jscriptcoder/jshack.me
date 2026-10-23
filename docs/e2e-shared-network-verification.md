@@ -164,16 +164,19 @@ How the scan is built (`core/generation/generateWifi.ts`):
 - Seed is `wifi-<playerPubkey>-<scanIndex>`. **Deterministic per player per scan**, and
   `airodump-ng` increments `scanIndex`, so **re-running `airodump-ng` re-rolls the list**. A
   page reload does not.
-- Base draw: **2–3** crackable networks from Ridgemont's 178 (`crackableEssidPool`, held by
-  key and shown by the name each broadcasts).
+- Base draw: **2–3** crackable networks from the player's own town (`wifiPoolOf(town)`, held by
+  key and shown by the name each broadcasts): the town their key starts them in, 178 networks
+  in Ridgemont. **Both players must start in the same town** to meet on WiFi
+  (`.claude/skills/e2e/references/two-players.md`).
 - Then the **occupied-ESSID injector**: in about **one scan in twenty**, **one** network
-  *another player is currently on*, and only one of Ridgemont's that the base draw does not
-  already show. A network occupied anywhere else (a lab network, another town's) never
+  *another player is currently on*, and only one of the player's town's that the base draw does
+  not already show. A network occupied anywhere else (a lab network, another town's) never
   surfaces.
 
 So the two-player encounter works exactly as designed: **A joins first, which makes A's
 ESSID "occupied"; B then re-runs `airodump-ng` until the injector surfaces it.** With one
-occupied network, the base draw and the injector together show it in about 6% of scans —
+occupied network in Ridgemont, the base draw and the injector together show it in about 6% of
+scans (about 21% in a village of 15 networks) —
 expect to run `airodump-ng` **about 16 times**, and nothing in 50 runs happens about one time
 in 26. That is not a bug, it *is* the discovery mechanic: meeting a stranger by chance is
 meant to be rare.

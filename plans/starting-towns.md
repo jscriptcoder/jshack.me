@@ -1,7 +1,8 @@
 # Plan: players start in different towns
 
-**Status**: Grilled and sliced. Decisions confirmed by the owner 2026-10-23. Slice 1 is planned;
-its choices and acceptance criteria await the owner's confirmation.
+**Status**: Slice 1 built on `feat/starting-towns` (2026-10-23): increments 1–5 committed, the
+joining wire-checks green live, the docs moved into `procedural-world-architecture.md`. Left: the
+mutation gate, the PR, and the browser run at close-out.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 

@@ -22,6 +22,8 @@
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
+import { generateIdentityIn } from '../src/test/factories/identityIn.js';
+import { RIDGEMONT } from '../src/core/generation/world.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
 import { lanAddressFor } from '../src/core/network/lanAddress.js';
@@ -91,19 +93,19 @@ const readAuthLog = async (machineId: string, ownerKey: string): Promise<string>
 
 // --- Identities: A + B share ONE access point; C is an outsider who scans and attacks
 //     it from elsewhere. ---
-const alice = generateIdentity();
+const alice = generateIdentityIn(RIDGEMONT);
 /** A fresh identity whose guest password is not Alice's. Guest passwords come from a small
  *  crackable pool, so two random players share one about one run in seventeen — and then
  *  "B's password is refused on A's box" is not a wrong password at all. */
 const drawNotSharingAliceGuestPassword = (): ReturnType<typeof generateIdentity> => {
-  const candidate = generateIdentity();
+  const candidate = generateIdentityIn(RIDGEMONT);
   return plaintextFor(workstationGuestHash(candidate.publicKeyHex)) ===
     plaintextFor(workstationGuestHash(alice.publicKeyHex))
     ? drawNotSharingAliceGuestPassword()
     : candidate;
 };
 const bob = drawNotSharingAliceGuestPassword();
-const carol = generateIdentity();
+const carol = generateIdentityIn(RIDGEMONT);
 
 const ESSID = 'APT-3B-WIFI';
 const C_ESSID = 'CYBERDYNE-GUEST';

@@ -25,9 +25,9 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
-import { generateIdentity } from '../src/core/identity/identity.js';
+import { generateIdentityIn } from '../src/test/factories/identityIn.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
-import { crackableEssidPool } from '../src/core/generation/generateWifi.js';
+import { wifiPoolOf } from '../src/core/generation/generateWifi.js';
 import { siteAddress } from '../src/core/generation/publisher.js';
 import { FINDIT_DOMAIN, FINDIT_NETWORK } from '../src/core/generation/fixedSites.js';
 import { siteServer } from '../src/core/generation/siteServer.js';
@@ -42,7 +42,7 @@ import { lanAddressFor } from '../src/core/network/lanAddress.js';
 import { formatPidfileContent } from '../src/core/services/pidfile.js';
 import { SERVICE_CATALOG } from '../src/core/services/serviceCatalog.js';
 import { siteMachineIds } from '../src/core/findit/webIndex.js';
-import { DECLARED_NETWORKS } from '../src/core/generation/world.js';
+import { DECLARED_NETWORKS, RIDGEMONT } from '../src/core/generation/world.js';
 import { escapeHtml, FINDIT_FRONT_PAGE } from '../src/core/findit/page.js';
 import { publicAddressOf } from './publicAddressOf.js';
 
@@ -90,8 +90,8 @@ const campusServerId = resolveLanHostIdentity(campusServer, CAMPUS).machineId;
 const finditMachineId = computeApGatewayId(FINDIT_NETWORK);
 
 /** The searcher, standing on a network of their own so the trace has an address to name. */
-const searcher = generateIdentity();
-const searcherEssid = crackableEssidPool.find((essid) => essid !== CAMPUS)!;
+const searcher = generateIdentityIn(RIDGEMONT);
+const searcherEssid = wifiPoolOf(RIDGEMONT).find((essid) => essid !== CAMPUS)!;
 
 const fetchPath = async (target: string, path: string) =>
   post(signRequest(searcher, 'resolveHttpFetch', { target, port: 80, path }));
@@ -152,7 +152,7 @@ const registerSearcherHome = async (): Promise<string | null> => {
 
 /** A player who publishes: somebody on a home network nobody else publishes for, who has
  *  forwarded its public `:80` to their own box and is serving a page there. */
-const player = generateIdentity();
+const player = generateIdentityIn(RIDGEMONT);
 const PLAYER_ESSID = 'FAMILY-WIFI-2G';
 const PLAYER_IP = publicAddressOf(PLAYER_ESSID);
 const PLAYER_GATEWAY = computeApGatewayId(PLAYER_ESSID);

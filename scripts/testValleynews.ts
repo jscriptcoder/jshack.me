@@ -41,10 +41,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
-import { generateIdentity } from '../src/core/identity/identity.js';
+import { generateIdentityIn } from '../src/test/factories/identityIn.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { computeApGatewayId } from '../src/core/identity/router.js';
-import { crackableEssidPool } from '../src/core/generation/generateWifi.js';
+import { wifiPoolOf } from '../src/core/generation/generateWifi.js';
+import { RIDGEMONT } from '../src/core/generation/world.js';
 import { siteAddress } from '../src/core/generation/publisher.js';
 import { FINDIT_DOMAIN, VALLEYNEWS_NETWORK, fixedSite } from '../src/core/generation/fixedSites.js';
 import { WEB_PAGE_FILE } from '../src/core/generation/baseFs.js';
@@ -136,8 +137,8 @@ const postedDay = async (id: number): Promise<string> => {
   return at === undefined ? '' : new Date(at).toISOString().slice(0, 10);
 };
 
-const visitor = generateIdentity();
-const [visitorEssid] = crackableEssidPool;
+const visitor = generateIdentityIn(RIDGEMONT);
+const [visitorEssid] = wifiPoolOf(RIDGEMONT);
 
 const cleanup = async () => {
   await sr.from('news_stories').delete().eq('byline', BYLINE);

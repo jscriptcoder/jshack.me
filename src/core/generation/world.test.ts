@@ -22,7 +22,7 @@ import {
 import { generateHomeLan } from './generateHomeLan.js';
 import { buildApGatewayBaseFs } from './routerFs.js';
 import { resolveLanName } from '../network/resolveName.js';
-import { crackableEssidPool, noiseEssidPool } from './generateWifi.js';
+import { wifiPoolOf, noiseEssidPool } from './generateWifi.js';
 import { HOME_TEMPLATES, HOME_WORDS, type HomeForm } from './pools/homeNames.js';
 import {
   CORPORATION_NAME_TEMPLATES,
@@ -439,7 +439,7 @@ describe("Millbrook's homes", () => {
 
   it('broadcasts no home to a wifi scan in Ridgemont', () => {
     for (const home of homes()) {
-      expect(crackableEssidPool, home.key).not.toContain(home.essid);
+      expect(wifiPoolOf(RIDGEMONT), home.key).not.toContain(home.essid);
     }
   });
 });
@@ -534,7 +534,7 @@ describe("a town's homes", () => {
     expect(
       essids.filter((essid) => essid.length > 32 || !/^[A-Z0-9]+(-[A-Z0-9]+)*$/.test(essid)),
     ).toEqual([]);
-    expect(essids.filter((essid) => crackableEssidPool.includes(essid))).toEqual([]);
+    expect(essids.filter((essid) => wifiPoolOf(RIDGEMONT).includes(essid))).toEqual([]);
   });
 });
 

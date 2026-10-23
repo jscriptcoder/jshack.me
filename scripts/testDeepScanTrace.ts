@@ -26,7 +26,8 @@ import { signRequest } from '../src/core/signedRequest/sign.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
 import { computeApGatewayId, computeDeepGatewayId } from '../src/core/identity/router.js';
 import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
-import { crackableEssidPool } from '../src/core/generation/generateWifi.js';
+import { wifiPoolOf } from '../src/core/generation/generateWifi.js';
+import { RIDGEMONT } from '../src/core/generation/world.js';
 import { generateDeepLayer } from '../src/core/generation/generateDeepLayer.js';
 import { chainLinks, type ChainLink } from '../src/core/generation/lanTopology.js';
 import { hostMachineId } from '../src/core/generation/remoteHostId.js';
@@ -83,7 +84,7 @@ const suitable = (essid: string): boolean => {
   if (innerRouter === undefined || innerSwitch === undefined) return false;
   return layerOf(essid, innerRouter).childGateway?.kind === 'router';
 };
-const ESSID = crackableEssidPool.find(suitable);
+const ESSID = wifiPoolOf(RIDGEMONT).find(suitable);
 if (ESSID === undefined) {
   console.error(
     'no network in the crackable pool has a router chain two gateways deep and a switch',

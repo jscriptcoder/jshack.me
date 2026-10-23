@@ -4,7 +4,8 @@ import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js'
 import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer.js';
 import { computeApGatewayId, computeDeepGatewayId } from '../identity/router.js';
 import { machineIdForLanHost } from '../generation/lanHostIdentity.js';
-import { crackableEssidPool } from '../generation/generateWifi.js';
+import { wifiPoolOf } from '../generation/generateWifi.js';
+import { RIDGEMONT } from '../generation/world.js';
 
 /**
  * Which `/24` a device's forwards may point INTO.
@@ -26,7 +27,7 @@ import { crackableEssidPool } from '../generation/generateWifi.js';
 /** The real pool the world draws from, walked rather than sampled: the chain depth and
  *  every device roll are seeded per network, so a hand-picked ESSID would tie this suite
  *  to one coin flip. */
-const ESSID = crackableEssidPool[0];
+const ESSID = wifiPoolOf(RIDGEMONT)[0];
 
 const octetOf = (host: LanHost): number => Number(host.ip.split('.')[3]);
 
@@ -53,7 +54,7 @@ const innerRouterOn = (essid: string): LanHost => {
  *  ask about — a device that is itself reached through a forward and fronts a layer of
  *  its own. */
 const chainedWorld = (): { readonly essid: string; readonly gateway: LanHost } => {
-  for (const essid of crackableEssidPool) {
+  for (const essid of wifiPoolOf(RIDGEMONT)) {
     const gateway = hostOn(essid, isInnerRouter);
     if (gateway !== undefined && seedNetworkDepth(essid) >= 2) return { essid, gateway };
   }

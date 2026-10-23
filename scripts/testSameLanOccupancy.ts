@@ -18,7 +18,8 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
-import { generateIdentity } from '../src/core/identity/identity.js';
+import { generateIdentityIn } from '../src/test/factories/identityIn.js';
+import { RIDGEMONT } from '../src/core/generation/world.js';
 import { computeWorkstationId } from '../src/core/identity/workstation.js';
 import { assignHomeNetwork } from '../src/core/network/homeNetwork.js';
 import { md5 } from '../src/core/generation/md5.js';
@@ -51,9 +52,9 @@ const post = async (envelope: unknown): Promise<{ status: number; body: unknown 
 };
 
 // --- Identities: A + B occupy X; C is elsewhere (never joins X). ---
-const alice = generateIdentity();
-const bob = generateIdentity();
-const carol = generateIdentity();
+const alice = generateIdentityIn(RIDGEMONT);
+const bob = generateIdentityIn(RIDGEMONT);
+const carol = generateIdentityIn(RIDGEMONT);
 
 const X_ESSID = 'ABSTERGO-NET';
 const A_WS = computeWorkstationId('skylab', alice.publicKeyHex);

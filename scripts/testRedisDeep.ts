@@ -33,7 +33,8 @@ import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
 import { generateIdentity } from '../src/core/identity/identity.js';
 import { generateHomeLan, type LanHost } from '../src/core/generation/generateHomeLan.js';
-import { crackableEssidPool } from '../src/core/generation/generateWifi.js';
+import { wifiPoolOf } from '../src/core/generation/generateWifi.js';
+import { RIDGEMONT } from '../src/core/generation/world.js';
 import { generateDeepLayer } from '../src/core/generation/generateDeepLayer.js';
 import { buildDeepHostFs } from '../src/core/generation/deepHostFs.js';
 import { computeInnerGatewayId } from '../src/core/identity/router.js';
@@ -130,7 +131,7 @@ const deepStoreAt = (essid: string, gateway: LanHost): DeepTarget | null => {
 };
 
 const findDeepStore = (locked: boolean): DeepTarget | null => {
-  for (const essid of crackableEssidPool) {
+  for (const essid of wifiPoolOf(RIDGEMONT)) {
     for (const gateway of generateHomeLan(essid).hosts) {
       const found = deepStoreAt(essid, gateway);
       if (found !== null && (found.password !== null) === locked) return found;

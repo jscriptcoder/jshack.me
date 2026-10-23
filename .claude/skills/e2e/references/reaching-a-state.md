@@ -20,13 +20,27 @@ your workstation` and nothing else moves. Wait for the shell by polling the text
 agent-browser --session <name> eval "(()=>[...document.querySelectorAll('input')].map(e=>e.value).join('|'))()"
 ```
 
+**A fresh player stands in the town their key draws**, any of the eleven, in proportion to the
+town's size (Ridgemont about 30%, Kingsford 28%, a village about 3%). Their scan shows only that
+town's networks, and `nmcli connect` to any other town's answers `403 network_not_joinable`.
+Nothing on screen names the town, so read it offline from the key:
+
+```bash
+agent-browser --session <name> eval "JSON.parse(localStorage.getItem('jshack.identity')).publicKeyHex"
+npx tsx -e "import('./src/core/generation/startingTown.ts').then(({ startingTown }) => console.log(startingTown('<key>')))"
+```
+
+A recipe below that names a Ridgemont network (a landmark such as `SHINRA-5G`, or a key
+`r0/t0/n…`) needs a player who starts in Ridgemont: `localStorage.clear()`, reload, NEW GAME, and
+read the town again until it says Ridgemont (about one try in three).
+
 Then, in the terminal:
 
 | # | Command | Trap |
 |---|---|---|
 | 1 | `airmon-ng start wlan0` | `airodump-ng` fails without this (`airodump-ng: monitor mode not enabled — run airmon-ng start wlan0 first`). **And it refuses while you are CONNECTED** (`airmon-ng: wlan0 is already connected to a network`) — the exact mirror of step 4, so to re-scan later you must `nmcli disconnect` FIRST. Check its output: piping this step to `/dev/null` and looping `airodump-ng` gives eight identical `monitor mode not enabled` errors that read like eight unlucky scans |
 | 2 | `airodump-ng` | **The whole aircrack-ng suite carries the `-ng` suffix** — the real binary names. `airmon`, `airodump`, `aircrack` bare all die `bash: <name>: command not found`, which reads exactly like an uninstalled tool (they are preinstalled). It is `airodump-ng`, never `airodump` or `airdump` |
-| 3 | `aircrack-ng <BSSID>` | Use a **WPA2** row from the crackable pool (`SHINRA-5G`, `ACME-CORP`, `WEYLAND-NET`, `TYRELL-CORP`, …). WPA3 rows and the noise pool are not crackable. Prints `KEY FOUND! [ <pw> ]` |
+| 3 | `aircrack-ng <BSSID>` | Use a **WPA2** row from the crackable pool: the player's own town's networks (in Ridgemont landmarks like `SHINRA-5G`, `ACME-CORP`, `WEYLAND-NET`; elsewhere `TOWN-HALL-WIFI`, a café, a home), each shown by its name. WPA3 rows and the noise pool are not crackable. Prints `KEY FOUND! [ <pw> ]` |
 | 4 | `airmon-ng stop wlan0` | `nmcli` refuses while monitor mode is ON (`nmcli: wlan0 is in monitor mode — run 'airmon-ng stop wlan0' first`) — the mirror of step 1 |
 | 5 | `nmcli connect <ESSID> <password>` | Prints `assigned 192.168.<subnet>.<host>` — note the subnet, the gateway is `.1` |
 | 6 | `su root` then the root password | `apt` needs root (dpkg lock error otherwise) |
@@ -148,8 +162,8 @@ deep box runs sshd; 18 in the whole world run a store.
 
 | Trap | What actually works |
 |---|---|
-| Rescanning for one named network | There are 178, two or three per scan. Build the list of every network that would do, and take the first that shows (five scans for one of eleven) |
-| `crackableEssidPool` holds keys like `r0/t0/n120` | A drawn network's key is not its name. `essidOf(key)` is what `airodump-ng` shows and `nmcli` takes; the generators take the key |
+| Rescanning for one named network | A scan shows two or three of the player's town's networks: 178 in Ridgemont, 15 in Fenwick. Build the list of every network that would do, and take the first that shows (five scans for one of eleven in Ridgemont) |
+| `wifiPoolOf(town)` holds keys like `r0/t0/n120` | A drawn network's key is not its name. `essidOf(key)` is what `airodump-ng` shows and `nmcli` takes; the generators take the key |
 | `ps` on the box shows no `redis-server` although the generator says it runs | `scripts/testRedisDeep.ts` stops the daemon on the first deep store it finds and leaves that row in the local database. Check `select path, content is null from patches where machine_id like '<hostname>%'` before reading it as a defect |
 | `mysql localhost <the box's own user>` → `Access denied` | A database's accounts are not the box's. Draw them with `drawDatabaseCredentials('mysql-db-<key>-<ip>')` (above) |
 

@@ -10,7 +10,8 @@ import type { FindActiveSession, StandingSession } from '../patches/authorizeMac
 import { generateHomeLan } from '../generation/generateHomeLan.js';
 import { seedApGatewayHostname } from '../generation/gatewayHostname.js';
 import { chainLinks, machineIdForLanHost } from '../generation/lanTopology.js';
-import { crackableEssidPool } from '../generation/generateWifi.js';
+import { wifiPoolOf } from '../generation/generateWifi.js';
+import { RIDGEMONT } from '../generation/world.js';
 import type { FindOccupantWorkstationByMachineId } from '../patches/remoteWritePermission.js';
 import type {
   MachineLogReadQuery,
@@ -676,7 +677,7 @@ describe('the line a reboot leaves behind', () => {
   // chain the network grows from its inner gateway does.
   it('names a deep child gateway, below the home LAN, by its hostname', async () => {
     const identity = generateIdentity();
-    const deep = crackableEssidPool
+    const deep = wifiPoolOf(RIDGEMONT)
       .flatMap((essid) => chainLinks(essid).map((link) => ({ essid, link })))
       .find(({ link }) => link.parentMachineId !== null);
     if (deep === undefined) throw new Error('fixture: no network grows a deep child gateway');

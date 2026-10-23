@@ -32,7 +32,8 @@ import { chainGatewayBaseFs } from '../src/core/generation/lanHostIdentity.js';
 import { publisherIp } from '../src/core/generation/publisher.js';
 import { siteServer } from '../src/core/generation/siteServer.js';
 import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
-import { crackableEssidPool } from '../src/core/generation/generateWifi.js';
+import { wifiPoolOf } from '../src/core/generation/generateWifi.js';
+import { RIDGEMONT } from '../src/core/generation/world.js';
 import { resolveDeepScanHosts } from '../src/core/scan/deepScanHosts.js';
 import { lanAddressFor } from '../src/core/network/lanAddress.js';
 import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js';
@@ -128,7 +129,7 @@ const accessLog = async (machineId: string, writerKey: string): Promise<string> 
 
 // --- A host on a deep layer behind an inner ROUTER, and a shell on that router. ---
 const deep = (() => {
-  for (const essid of crackableEssidPool) {
+  for (const essid of wifiPoolOf(RIDGEMONT)) {
     for (const link of chainLinks(essid)) {
       if (link.host.kind !== 'router') continue;
       const web = resolveDeepScanHosts(essid, link, chainGatewayBaseFs(essid, link)).hosts.find(

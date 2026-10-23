@@ -6,10 +6,11 @@ import {
 } from './registerNetwork.js';
 import { signRequest } from '../signedRequest/sign.js';
 import { generateIdentity } from '../identity/identity.js';
+import { generateIdentityIn } from '../../test/factories/identityIn.js';
 import { assignHomeNetwork } from './homeNetwork.js';
 import { lanAddressFor } from './lanAddress.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
-import { DECLARED_NETWORKS, RIDGEMONT } from '../generation/world.js';
+import { DECLARED_NETWORKS, RIDGEMONT, TOWNS } from '../generation/world.js';
 import { sessionRow, sessionTable, type SessionRow } from '../../test/factories/sessionTable.js';
 
 /**
@@ -90,7 +91,7 @@ const envelope = (id: ReturnType<typeof generateIdentity>, over: Record<string, 
 
 describe('handleRegisterNetwork', () => {
   it('persists the workstation identity (username/machineName/root-hash) so a cross-player reader can reconstruct the box', async () => {
-    const id = generateIdentity();
+    const id = generateIdentityIn(RIDGEMONT);
     const { deps, upsertOccupant } = makeDeps();
 
     await handleRegisterNetwork(
@@ -109,7 +110,7 @@ describe('handleRegisterNetwork', () => {
   });
 
   it('rejects an envelope missing the workstation_username without writing', async () => {
-    const id = generateIdentity();
+    const id = generateIdentityIn(RIDGEMONT);
     const { deps, upsertOccupant } = makeDeps();
 
     const result = await handleRegisterNetwork(
@@ -127,7 +128,7 @@ describe('handleRegisterNetwork', () => {
   });
 
   it('rejects an envelope missing the workstation_root_hash without writing', async () => {
-    const id = generateIdentity();
+    const id = generateIdentityIn(RIDGEMONT);
     const { deps, upsertOccupant } = makeDeps();
 
     const result = await handleRegisterNetwork(
@@ -145,7 +146,7 @@ describe('handleRegisterNetwork', () => {
   });
 
   it('rejects an envelope that smuggles a client-supplied player_key without writing', async () => {
-    const id = generateIdentity();
+    const id = generateIdentityIn(RIDGEMONT);
     const { deps, upsertOccupant } = makeDeps();
 
     const result = await handleRegisterNetwork(envelope(id, { player_key: 'attacker-key' }), deps);
@@ -155,7 +156,7 @@ describe('handleRegisterNetwork', () => {
   });
 
   it('rejects an envelope that smuggles a client-supplied public_ip without writing', async () => {
-    const id = generateIdentity();
+    const id = generateIdentityIn(RIDGEMONT);
     const { deps, upsertOccupant } = makeDeps();
 
     const result = await handleRegisterNetwork(envelope(id, { public_ip: '1.2.3.4' }), deps);
@@ -165,7 +166,7 @@ describe('handleRegisterNetwork', () => {
   });
 
   it('rejects a tampered envelope (payload changed after signing) without writing', async () => {
-    const id = generateIdentity();
+    const id = generateIdentityIn(RIDGEMONT);
     const { deps, upsertOccupant } = makeDeps();
     const signed = envelope(id);
     const tampered = { ...signed, payload: `${signed.payload} ` };
@@ -177,7 +178,7 @@ describe('handleRegisterNetwork', () => {
   });
 
   it('rejects an envelope missing the workstation_machine_id without writing', async () => {
-    const id = generateIdentity();
+    const id = generateIdentityIn(RIDGEMONT);
     const { deps, upsertOccupant } = makeDeps();
 
     const result = await handleRegisterNetwork(
@@ -190,7 +191,7 @@ describe('handleRegisterNetwork', () => {
   });
 
   it('upserts an occupancy row keyed by (essid, owner_key), server-stamped from the verified pubkey', async () => {
-    const id = generateIdentity();
+    const id = generateIdentityIn(RIDGEMONT);
     const { deps, upsertOccupant } = makeDeps();
 
     const result = await handleRegisterNetwork(envelope(id), deps);
@@ -211,7 +212,7 @@ describe('handleRegisterNetwork', () => {
   });
 
   it('reports a server error when the occupant upsert fails', async () => {
-    const id = generateIdentity();
+    const id = generateIdentityIn(RIDGEMONT);
     const { deps } = makeDeps({
       upsertOccupant: vi.fn(async () => ({ error: new Error('db down') })),
     });
@@ -224,7 +225,7 @@ describe('handleRegisterNetwork', () => {
   });
 
   it('leases a LAN address for the occupant, keyed by the VERIFIED pubkey', async () => {
-    const id = generateIdentity();
+    const id = generateIdentityIn(RIDGEMONT);
     const { deps, allocateLanLease } = makeDeps();
 
     const result = await handleRegisterNetwork(envelope(id), deps);
@@ -238,7 +239,7 @@ describe('handleRegisterNetwork', () => {
   });
 
   it('returns the LEASED address, so a redrawn occupant is told where it actually lives', async () => {
-    const id = generateIdentity();
+    const id = generateIdentityIn(RIDGEMONT);
     // The address the pure derivation would have issued — what the client used to
     // assume it could compute for itself.
     const derived = assignHomeNetwork(id.publicKeyHex, ESSID).localIp;
@@ -259,8 +260,8 @@ describe('handleRegisterNetwork', () => {
   });
 
   it('leases per occupant, not per ESSID — two identities on one AP lease separately', async () => {
-    const alice = generateIdentity();
-    const bob = generateIdentity();
+    const alice = generateIdentityIn(RIDGEMONT);
+    const bob = generateIdentityIn(RIDGEMONT);
     const { deps: aliceDeps, allocateLanLease: aliceLease } = makeDeps();
     const { deps: bobDeps, allocateLanLease: bobLease } = makeDeps();
 
@@ -275,7 +276,7 @@ describe('handleRegisterNetwork', () => {
   });
 
   it('reports a server error when LAN lease allocation fails, without writing', async () => {
-    const id = generateIdentity();
+    const id = generateIdentityIn(RIDGEMONT);
     const { deps, upsertOccupant } = makeDeps({
       allocateLanLease: vi.fn(async () => {
         throw new Error('lan lease allocation exhausted');
@@ -291,55 +292,31 @@ describe('handleRegisterNetwork', () => {
   });
 });
 
-// Until players can travel, every player lives in Ridgemont, so its networks are the only
-// ones a join may reach. Another town's networks are never offered on WiFi, and their keys
-// are guessable, so a modified client could otherwise sit on them.
-const RIDGEMONT_KEYS = DECLARED_NETWORKS.filter((network) => network.town === RIDGEMONT).map(
-  (network) => network.key,
-);
-const OUT_OF_TOWN_KEYS = DECLARED_NETWORKS.filter((network) => network.town !== RIDGEMONT).map(
-  (network) => network.key,
-);
+// A player may join only the networks of the town their key starts them in. Another
+// town's networks are never offered on WiFi, and their keys are guessable, so a modified
+// client could otherwise sit on them. A network that stands in no town is no player's.
 const NOT_JOINABLE = { status: 403, body: { error: 'network_not_joinable' } };
 
+/** The keys of the networks that stand in `town`. */
+const networksIn = (town: string): readonly string[] =>
+  DECLARED_NETWORKS.filter((network) => network.town === town).map((network) => network.key);
+
+/** A network of every town but `town`, and every network that stands in no town. */
+const networksOutside = (town: string): readonly string[] => [
+  ...TOWNS.filter((other) => other.name !== town).map((other) => networksIn(other.name)[0]!),
+  ...DECLARED_NETWORKS.filter((network) => network.town === undefined).map(
+    (network) => network.key,
+  ),
+];
+
+const TOWN_NAMES = TOWNS.map((town) => town.name);
+
 describe('handleRegisterNetwork: which networks a player may join', () => {
-  it.each(OUT_OF_TOWN_KEYS)('refuses a join to %s, outside Ridgemont, without writing', async (key) => {
-    const id = generateIdentity();
-    const { deps, allocateLanLease, upsertOccupant } = makeDeps();
-
-    const result = await handleRegisterNetwork(envelope(id, { essid: key }), deps);
-
-    expect(result).toEqual(NOT_JOINABLE);
-        expect(allocateLanLease).not.toHaveBeenCalled();
-    expect(upsertOccupant).not.toHaveBeenCalled();
-  });
-
-  it('refuses a join to a network the world does not declare, without writing', async () => {
-    const id = generateIdentity();
-    const { deps, allocateLanLease, upsertOccupant } = makeDeps();
-
-    const result = await handleRegisterNetwork(envelope(id, { essid: LAB_NETWORK }), deps);
-
-    expect(result).toEqual(NOT_JOINABLE);
-        expect(allocateLanLease).not.toHaveBeenCalled();
-    expect(upsertOccupant).not.toHaveBeenCalled();
-  });
-
-  it('still answers a badly signed join by its signature, before asking where it leads', async () => {
-    const id = generateIdentity();
-    const { deps } = makeDeps();
-    const signed = envelope(id, { essid: OUT_OF_TOWN_KEYS[0] });
-    const tampered = { ...signed, payload: `${signed.payload} ` };
-
-    const result = await handleRegisterNetwork(tampered, deps);
-
-    expect(result).toEqual({ status: 401, body: { error: 'signature_invalid' } });
-  });
-
-  it('lets a player join every one of Ridgemont’s networks', async () => {
-    const id = generateIdentity();
+  it.each(TOWN_NAMES)('lets a player who starts in %s join every network there', async (town) => {
+    const id = generateIdentityIn(town);
+    const keys = networksIn(town);
     const joined = await Promise.all(
-      RIDGEMONT_KEYS.map(async (key) => {
+      keys.map(async (key) => {
         const { deps, upsertOccupant } = makeDeps();
         const result = await handleRegisterNetwork(envelope(id, { essid: key }), deps);
         return {
@@ -350,9 +327,9 @@ describe('handleRegisterNetwork: which networks a player may join', () => {
       }),
     );
 
-    expect(RIDGEMONT_KEYS).toHaveLength(178);
+    expect(keys.length).toBeGreaterThan(0);
     expect(joined).toEqual(
-      RIDGEMONT_KEYS.map((key) => ({
+      keys.map((key) => ({
         key,
         result: { status: 200, body: { ok: true, local_ip: lanAddressFor(key, LEASED_OCTET) } },
         occupantEssid: key,
@@ -360,7 +337,54 @@ describe('handleRegisterNetwork: which networks a player may join', () => {
     );
   });
 
-  it('admits a network the world does not declare when undeclared networks are admitted', async () => {
+  it.each(TOWN_NAMES.flatMap((town) => [false, true].map((admitted) => [town, admitted] as const)))(
+    'refuses a player who starts in %s a network of any other town or of none, without writing (undeclared admitted: %s)',
+    async (town, admitsUndeclaredNetworks) => {
+      const id = generateIdentityIn(town);
+      const refused = await Promise.all(
+        networksOutside(town).map(async (key) => {
+          const { deps, allocateLanLease, upsertOccupant } = makeDeps({
+            admitsUndeclaredNetworks,
+          });
+          const result = await handleRegisterNetwork(envelope(id, { essid: key }), deps);
+          return {
+            key,
+            result,
+            leased: allocateLanLease.mock.calls.length,
+            written: upsertOccupant.mock.calls.length,
+          };
+        }),
+      );
+
+      expect(refused).toEqual(
+        networksOutside(town).map((key) => ({ key, result: NOT_JOINABLE, leased: 0, written: 0 })),
+      );
+    },
+  );
+
+  it('refuses a join to a network the world does not declare, without writing', async () => {
+    const id = generateIdentity();
+    const { deps, allocateLanLease, upsertOccupant } = makeDeps();
+
+    const result = await handleRegisterNetwork(envelope(id, { essid: LAB_NETWORK }), deps);
+
+    expect(result).toEqual(NOT_JOINABLE);
+    expect(allocateLanLease).not.toHaveBeenCalled();
+    expect(upsertOccupant).not.toHaveBeenCalled();
+  });
+
+  it('still answers a badly signed join by its signature, before asking where it leads', async () => {
+    const id = generateIdentityIn(RIDGEMONT);
+    const { deps } = makeDeps();
+    const signed = envelope(id, { essid: networksOutside(RIDGEMONT)[0] });
+    const tampered = { ...signed, payload: `${signed.payload} ` };
+
+    const result = await handleRegisterNetwork(tampered, deps);
+
+    expect(result).toEqual({ status: 401, body: { error: 'signature_invalid' } });
+  });
+
+  it('admits a network the world does not declare when undeclared networks are admitted, whatever town the player starts in', async () => {
     const id = generateIdentity();
     const { deps, upsertOccupant } = makeDeps({ admitsUndeclaredNetworks: true });
 
@@ -372,22 +396,6 @@ describe('handleRegisterNetwork: which networks a player may join', () => {
     });
     expect(upsertOccupant.mock.calls[0]?.[0].essid).toBe(LAB_NETWORK);
   });
-
-  it.each(OUT_OF_TOWN_KEYS)(
-    'still refuses %s, outside Ridgemont, when undeclared networks are admitted',
-    async (key) => {
-      const id = generateIdentity();
-      const { deps, allocateLanLease, upsertOccupant } = makeDeps({
-        admitsUndeclaredNetworks: true,
-      });
-
-      const result = await handleRegisterNetwork(envelope(id, { essid: key }), deps);
-
-      expect(result).toEqual(NOT_JOINABLE);
-            expect(allocateLanLease).not.toHaveBeenCalled();
-      expect(upsertOccupant).not.toHaveBeenCalled();
-    },
-  );
 });
 
 /**
@@ -401,7 +409,7 @@ describe('handleRegisterNetwork: one network at a time', () => {
   const OLD_NETWORK = 'TYRELL-CORP';
 
   it('takes the box off every other network it is on, scoped to the verified pubkey', async () => {
-    const id = generateIdentity();
+    const id = generateIdentityIn(RIDGEMONT);
     const { deps, deleteOtherOccupancies } = makeDeps({}, { onNetwork: OLD_NETWORK });
 
     const result = await handleRegisterNetwork(envelope(id), deps);
@@ -415,7 +423,7 @@ describe('handleRegisterNetwork: one network at a time', () => {
   });
 
   it("closes a visitor's session on the box, recorded as the box leaving", async () => {
-    const id = generateIdentity();
+    const id = generateIdentityIn(RIDGEMONT);
     const { deps, table } = makeDeps(
       {},
       {
@@ -430,7 +438,7 @@ describe('handleRegisterNetwork: one network at a time', () => {
   });
 
   it('closes the sessions a visitor opened from the box, all the way up their chain', async () => {
-    const id = generateIdentity();
+    const id = generateIdentityIn(RIDGEMONT);
     const { deps, table } = makeDeps(
       {},
       {
@@ -452,7 +460,7 @@ describe('handleRegisterNetwork: one network at a time', () => {
   });
 
   it("leaves the owner's own sessions on their box open", async () => {
-    const id = generateIdentity();
+    const id = generateIdentityIn(RIDGEMONT);
     const { deps, table } = makeDeps(
       {},
       {
@@ -476,7 +484,7 @@ describe('handleRegisterNetwork: one network at a time', () => {
   // Every shell the player held elsewhere was opened across the network the box just
   // left, so it goes with the box.
   it("closes the player's own shells on other machines, hops included", async () => {
-    const id = generateIdentity();
+    const id = generateIdentityIn(RIDGEMONT);
     const { deps, table } = makeDeps(
       {},
       {
@@ -506,7 +514,7 @@ describe('handleRegisterNetwork: one network at a time', () => {
   // Re-joining the network the box is already on moves it nowhere, so nobody standing
   // on it through that network is thrown off, and nothing it reached through it is lost.
   it('closes nothing when the box is on no other network', async () => {
-    const id = generateIdentity();
+    const id = generateIdentityIn(RIDGEMONT);
     const { deps, table } = makeDeps(
       {},
       {
@@ -530,7 +538,7 @@ describe('handleRegisterNetwork: one network at a time', () => {
   });
 
   it('closes nothing when the store answers with no rows at all', async () => {
-    const id = generateIdentity();
+    const id = generateIdentityIn(RIDGEMONT);
     const endVisitorSessions = vi.fn<RegisterNetworkDeps['endVisitorSessions']>(async () => ({
       data: [],
       error: null,
@@ -547,17 +555,17 @@ describe('handleRegisterNetwork: one network at a time', () => {
   });
 
   it('leaves the old network untouched when the new one is not joinable', async () => {
-    const id = generateIdentity();
+    const id = generateIdentityIn(RIDGEMONT);
     const { deps, deleteOtherOccupancies } = makeDeps({}, { onNetwork: OLD_NETWORK });
 
-    await handleRegisterNetwork(envelope(id, { essid: OUT_OF_TOWN_KEYS[0] }), deps);
+    await handleRegisterNetwork(envelope(id, { essid: networksOutside(RIDGEMONT)[0] }), deps);
 
     expect(deleteOtherOccupancies).not.toHaveBeenCalled();
   });
 
   // No address on the new network means no join, so the box stays where it was.
   it('leaves the old network untouched when no address could be leased', async () => {
-    const id = generateIdentity();
+    const id = generateIdentityIn(RIDGEMONT);
     const { deps, deleteOtherOccupancies } = makeDeps(
       {
         allocateLanLease: vi.fn(async () => {
@@ -573,7 +581,7 @@ describe('handleRegisterNetwork: one network at a time', () => {
   });
 
   it('reports a server error, without joining, when the old network could not be left', async () => {
-    const id = generateIdentity();
+    const id = generateIdentityIn(RIDGEMONT);
     const { deps, upsertOccupant } = makeDeps({
       deleteOtherOccupancies: vi.fn(async () => ({ data: null, error: new Error('db down') })),
     });
@@ -587,7 +595,7 @@ describe('handleRegisterNetwork: one network at a time', () => {
   // Loud, as a disconnect's is: a join that left a visitor's row open puts the box on a
   // new network while the visitor still stands on it through the old one.
   it('reports a server error, without joining, when the sessions could not be closed', async () => {
-    const id = generateIdentity();
+    const id = generateIdentityIn(RIDGEMONT);
     const { deps, upsertOccupant } = makeDeps(
       { endVisitorSessions: async () => ({ data: null, error: new Error('db down') }) },
       { onNetwork: OLD_NETWORK },
