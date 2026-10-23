@@ -170,7 +170,7 @@ installed with until it is reinstalled.
     guardian's manifest or boot marker (a player's write, a wiped log, a database rewritten through
     its port), or a brick. A visit's log lines are never tampering. `patch [name…]`: each named
     public website (a domain, any case, or `boards.hireme.io`), or with no name the patrol (every
-    fixed box, then each `government` and `public` network's site, 51 boxes), has every package
+    fixed box, then each `government` and `public` network's site, 52 boxes), has every package
     moved onto the fix that has shipped for it today, exactly as a root's `apt upgrade` would; a
     hole whose fix is still in its patch delay stays open. It evicts nobody and leaves no trace but
     the moved versions; a bricked box is named and left for a restore. One line per box, then a

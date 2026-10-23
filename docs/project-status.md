@@ -1273,6 +1273,13 @@ agreed order:
     from there opened Kingsford's Central Perk as written. No defect. **Pick up here
     (2026-10-23):** whether `kestrel` is signed up again to stand in the owner's town is the
     owner's call; then entry 30's close-out and the items still open in `backlog.md`.
+33. 🚧 **Travel between towns (in flight).** A player buys a ride on rideit.io, the ninth fixed
+    site, paying a flat 25 JSC fare to a payment address made for their trip; boarding is
+    leaving, and the next scan is the new town's. The decisions and the three slices are in
+    `plans/travel.md`. Slice 1 (v0.430.0): rideit.io stands in the valley, at `193.103.160.138`,
+    its front page quoting the fare and listing every town, found on findit by "ticket" and
+    "travel"; booking is not open yet. **Pick up here (2026-10-23):** Slice 2, a free ride to
+    any town.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
