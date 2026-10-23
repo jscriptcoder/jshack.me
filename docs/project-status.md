@@ -1238,7 +1238,7 @@ agreed order:
     `plans/guardian.md`.
     **Pick up here (2026-10-22):** the guardian's close-out: the first `/guardian` round on prod
     with the owner picking, and the browser run; then the items still open in `backlog.md`.
-31. 🔄 **Players start in different towns (v0.428.0, 2026-10-23).** Every player stood in
+31. ✅ **Players start in different towns (v0.428.0, PR #728, 2026-10-23).** Every player stood in
     Ridgemont, so all of them shared its 178 networks and the chance of landing on somebody grew
     with the share of those occupied. Now `startingTown(publicKeyHex)` draws each player's town
     from their key by weighted rendezvous hashing, each of the eleven towns weighted by its
@@ -1250,10 +1250,13 @@ agreed order:
     players who joined before stay put. Every joining wire-check signs up with
     `generateIdentityIn(town)`, and `testJoinRefusal` joins a player from another town at home
     and refuses them Ridgemont. As built: `procedural-world-architecture.md`, "Where a player
-    stands" and "Joining"; the decisions and the slice are in `plans/starting-towns.md`.
-    **Pick up here (2026-10-23):** its close-out: the browser run (a fresh local player's scan
-    shows their town, they join one, `whois` names the town, a reload keeps them on it), then
-    whether `kestrel` is signed up again to stand in the owner's town, which is the owner's call.
+    stands" and "Joining"; what it left out is in `backlog.md` under "Travel" and "Hand-written
+    places for the other towns". Browser close-out (2026-10-23, v0.428.0): a fresh player drawn
+    into Hollowmere scanned only Hollowmere's networks, a home among them, joined EASTFIELD-CAFE
+    with a lease and an occupant row, `whois` on its public address answered `city: Hollowmere`,
+    and a reload kept them on it. No defect. **Pick up here (2026-10-23):** whether `kestrel` is
+    signed up again to stand in the owner's town is the owner's call; then entry 30's close-out
+    and the items still open in `backlog.md`.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

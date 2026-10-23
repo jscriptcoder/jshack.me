@@ -30,6 +30,13 @@ agent-browser --session <name> eval "JSON.parse(localStorage.getItem('jshack.ide
 npx tsx -e "import('./src/core/generation/startingTown.ts').then(({ startingTown }) => console.log(startingTown('<key>')))"
 ```
 
+To see the town in game, `whois` the joined network's public address: `city:` and `region:`, or
+`<Town> Broadband` for a home. Two traps: `whois` is not preinstalled (`su root`, `apt install
+whois`, `exit`), and `ifconfig` shows only the LAN address, never the public one. Read the public
+address offline: find the network's key in `wifiPoolOf(startingTown(key))` by its `essidOf`, then
+`publicAddress(networkKey)` (`core/generation/world.ts`). Verified 2026-10-23 (v0.428.0) on
+EASTFIELD-CAFE, Hollowmere: `whois 87.172.170.223`.
+
 A recipe below that names a Ridgemont network (a landmark such as `SHINRA-5G`, or a key
 `r0/t0/n…`) needs a player who starts in Ridgemont: `localStorage.clear()`, reload, NEW GAME, and
 read the town again until it says Ridgemont (about one try in three).
