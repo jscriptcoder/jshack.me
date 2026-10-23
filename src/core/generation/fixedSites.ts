@@ -146,5 +146,6 @@ export const HIREME_DOMAIN = HIREME.domain;
 export const VALLEYNEWS_NETWORK = VALLEYNEWS.key;
 
 export const RIDEIT_NETWORK = RIDEIT.key;
+export const RIDEIT_DOMAIN = RIDEIT.domain;
 
 export const BOARD_SERVER_NETWORK = BOARD_SERVER.key;

@@ -2817,7 +2817,16 @@ describe('full-screen apps a command opens', () => {
             error: 'host_unreachable' as const,
           };
           return answered.ok
-            ? { ok: true, status: 200, json: async () => ({ ok: true, content: answered.content, server: answered.server }) }
+            ? {
+                ok: true,
+                status: 200,
+                json: async () => ({
+                  ok: true,
+                  content: answered.content,
+                  server: answered.server,
+                  ...(answered.left === undefined ? {} : { left: answered.left }),
+                }),
+              }
             : { ok: false, status: 502, json: async () => answered };
         }
         if ((init?.body ?? '').includes('resolveOccupantFetch')) {
@@ -3076,6 +3085,65 @@ describe('full-screen apps a command opens', () => {
       kind: 'lynx',
       url: `http://${THEIR_PUBLIC_IP}/`,
       content: THEIR_PAGE,
+    });
+  });
+
+  /**
+   * Boarding a ride is leaving the network, and the server says so in its answer. The
+   * WiFi card is this tab's whatever box the browser runs on, so the tab takes it down
+   * exactly as `nmcli disconnect` would, and forgets the network so a reload restores
+   * nothing.
+   */
+  describe('a page that answers the player left their network', () => {
+    const BOARDED = '<p>You have arrived in Millbrook.</p>';
+    const boardingAnswer = (request: string): PublicFetchResult =>
+      request.includes('/board')
+        ? { ok: true, content: BOARDED, server: 'nginx', left: true }
+        : { ok: true, content: THEIR_PAGE, server: 'nginx' };
+
+    it('takes the WiFi down when a form followed in the browser boards a ride', async () => {
+      const state = await startBrowsingGame({ across: boardingAnswer });
+      state.setInput(`lynx http://${THEIR_PUBLIC_IP}/`);
+      await state.runInput();
+      expect(state.linkOnline()).toBe(true);
+
+      const outcome = await state.followLink(`http://${THEIR_PUBLIC_IP}/board`, 'town=Millbrook');
+
+      expect(outcome).toEqual({ ok: true });
+      expect(state.overlayMode()).toMatchObject({ content: BOARDED });
+      expect(state.linkOnline()).toBe(false);
+      expect(localStorage.getItem(CONNECTED_ESSID_KEY)).toBeNull();
+    });
+
+    it('takes the WiFi down when `curl -d` boards a ride from the terminal', async () => {
+      const state = await startBrowsingGame({ across: boardingAnswer });
+
+      state.setInput(`curl -d "town=Millbrook" http://${THEIR_PUBLIC_IP}/board`);
+      await state.runInput();
+
+      expect(state.linkOnline()).toBe(false);
+      expect(localStorage.getItem(CONNECTED_ESSID_KEY)).toBeNull();
+    });
+
+    it('keeps the WiFi up for a page that says nothing of leaving', async () => {
+      const state = await startBrowsingGame({ across: boardingAnswer });
+
+      state.setInput(`lynx http://${THEIR_PUBLIC_IP}/`);
+      await state.runInput();
+
+      expect(state.linkOnline()).toBe(true);
+      expect(localStorage.getItem(CONNECTED_ESSID_KEY)).toBe(ESSID);
+    });
+
+    it('keeps the WiFi up when a boarding is refused', async () => {
+      const state = await startBrowsingGame({
+        across: () => ({ ok: true, content: '<p>We do not go there.</p>', server: 'nginx', left: false }),
+      });
+
+      state.setInput(`curl -d "town=Atlantis" http://${THEIR_PUBLIC_IP}/board`);
+      await state.runInput();
+
+      expect(state.linkOnline()).toBe(true);
     });
   });
 

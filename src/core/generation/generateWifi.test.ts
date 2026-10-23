@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { generateWifi, wifiPoolOf } from './generateWifi.js';
+import { generateWifi, wifiPoolOf, type GenerateWifiInput } from './generateWifi.js';
 import { startingTown } from './startingTown.js';
 import { DECLARED_NETWORKS, isLandmark, RIDGEMONT, TOWNS } from './world.js';
 import { ESSID_CATALOG } from './pools/essidCatalog.js';
@@ -36,6 +36,11 @@ const keysIn = (town: string, count: number): readonly string[] => {
   return keys;
 };
 
+/** The scan of a player who stands in the town their key draws them into, as every player
+ *  does until they first travel. */
+const scanAtHome = (input: Omit<GenerateWifiInput, 'town'>): readonly WifiNetwork[] =>
+  generateWifi({ ...input, town: startingTown(input.seedPubkeyHex) });
+
 /** A player who starts in Ridgemont. */
 const RIDGEMONT_KEY = 'player-0';
 
@@ -55,12 +60,12 @@ const failedGates = (network: WifiNetwork): readonly string[] =>
 
 describe('generateWifi', () => {
   it('is deterministic — the same identity and scan index yield byte-identical networks', () => {
-    expect(generateWifi({ seedPubkeyHex: SEED_A })).toEqual(generateWifi({ seedPubkeyHex: SEED_A }));
+    expect(scanAtHome({ seedPubkeyHex: SEED_A })).toEqual(scanAtHome({ seedPubkeyHex: SEED_A }));
   });
 
   it('yields different networks for different identities', () => {
-    const bssidsA = generateWifi({ seedPubkeyHex: SEED_A }).map((network) => network.bssid);
-    const bssidsB = generateWifi({ seedPubkeyHex: SEED_B }).map((network) => network.bssid);
+    const bssidsA = scanAtHome({ seedPubkeyHex: SEED_A }).map((network) => network.bssid);
+    const bssidsB = scanAtHome({ seedPubkeyHex: SEED_B }).map((network) => network.bssid);
     expect(bssidsA).not.toEqual(bssidsB);
   });
 
@@ -68,7 +73,7 @@ describe('generateWifi', () => {
     // The scan picks from the town's networks by position, so this holds their order:
     // reordering them would hand every player a different set of networks.
     const offered = (seedPubkeyHex: string): readonly string[] =>
-      generateWifi({ seedPubkeyHex })
+      scanAtHome({ seedPubkeyHex })
         .filter(isCrackable)
         .map((network) => network.essid);
 
@@ -95,7 +100,7 @@ describe('generateWifi', () => {
 
   it('offers a network Ridgemont draws as it offers a landmark, under the key its password and BSSID derive from', () => {
     const offered = Array.from({ length: 40 }, (_, scanIndex) =>
-      generateWifi({ seedPubkeyHex: RIDGEMONT_KEY, scanIndex }).filter(isCrackable),
+      scanAtHome({ seedPubkeyHex: RIDGEMONT_KEY, scanIndex }).filter(isCrackable),
     ).flat();
     const drawn = offered.filter((network) => network.essid.startsWith('r0/t0/'));
     expect(drawn.length).toBeGreaterThan(0);
@@ -111,7 +116,7 @@ describe('generateWifi', () => {
     for (const town of TOWNS) {
       const offered = keysIn(town.name, 5).flatMap((seedPubkeyHex) =>
         Array.from({ length: 100 }, (_, scanIndex) =>
-          generateWifi({ seedPubkeyHex, scanIndex }).filter(isCrackable),
+          scanAtHome({ seedPubkeyHex, scanIndex }).filter(isCrackable),
         ).flat(),
       );
       const elsewhere = offered
@@ -125,6 +130,39 @@ describe('generateWifi', () => {
     }
   });
 
+  it('offers a player who travelled only the networks of the town they stand in, not the one their key draws', () => {
+    for (const town of TOWNS) {
+      const seedPubkeyHex = keysIn(RIDGEMONT === town.name ? TOWNS[1]!.name : RIDGEMONT, 1)[0]!;
+      const offered = Array.from({ length: 100 }, (_, scanIndex) =>
+        generateWifi({ seedPubkeyHex, scanIndex, town: town.name }).filter(isCrackable),
+      ).flat();
+
+      expect(offered.length, town.name).toBeGreaterThan(0);
+      expect(
+        offered.filter((network) => declaredAs(network.essid)?.town !== town.name),
+        town.name,
+      ).toEqual([]);
+    }
+  });
+
+  it('injects only an occupied network of the town the player stands in', () => {
+    const seedPubkeyHex = keysIn(RIDGEMONT, 1)[0]!;
+    const standing = TOWNS[1]!.name;
+    const occupiedEssids = [wifiPoolOf(RIDGEMONT)[0]!, wifiPoolOf(standing)[0]!];
+    const injected = new Set(
+      Array.from({ length: 400 }, (_, scanIndex) => {
+        const base = generateWifi({ seedPubkeyHex, scanIndex, town: standing });
+        const roll = generateWifi({ seedPubkeyHex, scanIndex, town: standing, occupiedEssids });
+        return roll
+          .filter(isCrackable)
+          .map((network) => network.essid)
+          .filter((essid) => !base.some((network) => network.essid === essid));
+      }).flat(),
+    );
+
+    expect([...injected]).toEqual([wifiPoolOf(standing)[0]]);
+  });
+
   it('offers every landmark of a town to the players who start there', () => {
     for (const town of TOWNS.filter((candidate) => candidate.name !== RIDGEMONT)) {
       const landmarks = DECLARED_NETWORKS.filter(
@@ -133,7 +171,7 @@ describe('generateWifi', () => {
       const offered = new Set(
         keysIn(town.name, 5).flatMap((seedPubkeyHex) =>
           Array.from({ length: 100 }, (_, scanIndex) =>
-            generateWifi({ seedPubkeyHex, scanIndex })
+            scanAtHome({ seedPubkeyHex, scanIndex })
               .filter(isCrackable)
               .map((network) => network.essid),
           ).flat(),
@@ -159,7 +197,7 @@ describe('generateWifi', () => {
   });
 
   it('yields 2-3 crackable and 3-5 noise networks', () => {
-    const networks = generateWifi({ seedPubkeyHex: SEED_A });
+    const networks = scanAtHome({ seedPubkeyHex: SEED_A });
     const crackable = networks.filter(isCrackable);
     const noise = networks.filter((network) => !network.crackable);
 
@@ -177,7 +215,7 @@ describe('generateWifi', () => {
     const occurrences = new Map<string, string[]>();
     for (let index = 0; index < 80; index++) {
       const seed = index.toString().padStart(64, '0');
-      for (const network of generateWifi({ seedPubkeyHex: seed }).filter(isCrackable)) {
+      for (const network of scanAtHome({ seedPubkeyHex: seed }).filter(isCrackable)) {
         const passwords = occurrences.get(network.essid) ?? [];
         passwords.push(network.password);
         occurrences.set(network.essid, passwords);
@@ -198,7 +236,7 @@ describe('generateWifi', () => {
   });
 
   it('gives every crackable AP a real pool password and makes it gate-passable', () => {
-    for (const network of generateWifi({ seedPubkeyHex: SEED_A }).filter(isCrackable)) {
+    for (const network of scanAtHome({ seedPubkeyHex: SEED_A }).filter(isCrackable)) {
       expect(POOL).toContain(network.password);
       expect(network.encryption).toBe('WPA2');
       // Strong, realistic signal band: comfortably above the -80 weak gate so
@@ -211,7 +249,7 @@ describe('generateWifi', () => {
   });
 
   it('makes every noise AP fail exactly one aircrack-ng gate and carry no password', () => {
-    for (const network of generateWifi({ seedPubkeyHex: SEED_A }).filter(
+    for (const network of scanAtHome({ seedPubkeyHex: SEED_A }).filter(
       (candidate) => !candidate.crackable,
     )) {
       expect(failedGates(network)).toHaveLength(1);
@@ -229,7 +267,7 @@ describe('generateWifi', () => {
     // networks (its town hall and GATEWAY-SYSTEMS, under their keys). They sit at
     // positions 3 and 6, interleaved with noise rather than grouped — proof the final
     // shuffle actually mixes the two populations.
-    const order = generateWifi({ seedPubkeyHex: SEED_A }).map((network) => ({
+    const order = scanAtHome({ seedPubkeyHex: SEED_A }).map((network) => ({
       essid: network.essid,
       encryption: network.encryption,
       crackable: network.crackable,
@@ -246,7 +284,7 @@ describe('generateWifi', () => {
   });
 
   it('assigns each AP a distinct channel from the 1-11 band', () => {
-    const channels = generateWifi({ seedPubkeyHex: SEED_A }).map((network) => network.channel);
+    const channels = scanAtHome({ seedPubkeyHex: SEED_A }).map((network) => network.channel);
     expect(new Set(channels).size).toBe(channels.length);
     for (const channel of channels) {
       expect(channel).toBeGreaterThanOrEqual(1);
@@ -259,7 +297,7 @@ describe('generateWifi', () => {
     // out-of-band value — a single seed's small PRNG fractions can hide it.
     for (let index = 0; index < 40; index++) {
       const seed = index.toString().padStart(64, '0');
-      for (const network of generateWifi({ seedPubkeyHex: seed })) {
+      for (const network of scanAtHome({ seedPubkeyHex: seed })) {
         if (network.crackable) {
           expect(network.power).toBeGreaterThanOrEqual(-65);
           expect(network.power).toBeLessThanOrEqual(-35);
@@ -272,7 +310,7 @@ describe('generateWifi', () => {
   });
 
   it('derives visible BSSIDs from the ESSID (uppercase six-octet MAC)', () => {
-    for (const network of generateWifi({ seedPubkeyHex: SEED_A })) {
+    for (const network of scanAtHome({ seedPubkeyHex: SEED_A })) {
       expect(network.bssid).toMatch(/^[0-9A-F]{2}(:[0-9A-F]{2}){5}$/);
       if (network.essid !== '<hidden>') {
         expect(network.bssid).toBe(bssidFromEssid(network.essid));
@@ -281,7 +319,7 @@ describe('generateWifi', () => {
   });
 
   it('masks a hidden AP as <hidden> but keeps its real (original-ESSID) BSSID', () => {
-    const hidden = generateWifi({ seedPubkeyHex: SEED_HIDDEN }).filter(
+    const hidden = scanAtHome({ seedPubkeyHex: SEED_HIDDEN }).filter(
       (network) => network.essid === '<hidden>',
     );
     expect(hidden.length).toBeGreaterThan(0);
@@ -295,7 +333,7 @@ describe('generateWifi', () => {
 
   it('re-rolls per scan index — re-scanning need not yield the same networks', () => {
     const rolls = [0, 1, 2, 3, 4].map((scanIndex) =>
-      generateWifi({ seedPubkeyHex: SEED_A, scanIndex })
+      scanAtHome({ seedPubkeyHex: SEED_A, scanIndex })
         .map((network) => network.essid)
         .join(','),
     );
@@ -305,8 +343,8 @@ describe('generateWifi', () => {
   });
 
   it('is deterministic for a given identity and scan index', () => {
-    expect(generateWifi({ seedPubkeyHex: SEED_A, scanIndex: 7 })).toEqual(
-      generateWifi({ seedPubkeyHex: SEED_A, scanIndex: 7 }),
+    expect(scanAtHome({ seedPubkeyHex: SEED_A, scanIndex: 7 })).toEqual(
+      scanAtHome({ seedPubkeyHex: SEED_A, scanIndex: 7 }),
     );
   });
 
@@ -320,7 +358,7 @@ describe('generateWifi', () => {
       occupiedEssids: readonly string[] = [],
       crowd: readonly string[] = RIDGEMONT_CROWD,
     ): readonly WifiNetwork[] =>
-      generateWifi({
+      scanAtHome({
         seedPubkeyHex: crowd[index % crowd.length]!,
         scanIndex: index,
         occupiedEssids,
@@ -429,9 +467,9 @@ describe('generateWifi', () => {
 
     it('never doubles a network the scan already shows', () => {
       for (let scanIndex = 0; scanIndex < 20; scanIndex++) {
-        const base = generateWifi({ seedPubkeyHex: SEED_A, scanIndex });
+        const base = scanAtHome({ seedPubkeyHex: SEED_A, scanIndex });
         const baseCrackable = base.filter(isCrackable).map((network) => network.essid);
-        const roll = generateWifi({
+        const roll = scanAtHome({
           seedPubkeyHex: SEED_A,
           scanIndex,
           occupiedEssids: [...baseCrackable, ...OCCUPIED_IN_RIDGEMONT],

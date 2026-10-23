@@ -43,6 +43,8 @@ import {
   HACKADEMY_NETWORK,
   HIREME_DOMAIN,
   HIREME_NETWORK,
+  RIDEIT_DOMAIN,
+  RIDEIT_NETWORK,
   TALKIT_NETWORK,
   VALLEYNEWS_NETWORK,
 } from '../generation/fixedSites.js';
@@ -66,6 +68,10 @@ import type { MachinePatchRow } from '../findit/webIndex.js';
 import { logRead } from '../../test/factories/logRows.js';
 import { derivedPublicIpByEssid, type FindPublicIpByEssid } from '../logging/crossPlayerSourceIp.js';
 import type { FindActiveSession } from '../patches/authorizeMachineAccess.js';
+import type { BoardDeps } from '../rideit/board.js';
+import { arrivedPage, NOWHERE_PAGE, RIDEIT_FRONT_PAGE, TICKET_PAGE } from '../rideit/pages.js';
+import { TOWNS } from '../generation/world.js';
+import { sessionTable } from '../../test/factories/sessionTable.js';
 
 /**
  * `handleResolveHttpFetch` is the credential-free cross-player door: a fetch carries no
@@ -228,6 +234,7 @@ type FetchOverrides = {
   findStory?: NewsReads['findStory'];
   postThread?: PostThread;
   postComment?: PostComment;
+  board?: Partial<BoardDeps>;
 };
 
 const makeDeps = (over: FetchOverrides = {}) => {
@@ -311,6 +318,18 @@ const makeDeps = (over: FetchOverrides = {}) => {
     over.postComment ??
       (async () => ({ data: { outcome: 'commented', number: 3 }, error: null })),
   );
+  // Default: a player who never travelled, on no network, whose every move is written.
+  // Only rideit's `/board` ever asks.
+  const sessions = sessionTable([]);
+  const board: BoardDeps = {
+    findPlayerLocation: async () => ({ data: null, error: null }),
+    deleteOccupancies: async () => ({ data: [], error: null }),
+    moveLocation: async () => ({ moved: true, error: null }),
+    endVisitorSessions: sessions.endVisitorSessions,
+    endOwnSessionsAway: sessions.endOwnSessionsAway,
+    endSessionsAbove: sessions.endSessionsAbove,
+    ...over.board,
+  };
   const deps: ResolveHttpFetchDeps = {
     nonceStore: freshStore,
     findPatchesForMachines,
@@ -339,6 +358,7 @@ const makeDeps = (over: FetchOverrides = {}) => {
     findStory,
     postThread,
     postComment,
+    board,
   };
   return {
     deps,
@@ -1511,6 +1531,206 @@ describe('hireme.io takes an application', () => {
     expect(await handleResolveHttpFetch(request({ body: FORM }), deps)).toEqual({
       status: 500,
       body: { error: 'apply_failed' },
+    });
+    expect(accessLogOf(upsertPatch)).toBeUndefined();
+  });
+});
+
+/**
+ * rideit.io sells tickets from a function, never from a file: a root on rideit can deface
+ * its front page or plant a file at a ticket path, but cannot stop anybody riding. Boarding
+ * is leaving, so the answer tells the traveller's own tab that it left, and the line rideit
+ * records names who boarded and from where, never where they went.
+ */
+describe('rideit.io sells tickets and boards riders', () => {
+  const RIDEIT_IP = siteAddress(RIDEIT_DOMAIN) ?? '';
+  const RIDEIT_ID = computeApGatewayId(RIDEIT_NETWORK);
+  const TOWN = TOWNS[1]!.name;
+  const FORM = new URLSearchParams({ town: TOWN }).toString();
+  const onRideit = {
+    lookup: async () => ({
+      data: { router_machine_id: RIDEIT_ID, essid: RIDEIT_NETWORK },
+      error: null,
+    }),
+    listOccupantsByEssid: async () => ({ data: [], error: null }),
+    listLeasesByEssid: async () => ({ data: [], error: null }),
+  };
+  const request = (fields: Record<string, unknown>) =>
+    signRequest(BOB, 'resolveHttpFetch', {
+      target: RIDEIT_IP,
+      port: HTTP_DEFAULT_PORT,
+      path: '/board',
+      ...fields,
+    });
+  const contentOf = (response: { body: Record<string, unknown> }): string =>
+    typeof response.body.content === 'string' ? response.body.content : '';
+  const accessLogOf = (upsertPatch: ReturnType<typeof makeDeps>['upsertPatch']) =>
+    upsertPatch.mock.calls.map(([row]) => row).find((row) => row.path === ACCESS_LOG_PATH);
+  /** A move the test can read back, written every time. */
+  const movingStore = () =>
+    vi.fn<BoardDeps['moveLocation']>(async () => ({ moved: true, error: null }));
+
+  it.each(['/ticket', '/board'])('serves the ticket page at %s, boarding nobody', async (path) => {
+    const moveLocation = movingStore();
+    const { deps } = makeDeps({ ...onRideit, board: { moveLocation } });
+
+    expect(await handleResolveHttpFetch(request({ path }), deps)).toEqual({
+      status: 200,
+      body: { ok: true, content: TICKET_PAGE, server: 'nginx' },
+    });
+    expect(moveLocation).not.toHaveBeenCalled();
+  });
+
+  it('records a look at the ticket page in its log', async () => {
+    const { deps, upsertPatch } = makeDeps(onRideit);
+
+    await handleResolveHttpFetch(request({ path: '/ticket' }), deps);
+
+    expect(accessLogOf(upsertPatch)?.content).toBe(
+      `${BOB_PUBLIC_IP} - - [30/Jul/2026:13:55:36 +0000] "GET /ticket HTTP/1.1" 200 ${TICKET_PAGE.length}\n`,
+    );
+  });
+
+  it('boards the verified signer for the town the form names, and tells their tab they left', async () => {
+    const moveLocation = movingStore();
+    const { deps } = makeDeps({ ...onRideit, board: { moveLocation } });
+
+    expect(await handleResolveHttpFetch(request({ body: FORM }), deps)).toEqual({
+      status: 200,
+      body: { ok: true, content: arrivedPage(TOWN), server: 'nginx', left: true },
+    });
+    expect(moveLocation.mock.calls).toEqual([
+      [{ ownerKey: BOB.publicKeyHex, town: TOWN, tripsTaken: 0 }],
+    ]);
+  });
+
+  it('refuses a town it does not go to, and tells the tab it stayed', async () => {
+    const { deps } = makeDeps(onRideit);
+
+    expect(await handleResolveHttpFetch(request({ body: 'town=Atlantis' }), deps)).toEqual({
+      status: 200,
+      body: { ok: true, content: NOWHERE_PAGE, server: 'nginx', left: false },
+    });
+  });
+
+  it('records the boarding as a POST from where the traveller stood before leaving, never naming the town', async () => {
+    // At home the source is the network the box is on, and boarding takes it off: an
+    // address looked up after leaving would be nobody's.
+    let onNetwork = true;
+    const { deps, upsertPatch } = makeDeps({
+      ...onRideit,
+      findHomeNetworkByOwnerKey: async () => ({
+        data: onNetwork ? { public_ip: BOB_PUBLIC_IP } : null,
+        error: null,
+      }),
+      board: {
+        deleteOccupancies: async () => {
+          onNetwork = false;
+          return { data: [{ workstation_machine_id: 'skylab-deadbeef' }], error: null };
+        },
+      },
+    });
+
+    const response = await handleResolveHttpFetch(request({ body: FORM }), deps);
+
+    expect(onNetwork).toBe(false);
+    expect(accessLogOf(upsertPatch)?.machine_id).toBe(RIDEIT_ID);
+    expect(accessLogOf(upsertPatch)?.content).toBe(
+      `${BOB_PUBLIC_IP} - - [30/Jul/2026:13:55:36 +0000] "POST /board HTTP/1.1" 200 ${contentOf(response).length}\n`,
+    );
+    expect(JSON.stringify(upsertPatch.mock.calls)).not.toContain(TOWN);
+  });
+
+  it('boards from a form at /board however its query string reads', async () => {
+    const moveLocation = movingStore();
+    const { deps } = makeDeps({ ...onRideit, board: { moveLocation } });
+
+    await handleResolveHttpFetch(request({ path: '/board?from=ticket', body: FORM }), deps);
+
+    expect(moveLocation).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a form anywhere else on the box, as every other server does', async () => {
+    const moveLocation = movingStore();
+    const { deps } = makeDeps({ ...onRideit, board: { moveLocation } });
+
+    expect(await handleResolveHttpFetch(request({ path: '/ticket', body: FORM }), deps)).toEqual({
+      status: 405,
+      body: { error: 'method_not_allowed', server: 'nginx' },
+    });
+    expect(moveLocation).not.toHaveBeenCalled();
+  });
+
+  it('boards nobody from /board on any other site, and serves no ticket page there', async () => {
+    const moveLocation = movingStore();
+    const { deps } = makeDeps({ patches: aliceServing(), board: { moveLocation } });
+
+    expect((await handleResolveHttpFetch(envelope({ path: '/board', body: FORM }), deps)).status).toBe(
+      405,
+    );
+    expect(await handleResolveHttpFetch(envelope({ path: '/ticket' }), deps)).toEqual({
+      status: 404,
+      body: { error: 'not_found' },
+    });
+    expect(moveLocation).not.toHaveBeenCalled();
+  });
+
+  it('still sells tickets on a box whose front page a root defaced', async () => {
+    const { deps } = makeDeps({
+      ...onRideit,
+      patches: patchesByMachine({
+        [RIDEIT_ID]: [publishedPage('<h1>OWNED</h1>'), publishedPage('<h1>OWNED</h1>', 'ticket')],
+      }),
+    });
+
+    expect(contentOf(await handleResolveHttpFetch(request({ path: '/' }), deps))).toBe(
+      '<h1>OWNED</h1>',
+    );
+    expect(contentOf(await handleResolveHttpFetch(request({ path: '/ticket' }), deps))).toBe(
+      TICKET_PAGE,
+    );
+    expect(contentOf(await handleResolveHttpFetch(request({ body: FORM }), deps))).toBe(
+      arrivedPage(TOWN),
+    );
+  });
+
+  it('serves its own front page, untouched', async () => {
+    const { deps } = makeDeps(onRideit);
+
+    expect(contentOf(await handleResolveHttpFetch(request({ path: '/' }), deps))).toBe(
+      RIDEIT_FRONT_PAGE,
+    );
+  });
+
+  it.each([
+    ['bricked', '/boot/vmlinuz'],
+    ['whose web server was stopped', `/var/run/${SERVICE_CATALOG.http.pidfile}`],
+  ])('boards nobody when the box is %s', async (_case, removed) => {
+    const moveLocation = movingStore();
+    const { deps } = makeDeps({
+      ...onRideit,
+      patches: patchesByMachine({
+        [RIDEIT_ID]: [{ ...publishedPage(''), path: removed, content: null, node_type: null }],
+      }),
+      board: { moveLocation },
+    });
+
+    expect(await handleResolveHttpFetch(request({ body: FORM }), deps)).toEqual({
+      status: 404,
+      body: { error: 'host_unreachable' },
+    });
+    expect(moveLocation).not.toHaveBeenCalled();
+  });
+
+  it('reports a store it could not reach as a server error, and records nothing', async () => {
+    const { deps, upsertPatch } = makeDeps({
+      ...onRideit,
+      board: { moveLocation: async () => ({ moved: false, error: { message: 'down' } }) },
+    });
+
+    expect(await handleResolveHttpFetch(request({ body: FORM }), deps)).toEqual({
+      status: 500,
+      body: { error: 'board_failed' },
     });
     expect(accessLogOf(upsertPatch)).toBeUndefined();
   });

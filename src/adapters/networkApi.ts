@@ -46,7 +46,9 @@ import type {
   PublicSweepParams,
   PublicSweepResult,
   PublicScanResolution,
+  WifiRange,
 } from '../core/commands/types.js';
+import { startingTown } from '../core/generation/startingTown.js';
 import type { OccupantProjection } from '../core/network/resolveOccupants.js';
 import type { Ipv4 } from '../core/network/interfaces.js';
 import type { MachineId } from '../core/types.js';
@@ -166,25 +168,35 @@ export const resolveOccupants = async (
   }
 };
 
+/** What the discovery read answers: the occupied names and the caller's own town.
+ *  Parsed rather than trusted, so a body that does not read is not a scan's town. */
+const occupiedEssidsResponseSchema = z.object({
+  ok: z.literal(true),
+  essids: z.array(z.string()),
+  town: z.string(),
+});
+
 /**
- * Fetch the ESSID names anyone currently occupies for organic discovery (backs
- * `env.scan.resolveOccupiedEssids`). Global and name-only — no occupant identity
- * crosses the wire. Additive by design: it degrades to an EMPTY list on any
- * non-ok / malformed / thrown response, so a server hiccup simply means a scan
- * with nothing to discover, never a crash.
+ * Fetch what is in wifi range for the next scan (backs `env.scan.resolveOccupiedEssids`):
+ * the town the player stands in, and the ESSID names anyone currently occupies, for
+ * organic discovery. Global and name-only — no occupant identity crosses the wire.
+ *
+ * It never fails the scan. On any non-ok, malformed or thrown response it falls back to
+ * what the client knows by itself: the town the player's key draws, with nothing to
+ * inject. A traveller then sees their drawn town's networks until the server answers
+ * again, and a join to one of those is refused by the server.
  */
-export const resolveOccupiedEssids = async (
-  deps: NetworkClientDeps,
-): Promise<readonly string[]> => {
+export const resolveOccupiedEssids = async (deps: NetworkClientDeps): Promise<WifiRange> => {
+  const fallback = { town: startingTown(deps.identity.publicKeyHex), occupiedEssids: [] };
   try {
     const response = await post(deps, 'resolveOccupiedEssids', {});
-    if (!response.ok) return [];
-    const body: unknown = await response.json();
-    const resolved = body as { readonly ok?: boolean; readonly essids?: readonly string[] };
-    if (resolved.ok !== true) return [];
-    return resolved.essids ?? [];
+    if (!response.ok) return fallback;
+    const parsed = occupiedEssidsResponseSchema.safeParse(await response.json());
+    return parsed.success
+      ? { town: parsed.data.town, occupiedEssids: parsed.data.essids }
+      : fallback;
   } catch {
-    return [];
+    return fallback;
   }
 };
 
@@ -258,6 +270,7 @@ export const fetchPublicPage = async (
       readonly ok?: boolean;
       readonly content?: string;
       readonly server?: string;
+      readonly left?: unknown;
     };
     // A 200 we cannot read is not a page. Reporting it as an empty one would print a
     // blank response as though the target had served it.
@@ -268,7 +281,12 @@ export const fetchPublicPage = async (
     ) {
       return { ok: false, error: 'network_error' };
     }
-    return { ok: true, content: resolved.content, server: resolved.server };
+    return {
+      ok: true,
+      content: resolved.content,
+      server: resolved.server,
+      ...(typeof resolved.left === 'boolean' ? { left: resolved.left } : {}),
+    };
   } catch {
     return { ok: false, error: 'network_error' };
   }

@@ -143,12 +143,13 @@ describe('airodump-ng', () => {
     });
   });
 
-  it('fetches the currently-occupied ESSIDs and re-rolls the scan with them', async () => {
-    // The organic-discovery wiring: airodump-ng asks the server which ESSIDs are
-    // occupied (name-only) and feeds them into a fresh roll, so a live network can
-    // surface in the scan. aircrack-ng/nmcli then read that same refreshed list.
-    const occupied = ['STARK-WIFI', 'NAKATOMI-PLAZA'];
-    const resolveOccupiedEssids = vi.fn(async () => occupied);
+  it('fetches what is in wifi range and re-rolls the scan with it', async () => {
+    // The organic-discovery wiring: airodump-ng asks the server which town the player
+    // stands in and which ESSIDs are occupied (name-only) and feeds both into a fresh
+    // roll, so a live network can surface in the scan. aircrack-ng/nmcli then read that
+    // same refreshed list.
+    const range = { town: 'Millbrook', occupiedEssids: ['STARK-WIFI', 'NAKATOMI-PLAZA'] };
+    const resolveOccupiedEssids = vi.fn(async () => range);
     const rescanWifi = vi.fn(() => WIFI);
     const state = monitoring(buildColdStartConnectivity(PUBKEY));
     const env = mockCommandEnv({
@@ -165,7 +166,7 @@ describe('airodump-ng', () => {
     await drain(await airodumpNg.execute(env, [], NO_FLAGS));
 
     expect(resolveOccupiedEssids).toHaveBeenCalled();
-    expect(rescanWifi).toHaveBeenCalledWith(occupied);
+    expect(rescanWifi).toHaveBeenCalledWith(range);
   });
 
   it('streams every access point as a row with BSSID, power, channel, encryption and ESSID', async () => {

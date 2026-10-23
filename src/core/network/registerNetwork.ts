@@ -23,7 +23,7 @@ import { verifySignedRequest } from '../signedRequest/verify.js';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
 import { lanAddressFor } from './lanAddress.js';
 import { declaredNetwork } from '../generation/world.js';
-import { startingTown } from '../generation/startingTown.js';
+import { standingTown, type FindPlayerLocation } from './playerLocation.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import { dropConnectionsThrough, type DropConnectionsDeps } from './unregisterOccupant.js';
 
@@ -74,6 +74,8 @@ export type RegisterNetworkDeps = {
    *  `vercel dev` admits them, so the wire-checks can each join a made-up network whose
    *  gateway nobody has written to. */
   readonly admitsUndeclaredNetworks: boolean;
+  /** Where the joining player stands, which decides the only town they may join in. */
+  readonly findPlayerLocation: FindPlayerLocation;
 };
 
 export type HandlerResponse = {
@@ -107,15 +109,19 @@ export const handleRegisterNetwork = async (
   }
   const { publicKey, payload } = verified;
 
-  // A player lives in the town their verified key starts them in until travel exists, so
-  // its networks are the only ones a join may reach. Another town's are never offered on
-  // their WiFi and their keys are guessable, so the client cannot be trusted to stay home.
-  // Refused before the lease, so a refused join leaves nothing behind.
+  // A player's WiFi reaches only the town they stand in, so its networks are the only ones
+  // a join may reach. Another town's are never offered on their WiFi and their keys are
+  // guessable, so the client cannot be trusted to stay put. Refused before the lease, so a
+  // refused join leaves nothing behind.
   const network = declaredNetwork(payload.essid);
-  const joinable =
-    network === undefined
-      ? deps.admitsUndeclaredNetworks
-      : network.town === startingTown(publicKey);
+  let joinable = deps.admitsUndeclaredNetworks;
+  if (network !== undefined) {
+    const location = await deps.findPlayerLocation(publicKey);
+    if (location.error) {
+      return { status: 500, body: { error: 'location_lookup_failed' } };
+    }
+    joinable = network.town === standingTown(location.data, publicKey);
+  }
   if (!joinable) {
     return { status: 403, body: { error: 'network_not_joinable' } };
   }
