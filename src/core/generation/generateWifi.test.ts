@@ -125,6 +125,29 @@ describe('generateWifi', () => {
     }
   });
 
+  it('offers every landmark of a town to the players who start there', () => {
+    for (const town of TOWNS.filter((candidate) => candidate.name !== RIDGEMONT)) {
+      const landmarks = DECLARED_NETWORKS.filter(
+        (network) => network.town === town.name && isLandmark(network.key),
+      ).map((network) => network.key);
+      const offered = new Set(
+        keysIn(town.name, 5).flatMap((seedPubkeyHex) =>
+          Array.from({ length: 100 }, (_, scanIndex) =>
+            generateWifi({ seedPubkeyHex, scanIndex })
+              .filter(isCrackable)
+              .map((network) => network.essid),
+          ).flat(),
+        ),
+      );
+
+      expect(landmarks.length, town.name).toBeGreaterThan(0);
+      expect(
+        landmarks.filter((key) => !offered.has(key)),
+        town.name,
+      ).toEqual([]);
+    }
+  });
+
   it("offers a town's networks in the order the world declares them", () => {
     for (const town of TOWNS) {
       expect(wifiPoolOf(town.name)).toEqual(

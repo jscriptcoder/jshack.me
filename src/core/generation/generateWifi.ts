@@ -53,8 +53,8 @@ const passwordForEssid = (essid: string): string =>
 // Every network in `town`, by the key it is known by, in the order the world declares
 // them: for Ridgemont the landmarks in the catalog's order, then the networks the town
 // draws. The scan picks from this list by position, so its order decides which networks
-// every player there is offered. A landmark's key is the name it broadcasts; a drawn
-// network's is not, and is shown by its name wherever a player reads it.
+// every player there is offered. A Ridgemont landmark's key is the name it broadcasts;
+// every other network's is not, and is shown by its name wherever a player reads it.
 export const wifiPoolOf = (town: string): readonly string[] =>
   DECLARED_NETWORKS.filter((network) => network.town === town).map((network) => network.key);
 
