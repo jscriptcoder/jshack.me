@@ -203,7 +203,7 @@ describe('generateWifi', () => {
   it('shuffles crackable and noise together into a stable seeded order', () => {
     // Golden snapshot for SEED_A's first scan: locks the seeded selection +
     // interleave. SEED_A starts in Stonebury, so its crackable APs are two of that town's
-    // networks (its town hall and LIGHTHOUSE-COFFEE, under their keys). They sit at
+    // networks (its town hall and GATEWAY-SYSTEMS, under their keys). They sit at
     // positions 3 and 6, interleaved with noise rather than grouped — proof the final
     // shuffle actually mixes the two populations.
     const order = generateWifi({ seedPubkeyHex: SEED_A }).map((network) => ({
@@ -217,7 +217,7 @@ describe('generateWifi', () => {
       { essid: 'r0/t10/n0', encryption: 'WPA2', crackable: true },
       { essid: 'SUBWAY_WIFI', encryption: 'WPA2', crackable: false },
       { essid: 'FREE_INTERNET', encryption: 'WPA3', crackable: false },
-      { essid: 'r0/t10/n7', encryption: 'WPA2', crackable: true },
+      { essid: 'r0/t10/n8', encryption: 'WPA2', crackable: true },
       { essid: 'ASUS_RT_AC68U', encryption: 'WPA3', crackable: false },
     ]);
   });

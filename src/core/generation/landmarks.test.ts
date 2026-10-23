@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DECLARED_NETWORKS, isLandmark } from './world.js';
+import { DECLARED_NETWORKS, isLandmark, RIDGEMONT } from './world.js';
 import { generateHomeLan } from './generateHomeLan.js';
 import { resolveLanHostIdentity } from './lanHostIdentity.js';
 import { buildApGatewayBaseFs } from './routerFs.js';
@@ -124,7 +124,9 @@ const FINGERPRINTS: Readonly<Record<string, string>> = {
 
 describe('the landmarks', () => {
   it('each keep everything but their public address from before the world had towns', () => {
-    const landmarks = DECLARED_NETWORKS.filter((network) => isLandmark(network.key));
+    const landmarks = DECLARED_NETWORKS.filter(
+      (network) => isLandmark(network.key) && network.town === RIDGEMONT,
+    );
 
     const fingerprints = Object.fromEntries(
       landmarks.map((network) => [network.key, fingerprint(network.key)]),

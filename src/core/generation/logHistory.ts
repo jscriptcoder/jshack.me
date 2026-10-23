@@ -516,6 +516,14 @@ export const buildLogHistory = (options: LogHistoryOptions): Readonly<Record<str
   const transfers = ((): readonly Entry[] => {
     if (runs('ftp') === undefined || !isOnHomeLan(essid, host)) return [];
     const transferPrng = createPrng(`share-log-${essid}-${host.ip}`);
+    // Each upload is a session of its own, so no two share a pid: a clash draws again.
+    const drawn = new Set<number>();
+    const sessionPid = (): number => {
+      const pid = pidFrom(transferPrng);
+      if (drawn.has(pid)) return sessionPid();
+      drawn.add(pid);
+      return pid;
+    };
     return uploads.map((upload) => {
       const second = Math.floor(upload.at / 1000);
       return {
@@ -525,7 +533,7 @@ export const buildLogHistory = (options: LogHistoryOptions): Readonly<Record<str
           user: upload.user,
           fromIp: upload.from.ip === host.ip ? LOOPBACK : upload.from.ip,
           time: asGameTime(second * 1000),
-          pid: pidFrom(transferPrng),
+          pid: sessionPid(),
           path: asAbsPath(upload.path),
           bytes: upload.bytes,
         }),

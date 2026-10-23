@@ -44,7 +44,9 @@ export type EssidCatalogEntry = {
   readonly site?: PublishedSite;
 };
 
-const entries = (
+/** `rows` of one category as catalog entries: an ESSID, its place, and an institution's
+ *  domain and site name, the name being the place unless it says otherwise. */
+export const entries = (
   category: NetworkCategory,
   rows: readonly (readonly [essid: string, place: string, domain?: string, siteName?: string])[],
 ): readonly EssidCatalogEntry[] =>

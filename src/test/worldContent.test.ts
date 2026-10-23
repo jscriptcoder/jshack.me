@@ -1,9 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { DECLARED_NETWORKS, RIDGEMONT, type DeclaredNetwork } from '../core/generation/world.js';
-import { TOWN_KEYS, townKeysSwept } from './worldContent.js';
+import {
+  declaredNetwork,
+  DECLARED_NETWORKS,
+  isLandmark,
+  RIDGEMONT,
+  TOWNS,
+  type DeclaredNetwork,
+} from '../core/generation/world.js';
+import { LANDMARK_KEYS, TOWN_KEYS, townKeysSwept } from './worldContent.js';
 
-/** Every network the world draws beyond Ridgemont. */
-const drawn = DECLARED_NETWORKS.filter((network) => network.town !== RIDGEMONT);
+/** Every network the world draws beyond Ridgemont: every one but the landmarks. */
+const drawn = DECLARED_NETWORKS.filter(
+  (network) => network.town !== RIDGEMONT && !isLandmark(network.key),
+);
 
 /** What makes two networks of a town read alike to a content sweep. */
 const shapeOf = (network: DeclaredNetwork): string =>
@@ -23,6 +32,14 @@ const inTown = (town: string | undefined) => (network: DeclaredNetwork) => netwo
  * that read alike, and sweeping them all would make the suite pay for every town the
  * world grows by. The whole world is still swept once at each pull request's gate.
  */
+describe('the landmarks a content sweep reads', () => {
+  it('are every landmark of every town, each read whole since each is written by hand', () => {
+    const towns = new Set(LANDMARK_KEYS.map((key) => declaredNetwork(key)?.town));
+    expect([...towns]).toEqual(expect.arrayContaining(TOWNS.map((town) => town.name)));
+    expect(LANDMARK_KEYS).toHaveLength(100);
+  });
+});
+
 describe('the drawn networks a content sweep reads', () => {
   it('are every one of them when the whole world is asked for', () => {
     expect(townKeysSwept('full')).toEqual(TOWN_KEYS);

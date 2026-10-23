@@ -78,16 +78,16 @@ describe('the front page of mapit.io', () => {
   it('lists every town beneath the drawing with its size and how many places its page lists: cities, then towns, then villages', () => {
     expect(legendOn('/')).toEqual([
       'Ridgemont city 102 places',
-      'Kingsford city 70 places',
-      'Oakhurst town 21 places',
-      'Wexcombe town 20 places',
-      'Stonebury town 23 places',
-      'Millbrook village 9 places',
-      'Ashby village 8 places',
-      'Fenwick village 8 places',
-      'Thornbury village 8 places',
-      'Hollowmere village 9 places',
-      'Ely village 6 places',
+      'Kingsford city 77 places',
+      'Oakhurst town 24 places',
+      'Wexcombe town 23 places',
+      'Stonebury town 26 places',
+      'Millbrook village 11 places',
+      'Ashby village 10 places',
+      'Fenwick village 10 places',
+      'Thornbury village 10 places',
+      'Hollowmere village 11 places',
+      'Ely village 8 places',
     ]);
   });
 
@@ -97,7 +97,7 @@ describe('the front page of mapit.io', () => {
     expect(towns.map((town) => town.count)).toEqual(
       towns.map((town) => `${cellsOn(pageOf(town)).length} places`),
     );
-    expect(towns.reduce((total, town) => total + parseInt(town.count, 10), 0)).toBe(284);
+    expect(towns.reduce((total, town) => total + parseInt(town.count, 10), 0)).toBe(312);
   });
 
   it('draws a frame 78 columns wide, every line of it flush with the frame', () => {
@@ -137,6 +137,8 @@ describe("a town's page on mapit.io", () => {
       'Broad Street Haulage logistics broadstreethaulage.com',
       'Millbrook Cottage Hospital hospital millbrookhospital.org',
       'Gateway Dental dentist gatewaydental.com',
+      'The Slaughtered Lamb cafe slaughteredlamb.com',
+      'The Local Shop retail localshopforlocalpeople.com',
     ]);
   });
 
@@ -159,7 +161,7 @@ describe("a town's page on mapit.io", () => {
     const millbrook = parsed(served('/millbrook.html') ?? '');
     expect(millbrook.title).toBe('Millbrook - mapit.io');
     expect(millbrook.querySelector('h1')?.textContent).toBe('Millbrook');
-    expect(millbrook.querySelector('p')?.textContent).toBe('A village in Harrow Valley. 9 places.');
+    expect(millbrook.querySelector('p')?.textContent).toBe('A village in Harrow Valley. 11 places.');
     for (const town of valleyTowns()) {
       const page = parsed(served(pageOf(town)) ?? '');
       expect(page.querySelector('h1')?.textContent).toBe(town.name);
@@ -210,7 +212,7 @@ describe("a town's plan on mapit.io", () => {
 
   it("marks every row of Millbrook's legend on its plan once, under the row's number", () => {
     const rows = cellsOn('/millbrook.html');
-    expect(rows).toHaveLength(9);
+    expect(rows).toHaveLength(11);
     expect(markersOn('/millbrook.html')).toEqual(upTo(rows.length));
   });
 

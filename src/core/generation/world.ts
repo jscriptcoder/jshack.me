@@ -13,6 +13,7 @@
  */
 
 import { ESSID_CATALOG, type NetworkCategory, type PublishedSite } from './pools/essidCatalog.js';
+import { TOWN_LANDMARKS } from './pools/townLandmarks.js';
 import {
   BUSINESS_CATEGORY_WEIGHTS,
   BUSINESS_SUBTYPES,
@@ -619,8 +620,29 @@ const branchesOf = (town: DrawnTown, count: number): readonly DeclaredNetwork[] 
  *  still keyed as the town's next networks. */
 const MILLBROOK_BRANCHES = branchesOf(MILLBROOK, MILLBROOK_NETWORKS.length);
 
-/** A town after Millbrook and every network it declares, its branches last. */
-type DeclaredTown = { readonly town: DrawnTown; readonly networks: readonly DeclaredNetwork[] };
+/** The landmarks `town` keeps, written by hand, keyed as its next networks after the
+ *  `count` it already holds. They draw nothing, and no later town's names are drawn clear
+ *  of theirs, so declaring them moved no network. */
+const landmarksOf = (town: DrawnTown, count: number): readonly DeclaredNetwork[] =>
+  (TOWN_LANDMARKS[town.name] ?? []).map((entry, index) => ({
+    ...entry,
+    key: `${townKey(town)}/n${count + index}`,
+    town: town.name,
+    region: regionOf(town),
+  }));
+
+const MILLBROOK_LANDMARKS = landmarksOf(
+  MILLBROOK,
+  MILLBROOK_NETWORKS.length + MILLBROOK_BRANCHES.length,
+);
+
+/** A town after Millbrook: every network it draws, its branches last, then its
+ *  landmarks, which the towns after it do not draw around. */
+type DeclaredTown = {
+  readonly town: DrawnTown;
+  readonly networks: readonly DeclaredNetwork[];
+  readonly landmarks: readonly DeclaredNetwork[];
+};
 
 /** The towns of `TOWN_ROWS`, each drawn after every network declared before it, so its
  *  names avoid theirs and move none of them. */
@@ -635,7 +657,8 @@ const DRAWN_TOWNS: readonly DeclaredTown[] = TOWN_ROWS.reduce<readonly DeclaredT
         ...declared.flatMap((drawn) => drawn.networks),
       ],
     });
-    return [...declared, { town, networks: [...networks, ...branchesOf(town, networks.length)] }];
+    const drawn = [...networks, ...branchesOf(town, networks.length)];
+    return [...declared, { town, networks: drawn, landmarks: landmarksOf(town, drawn.length) }];
   },
   [],
 );
@@ -666,21 +689,27 @@ const LANDMARKS: readonly DeclaredNetwork[] = ESSID_CATALOG.map((entry) => ({
   region: regionOf(RIDGEMONT_TOWN),
 }));
 
-const LANDMARK_KEYS: ReadonlySet<string> = new Set(LANDMARKS.map((network) => network.key));
+const LANDMARK_KEYS: ReadonlySet<string> = new Set(
+  [...LANDMARKS, ...MILLBROOK_LANDMARKS, ...DRAWN_TOWNS.flatMap((drawn) => drawn.landmarks)].map(
+    (network) => network.key,
+  ),
+);
 
-/** Whether the network under `key` is one of Ridgemont's landmarks, written by hand rather
- *  than drawn, so the world draws it no lead, forward or locality. */
+/** Whether the network under `key` is a landmark, Ridgemont's or another town's, written
+ *  by hand rather than drawn, so the world draws it no lead, forward or locality. */
 export const isLandmark = (key: string): boolean => LANDMARK_KEYS.has(key);
 
 /** Every network the world declares: Ridgemont's landmarks first, then Millbrook's, the
- *  corporations and Millbrook's branches, then each later town's networks and its branches,
- *  in the order the towns were declared, then the networks Ridgemont draws. */
+ *  corporations, Millbrook's branches and its landmarks, then each later town's networks,
+ *  its branches and its landmarks, in the order the towns were declared, then the networks
+ *  Ridgemont draws. */
 export const DECLARED_NETWORKS: readonly DeclaredNetwork[] = [
   ...LANDMARKS,
   ...MILLBROOK_NETWORKS,
   ...CORPORATIONS,
   ...MILLBROOK_BRANCHES,
-  ...DRAWN_TOWNS.flatMap((drawn) => drawn.networks),
+  ...MILLBROOK_LANDMARKS,
+  ...DRAWN_TOWNS.flatMap((drawn) => [...drawn.networks, ...drawn.landmarks]),
   ...RIDGEMONT_DRAWN,
 ];
 
@@ -769,7 +798,11 @@ const townAddresses = (
 const ADDRESS_BY_KEY: ReadonlyMap<string, string> = new Map([
   [FINDIT_NETWORK, placelessAddress(0)],
   ...landmarkAddresses(),
-  ...townAddresses(MILLBROOK, [...MILLBROOK_NETWORKS, ...MILLBROOK_BRANCHES]),
+  ...townAddresses(MILLBROOK, [
+    ...MILLBROOK_NETWORKS,
+    ...MILLBROOK_BRANCHES,
+    ...MILLBROOK_LANDMARKS,
+  ]),
   // The drawn corporations answer after findit and every landmark corporation.
   ...CORPORATIONS.map((network, index): [string, string] => [
     network.key,
@@ -790,7 +823,9 @@ const ADDRESS_BY_KEY: ReadonlyMap<string, string> = new Map([
   [HIREME_NETWORK, placelessAddress(6 + LANDMARK_CORPORATIONS.length + CORPORATIONS.length)],
   // valleynews came after hireme, and takes the next address.
   [VALLEYNEWS_NETWORK, placelessAddress(7 + LANDMARK_CORPORATIONS.length + CORPORATIONS.length)],
-  ...DRAWN_TOWNS.flatMap((drawn) => townAddresses(drawn.town, drawn.networks)),
+  ...DRAWN_TOWNS.flatMap((drawn) =>
+    townAddresses(drawn.town, [...drawn.networks, ...drawn.landmarks]),
+  ),
   // Ridgemont's drawn networks answer after its landmarks, at the places their keys hold.
   ...RIDGEMONT_DRAWN.map((network, index): [string, string] => [
     network.key,

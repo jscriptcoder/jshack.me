@@ -53,6 +53,7 @@ import { relationsTo } from './relations.js';
 import { seededForwards } from './seededForwards.js';
 import { indexedWeb } from '../findit/webIndex.js';
 import { robotsAllowFindit } from '../findit/robots.js';
+import { md5 } from './md5.js';
 
 /**
  * The world reaches past Ridgemont. Millbrook is a village of its own, with its own block
@@ -103,19 +104,22 @@ const servedFiles = (key: string): readonly (readonly [string, string])[] => {
   );
 };
 
-/** Every network the world declares in a town it draws: every one but Ridgemont's and
- *  the corporations'. */
+/** Every network the world draws in a town beyond Ridgemont: every one but Ridgemont's,
+ *  the corporations' and the landmarks written by hand. */
 const drawnTownNetworks = (): readonly DeclaredNetwork[] =>
-  DECLARED_NETWORKS.filter((network) => network.town !== undefined && network.town !== RIDGEMONT);
+  DECLARED_NETWORKS.filter(
+    (network) =>
+      network.town !== undefined && network.town !== RIDGEMONT && !isLandmark(network.key),
+  );
 
 /** Every town the world draws, in the order it declares them. */
 const drawnTowns = (): readonly string[] => [
   ...new Set(drawnTownNetworks().flatMap((network) => network.town ?? [])),
 ];
 
-/** Every network the world declares in Millbrook. */
+/** Every network Millbrook draws: every one it declares but its landmarks. */
 const millbrook = (): readonly DeclaredNetwork[] =>
-  DECLARED_NETWORKS.filter((network) => network.town === 'Millbrook');
+  DECLARED_NETWORKS.filter((network) => network.town === 'Millbrook' && !isLandmark(network.key));
 
 /** The networks Millbrook draws of its own: every one but the corporations' branches. */
 const townsOwn = (): readonly DeclaredNetwork[] =>
@@ -493,9 +497,7 @@ const everyFormedHome = (): readonly FormedHome[] =>
 
 /** The homes of every town the world draws: every one but Ridgemont's. */
 const townHomes = (): readonly DeclaredNetwork[] =>
-  DECLARED_NETWORKS.filter(
-    (network) => network.category === 'residential' && network.town !== RIDGEMONT,
-  );
+  drawnTownNetworks().filter((network) => network.category === 'residential');
 
 /** The home the grammar names as `home` is named. */
 const formedAs = (home: DeclaredNetwork): FormedHome | undefined =>
@@ -1371,9 +1373,9 @@ describe("Millbrook's branches", () => {
   });
 });
 
-/** Every network the world declares in Ashby. */
+/** Every network Ashby draws: every one it declares but its landmarks. */
 const ashby = (): readonly DeclaredNetwork[] =>
-  DECLARED_NETWORKS.filter((network) => network.town === 'Ashby');
+  DECLARED_NETWORKS.filter((network) => network.town === 'Ashby' && !isLandmark(network.key));
 
 /** What a town declares `network` as: one of its institutions, a business, a home, a
  *  practice, or a corporation's branch. A hospital is an institution. */
@@ -1511,9 +1513,9 @@ describe('Ashby', () => {
   });
 });
 
-/** Every network the world declares in Oakhurst. */
+/** Every network Oakhurst draws: every one it declares but its landmarks. */
 const oakhurst = (): readonly DeclaredNetwork[] =>
-  DECLARED_NETWORKS.filter((network) => network.town === 'Oakhurst');
+  DECLARED_NETWORKS.filter((network) => network.town === 'Oakhurst' && !isLandmark(network.key));
 
 /** How many of `networks` are declared as `kind`. */
 const countDrawnAs = (networks: readonly DeclaredNetwork[], kind: DrawnAs): number =>
@@ -1704,9 +1706,9 @@ describe('Oakhurst', () => {
   });
 });
 
-/** Every network the world declares in Kingsford. */
+/** Every network Kingsford draws: every one it declares but its landmarks. */
 const kingsford = (): readonly DeclaredNetwork[] =>
-  DECLARED_NETWORKS.filter((network) => network.town === 'Kingsford');
+  DECLARED_NETWORKS.filter((network) => network.town === 'Kingsford' && !isLandmark(network.key));
 
 /**
  * Kingsford is the world's first city: a courthouse and a hospital it always keeps, and
@@ -2035,9 +2037,9 @@ const SIZE_RANGES = {
   town: { business: [12, 24], home: [12, 24], practice: [2, 4], branch: [2, 3] },
 } as const;
 
-/** Every network the world declares in `town`. */
+/** Every network `town` draws: every one it declares but its landmarks. */
 const townNamed = (town: string): readonly DeclaredNetwork[] =>
-  DECLARED_NETWORKS.filter((network) => network.town === town);
+  DECLARED_NETWORKS.filter((network) => network.town === town && !isLandmark(network.key));
 
 type InstitutionKind = 'council' | 'police' | 'library' | 'courthouse' | 'hospital';
 
@@ -2404,10 +2406,11 @@ describe('the reach of the world', () => {
         .flatMap((network) => network.directory ?? [])
         .map((site) => site.domain),
     );
+    // A landmark that publishes nothing is left to the players who start in its town.
     const found = new Set(
       DECLARED_NETWORKS.filter(
         (network) =>
-          network.town === 'Ridgemont' ||
+          (isLandmark(network.key) && network.site === undefined) ||
           (network.site !== undefined &&
             (searchable.has(network.site.domain) || inDirectory.has(network.site.domain))),
       ).map((network) => network.key),
@@ -2460,7 +2463,7 @@ describe('Ridgemont', () => {
   });
 });
 
-/** Every landmark: the catalog's networks, all of them standing in Ridgemont. */
+/** Every landmark, Ridgemont's and every other town's. */
 const landmarks = (): readonly DeclaredNetwork[] =>
   DECLARED_NETWORKS.filter((network) => isLandmark(network.key));
 
@@ -2470,7 +2473,9 @@ const octetsOf = (address: string | undefined): readonly number[] =>
 
 describe("Ridgemont's addresses", () => {
   it('answers every landmark but a corporation inside its own block of the region', () => {
-    const local = landmarks().filter((network) => network.category !== 'corporate');
+    const local = landmarks().filter(
+      (network) => network.town === RIDGEMONT && network.category !== 'corporate',
+    );
     expect(local.length).toBeGreaterThan(0);
     for (const network of local) {
       const address = publicAddress(network.key);
@@ -2480,7 +2485,9 @@ describe("Ridgemont's addresses", () => {
   });
 
   it('answers every fixed site and every corporation in the placeless block', () => {
-    const corporations = landmarks().filter((network) => network.category === 'corporate');
+    const corporations = landmarks().filter(
+      (network) => network.town === RIDGEMONT && network.category === 'corporate',
+    );
     expect(corporations).toHaveLength(20);
     for (const key of [
       FINDIT_NETWORK,
@@ -2925,7 +2932,8 @@ describe('the words places are named with', () => {
     expect(towns.length).toBeGreaterThan(2);
     for (const town of towns) {
       const drawn = DECLARED_NETWORKS.filter(
-        (network) => network.town === town && network.parent === undefined,
+        (network) =>
+          network.town === town && network.parent === undefined && !isLandmark(network.key),
       );
       expect(drawn.flatMap(wordsOf).length, town).toBeGreaterThan(0);
       expect(repeatedWords(drawn), town).toEqual([]);
@@ -2969,5 +2977,217 @@ describe('the towns of the world', () => {
     expect(named('city')).toEqual(['Ridgemont', 'Kingsford']);
     expect(named('town')).toEqual(['Oakhurst', 'Wexcombe', 'Stonebury']);
     expect(named('village')).toHaveLength(TOWNS.length - 5);
+  });
+});
+
+/** A landmark as written by hand: its wifi, its category, the place its people name, and
+ *  the domain and name of the site it publishes, if it publishes one. */
+type WrittenLandmark = readonly [
+  essid: string,
+  category: NetworkCategory,
+  place: string,
+  domain?: string,
+  siteName?: string,
+];
+
+/** The landmarks every town beyond Ridgemont keeps, in the order each town declares them. */
+const TOWN_LANDMARKS: Readonly<Record<string, readonly WrittenLandmark[]>> = {
+  Millbrook: [
+    [
+      'THE-SLAUGHTERED-LAMB',
+      'cafe',
+      'the Slaughtered Lamb',
+      'slaughteredlamb.com',
+      'The Slaughtered Lamb',
+    ],
+    [
+      'LOCAL-SHOP-LOCAL-PEOPLE',
+      'retail',
+      'the Local Shop',
+      'localshopforlocalpeople.com',
+      'The Local Shop',
+    ],
+    ['WRONG-TROUSERS', 'iot', 'the cellar workshop'],
+  ],
+  Ashby: [
+    ['THE-WOOLPACK', 'cafe', 'the Woolpack', 'thewoolpack.com', 'The Woolpack'],
+    [
+      'GREENDALE-POST-OFFICE',
+      'retail',
+      'the post office',
+      'greendalepost.com',
+      'Greendale Post Office',
+    ],
+    ['SKELDALE-HOUSE', 'residential', 'Skeldale House'],
+  ],
+  Oakhurst: [
+    [
+      'SARIF-INDUSTRIES',
+      'corporate',
+      'Sarif Industries',
+      'sarifindustries.com',
+      'Sarif Industries',
+    ],
+    ['DOUBLE-R-DINER', 'cafe', 'the Double R Diner', 'doublerdiner.com', 'Double R Diner'],
+    ['NOOKS-CRANNY', 'retail', "Nook's Cranny", 'nookscranny.com', "Nook's Cranny"],
+    ['LOG-LADY-CABIN', 'residential', "the Log Lady's cabin"],
+    ['JOHNNY-5-AP', 'iot', 'the garage'],
+  ],
+  Kingsford: [
+    ['LUMON-INDUSTRIES', 'corporate', 'Lumon Industries', 'lumon.com', 'Lumon Industries'],
+    ['E-CORP-GUEST', 'corporate', 'E Corp', 'e-corp.com', 'E Corp'],
+    ['ENCOM-NET', 'corporate', 'ENCOM', 'encom.com', 'ENCOM'],
+    [
+      'REYNHOLM-INDUSTRIES',
+      'corporate',
+      'Reynholm Industries',
+      'reynholm.com',
+      'Reynholm Industries',
+    ],
+    ['CENTRAL-PERK', 'cafe', 'Central Perk', 'centralperk.com', 'Central Perk'],
+    [
+      'LOS-POLLOS-HERMANOS',
+      'cafe',
+      'Los Pollos Hermanos',
+      'lospolloshermanos.com',
+      'Los Pollos Hermanos',
+    ],
+    ['JOJAMART', 'retail', 'JojaMart', 'jojamart.com', 'JojaMart'],
+    ['221B-WIFI', 'residential', 'the flat at 221B'],
+    ['HAL-9000', 'iot', 'the smart speaker'],
+    ['FSOCIETY', 'hacker', 'the old arcade'],
+  ],
+  Fenwick: [
+    ['THE-GREEN-MAN', 'cafe', 'the Green Man', 'thegreenmaninn.com', 'The Green Man'],
+    ['LON-LON-RANCH', 'retail', 'Lon Lon Ranch', 'lonlonranch.com', 'Lon Lon Ranch'],
+    ['TALKIE-TOASTER', 'iot', 'the kitchen'],
+  ],
+  Thornbury: [
+    ['FAWLTY-TOWERS', 'cafe', 'Fawlty Towers', 'fawltytowers.com', 'Fawlty Towers'],
+    [
+      'PIERRES-GENERAL-STORE',
+      'retail',
+      "Pierre's General Store",
+      'pierresgeneralstore.com',
+      "Pierre's General Store",
+    ],
+    ['THE-GIBSON', 'hacker', 'the back room'],
+  ],
+  Hollowmere: [
+    [
+      'THE-THREE-BROOMSTICKS',
+      'cafe',
+      'the Three Broomsticks',
+      'threebroomsticks.com',
+      'The Three Broomsticks',
+    ],
+    [
+      'JUPITER-MINING',
+      'corporate',
+      'Jupiter Mining Corporation',
+      'jupitermining.com',
+      'Jupiter Mining Corporation',
+    ],
+    ['THE-BURROW', 'residential', 'the Burrow'],
+  ],
+  Ely: [
+    [
+      'THE-HORSE-AND-GROOM',
+      'cafe',
+      'the Horse and Groom',
+      'horseandgroom.com',
+      'The Horse and Groom',
+    ],
+    ['BLACK-BOOKS', 'retail', 'Black Books', 'blackbooks.com', 'Black Books'],
+    ['DEEP-THOUGHT', 'hacker', 'the spare room'],
+  ],
+  Wexcombe: [
+    ['INGEN-LABS', 'corporate', 'InGen', 'ingen.com', 'InGen'],
+    ['LUKES-DINER', 'cafe', "Luke's Diner", 'lukesdiner.com', "Luke's Diner"],
+    ['SCOOPS-AHOY', 'retail', 'Scoops Ahoy', 'scoopsahoy.com', 'Scoops Ahoy'],
+    ['BAG-END', 'residential', 'Bag End'],
+    ['SETEC-ASTRONOMY', 'hacker', 'the warehouse'],
+  ],
+  Stonebury: [
+    ['WERNHAM-HOGG', 'corporate', 'Wernham Hogg', 'wernhamhogg.com', 'Wernham Hogg'],
+    ['THE-WINCHESTER', 'cafe', 'the Winchester', 'thewinchesterpub.com', 'The Winchester'],
+    [
+      'TROTTERS-INDEPENDENT-TRADERS',
+      'retail',
+      'Trotters Independent Traders',
+      'trottersindependent.com',
+      'Trotters Independent Traders',
+    ],
+    ['METEOR-STREET-FLAT', 'residential', '23 Meteor Street'],
+    ['THE-LONE-GUNMEN', 'hacker', "the Lone Gunmen's office"],
+  ],
+};
+
+/** Every network the world declares in `town`, in the order it declares them. */
+const networksIn = (town: string): readonly DeclaredNetwork[] =>
+  DECLARED_NETWORKS.filter((network) => network.town === town);
+
+/** A declared network as a landmark is written: the shape `TOWN_LANDMARKS` holds. */
+const asWritten = (network: DeclaredNetwork): WrittenLandmark =>
+  network.site === undefined
+    ? [network.essid, network.category, network.place]
+    : [network.essid, network.category, network.place, network.site.domain, network.site.name];
+
+/** The first two octets of `address`: the block of the town that answers there. */
+const blockOf = (address: string | undefined): string => octetsOf(address).slice(0, 2).join('.');
+
+describe("the towns' landmarks", () => {
+  it('declares the landmarks of every town beyond Ridgemont, as written, after everything the town draws', () => {
+    expect(drawnTowns()).toEqual(Object.keys(TOWN_LANDMARKS));
+    for (const town of drawnTowns()) {
+      const networks = networksIn(town);
+      const landmarks = networks.filter((network) => isLandmark(network.key));
+      expect(landmarks.map(asWritten), town).toEqual(TOWN_LANDMARKS[town]);
+      expect(networks.slice(-landmarks.length), town).toEqual(landmarks);
+    }
+  });
+
+  it("keys each one as its town's next network and answers it in its town's block", () => {
+    for (const town of drawnTowns()) {
+      const networks = networksIn(town);
+      const [first] = networks;
+      if (first === undefined) throw new Error(`${town} declares no network`);
+      const prefix = first.key.replace(/\/n\d+$/, '');
+      networks.forEach((network, index) => {
+        expect(network.key, town).toBe(`${prefix}/n${index}`);
+        if (isLandmark(network.key)) {
+          expect(blockOf(publicAddress(network.key)), network.essid).toBe(
+            blockOf(publicAddress(first.key)),
+          );
+        }
+      });
+    }
+  });
+
+  it('keeps 10 in a city, 5 in a town and 3 in a village, and none new in Ridgemont', () => {
+    const LANDMARKS_BY_SIZE: Readonly<Record<string, number>> = { city: 10, town: 5, village: 3 };
+    for (const town of TOWNS) {
+      const landmarks = networksIn(town.name).filter((network) => isLandmark(network.key));
+      expect(landmarks.length, town.name).toBe(
+        town.name === RIDGEMONT ? 57 : LANDMARKS_BY_SIZE[town.size],
+      );
+    }
+  });
+
+  it('moves no network declared before them: each keeps its key, wifi, town, domain and address', () => {
+    // Every network of v0.428.0, as one fingerprint: a town's landmarks only ever append.
+    const before = DECLARED_NETWORKS.filter(
+      (network) => !(isLandmark(network.key) && network.town !== RIDGEMONT),
+    ).map((network) =>
+      [
+        network.key,
+        network.essid,
+        network.town ?? '',
+        network.site?.domain ?? '',
+        publicAddress(network.key) ?? '',
+      ].join('|'),
+    );
+    expect(before).toHaveLength(612);
+    expect(md5(before.join('\n'))).toBe('327ab17411b78de31fb483fde0e15bf1');
   });
 });

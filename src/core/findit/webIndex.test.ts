@@ -17,7 +17,7 @@ import {
 } from '../generation/fixedSites.js';
 import { HACKADEMY_PAGES } from '../hackademy/pages.js';
 import { rankPages } from './search.js';
-import { DECLARED_NETWORKS, publicAddress } from '../generation/world.js';
+import { DECLARED_NETWORKS, isLandmark, publicAddress } from '../generation/world.js';
 
 /**
  * What findit holds when somebody searches: every homepage on the public web as it is
@@ -114,7 +114,7 @@ describe('the web findit searches', () => {
     );
   });
 
-  it('describes every place in a town beyond Ridgemont as standing in that town', async () => {
+  it('describes every place a town beyond Ridgemont draws as standing in that town', async () => {
     // A search for a town and a kind of place has nothing else to go on: a café's name
     // says nothing of where it stands.
     const web = await indexWith();
@@ -122,6 +122,8 @@ describe('the web findit searches', () => {
       (network) =>
         network.town !== undefined &&
         network.town !== 'Ridgemont' &&
+        // A landmark's site reads as it was written, naming no town.
+        !isLandmark(network.key) &&
         network.site !== undefined &&
         network.unlisted !== true,
     );
@@ -132,7 +134,7 @@ describe('the web findit searches', () => {
     }
   });
 
-  it("lists every place of a town beyond Ridgemont in the top ten for the town's name and a word of its kind", async () => {
+  it("lists every place a town beyond Ridgemont draws in the top ten for the town's name and a word of its kind", async () => {
     /** A word each kind of place says of itself in its description. */
     const kindWords: Readonly<Record<string, string>> = {
       'the town hall': 'council',
@@ -164,6 +166,8 @@ describe('the web findit searches', () => {
       (network) =>
         network.town !== undefined &&
         network.town !== 'Ridgemont' &&
+        // A landmark's site reads as it was written, naming no town.
+        !isLandmark(network.key) &&
         network.site !== undefined &&
         network.unlisted !== true,
     );

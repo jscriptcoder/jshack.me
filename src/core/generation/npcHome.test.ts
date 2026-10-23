@@ -18,7 +18,7 @@ import {
   ALL_ESSIDS,
   WORLD_ESSIDS,
   falsehoodIn,
-  LANDMARK_ESSIDS,
+  LANDMARK_KEYS,
   filesUnder,
   lanBoxes,
   leadsKeptOn,
@@ -98,7 +98,7 @@ describe('an NPC desktop reads as somebody’s', () => {
 
   it('leaves every box of a landmark that is not a personal computer, a phone or a tablet with an empty home', () => {
     // A drawn network's file server may keep a client's offsite copy in a home of its own.
-    lanBoxes(LANDMARK_ESSIDS)
+    lanBoxes(LANDMARK_KEYS)
       .filter(({ host }) => !isDesk(host) && !['android', 'iphone', 'tablet'].includes(prefixOf(host)))
       .forEach((box) => {
         expect(homeFilesOf(box).size).toBe(0);
