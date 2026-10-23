@@ -43,7 +43,11 @@ says only which address paid which, a wallet is not a player, and anybody readin
 could claim another's transfer. No key was ever made for a trip address, so a fare is
 **burned**: its coins never move again, and JSC leaves an economy that until then only grew.
 An overpayment boards and the excess stays there, lost like coins sent to a mistyped address.
-Nothing on chainit marks a trip address as rideit's.
+Nothing on chainit marks a trip address as rideit's. Rejected: the server holding the trip
+addresses' keys and sweeping each fare into one public rideit address, which would put the
+takings on chainit and make them a target for whoever roots rideit, at the cost of a key the
+server holds, a second transfer per trip and a secret to manage. No new source of JSC came with
+the fare: a traveller pays with coins the operator mints, or coins taken from another wallet.
 
 ## 1. The server: two tables, two functions, one endpoint
 

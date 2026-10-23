@@ -193,10 +193,48 @@ and the best score wins. So:
 **Your own town is on your WiFi, homes included; every other town is reachable only over the
 internet, and its homes only through leads.** One rule, with Ridgemont no longer a special case.
 A local can scan straight onto a home a lead points at, and that is what living there means.
-A landmark keeps no lead, so one with no site is reached only by the players who start in its
-town, until travel: Ridgemont's 18 (six homes, four university networks, four IoT, four hacker
-spaces) and the other towns' 15. The other towns' 28 sited landmarks are on findit for
-everyone.
+A landmark keeps no lead, so one with no site is reached only by the players who stand in its
+town, those who start there and anybody who travels there: Ridgemont's 18 (six homes, four
+university networks, four IoT, four hacker spaces) and the other towns' 15. The other towns' 28
+sited landmarks are on findit for everyone.
+
+## Travelling
+
+A player moves by buying a ride at **rideit.io**, the ninth fixed site, read with `lynx` or
+`curl`. There is no travel command: the world is a terminal and the web, and a `travel` verb
+would have no Linux counterpart. `/ticket` lists every declared town in the world's order, each
+with its own `[ Board ]` (lynx draws no drop-down list), and quotes the 25 JSC fare and the
+reader's trip address; `POST /board` moves them (`core/rideit/board.ts`, routed in
+`resolveHttpFetch.ts`). Both are answered by a function, never a file, so a root on rideit can
+deface its front page but never stop anybody riding. The fare, the trip address and why fares
+are burned are in `wallet-architecture.md`.
+
+- **Boarding is leaving**, by the `nmcli disconnect` rule: the player's box comes off every
+  network it is on and every connection through it closes, both ways, while the owner's own
+  sessions on their box stay open. Only then is the move written, so a write that fails leaves
+  the player disconnected where they were, never moved while still on another town's network.
+  The traveller is the verified signer, wherever their shell stands. The answer carries `left`,
+  on which the player's own tab takes `wlan0` down and forgets the remembered connection
+  (`fetchPublicPageFn`, `ui/state.ts`), whether the boarding came from `lynx`, `curl` or a shell
+  on another box. A reload restores nothing; the player arrives offline and scans, cracks and
+  joins as on day one.
+- **The journey is instant, with no cooldown.** The next `airodump-ng` scans the new town.
+- **The move names the trip count it read** (`moveLocation`) and holds only if that still
+  stands, so two boardings at once store one move and count one trip, and one fare buys one
+  trip. The one that lost the race still left.
+- **rideit never says where the reader stands.** No page has a "From:", and a ride to the town
+  the player already stands in is a trip like any other: it costs a fare and the connection, and
+  they arrive where they were. Nothing warns them.
+- **rideit's box logs only the access line**: `POST /board` from the traveller's source address,
+  the public address of the WiFi they boarded from, never the destination. A root on rideit
+  learns that somebody on that network just left (`whois` names it), not where they went.
+- **Every declared town is a destination** the moment it is declared, in any region; the 28
+  networks in no town never are.
+
+**Carried risk.** A tab closed between the `/board` answer and the client taking `wlan0` down
+keeps the remembered connection, so a reload restores a network the server no longer counts the
+player on. It is the same class as an `nmcli disconnect` whose fire-and-forget leave never
+landed, and it clears at the player's next `nmcli disconnect` or `connect`.
 
 ## Joining
 
@@ -362,3 +400,13 @@ than its gateway's ssh from outside.
   keeps.
 - **Ridgemont is a city like Kingsford**, drawn from the city's ranges unchanged. Rejected: a
   denser class of its own to reach the old "150–300", which no player could see.
+- **A timed journey was rejected.** It would add a stored in-transit state that the scan, the
+  join and a reload must all respect, and cost only waiting; the fare already prices hopping.
+- **One flat fare to any town.** Fares by the destination's size or by distance along the roads
+  were rejected: a second rule, and the roads are not data, only mapit's hand-drawn map.
+- **rideit is one booking service for the valley**, in the `-it.io` family. Rejected: a named
+  operator (it breaks the family naming) and Ridgemont Central Station's landmark site (a
+  landmark's content cannot move, and every town needs a way out).
+- **The scan's existing server call answers where the player stands.** No new endpoint and no
+  client cache, so the scan and the join read one stored row and cannot disagree, and the town
+  never sits in client storage.

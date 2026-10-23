@@ -1273,10 +1273,9 @@ agreed order:
     from there opened Kingsford's Central Perk as written. No defect. **Pick up here
     (2026-10-23):** whether `kestrel` is signed up again to stand in the owner's town is the
     owner's call; then entry 30's close-out and the items still open in `backlog.md`.
-33. 🚧 **Travel between towns (in flight).** A player buys a ride on rideit.io, the ninth fixed
-    site, paying a flat 25 JSC fare to a payment address made for their trip; boarding is
-    leaving, and the next scan is the new town's. The decisions and the three slices are in
-    `plans/travel.md`. Slice 1 (v0.430.0): rideit.io stands in the valley, at `193.103.160.138`,
+33. ✅ **Travel between towns (v0.430.0–v0.432.0, PRs #730, #731, #733, 2026-10-23).** A player
+    buys a ride on rideit.io, the ninth fixed site, paying a flat 25 JSC fare to a payment
+    address made for their trip; boarding is leaving, and the next scan is the new town's. Slice 1 (v0.430.0): rideit.io stands in the valley, at `193.103.160.138`,
     its front page quoting the fare and listing every town, found on findit by "ticket" and
     "travel"; booking is not open yet. Slice 2 (v0.431.0): a free ride to any town. rideit's
     `/ticket` lists every town with a `[ Board ]` each; `POST /board` takes the player's box off
@@ -1287,9 +1286,19 @@ agreed order:
     (v0.432.0): the ride costs 25 JSC. `/ticket` quotes the reader's trip address
     (`tripAddress`: their key and trips taken, hashed) and what has arrived there; `/board` is
     refused, changing nothing, until the whole fare has, and the boarding moves the trip count
-    on, so one fare buys one trip. Fares are burned. **Pick up here (2026-10-23):** the
-    close-out in `plans/travel.md`: one browser run, then the decisions move into
-    `procedural-world-architecture.md` and `wallet-architecture.md`.
+    on, so one fare buys one trip. Fares are burned. As built: `procedural-world-architecture.md`,
+    "Where a player stands", "Joining", "The scan" and "Travelling"; `wallet-architecture.md` for
+    the fare; what it left out is in `backlog.md` under "Travel". Browser close-out (2026-10-23,
+    v0.432.0): a fresh player drawn into Wexcombe cracked and joined BARN-CONVERSION, ran
+    `wallet init`, took an operator mint of 100 JSC and opened `lynx rideit.io/ticket`, which
+    quoted their trip address (`tripAddress(key, 0)` exactly) and "0 of 25 JSC". Boarding for
+    Ridgemont unpaid was refused with the WiFi still up; after `wallet send` of 25 the page read
+    "25 of 25 JSC", and boarding answered "You have arrived in Ridgemont." with the link OFFLINE
+    and `wlan0` down. A reload restored no network; the next scan offered Ridgemont's
+    GARROW-COMPUTING and BEAN-THERE-WIFI, as predicted offline; they cracked and joined
+    BEAN-THERE-WIFI, and `whois 87.1.0.159` answered `city: Ridgemont`. The store held Ridgemont
+    with one trip, 25 JSC at the trip address and 75 in the wallet. No defect. **Pick up here
+    (2026-10-23):** the owner's choice from the items still open in `backlog.md`.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

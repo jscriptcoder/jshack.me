@@ -39,11 +39,31 @@ EASTFIELD-CAFE, Hollowmere: `whois 87.172.170.223`.
 
 **Predict the scan instead of re-scanning blind.** A scan is a pure function of the key and
 the scan index, and the first `airodump-ng` is index 1, each later one the next. So
-`generateWifi({ seedPubkeyHex: key, scanIndex })` for 1, 2, … (`core/generation/generateWifi.ts`)
+`generateWifi({ seedPubkeyHex: key, town, scanIndex })` for 1, 2, … (`core/generation/generateWifi.ts`)
 lists offline which scan offers the network a run needs; filter `crackable` and name each by
 `essidOf`. The occupied network the scan may add is drawn after its picks, so it never moves
 them. Verified 2026-10-23 (v0.429.0): a Wexcombe player's scans 1 and 2 matched it row for row,
 LUKES-DINER on the second.
+
+**Travel to another town** (verified 2026-10-23, v0.432.0, Wexcombe to Ridgemont). From a
+connected player:
+
+1. `su root`, then `apt install lynx`, `apt install whois` and `apt install wallet`, one package
+   each, then `exit`. **`wallet` is not preinstalled either**: `wallet init` answers
+   `bash: wallet: command not found`.
+2. `wallet init` as the player, then mint to the address it prints, locally:
+   `npx dotenv -e .env.development.local -- npx tsx scripts/mintCoins.ts <address> 100`.
+3. `lynx rideit.io/ticket` quotes the trip address (offline: `tripAddress(key, trips)`,
+   `core/rideit/fare.ts`). `q`, then `wallet send <address> 25`.
+4. `lynx rideit.io/ticket` again: it reads `25 of 25 JSC`, and the cursor rests on the first
+   town's `[ Board ]` (Ridgemont). `ArrowDown` to another, `Enter` boards. The arrival page shows
+   LINK OFFLINE and `WLAN0 DOWN`.
+
+**A reload resets the scan index**, so the first `airodump-ng` after one is scan 1 again: predict
+it with the new town. The town a player stands in is their `player_locations` row
+(`docker exec supabase_db_jshack-me psql -U postgres -tAc "select town, trips from player_locations where owner_key = '<key>'"`).
+The old town's network is refused by the client before the server asks (`nmcli: network "X" not
+found`), since it is out of range; the server's `403` is `scripts/testTravel.ts`'s to prove.
 
 A recipe below that names a Ridgemont network (a landmark such as `SHINRA-5G`, or a key
 `r0/t0/n…`) needs a player who starts in Ridgemont: `localStorage.clear()`, reload, NEW GAME, and

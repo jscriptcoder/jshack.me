@@ -948,12 +948,12 @@ decision, not a gap.
       2.15 ms against 2 ms; findit's generated web, 1,170 ms against 1,000 ms), and
       `relations.test.ts` once timed out in a full run ("keeps no shortcut to a client on any
       other box of the office", about 39 s against 30 s) while passing alone.
-  - **Travel** between towns and regions. Joining another town's WiFi gives another public
-    address, since the address belongs to the network. Its first half shipped at v0.428.0: a
-    player starts in a town drawn from their key, and the join refuses every network outside it
-    (`procedural-world-architecture.md`, "Where a player stands"). Moving is what is left: a
-    stored location that overrides the drawn town. Until it ships, a landmark with no site
-    (Ridgemont's 18 and the other towns' 15) is reached only by players who start in its town.
+  - ✅ **Travel** between towns and regions: shipped. A player starts in a town drawn from their
+    key (v0.428.0) and moves by buying a 25 JSC ride at rideit.io (v0.430.0–v0.432.0, PRs #730,
+    #731, #733); as-built in `procedural-world-architecture.md`, "Where a player stands" and
+    "Travelling", and `wallet-architecture.md` for the fare. Left open:
+    - **Earning a fare**: wallets in the world and mission payouts, under the crypto wallet
+      follow-ups above. Until one ships, the operator mint is a traveller's only funding.
     - **A booking log on rideit.io naming destinations**: a tracking prize for whoever roots
       rideit. Today its box logs only the access line, `POST /board` from the traveller's
       source address, so a root learns that somebody on that network left, never where to.
