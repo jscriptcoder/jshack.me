@@ -494,6 +494,16 @@ export type AuthLogEvent =
       readonly direction: TransferDirection;
       readonly path: AbsPath;
       readonly bytes: number;
+    }
+  | {
+      /** A `passwd` change on the player's own box — `passwd`'s own line, naming the
+       *  account whose hash was rewritten. Written on SUCCESS only: the one failure
+       *  that can reach a log point is the owner fumbling their own current password,
+       *  which informs nobody. */
+      readonly kind: 'passwdChange';
+      readonly machineId: MachineId;
+      readonly targetUser: string;
+      readonly hostname: string;
     };
 
 /** The crash a `msfconsole --local` MISS hands to `log.appendKernLog` — the command

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { asGameTime } from '../types.js';
-import { formatSessionOpenedLine, formatSshdAuthLine, formatSuAuthLine } from './authLog.js';
+import {
+  formatPasswdLine,
+  formatSessionOpenedLine,
+  formatSshdAuthLine,
+  formatSuAuthLine,
+} from './authLog.js';
 
 /**
  * Auth-log line formatting — the syslog-style `/var/log/auth.log` entry `su`
@@ -152,6 +157,43 @@ describe('formatSessionOpenedLine', () => {
     expect(line).toContain('session opened for user root');
     expect(line).not.toContain('Accepted password');
     expect(line).not.toMatch(/CVE-/);
+  });
+});
+
+describe('formatPasswdLine', () => {
+  it('renders a password change as a syslog passwd line naming the account', () => {
+    const line = formatPasswdLine({
+      user: 'root',
+      hostname: 'workstation',
+      time: JUN_7,
+      pid: 4242,
+    });
+
+    expect(line).toBe('Jun  7 14:32:01 workstation passwd[4242]: password changed for root');
+  });
+
+  it('zero-pads time and space-pads the day, naming whichever account changed', () => {
+    const line = formatPasswdLine({
+      user: 'guest',
+      hostname: 'rig',
+      time: asGameTime(Date.UTC(2026, 0, 3, 4, 5, 6)),
+      pid: 7,
+    });
+
+    expect(line).toBe('Jan  3 04:05:06 rig passwd[7]: password changed for guest');
+  });
+
+  it('escapes an account name that would otherwise inject log structure', () => {
+    const line = formatPasswdLine({
+      user: 'root for other',
+      hostname: 'box',
+      time: JUN_7,
+      pid: 100,
+    });
+
+    expect(line).toBe(
+      String.raw`Jun  7 14:32:01 box passwd[100]: password changed for root\x20for\x20other`,
+    );
   });
 });
 

@@ -5,6 +5,7 @@ import {
   mockCommandEnv,
   mockFsViewFromTree,
   mockIdentity,
+  mockLogApi,
   mockPatchApi,
   mockSession,
 } from '../../test/factories/commandEnv.js';
@@ -17,7 +18,7 @@ import {
   type AbsPath,
   type UserType,
 } from '../types.js';
-import type { CommandResult, PatchResult } from './types.js';
+import type { AuthLogEvent, CommandResult, PatchResult } from './types.js';
 import { passwd } from './passwd.js';
 
 /**
@@ -68,6 +69,8 @@ type PasswdEnvOpts = {
   readonly abortPromptMessage?: string;
   /** What the `/etc/passwd` write resolves to. Defaults to a clean success. */
   readonly writeResult?: PatchResult;
+  /** Make the auth.log append reject, to prove the change does not hinge on it. */
+  readonly authLogThrows?: boolean;
 };
 
 /** Build an env around a realistic `/etc/passwd` (root with a password, the
@@ -81,6 +84,7 @@ const passwdEnv = (opts: PasswdEnvOpts = {}) => {
   const promptResponses = opts.promptResponses ?? {};
   const promptCalls: PromptCall[] = [];
   const writes: CapturedWrite[] = [];
+  const authLogEvents: AuthLogEvent[] = [];
 
   const tree = buildDirectory({
     etc: buildDirectory({
@@ -117,9 +121,16 @@ const passwdEnv = (opts: PasswdEnvOpts = {}) => {
         return opts.writeResult ?? { ok: true };
       },
     }),
+    log: {
+      ...mockLogApi(),
+      appendAuthLog: async (event) => {
+        if (opts.authLogThrows) throw new Error('auth.log unreachable');
+        authLogEvents.push(event);
+      },
+    },
   });
 
-  return { env, promptCalls, writes };
+  return { env, promptCalls, writes, authLogEvents };
 };
 
 const syncResult = (
@@ -330,5 +341,82 @@ describe('passwd', () => {
     expect(exitCode).toBe(130);
     expect(writes).toEqual([]);
     expect(promptCalls).toEqual([{ message: CURRENT_PROMPT, masked: true }]);
+  });
+
+  it('lets root change another account without proving a password', async () => {
+    const { env, promptCalls, writes } = passwdEnv({
+      callerName: 'neo',
+      callerType: 'root',
+      promptResponses: {
+        [NEW_PROMPT]: 'rootset',
+        [RETYPE_PROMPT]: 'rootset',
+      },
+    });
+
+    const { exitCode } = syncResult(await passwd.execute(env, ['guest'], NO_FLAGS));
+
+    // Root is never asked for a current password — straight to the new one.
+    expect(promptCalls).toEqual([
+      { message: NEW_PROMPT, masked: true },
+      { message: RETYPE_PROMPT, masked: true },
+    ]);
+    expect(exitCode).toBe(0);
+    expect(writes).toHaveLength(1);
+    expect(writes[0].content).toContain(
+      `guest:${md5('rootset')}:1001:1001:guest:/home/guest:/bin/bash`,
+    );
+  });
+
+  it('records a passwd auth.log line for the changed account on success', async () => {
+    const { env, authLogEvents } = passwdEnv({
+      callerName: 'neo',
+      callerType: 'user',
+      promptResponses: {
+        [CURRENT_PROMPT]: CALLER_PASSWORD,
+        [NEW_PROMPT]: 'freshpw',
+        [RETYPE_PROMPT]: 'freshpw',
+      },
+    });
+
+    await passwd.execute(env, [], NO_FLAGS);
+
+    // The server stamps time + pid; the client names only the event.
+    expect(authLogEvents).toEqual([
+      { kind: 'passwdChange', machineId: MACHINE, targetUser: 'neo', hostname: 'workstation' },
+    ]);
+  });
+
+  it('writes no auth.log line when the change is refused', async () => {
+    const { env, authLogEvents } = passwdEnv({
+      callerName: 'neo',
+      callerType: 'user',
+      promptResponses: { [CURRENT_PROMPT]: 'not-the-password' },
+    });
+
+    await passwd.execute(env, [], NO_FLAGS);
+
+    // Success only: the lone failure is the owner fumbling their own password.
+    expect(authLogEvents).toEqual([]);
+  });
+
+  it('still reports success when the auth.log append fails', async () => {
+    const { env, writes } = passwdEnv({
+      callerName: 'neo',
+      callerType: 'user',
+      promptResponses: {
+        [CURRENT_PROMPT]: CALLER_PASSWORD,
+        [NEW_PROMPT]: 'freshpw',
+        [RETYPE_PROMPT]: 'freshpw',
+      },
+      authLogThrows: true,
+    });
+
+    const { text, exitCode } = syncResult(await passwd.execute(env, [], NO_FLAGS));
+
+    // Best-effort, like su's logging: the password has already changed, so a logging
+    // hiccup must not fail the change.
+    expect(exitCode).toBe(0);
+    expect(text).toContain('passwd: password updated successfully');
+    expect(writes).toHaveLength(1);
   });
 });

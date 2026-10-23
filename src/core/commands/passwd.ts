@@ -38,6 +38,26 @@ const askMasked = async (env: CommandEnv, message: string): Promise<string | typ
 
 const ABORTED: CommandResult = { kind: 'sync', lines: [], exitCode: 130 };
 
+/** Leave the real-`passwd` breadcrumb on the box's own `/var/log/auth.log` — a later
+ *  root (or the guardian's round) reads it back to see that, and when, a password
+ *  changed. The SERVER stamps the UTC time and pid; the client names only the event.
+ *  Awaited so an immediate `cat /var/log/auth.log` already shows the line, but
+ *  best-effort: the password has already changed, so a logging hiccup must not fail
+ *  the change. Written on SUCCESS only — the lone own-box failure is the owner
+ *  fumbling their own current password, which informs nobody. */
+const logChange = async (env: CommandEnv, target: string): Promise<void> => {
+  try {
+    await env.log.appendAuthLog({
+      kind: 'passwdChange',
+      machineId: env.session.machineId,
+      targetUser: target,
+      hostname: env.hostname,
+    });
+  } catch {
+    // best-effort: the change has already landed; logging must not undo it.
+  }
+};
+
 /** Read `/etc/passwd` at ROOT privilege via `stat` (which resolves the raw node,
  *  bypassing the caller's read perms) — the setuid-root read `su` also makes.
  *  Returns the file text, or '' when passwd is missing or not a file. This is the
@@ -104,6 +124,7 @@ const execute: Command['execute'] = async (env, args) => {
     return refusal(`passwd: ${PATCH_ERROR_REASON[result.error]}`);
   }
 
+  await logChange(env, target);
   return {
     kind: 'sync',
     lines: [{ kind: 'text', content: 'passwd: password updated successfully' }],
