@@ -93,7 +93,7 @@ src/
 | `talkit/`          | talkit.io's pages, player text shown safely, its views from the forum tables, the checks on a new thread or comment, the operator's removal words. | —       |
 | `hireme/`          | hireme.io's pages, and an application: the address read as `mail` reads it, its refusals, the board address drawn and drawn again; the board page, and the lookup that finds the boards' server at a held address. | —       |
 | `valleynews/`      | valleynews.io's pages, its sections and stories read from the stories table, and the operator's story file and the lines its script prints. | —       |
-| `rideit/`          | rideit.io's pages and the one fare to any town.                                                                           | —       |
+| `rideit/`          | rideit.io's pages, the one fare to any town, and boarding: leaving the network and the move to another town.              | —       |
 | `guardian/`        | The operator's guardian: which box a public website's name reaches, the patrol a round walks, and a report's, a patch's and a restore's decision and the lines its script prints. | 12      |
 | `logging/`         | One formatter per log file; source-IP and writer-key rules.                                                               | 8       |
 | `patches/`         | Server handlers for the journal (write, list, remove, log appends, traces), L1, L2, the read filter.                      | 9, 10   |

@@ -87,11 +87,11 @@ const execute: Command['execute'] = async (env) => {
     return error('airodump-ng: monitor mode not enabled — run airmon-ng start wlan0 first');
   }
 
-  // Fresh roll each scan, with currently-occupied ESSIDs injected for organic
-  // discovery. The fetch is additive (it degrades to no occupants), and the roll
+  // Fresh roll each scan, from the town the player stands in, with currently-occupied
+  // ESSIDs injected for organic discovery. The fetch never fails the scan, and the roll
   // is what aircrack-ng/nmcli will read afterwards.
-  const occupiedEssids = await env.scan.resolveOccupiedEssids();
-  const networks = env.network.rescanWifi(occupiedEssids);
+  const range = await env.scan.resolveOccupiedEssids();
+  const networks = env.network.rescanWifi(range);
   return { kind: 'async', lines: scan(env, networks), exitCode: async () => 0 };
 };
 

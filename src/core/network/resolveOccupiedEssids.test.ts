@@ -7,6 +7,8 @@ import {
 import { signRequest } from '../signedRequest/sign.js';
 import { generateIdentity } from '../identity/identity.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
+import { startingTown } from '../generation/startingTown.js';
+import { TOWNS } from '../generation/world.js';
 
 /**
  * `handleResolveOccupiedEssids` is the organic-discovery read: it answers "which
@@ -27,7 +29,12 @@ const makeDeps = (
   const listAllOccupiedEssids = vi.fn<
     () => Promise<{ data: readonly OccupiedEssidRow[] | null; error: unknown }>
   >(async () => ({ data: rows, error: null }));
-  const deps: ResolveOccupiedEssidsDeps = { nonceStore: freshStore, listAllOccupiedEssids, ...over };
+  const deps: ResolveOccupiedEssidsDeps = {
+    nonceStore: freshStore,
+    listAllOccupiedEssids,
+    findPlayerLocation: async () => ({ data: null, error: null }),
+    ...over,
+  };
   return { deps, listAllOccupiedEssids };
 };
 
@@ -43,7 +50,11 @@ describe('handleResolveOccupiedEssids', () => {
 
     expect(result).toEqual({
       status: 200,
-      body: { ok: true, essids: ['BEAN-THERE-WIFI', 'NAKATOMI-PLAZA'] },
+      body: {
+        ok: true,
+        essids: ['BEAN-THERE-WIFI', 'NAKATOMI-PLAZA'],
+        town: startingTown(caller.publicKeyHex),
+      },
     });
   });
 
@@ -55,7 +66,10 @@ describe('handleResolveOccupiedEssids', () => {
 
     const result = await handleResolveOccupiedEssids(envelope(stranger), deps);
 
-    expect(result).toEqual({ status: 200, body: { ok: true, essids: ['STARK-WIFI'] } });
+    expect(result).toEqual({
+      status: 200,
+      body: { ok: true, essids: ['STARK-WIFI'], town: startingTown(stranger.publicKeyHex) },
+    });
   });
 
   it('returns each occupied ESSID once even when several players occupy it', async () => {
@@ -66,7 +80,11 @@ describe('handleResolveOccupiedEssids', () => {
 
     expect(result).toEqual({
       status: 200,
-      body: { ok: true, essids: ['STARK-WIFI', 'BEAN-THERE-WIFI'] },
+      body: {
+        ok: true,
+        essids: ['STARK-WIFI', 'BEAN-THERE-WIFI'],
+        town: startingTown(caller.publicKeyHex),
+      },
     });
   });
 
@@ -83,13 +101,30 @@ describe('handleResolveOccupiedEssids', () => {
     }
   });
 
+  it('returns an empty list when the lookup answers no rows at all', async () => {
+    const caller = generateIdentity();
+    const { deps } = makeDeps([], {
+      listAllOccupiedEssids: async () => ({ data: null, error: null }),
+    });
+
+    const result = await handleResolveOccupiedEssids(envelope(caller), deps);
+
+    expect(result).toEqual({
+      status: 200,
+      body: { ok: true, essids: [], town: startingTown(caller.publicKeyHex) },
+    });
+  });
+
   it('returns an empty list when nobody is occupying any network', async () => {
     const caller = generateIdentity();
     const { deps } = makeDeps([]);
 
     const result = await handleResolveOccupiedEssids(envelope(caller), deps);
 
-    expect(result).toEqual({ status: 200, body: { ok: true, essids: [] } });
+    expect(result).toEqual({
+      status: 200,
+      body: { ok: true, essids: [], town: startingTown(caller.publicKeyHex) },
+    });
   });
 
   it('rejects a payload that smuggles a client-supplied owner_key without reading', async () => {
@@ -154,5 +189,50 @@ describe('handleResolveOccupiedEssids', () => {
     const result = await handleResolveOccupiedEssids(envelope(caller), deps);
 
     expect(result).toEqual({ status: 500, body: { error: 'occupied_essids_lookup_failed' } });
+  });
+});
+
+/**
+ * The scan draws from the town the player stands in, and only the server knows whether
+ * they have travelled, so the discovery read answers it beside the names: the town they
+ * last travelled to, or the one their key draws until they first do.
+ */
+describe('handleResolveOccupiedEssids: where the caller stands', () => {
+  it('answers the town a player travelled to', async () => {
+    const caller = generateIdentity();
+    const travelledTo = TOWNS.find((town) => town.name !== startingTown(caller.publicKeyHex))!;
+    const { deps } = makeDeps(['STARK-WIFI'], {
+      findPlayerLocation: async () => ({ data: { town: travelledTo.name, trips: 2 }, error: null }),
+    });
+
+    const result = await handleResolveOccupiedEssids(envelope(caller), deps);
+
+    expect(result).toEqual({
+      status: 200,
+      body: { ok: true, essids: ['STARK-WIFI'], town: travelledTo.name },
+    });
+  });
+
+  it('asks where the caller stands by their verified key', async () => {
+    const caller = generateIdentity();
+    const findPlayerLocation = vi.fn<ResolveOccupiedEssidsDeps['findPlayerLocation']>(
+      async () => ({ data: null, error: null }),
+    );
+    const { deps } = makeDeps([], { findPlayerLocation });
+
+    await handleResolveOccupiedEssids(envelope(caller), deps);
+
+    expect(findPlayerLocation.mock.calls).toEqual([[caller.publicKeyHex]]);
+  });
+
+  it('reports a server error when it cannot tell where the caller stands', async () => {
+    const caller = generateIdentity();
+    const { deps } = makeDeps(['STARK-WIFI'], {
+      findPlayerLocation: async () => ({ data: null, error: new Error('db down') }),
+    });
+
+    const result = await handleResolveOccupiedEssids(envelope(caller), deps);
+
+    expect(result).toEqual({ status: 500, body: { error: 'location_lookup_failed' } });
   });
 });

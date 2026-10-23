@@ -289,11 +289,11 @@ export type NetworkView = {
    *  resolve the AP the player just saw (no password column for airodump-ng — only
    *  `aircrack-ng` reveals a crackable AP's password). */
   readonly wifiNetworks: () => readonly WifiNetwork[];
-  /** Re-roll the scan (a fresh draw each call, "relocating"), injecting the given
-   *  currently-occupied ESSIDs as discoverable crackable APs. Updates the in-range
-   *  list `wifiNetworks` returns AND returns the fresh roll for the caller to
+  /** Re-roll the scan (a fresh draw each call, "relocating") from the town in range,
+   *  injecting its currently-occupied ESSIDs as discoverable crackable APs. Updates the
+   *  in-range list `wifiNetworks` returns AND returns the fresh roll for the caller to
    *  render. Backs `airodump-ng`. */
-  readonly rescanWifi: (occupiedEssids: readonly string[]) => readonly WifiNetwork[];
+  readonly rescanWifi: (range: WifiRange) => readonly WifiNetwork[];
 };
 
 export type OutputSink = {
@@ -350,8 +350,16 @@ export type PublicFetchParams = {
  *  OUR side failing to complete the round-trip, which is a different sentence to the
  *  player: the target never answered because we never asked. */
 export type PublicFetchResult =
-  /** `server` is the program that answered (`nginx`, `apache2`), for `curl -i`. */
-  | { readonly ok: true; readonly content: string; readonly server: string }
+  /** `server` is the program that answered (`nginx`, `apache2`), for `curl -i`. `left` is
+   *  the server's word that the request took the player's box off its network (boarding a
+   *  ride), which their own tab must learn to take its WiFi down; absent on every request
+   *  that cannot move anybody. */
+  | {
+      readonly ok: true;
+      readonly content: string;
+      readonly server: string;
+      readonly left?: boolean;
+    }
   | { readonly ok: false; readonly error: 'host_unreachable' | 'not_found' | 'network_error' }
   /** A server that takes no POST was sent one. It answered, so it names itself. */
   | { readonly ok: false; readonly error: 'method_not_allowed'; readonly server: string };
@@ -1579,11 +1587,19 @@ export type ScanApi = {
     target: string,
     callerMachineId: string,
   ) => Promise<PublicScanResolution | null>;
-  /** Fetch the ESSID NAMES anyone currently occupies (signed `resolveOccupiedEssids`
-   *  endpoint) — global and name-only, so `airodump-ng` can inject live networks into the
-   *  scan for organic discovery. Additive: degrades to an empty list (server down)
-   *  rather than failing the scan. */
-  readonly resolveOccupiedEssids: () => Promise<readonly string[]>;
+  /** Fetch what is in wifi range (signed `resolveOccupiedEssids` endpoint): the town the
+   *  player stands in, and the ESSID NAMES anyone currently occupies, global and
+   *  name-only, so `airodump-ng` can inject live networks into the scan for organic
+   *  discovery. Never fails the scan: with the server down it answers the town the
+   *  player's key draws and nothing occupied. */
+  readonly resolveOccupiedEssids: () => Promise<WifiRange>;
+};
+
+/** What a WiFi scan can reach: the town the player stands in, whose networks are the only
+ *  ones in range, and the networks other players occupy, by name alone. */
+export type WifiRange = {
+  readonly town: string;
+  readonly occupiedEssids: readonly string[];
 };
 
 /** What the ledger holds at one address. `nextSequence` is the number the next

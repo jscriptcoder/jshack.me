@@ -74,6 +74,7 @@ const makeDeps = (
     endOwnSessionsAway: table.endOwnSessionsAway,
     endSessionsAbove: table.endSessionsAbove,
     admitsUndeclaredNetworks: false,
+    findPlayerLocation: async () => ({ data: null, error: null }),
     ...over,
   };
   return { deps, upsertOccupant, allocateLanLease, deleteOtherOccupancies, table };
@@ -415,6 +416,63 @@ describe('handleRegisterNetwork: which networks a player may join', () => {
     const result = await handleRegisterNetwork(tampered, deps);
 
     expect(result).toEqual({ status: 401, body: { error: 'signature_invalid' } });
+  });
+
+  it.each(TOWN_NAMES)(
+    'lets a player who travelled to %s join every network there, and refuses the town they started in',
+    async (town) => {
+      const drawn = TOWN_NAMES.find((other) => other !== town)!;
+      const id = generateIdentityIn(drawn);
+      const travelled = { findPlayerLocation: async () => ({ data: { town, trips: 1 }, error: null }) };
+      const joinOf = async (key: string) => {
+        const { deps, upsertOccupant } = makeDeps(travelled);
+        const result = await handleRegisterNetwork(envelope(id, { essid: key }), deps);
+        return { key, result, written: upsertOccupant.mock.calls.length };
+      };
+
+      const admitted = await Promise.all(networksIn(town).map(joinOf));
+      const refused = await Promise.all(networksIn(drawn).map(joinOf));
+
+      expect(admitted).toEqual(
+        networksIn(town).map((key) => ({
+          key,
+          result: { status: 200, body: { ok: true, local_ip: lanAddressFor(key, LEASED_OCTET) } },
+          written: 1,
+        })),
+      );
+      expect(refused).toEqual(
+        networksIn(drawn).map((key) => ({ key, result: NOT_JOINABLE, written: 0 })),
+      );
+    },
+  );
+
+  it('asks where the joining player stands by their verified key', async () => {
+    const id = generateIdentityIn(RIDGEMONT);
+    const findPlayerLocation = vi.fn<RegisterNetworkDeps['findPlayerLocation']>(async () => ({
+      data: null,
+      error: null,
+    }));
+    const { deps } = makeDeps({ findPlayerLocation });
+
+    await handleRegisterNetwork(envelope(id, { essid: networksIn(RIDGEMONT)[0] }), deps);
+
+    expect(findPlayerLocation.mock.calls).toEqual([[id.publicKeyHex]]);
+  });
+
+  it('answers a join it cannot place the player for with a 500, without leasing or writing', async () => {
+    const id = generateIdentityIn(RIDGEMONT);
+    const { deps, allocateLanLease, upsertOccupant } = makeDeps({
+      findPlayerLocation: async () => ({ data: null, error: new Error('down') }),
+    });
+
+    const result = await handleRegisterNetwork(
+      envelope(id, { essid: networksIn(RIDGEMONT)[0] }),
+      deps,
+    );
+
+    expect(result).toEqual({ status: 500, body: { error: 'location_lookup_failed' } });
+    expect(allocateLanLease).not.toHaveBeenCalled();
+    expect(upsertOccupant).not.toHaveBeenCalled();
   });
 
   it('admits a network the world does not declare when undeclared networks are admitted, whatever town the player starts in', async () => {

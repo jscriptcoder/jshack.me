@@ -41,9 +41,11 @@ import type {
   WalletApi,
   MailApi,
   TerminalLine,
+  WifiRange,
 } from '../core/commands/types.js';
 import type { Directory } from '../core/filesystem/types.js';
 import type { WifiNetwork } from '../core/network/wifi.js';
+import { startingTown } from '../core/generation/startingTown.js';
 import type { EffectName, Effects } from '../core/theme/effects.js';
 import type { ThemeId } from '../core/theme/themes.js';
 import { createFsView } from '../core/filesystem/fsView.js';
@@ -93,10 +95,10 @@ export type BuildCommandEnvArgs = {
   /** Reader for the WiFi access points in range — the latest scan roll held in
    *  `ui/state`, read by `aircrack-ng`/`nmcli` after `airodump-ng` refreshes it. */
   readonly wifiNetworks: () => readonly WifiNetwork[];
-  /** Re-roll the scan, injecting the given occupied ESSIDs — backs
+  /** Re-roll the scan from the town in range, injecting the occupied ESSIDs — backs
    *  `network.rescanWifi`. The UI owns the per-scan counter + the wifi signal:
    *  it re-draws, stores the roll (so `wifiNetworks` reflects it), and returns it. */
-  readonly rescanWifi: (occupiedEssids: readonly string[]) => readonly WifiNetwork[];
+  readonly rescanWifi: (range: WifiRange) => readonly WifiNetwork[];
   /** The run's abort signal, owned by the UI (`runInput` makes one per command
    *  so Ctrl-C can abort it). Backs both `env.signal` and the abort-aware
    *  `env.sleep`, so aborting stops a streamed command mid-flight. */
@@ -362,7 +364,7 @@ const networkView = (
   session: Session,
   connectivity: () => ConnectivityState,
   wifiNetworks: () => readonly WifiNetwork[],
-  rescanWifi: (occupiedEssids: readonly string[]) => readonly WifiNetwork[],
+  rescanWifi: (range: WifiRange) => readonly WifiNetwork[],
 ): NetworkView => ({
   currentMachine: () => session.machineId,
   findMachineByAddress: () => null,
@@ -587,8 +589,15 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
     // failed to ask rather than learned an answer, and the seeded fallback is the lie.
     resolveSameLan: args.onScanResolveSameLan ?? (() => Promise.resolve(null)),
     resolveOccupant: args.onScanResolveOccupant ?? (() => Promise.resolve(null)),
-    // Additive read: absent the seam, the scan discovers no occupied networks.
-    resolveOccupiedEssids: args.onScanResolveOccupiedEssids ?? (() => Promise.resolve([])),
+    // Absent the seam, the scan stands in the town the key draws and discovers no
+    // occupied networks: all the client knows by itself.
+    resolveOccupiedEssids:
+      args.onScanResolveOccupiedEssids ??
+      (() =>
+        Promise.resolve({
+          town: startingTown(args.identity.publicKeyHex),
+          occupiedEssids: [],
+        })),
   },
   setCwd: args.onCwdChange,
   setInterface: args.onInterfaceChange,

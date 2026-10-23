@@ -16,12 +16,17 @@
  *
  * Names are de-duplicated here rather than relying on the query: several players
  * can occupy one ESSID, but it is one network and surfaces once.
+ *
+ * Beside the names it answers the town the caller stands in, the one their scan draws
+ * from: only the server knows whether they have travelled. That is the caller's own
+ * place, so it leaks nothing about anybody else.
  */
 
 import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify.js';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
+import { standingTown, type FindPlayerLocation } from './playerLocation.js';
 
 /** One occupied-ESSID row — name-only by construction (no occupant identity). */
 export type OccupiedEssidRow = {
@@ -36,6 +41,8 @@ export type ResolveOccupiedEssidsDeps = {
     readonly data: readonly OccupiedEssidRow[] | null;
     readonly error: unknown;
   }>;
+  /** Where the caller stands, which decides the town their scan draws from. */
+  readonly findPlayerLocation: FindPlayerLocation;
 };
 
 export type HandlerResponse = {
@@ -68,6 +75,14 @@ export const handleResolveOccupiedEssids = async (
     return { status: 500, body: { error: 'occupied_essids_lookup_failed' } };
   }
 
+  const location = await deps.findPlayerLocation(verified.publicKey);
+  if (location.error) {
+    return { status: 500, body: { error: 'location_lookup_failed' } };
+  }
+
   const essids = [...new Set((occupied.data ?? []).map((row) => row.essid))];
-  return { status: 200, body: { ok: true, essids } };
+  return {
+    status: 200,
+    body: { ok: true, essids, town: standingTown(location.data, verified.publicKey) },
+  };
 };

@@ -1278,8 +1278,13 @@ agreed order:
     leaving, and the next scan is the new town's. The decisions and the three slices are in
     `plans/travel.md`. Slice 1 (v0.430.0): rideit.io stands in the valley, at `193.103.160.138`,
     its front page quoting the fare and listing every town, found on findit by "ticket" and
-    "travel"; booking is not open yet. **Pick up here (2026-10-23):** Slice 2, a free ride to
-    any town.
+    "travel"; booking is not open yet. Slice 2 (v0.431.0): a free ride to any town. rideit's
+    `/ticket` lists every town with a `[ Board ]` each; `POST /board` takes the player's box off
+    every network (as `nmcli disconnect`), writes `player_locations` (town, trips; a guarded
+    write, so two boardings at once count one trip) and answers `left`, on which the player's tab
+    takes `wlan0` down. The join and the scan's server call read where the player stands
+    (`standingTown`); rideit's log records `POST /board` and never the town. **Pick up here
+    (2026-10-23):** Slice 3, the 25 JSC fare.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

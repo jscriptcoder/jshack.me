@@ -26,6 +26,7 @@ import { verifySignedRequest } from '../core/signedRequest/verify.js';
 import { assignHomeNetwork } from '../core/network/homeNetwork.js';
 import { lanLeaseCacheIn } from '../core/network/lanLeaseCache.js';
 import { md5 } from '../core/generation/md5.js';
+import { startingTown } from '../core/generation/startingTown.js';
 import { serializeTree } from '../core/filesystem/treeCodec.js';
 import { dir, file, TRAVERSABLE_DIR } from '../core/generation/baseFs.js';
 import { asMachineId } from '../core/types.js';
@@ -567,53 +568,73 @@ describe('resolveOccupants', () => {
 
 describe('resolveOccupiedEssids', () => {
   const ESSIDS = ['STARK-WIFI', 'NAKATOMI-PLAZA'];
+  const TOWN = 'Millbrook';
 
-  it('signs a resolveOccupiedEssids request and returns the served names', async () => {
-    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, essids: ESSIDS }));
+  /** What a scan falls back to when the server cannot be asked: no occupied networks to
+   *  inject, and the town the player's key draws, since that is all the client knows. */
+  const fallbackFor = (deps: NetworkClientDeps) => ({
+    town: startingTown(deps.identity.publicKeyHex),
+    occupiedEssids: [],
+  });
+
+  it('signs a resolveOccupiedEssids request and returns the served town and names', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, essids: ESSIDS, town: TOWN }));
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
 
     const result = await resolveOccupiedEssids(deps);
 
-    expect(result).toEqual(ESSIDS);
+    expect(result).toEqual({ town: TOWN, occupiedEssids: ESSIDS });
     const verified = await verifyPayload(sentEnvelope(fetchSpy));
     if (!verified.ok) throw new Error('expected verified envelope');
     expect(verified.payload).toMatchObject({ action: 'resolveOccupiedEssids' });
   });
 
-  it('degrades to an empty list on a non-ok response even when its body lists names', async () => {
+  it('falls back on a non-ok response even when its body lists names and a town', async () => {
     // Adversarial: a 500 must short-circuit before the body is trusted, so a forged
     // name list on an error status is never injected into the scan.
     const deps = makeDeps(
-      vi.fn(async () => jsonResponse(500, { ok: true, essids: ESSIDS })) as unknown as typeof fetch,
+      vi.fn(async () =>
+        jsonResponse(500, { ok: true, essids: ESSIDS, town: TOWN }),
+      ) as unknown as typeof fetch,
     );
 
-    expect(await resolveOccupiedEssids(deps)).toEqual([]);
+    expect(await resolveOccupiedEssids(deps)).toEqual(fallbackFor(deps));
   });
 
-  it('degrades to an empty list when the body does not confirm ok', async () => {
+  it('falls back when the body does not confirm ok', async () => {
     const deps = makeDeps(
-      vi.fn(async () => jsonResponse(200, { ok: false, essids: ESSIDS })) as unknown as typeof fetch,
+      vi.fn(async () =>
+        jsonResponse(200, { ok: false, essids: ESSIDS, town: TOWN }),
+      ) as unknown as typeof fetch,
     );
 
-    expect(await resolveOccupiedEssids(deps)).toEqual([]);
+    expect(await resolveOccupiedEssids(deps)).toEqual(fallbackFor(deps));
   });
 
-  it('degrades to an empty list when the response omits the names', async () => {
+  it('falls back when the response omits the names', async () => {
     const deps = makeDeps(
-      vi.fn(async () => jsonResponse(200, { ok: true })) as unknown as typeof fetch,
+      vi.fn(async () => jsonResponse(200, { ok: true, town: TOWN })) as unknown as typeof fetch,
     );
 
-    expect(await resolveOccupiedEssids(deps)).toEqual([]);
+    expect(await resolveOccupiedEssids(deps)).toEqual(fallbackFor(deps));
   });
 
-  it('degrades to an empty list on a thrown fetch (offline)', async () => {
+  it('falls back when the response omits the town', async () => {
+    const deps = makeDeps(
+      vi.fn(async () => jsonResponse(200, { ok: true, essids: ESSIDS })) as unknown as typeof fetch,
+    );
+
+    expect(await resolveOccupiedEssids(deps)).toEqual(fallbackFor(deps));
+  });
+
+  it('falls back on a thrown fetch (offline)', async () => {
     const deps = makeDeps(
       vi.fn(async () => {
         throw new Error('offline');
       }) as unknown as typeof fetch,
     );
 
-    expect(await resolveOccupiedEssids(deps)).toEqual([]);
+    expect(await resolveOccupiedEssids(deps)).toEqual(fallbackFor(deps));
   });
 });
 
@@ -726,6 +747,38 @@ describe('fetchPublicPage', () => {
       port: PARAMS.port,
       path: PARAMS.path,
       caller_machine_id: HOP_BOX,
+    });
+  });
+
+  it.each([true, false])(
+    'passes on the server saying whether the request took the box off its network (%s)',
+    async (left) => {
+      const deps = makeDeps(
+        vi.fn(async () =>
+          jsonResponse(200, { ok: true, content: '<p>ok</p>', server: 'nginx', left }),
+        ) as unknown as typeof fetch,
+      );
+
+      expect(await fetchPublicPage(deps, PARAMS)).toEqual({
+        ok: true,
+        content: '<p>ok</p>',
+        server: 'nginx',
+        left,
+      });
+    },
+  );
+
+  it('reads a leaving that is not a plain yes or no as no word at all', async () => {
+    const deps = makeDeps(
+      vi.fn(async () =>
+        jsonResponse(200, { ok: true, content: '<p>ok</p>', server: 'nginx', left: 'yes' }),
+      ) as unknown as typeof fetch,
+    );
+
+    expect(await fetchPublicPage(deps, PARAMS)).toEqual({
+      ok: true,
+      content: '<p>ok</p>',
+      server: 'nginx',
     });
   });
 

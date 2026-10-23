@@ -43,6 +43,7 @@ import { createFsView } from '../../core/filesystem/fsView.js';
 import { ALL_EFFECTS_ON } from '../../core/theme/effects.js';
 import { DEFAULT_THEME_ID } from '../../core/theme/themes.js';
 import { isOnline, type ConnectivityState } from '../../core/network/interfaces.js';
+import { RIDGEMONT } from '../../core/generation/world.js';
 import { buildDirectory } from './filesystem.js';
 
 const NOT_IMPLEMENTED =
@@ -332,8 +333,8 @@ export const mockScanApi = (overrides: Partial<ScanApi> = {}): ScanApi => ({
   // Load-bearing like `resolvePublic`: an occupant's ports drive their own scan output,
   // so it throws unless a test stubs the resolution.
   resolveOccupant: NOT_IMPLEMENTED('scan.resolveOccupant'),
-  // Additive read: defaults to no occupied ESSIDs so a plain scan injects nothing.
-  resolveOccupiedEssids: async () => [],
+  // Defaults to Ridgemont and no occupied ESSIDs, so a plain scan injects nothing.
+  resolveOccupiedEssids: async () => ({ town: RIDGEMONT, occupiedEssids: [] }),
   ...overrides,
 });
 

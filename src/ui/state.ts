@@ -82,6 +82,7 @@ import type {
   AptDowngrade,
   TerminalLine,
   CommandEnv,
+  WifiRange,
 } from '../core/commands/types.js';
 import { ALL_EFFECTS_ON, type EffectName, type Effects } from '../core/theme/effects.js';
 import { DEFAULT_THEME_ID, THEMES, type ThemeId } from '../core/theme/themes.js';
@@ -121,6 +122,7 @@ import { isPublicIp } from '../core/generation/ip.js';
 import { addressForTarget } from '../core/network/resolveName.js';
 import type { FollowOutcome } from './screens/Lynx.js';
 import { generateWifi } from '../core/generation/generateWifi.js';
+import { startingTown } from '../core/generation/startingTown.js';
 import type { WifiNetwork } from '../core/network/wifi.js';
 import { carriedCommandRegistry, commandRegistry } from '../core/commands/registry.js';
 import { complete, type CompleteAdapter } from '../core/shell/complete.js';
@@ -304,15 +306,17 @@ const [wifiNetworks, setWifiNetworks] = createSignal<readonly WifiNetwork[]>([])
 const [wifiScanIndex, setWifiScanIndex] = createSignal(0);
 
 /** Re-roll the WiFi scan (backs `env.network.rescanWifi`): bump the scan index for
- *  a fresh draw, inject the currently-occupied ESSIDs for organic discovery, store
- *  the roll so aircrack-ng/nmcli read what airodump-ng just showed, and return it. */
-const rescanWifi = (occupiedEssids: readonly string[]): readonly WifiNetwork[] => {
+ *  a fresh draw from the town in range, inject the currently-occupied ESSIDs for organic
+ *  discovery, store the roll so aircrack-ng/nmcli read what airodump-ng just showed, and
+ *  return it. */
+const rescanWifi = (range: WifiRange): readonly WifiNetwork[] => {
   const scanIndex = wifiScanIndex() + 1;
   setWifiScanIndex(scanIndex);
   const roll = generateWifi({
     seedPubkeyHex: requireIdentity().publicKeyHex,
     scanIndex,
-    occupiedEssids,
+    town: range.town,
+    occupiedEssids: range.occupiedEssids,
   });
   setWifiNetworks(roll);
   return roll;
@@ -1074,11 +1078,27 @@ const resolvePublicFn: ScanApi['resolvePublic'] = (target, callerMachineId) =>
 
 /** Fetch a page from behind another player's public IP (backs `env.remote.fetchPublic`).
  *  Before `startGame` wires the network client there is nothing to ask, so the failure is
- *  ours — `network_error`, not a claim that the target is dark. */
-const fetchPublicPageFn = (params: PublicFetchParams): Promise<PublicFetchResult> =>
-  networkClientDeps === undefined
-    ? Promise.resolve({ ok: false, error: 'network_error' })
-    : fetchPublicPage(networkClientDeps, params);
+ *  ours — `network_error`, not a claim that the target is dark.
+ *
+ *  Every fetch across the network passes here, from `lynx`, a followed link or form, or
+ *  `curl`, and from whichever box the shell stands on. That is what lets an answer saying
+ *  the player left their network (boarding a ride) take this tab's WiFi down: the card is
+ *  the workstation's, never the box the browser runs on. */
+const fetchPublicPageFn = async (params: PublicFetchParams): Promise<PublicFetchResult> => {
+  if (networkClientDeps === undefined) return { ok: false, error: 'network_error' };
+  const fetched = await fetchPublicPage(networkClientDeps, params);
+  if (fetched.ok && fetched.left === true) takeWifiDown();
+  return fetched;
+};
+
+/** Take `wlan0` off its network after the server already took the box off it, exactly as
+ *  `nmcli disconnect` does locally. Persisted like any disconnect, so a reload restores no
+ *  network. The occupancy is already gone server-side, so nothing is sent. */
+const takeWifiDown = (): void => {
+  const wlan0 = connectivity().interfaces.get('wlan0');
+  if (wlan0?.kind !== 'wireless') return;
+  setInterface('wlan0', { ...wlan0, association: null, ipv4: null });
+};
 
 /** Open an emailit.io inbox (backs `env.mail.inbox`). Before `startGame` wires the
  *  network client there is nobody to ask, which is our failure and says nothing about
@@ -1174,11 +1194,17 @@ const resolveOccupantsFn = (
     ? Promise.resolve([])
     : resolveOccupants(networkClientDeps, essid, callerMachineId);
 
-/** Fetch the ESSID names anyone currently occupies (backs `env.scan.resolveOccupiedEssids`).
- *  Additive — an empty list (before the network client is wired, or the server is down)
- *  just means a scan with nothing to discover, never a failure. */
-const resolveOccupiedEssidsFn = (): Promise<readonly string[]> =>
-  networkClientDeps === undefined ? Promise.resolve([]) : resolveOccupiedEssids(networkClientDeps);
+/** Fetch what is in wifi range (backs `env.scan.resolveOccupiedEssids`): the town the
+ *  player stands in and the ESSID names anyone currently occupies. Before the network
+ *  client is wired there is nobody to ask, so the scan stands in the town the key draws
+ *  with nothing to discover, never a failure. */
+const resolveOccupiedEssidsFn = (): Promise<WifiRange> =>
+  networkClientDeps === undefined
+    ? Promise.resolve({
+        town: startingTown(requireIdentity().publicKeyHex),
+        occupiedEssids: [],
+      })
+    : resolveOccupiedEssids(networkClientDeps);
 
 /** Join a home network (backs `env.homeNetwork.join`): register it server-side, which
  *  is what ISSUES the player's address on that LAN. Before the network client is wired
@@ -1772,7 +1798,12 @@ export const startGame = (gameConfig: GameConfig, options?: StartGameOptions): v
   // ESSID (from a prior nmcli connect) re-derives its address through the join
   // seam so the player comes back online on reload without re-cracking.
   const cold = buildColdStartConnectivity(identity.publicKeyHex);
-  const wifi = generateWifi({ seedPubkeyHex: identity.publicKeyHex });
+  // With no server call at boot, the first draw is from the town the key draws: a
+  // traveller sees their own town once their first airodump-ng asks where they stand.
+  const wifi = generateWifi({
+    seedPubkeyHex: identity.publicKeyHex,
+    town: startingTown(identity.publicKeyHex),
+  });
   setWifiNetworks(wifi);
   setConnectivity(restoreConnection(localStorage, cold));
   // The card is the workstation's, not this tab's, so a connect or disconnect typed in

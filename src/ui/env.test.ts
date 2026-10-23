@@ -5,6 +5,7 @@ import { generateIdentity } from '../core/identity/identity.js';
 import { asAbsPath } from '../core/types.js';
 import { buildColdStartConnectivity, type NetworkInterface } from '../core/network/interfaces.js';
 import { generateWifi } from '../core/generation/generateWifi.js';
+import { RIDGEMONT } from '../core/generation/world.js';
 import type {
   ExploitApi,
   ExploitLocalElevateParams,
@@ -29,7 +30,7 @@ const noopLog: LogApi = {
 
 const seedHome = homePathFor(SEED_CONFIG.username);
 const seedConnectivity = () => buildColdStartConnectivity('a'.repeat(64));
-const seedWifi = () => generateWifi({ seedPubkeyHex: 'a'.repeat(64) });
+const seedWifi = () => generateWifi({ seedPubkeyHex: 'a'.repeat(64), town: RIDGEMONT });
 
 const seedEnv = (
   userType: 'guest' | 'user' | 'root' = 'user',

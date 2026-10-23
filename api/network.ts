@@ -6,12 +6,18 @@ import {
 } from '../src/core/network/registerNetwork.js';
 import { handleResolveOccupants, type OccupantListRow } from '../src/core/network/resolveOccupants.js';
 import type { LanLeaseRow } from '../src/core/network/lanAddress.js';
+import type {
+  FindPlayerLocation,
+  PlayerLocationRow,
+} from '../src/core/network/playerLocation.js';
+import type { BoardDeps } from '../src/core/rideit/board.js';
 import {
   handleResolveOccupiedEssids,
   type OccupiedEssidRow,
 } from '../src/core/network/resolveOccupiedEssids.js';
 import {
   handleUnregisterOccupant,
+  type DropConnectionsDeps,
   type LeavingBoxParams,
 } from '../src/core/network/unregisterOccupant.js';
 import type { EndedSession, EndSessionsAboveParams } from '../src/core/sessions/upstreamLost.js';
@@ -193,6 +199,109 @@ const findHomeNetworkByOwnerKeyVia =
     if (essid === null) return { data: null, error: null };
     return derivedPublicIpByEssid(essid);
   };
+
+/** Where a player stands: the town they last travelled to and their trip count, or none
+ *  for a player who has never travelled. Keyed by the verified key, one row a player. */
+const findPlayerLocationVia =
+  ({ supabase, label }: QuerySpec): FindPlayerLocation =>
+  async (ownerKey) => {
+    const { data, error } = await supabase
+      .from('player_locations')
+      .select('town, trips')
+      .eq('owner_key', ownerKey)
+      .maybeSingle();
+    logFailure(`${label} location lookup`, error);
+    return { data: data as PlayerLocationRow | null, error };
+  };
+
+/**
+ * How a box leaving a network drops every connection through it, shared by the
+ * disconnect, by a join that moves the box off the network it was on, and by boarding a
+ * ride. Machine-scoped, minus the owner: every other player's open row on the box closes,
+ * including ones no screen is showing. The owner's own rows there are their login on their
+ * own machine, which leaving a WiFi does not end.
+ */
+const dropConnectionsDepsVia = ({ supabase, label }: QuerySpec): DropConnectionsDeps => ({
+  endVisitorSessions: async ({ machine_id, owner_key, reason }: LeavingBoxParams) => {
+    const { data, error } = await supabase
+      .from('sessions')
+      .update({ ended_at: new Date().toISOString(), end_reason: reason })
+      .eq('machine_id', machine_id)
+      .neq('player_key', owner_key)
+      .is('ended_at', null)
+      .select('session_id, player_key');
+    logFailure(`${label} visitor sessions`, error);
+    return { data: data as readonly EndedSession[] | null, error };
+  },
+  // The other way through the box: the owner's open rows on every machine but it. Each
+  // was opened across the network the box just left, so none has anything under it now.
+  endOwnSessionsAway: async ({ machine_id, owner_key, reason }: LeavingBoxParams) => {
+    const { data, error } = await supabase
+      .from('sessions')
+      .update({ ended_at: new Date().toISOString(), end_reason: reason })
+      .eq('player_key', owner_key)
+      .neq('machine_id', machine_id)
+      .is('ended_at', null)
+      .select('session_id, player_key');
+    logFailure(`${label} own sessions`, error);
+    return { data: data as readonly EndedSession[] | null, error };
+  },
+  // One rung of a chain standing on a closed row: this player's open rows whose
+  // parent is one of `parent_ids`, answering with the ids it closed.
+  endSessionsAbove: async ({ player_key, parent_ids, reason }: EndSessionsAboveParams) => {
+    const { data, error } = await supabase
+      .from('sessions')
+      .update({ ended_at: new Date().toISOString(), end_reason: reason })
+      .eq('player_key', player_key)
+      .in('parent_session_id', [...parent_ids])
+      .is('ended_at', null)
+      .select('session_id');
+    logFailure(`${label} cascade`, error);
+    const rows = data as readonly { session_id: string }[] | null;
+    return { data: rows?.map((row) => row.session_id) ?? null, error };
+  },
+});
+
+/**
+ * Boarding a ride at rideit.io: where the traveller stands, taking their box off every
+ * network it is on, and the move. All scoped to the server-stamped key, so a caller only
+ * ever moves themselves.
+ *
+ * The move names the trip count it read. A first trip inserts the row, and a second
+ * boarding that read no row either hits the primary key; a later trip updates only the row
+ * still holding that count. Either way the boarding that lost the race writes nothing.
+ */
+const boardDepsVia = ({ supabase, label }: QuerySpec): BoardDeps => ({
+  findPlayerLocation: findPlayerLocationVia({ supabase, label }),
+  deleteOccupancies: async (ownerKey) => {
+    const { data, error } = await supabase
+      .from('home_network_occupants')
+      .delete()
+      .eq('owner_key', ownerKey)
+      .select('workstation_machine_id');
+    logFailure(`${label} leave`, error);
+    return { data: data as readonly { workstation_machine_id: string }[] | null, error };
+  },
+  moveLocation: async ({ ownerKey, town, tripsTaken }) => {
+    if (tripsTaken === 0) {
+      const { error } = await supabase
+        .from('player_locations')
+        .insert({ owner_key: ownerKey, town, trips: 1 });
+      if (error?.code === '23505') return { moved: false, error: null };
+      logFailure(`${label} first move`, error);
+      return { moved: error === null, error };
+    }
+    const { data, error } = await supabase
+      .from('player_locations')
+      .update({ town, trips: tripsTaken + 1, updated_at: new Date().toISOString() })
+      .eq('owner_key', ownerKey)
+      .eq('trips', tripsTaken)
+      .select('owner_key');
+    logFailure(`${label} move`, error);
+    return { moved: (data ?? []).length > 0, error };
+  },
+  ...dropConnectionsDepsVia({ supabase, label }),
+});
 
 /** Whether the caller is really present on the machine they named — the ssh hop they
  *  are standing on, which is also what says whose network their attack came from. */
@@ -447,6 +556,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // network — the hop that was actually used, not the attacker's home.
       findPublicIpByEssid: derivedPublicIpByEssid,
       findActiveSession: findActiveSessionVia({ supabase, label: 'http-fetch' }),
+      // Only a form POSTed to rideit.io's /board reaches this.
+      board: boardDepsVia({ supabase, label: 'http-fetch board' }),
       // Only findit's search reaches this: a batch of publishers' gateways and web servers
       // in one read, so building a live index costs a few round trips rather than one per
       // site. Ordered exactly as the per-machine read orders a journal, because the two
@@ -1062,58 +1173,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { status, body } = await handleResolveOccupiedEssids(req.body, {
       nonceStore: noopNonceStore,
       listAllOccupiedEssids,
+      findPlayerLocation: findPlayerLocationVia({ supabase, label: 'occupied-essids' }),
     });
     res.status(status).json(body);
     return;
   }
 
-  // How a box leaving a network drops every connection through it, shared by the disconnect
-  // and by a join that moves the box off the network it was on. Machine-scoped, minus
-  // the owner: every other player's open row on the box closes, including ones no
-  // screen is showing. The owner's own rows there are their login on their own machine,
-  // which leaving a WiFi does not end.
-  const endVisitorSessions = async ({
-    machine_id,
-    owner_key,
-    reason,
-  }: LeavingBoxParams) => {
-    const { data, error } = await supabase
-      .from('sessions')
-      .update({ ended_at: new Date().toISOString(), end_reason: reason })
-      .eq('machine_id', machine_id)
-      .neq('player_key', owner_key)
-      .is('ended_at', null)
-      .select('session_id, player_key');
-    logFailure('disconnect visitor sessions', error);
-    return { data: data as readonly EndedSession[] | null, error };
-  };
-  // The other way through the box: the owner's open rows on every machine but it. Each
-  // was opened across the network the box just left, so none has anything under it now.
-  const endOwnSessionsAway = async ({ machine_id, owner_key, reason }: LeavingBoxParams) => {
-    const { data, error } = await supabase
-      .from('sessions')
-      .update({ ended_at: new Date().toISOString(), end_reason: reason })
-      .eq('player_key', owner_key)
-      .neq('machine_id', machine_id)
-      .is('ended_at', null)
-      .select('session_id, player_key');
-    logFailure('disconnect own sessions', error);
-    return { data: data as readonly EndedSession[] | null, error };
-  };
-  // One rung of a chain standing on a closed row: this player's open rows whose
-  // parent is one of `parent_ids`, answering with the ids it closed.
-  const endSessionsAbove = async ({ player_key, parent_ids, reason }: EndSessionsAboveParams) => {
-    const { data, error } = await supabase
-      .from('sessions')
-      .update({ ended_at: new Date().toISOString(), end_reason: reason })
-      .eq('player_key', player_key)
-      .in('parent_session_id', [...parent_ids])
-      .is('ended_at', null)
-      .select('session_id');
-    logFailure('disconnect cascade', error);
-    const rows = data as readonly { session_id: string }[] | null;
-    return { data: rows?.map((row) => row.session_id) ?? null, error };
-  };
+  const { endVisitorSessions, endOwnSessionsAway, endSessionsAbove } = dropConnectionsDepsVia({
+    supabase,
+    label: 'disconnect',
+  });
 
   if (actionOf(req.body) === 'unregisterOccupant') {
     // Disconnect: remove the caller's occupancy row. Scoped to (essid, owner_key) where
@@ -1250,6 +1319,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     endSessionsAbove,
     // Set only in a local `.env.development.local`, never on Preview or Production.
     admitsUndeclaredNetworks: process.env.JSHACK_ADMIT_LAB_NETWORKS === '1',
+    findPlayerLocation: findPlayerLocationVia({ supabase, label: 'join' }),
   });
   res.status(status).json(body);
 }

@@ -23,8 +23,8 @@
  *
  * Each scan is a FRESH ROLL, not a once-per-identity fixture: the seed mixes in
  * a per-scan index, so re-scanning ("relocating") re-draws which subset of APs is
- * in range. Every AP it draws stands in the town the player's key starts them in
- * (`startingTown`), homes included: another town's networks are out of wifi range. On
+ * in range. Every AP it draws stands in the town the player stands in, homes included:
+ * another town's networks are out of wifi range. On
  * top of that base draw it can INJECT one network another player occupies (the caller
  * passes the occupancy table's names), as a normal crackable AP — that is how a
  * stranger stumbles onto another player's live network and cracks it to the key that
@@ -36,7 +36,6 @@
 import { bssidFromEssid, type WifiNetwork } from '../network/wifi.js';
 import { createPrng } from './prng.js';
 import { secrets } from '../secrets/__encoded.js';
-import { startingTown } from './startingTown.js';
 import { DECLARED_NETWORKS } from './world.js';
 
 /** The keys a crackable AP can hold, read from `JSHACK_SECRETS` through the build-time
@@ -128,6 +127,9 @@ const INJECT_CHANCE = 0.05;
 export type GenerateWifiInput = {
   /** The player's identity pubkey — the per-identity half of the scan seed. */
   readonly seedPubkeyHex: string;
+  /** The town the player stands in. Every AP the scan draws stands there: another town's
+   *  networks are out of wifi range. */
+  readonly town: string;
   /** Which scan this is (0, 1, 2, …) — the per-scan half of the seed, so
    *  re-scanning re-rolls. Defaults to the first scan. */
   readonly scanIndex?: number;
@@ -139,11 +141,12 @@ export type GenerateWifiInput = {
 
 export const generateWifi = ({
   seedPubkeyHex,
+  town,
   scanIndex = 0,
   occupiedEssids = [],
 }: GenerateWifiInput): readonly WifiNetwork[] => {
   const prng = createPrng(`wifi-${seedPubkeyHex}-${scanIndex}`);
-  const pool = wifiPoolOf(startingTown(seedPubkeyHex));
+  const pool = wifiPoolOf(town);
 
   const crackableCount = prng.nextInt(2, 3);
   const pickedEssids = prng.pickN(pool, crackableCount);

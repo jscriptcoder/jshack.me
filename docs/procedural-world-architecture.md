@@ -182,9 +182,9 @@ and the best score wins. So:
   server that checks the join against the verified key always agree, and nothing is stored.
 - **It does not freeze.** A town or a region appended later joins the draw the moment it is
   declared, and only the players it outscores move, all of them into it; the weights may change
-  too. Players shifting is the accepted price of a world that can grow. When travel ships, a
-  player's stored location overrides the drawn town, so a shift only ever touches players who
-  never moved.
+  too. Players shifting is the accepted price of a world that can grow. A player who has
+  travelled (a boarding at rideit.io) stands in their stored town instead (`player_locations`),
+  so a shift only ever touches players who never moved.
 - **The game says nothing about it.** The town shows through the world: the names in the scan,
   `whois` on the joined network's public address (`city:` and `region:`, or `<Town> Broadband`
   for a home), findit and the town's council directory. Working out where you are is
@@ -200,9 +200,11 @@ everyone.
 
 ## Joining
 
-A player may join only the networks of the town they start in. `handleRegisterNetwork` asks the
-world before it leases anything: a declared network whose town is not `startingTown` of the
-verified key (another town's, a drawn corporation's, which stands in none) is refused
+A player may join only the networks of the town they stand in: the town they last travelled to,
+or `startingTown` of their key until they first travel (`standingTown`,
+`core/network/playerLocation.ts`, over the `player_locations` row). `handleRegisterNetwork` asks
+the world before it leases anything: a declared network whose town is not the verified key's
+standing town (another town's, a drawn corporation's, which stands in none) is refused
 `403 network_not_joinable` and writes nothing. A key the world does not declare is refused the
 same way unless the local-only flag `JSHACK_ADMIT_LAB_NETWORKS=1` is set, which `vercel dev`
 needs for the wire-checks' lab networks (`MYSQL-LAB-3`, `LEASE-TEST-NET`, …) and which is set on
@@ -220,7 +222,11 @@ The cracked WiFi password itself is still checked only by the client (deferred, 
 
 `generateWifi` (`wifi-<player key>-<scan index>`; each `airodump-ng` bumps the index) draws:
 
-- **2–3 crackable networks from the player's town** (`wifiPoolOf(startingTown(key))`): the
+- **2–3 crackable networks from the town the player stands in** (`wifiPoolOf(town)`), the town
+  `resolveOccupiedEssids` answers beside the occupied names. The boot draw, with no server call,
+  and a scan whose call fails use `startingTown(key)`, so after a reload a traveller's networks in
+  range are the town they started in until their first `airodump-ng`; a join to one is refused.
+  The pool is the
   town's networks in declaration order, for Ridgemont its landmarks in the catalog's order, then
   the networks it draws in key order; for every other town what it draws, then its landmarks. The scan picks by position, so this order decides what
   every player is offered, and the golden scans in `generateWifi.test.ts` pin it.
@@ -294,7 +300,9 @@ than its gateway's ssh from outside.
   join refused; Ridgemont's hospital and a drawn shop), `testMillbrook`, `testFindit` and
   `testJoinRefusal` (a player who starts in Ridgemont joins a drawn Ridgemont network and is
   refused another town's and a drawn corporation's; a player who starts in that other town joins
-  it and is refused Ridgemont's).
+  it and is refused Ridgemont's), and `testTravel` (a boarding at rideit.io moves a player:
+  their network and the connections through it go, the join and the scan follow the new town,
+  rideit's log names no town, and two boardings at once count one trip).
 
 ## Adding to the world
 
