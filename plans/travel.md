@@ -1,7 +1,7 @@
 # Plan: travel between towns
 
 **Status**: Grilled and planned. Decisions confirmed by the owner 2026-10-23; three slices
-planned 2026-10-23 (below the decisions). Next: Slice 1.
+planned 2026-10-23 (below the decisions). Slice 1 in flight on `feat/rideit-site`.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 

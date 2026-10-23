@@ -31,7 +31,7 @@ echo or read any part of `.env.production.local`; the key in it is a secret.
 
 A name is a public website's domain (`millbrook.gov`, `kwikemart.com`, `findit.io`) or
 `boards.hireme.io`. With no name, `report` and `patch` cover the patrol: every fixed box, then
-each `government` and `public` network's site, 51 boxes.
+each `government` and `public` network's site, 52 boxes.
 
 ## The round
 
@@ -63,7 +63,7 @@ findit.io: 11 packages behind
 flyridgemont.com: up to date
 millbrook.gov: 11 packages behind, tampered (2 open sessions: root, www-data; 3 paths written: /etc/passwd, /var/log/auth.log, /var/www/html/index.html)
 ridgemontparks.gov: bricked, tampered (1 path written: /boot)
-Looked over 51 boxes: 49 behind, 2 tampered, 1 bricked.
+Looked over 52 boxes: 49 behind, 2 tampered, 1 bricked.
 ```
 
 - **Behind** is how many packages `patch` would move today. A hole whose fix has not shipped

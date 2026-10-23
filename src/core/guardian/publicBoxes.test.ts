@@ -114,7 +114,7 @@ describe('PATROL', () => {
         'ridgemontmetro.gov',
       ]),
     );
-    expect(PATROL).toHaveLength(51);
+    expect(PATROL).toHaveLength(52);
   });
 
   it('leaves the shops, offices and practices to their owners', () => {

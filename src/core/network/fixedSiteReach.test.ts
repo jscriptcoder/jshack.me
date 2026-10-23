@@ -30,6 +30,7 @@ describe.each([
   ['talkit.io', 'talkit'],
   ['hireme.io', 'hireme'],
   ['valleynews.io', 'valleynews'],
+  ['rideit.io', 'rideit'],
   ['boards.hireme.io', 'boards'],
 ])('reaching the box %s runs on', (key, hostname) => {
   const deps = {

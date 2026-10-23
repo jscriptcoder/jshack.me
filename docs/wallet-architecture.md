@@ -26,6 +26,12 @@ is gameplay, exactly as the identity/wallet split in `docs/legacy/` always inten
 Everything that follows is that idea made concrete: reads are public and unsigned, a
 transfer is signed by the *wallet* key (never the player's identity), and loss is final.
 
+**What a JSC is worth: one dollar, by design.** Nothing in the game quotes a dollar price;
+the rate exists so every JSC amount the game sets reads as believable, and since amounts
+are whole numbers it prices anything from $1 up. The operator's usual 500 JSC mint is a
+$500 stake; rideit.io's fare (`RIDE_FARE`, `core/rideit/fare.ts`) is 25 JSC, inside what a
+real regional coach or train across a county costs ($10–$40).
+
 ## 1. The server: two tables, two functions, one endpoint
 
 **Tables** (zero-trust, mirroring the rest of the schema: RLS on, **no policies**, so anon
