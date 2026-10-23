@@ -1255,7 +1255,7 @@ agreed order:
     into Hollowmere scanned only Hollowmere's networks, a home among them, joined EASTFIELD-CAFE
     with a lease and an occupant row, `whois` on its public address answered `city: Hollowmere`,
     and a reload kept them on it. No defect.
-32. 🔄 **Landmarks in every town (v0.429.0, 2026-10-23).** Only Ridgemont had places written by
+32. ✅ **Landmarks in every town (v0.429.0, PR #729, 2026-10-23).** Only Ridgemont had places written by
     hand; every other town was drawn whole. Now each keeps landmarks of its own
     (`TOWN_LANDMARKS`, `pools/townLandmarks.ts`): 10 in Kingsford, 5 in each town and 3 in each
     village, 43 in all, pubs, shops, offices, homes and haunts with a pop-culture nod, 28 of them
@@ -1266,9 +1266,13 @@ agreed order:
     only on its town's WiFi. Each is fingerprinted in `landmarks.test.ts`. The world grew to 655
     networks, which moves the towns' shares of players a little, and the bundle ceiling rose
     2,000 B to 288,975 B. As built: `procedural-world-architecture.md`, "The shape" and "The
-    declaration"; `world-content-architecture.md`, "The towns". **Pick up here (2026-10-23):**
-    the close-out browser run; whether `kestrel` is signed up again to stand in the owner's town
-    is the owner's call; then entry 30's close-out and the items still open in `backlog.md`.
+    declaration"; `world-content-architecture.md`, "The towns". Browser close-out (2026-10-23,
+    v0.429.0): a fresh player drawn into Wexcombe was offered LUKES-DINER on their second scan,
+    cracked it and joined it with a lease and an occupant row under `r0/t9/n39`, `whois` on its
+    public address answered `org-name: Luke's Diner`, `city: Wexcombe`, and `lynx centralperk.com`
+    from there opened Kingsford's Central Perk as written. No defect. **Pick up here
+    (2026-10-23):** whether `kestrel` is signed up again to stand in the owner's town is the
+    owner's call; then entry 30's close-out and the items still open in `backlog.md`.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

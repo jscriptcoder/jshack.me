@@ -37,6 +37,14 @@ address offline: find the network's key in `wifiPoolOf(startingTown(key))` by it
 `publicAddress(networkKey)` (`core/generation/world.ts`). Verified 2026-10-23 (v0.428.0) on
 EASTFIELD-CAFE, Hollowmere: `whois 87.172.170.223`.
 
+**Predict the scan instead of re-scanning blind.** A scan is a pure function of the key and
+the scan index, and the first `airodump-ng` is index 1, each later one the next. So
+`generateWifi({ seedPubkeyHex: key, scanIndex })` for 1, 2, … (`core/generation/generateWifi.ts`)
+lists offline which scan offers the network a run needs; filter `crackable` and name each by
+`essidOf`. The occupied network the scan may add is drawn after its picks, so it never moves
+them. Verified 2026-10-23 (v0.429.0): a Wexcombe player's scans 1 and 2 matched it row for row,
+LUKES-DINER on the second.
+
 A recipe below that names a Ridgemont network (a landmark such as `SHINRA-5G`, or a key
 `r0/t0/n…`) needs a player who starts in Ridgemont: `localStorage.clear()`, reload, NEW GAME, and
 read the town again until it says Ridgemont (about one try in three).
