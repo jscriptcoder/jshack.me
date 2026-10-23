@@ -1283,8 +1283,13 @@ agreed order:
     every network (as `nmcli disconnect`), writes `player_locations` (town, trips; a guarded
     write, so two boardings at once count one trip) and answers `left`, on which the player's tab
     takes `wlan0` down. The join and the scan's server call read where the player stands
-    (`standingTown`); rideit's log records `POST /board` and never the town. **Pick up here
-    (2026-10-23):** Slice 3, the 25 JSC fare.
+    (`standingTown`); rideit's log records `POST /board` and never the town. Slice 3
+    (v0.432.0): the ride costs 25 JSC. `/ticket` quotes the reader's trip address
+    (`tripAddress`: their key and trips taken, hashed) and what has arrived there; `/board` is
+    refused, changing nothing, until the whole fare has, and the boarding moves the trip count
+    on, so one fare buys one trip. Fares are burned. **Pick up here (2026-10-23):** the
+    close-out in `plans/travel.md`: one browser run, then the decisions move into
+    `procedural-world-architecture.md` and `wallet-architecture.md`.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

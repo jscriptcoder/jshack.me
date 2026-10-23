@@ -52,23 +52,39 @@ export const RIDEIT_FRONT_PAGE = page(
   DESCRIPTION,
 );
 
-/** The booking form: every town in the world's order, each boarding for itself. */
-export const TICKET_PAGE = page('rideit.io - book a ticket', [
-  '<h2>Book a ticket</h2>',
-  ...TOWNS.map((town) =>
-    [
-      `<form action="${BOARD_PATH}" method="post">`,
-      `<p>${escapeHtml(town.name)}`,
-      `<input type="hidden" name="town" value="${escapeHtml(town.name)}">`,
-      '<input type="submit" value="Board"></p>',
-      '</form>',
-    ].join('\n'),
-  ),
-  '<p>Or from a terminal:</p>',
-  '<pre>',
-  `$ curl -d "town=${TOWNS[0]!.name}" http://${RIDEIT_DOMAIN}${BOARD_PATH}`,
-  '</pre>',
-]);
+/** How much of the fare has arrived, out of the whole of it. */
+const paidOf = (paid: number): string => `${paid} of ${RIDE_FARE} JSC`;
+
+/** The booking form for one reader: the fare, the address their next trip is paid to and
+ *  how much has arrived there, then every town in the world's order, each boarding for
+ *  itself. */
+export const ticketPage = ({
+  address,
+  paid,
+}: {
+  readonly address: string;
+  readonly paid: number;
+}): string =>
+  page('rideit.io - book a ticket', [
+    '<h2>Book a ticket</h2>',
+    `<p>One fare to anywhere: ${RIDE_FARE} JSC, paid to this ticket's own address:</p>`,
+    `<p>${address}</p>`,
+    `<p>Paid so far: ${paidOf(paid)}.</p>`,
+    ...TOWNS.map((town) =>
+      [
+        `<form action="${BOARD_PATH}" method="post">`,
+        `<p>${escapeHtml(town.name)}`,
+        `<input type="hidden" name="town" value="${escapeHtml(town.name)}">`,
+        '<input type="submit" value="Board"></p>',
+        '</form>',
+      ].join('\n'),
+    ),
+    '<p>Or from a terminal:</p>',
+    '<pre>',
+    `$ wallet send ${address} ${RIDE_FARE}`,
+    `$ curl -d "town=${TOWNS[0]!.name}" http://${RIDEIT_DOMAIN}${BOARD_PATH}`,
+    '</pre>',
+  ]);
 
 /** The answer to a boarding that took the player to `town`. */
 export const arrivedPage = (town: string): string =>
@@ -82,6 +98,13 @@ export const NOWHERE_PAGE = page('rideit.io - no such town', [
   '<p>We do not go there.</p>',
   `<p><a href="${TICKET_PATH}">Book a ticket</a></p>`,
 ]);
+
+/** The answer to a boarding before the whole fare has arrived at the trip's address. */
+export const unpaidPage = (paid: number): string =>
+  page('rideit.io - fare not paid', [
+    `<p>The fare has not arrived: ${paidOf(paid)}.</p>`,
+    `<p><a href="${TICKET_PATH}">Book a ticket</a></p>`,
+  ]);
 
 /** The answer to a boarding that another boarding of the same player's beat to the
  *  ticket: that one moved them, and this one only left. */

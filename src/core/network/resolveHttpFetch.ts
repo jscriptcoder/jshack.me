@@ -56,8 +56,8 @@ import { answerSignup, type SignUp } from '../emailit/signup.js';
 import { answerApply, type Apply } from '../hireme/apply.js';
 import { loggedRequestPath, type FindBoardHandle } from '../hireme/boards.js';
 import { boardPage } from '../hireme/pages.js';
-import { answerBoard, type BoardDeps } from '../rideit/board.js';
-import { BOARD_PATH as RIDE_BOARD_PATH, TICKET_PAGE, TICKET_PATH } from '../rideit/pages.js';
+import { answerBoard, answerTicket, type BoardDeps } from '../rideit/board.js';
+import { BOARD_PATH as RIDE_BOARD_PATH, TICKET_PATH } from '../rideit/pages.js';
 import { answerPost, type PostThread } from '../talkit/answerPost.js';
 import { answerComment, type PostComment } from '../talkit/answerComment.js';
 import { indexedWeb, siteOn, type MachinePatchRow } from '../findit/webIndex.js';
@@ -185,9 +185,10 @@ export type ResolveHttpFetchDeps = WebTargetDeps & {
   /** Comment on a thread at talkit.io. Only a form POSTed to talkit's `/comment` reaches
    *  it. */
   readonly postComment: PostComment;
-  /** Board a ride at rideit.io: where the traveller stands, the leaving and the move.
-   *  Only a form POSTed to rideit's `/board` reaches it. */
-  readonly board: BoardDeps;
+  /** Ride at rideit.io: where the traveller stands, the leaving and the move. Only
+   *  rideit's `/ticket` and `/board` reach it, and they read the fare off the public
+   *  ledger exactly as chainit does. */
+  readonly board: Omit<BoardDeps, 'findBalance'>;
 } & LedgerReads &
   ChainReads &
   ForumReads &
@@ -721,7 +722,11 @@ export const handleResolveHttpFetch = async (
       actorKey: publicKey,
       standingEssid: standing.standingEssid,
     });
-    const answer = await answerBoard({ form: payload.body, playerKey: publicKey, deps: deps.board });
+    const answer = await answerBoard({
+      form: payload.body,
+      playerKey: publicKey,
+      deps: { ...deps.board, findBalance: deps.findBalance },
+    });
     if (answer === null) return { status: 500, body: { error: 'board_failed' } };
     await logFetchFrom(deps, target, sourceIp, {
       method: 'POST',
@@ -767,19 +772,26 @@ export const handleResolveHttpFetch = async (
   }
 
   // rideit sells tickets from a function, never from a file: a root on rideit can deface
-  // its front page or plant a file at a ticket path, but cannot stop anybody riding. A
-  // browser going back to the page it boarded from asks for `/board` without the form,
-  // and gets the tickets afresh, boarding nobody.
+  // its front page or plant a file at a ticket path, but cannot stop anybody riding. The
+  // page is the reader's own, quoting where their next trip is paid. A browser going back
+  // to the page it boarded from asks for `/board` without the form, and gets the tickets
+  // afresh, boarding nobody.
   if (
     target.essid === RIDEIT_NETWORK &&
     [TICKET_PATH, RIDE_BOARD_PATH].includes(pathOf(payload.path))
   ) {
+    const ticket = await answerTicket({
+      playerKey: publicKey,
+      deps: { ...deps.board, findBalance: deps.findBalance },
+    });
+    // No page was served, so nothing is recorded, as for chainit's failed read.
+    if (ticket === null) return { status: 500, body: { error: 'ticket_failed' } };
     await logFetch(deps, target, publicKey, standing.standingEssid, {
       path: loggedPath,
       status: 200,
-      size: TICKET_PAGE.length,
+      size: ticket.length,
     });
-    return { status: 200, body: { ok: true, content: TICKET_PAGE, server: target.server } };
+    return { status: 200, body: { ok: true, content: ticket, server: target.server } };
   }
 
   // chainit answers its views from the ledger, like findit's search, never from a file:

@@ -1,8 +1,8 @@
 # Plan: travel between towns
 
 **Status**: Grilled and planned. Decisions confirmed by the owner 2026-10-23; three slices
-planned 2026-10-23 (below the decisions). Slice 1 shipped (v0.430.0, PR #730). Slice 2 in
-flight on `feat/travel-board`.
+planned 2026-10-23 (below the decisions). Slice 1 shipped (v0.430.0, PR #730). Slice 2 shipped
+(v0.431.0, PR #731). Slice 3 in flight on `feat/travel-fare`.
 Where another doc disagrees with this file, this file wins until the close-out moves its content
 into `docs/`.
 

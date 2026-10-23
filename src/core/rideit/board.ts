@@ -1,8 +1,14 @@
 /**
- * Boarding a ride at rideit.io: what a form POSTed to `/board` becomes.
+ * Riding at rideit.io: the ticket page a reader is shown, and what a form POSTed to
+ * `/board` becomes.
  *
  * The form names a town, exactly as the ticket page writes it. A town the world declares
  * moves the player there; anything else is refused and changes nothing.
+ *
+ * A ride costs the fare, paid to an address made for the player and their next trip
+ * (`tripAddress`). The ticket page quotes that address and what has arrived there, and a
+ * boarding is refused, changing nothing, until the whole fare has. Boarding moves the trip
+ * count on, so the next trip is paid to a fresh address and one fare buys one trip.
  *
  * Boarding is leaving, by the same rule as `nmcli disconnect`: the player's box comes off
  * every network it is on, and every connection that ran through it closes, both ways,
@@ -15,10 +21,14 @@
  * boardings at once count one trip: the one that lost the race left, and moved nobody.
  */
 
+import { z } from 'zod';
 import { TOWNS } from '../generation/world.js';
 import type { FindPlayerLocation } from '../network/playerLocation.js';
 import { dropConnectionsThrough, type DropConnectionsDeps } from '../network/unregisterOccupant.js';
-import { arrivedPage, NOWHERE_PAGE, USED_TICKET_PAGE } from './pages.js';
+import { exactCount } from '../wallet/exactCount.js';
+import { handleWalletBalance, type WalletBalanceDeps } from '../wallet/handleWalletBalance.js';
+import { RIDE_FARE, tripAddress } from './fare.js';
+import { arrivedPage, NOWHERE_PAGE, ticketPage, unpaidPage, USED_TICKET_PAGE } from './pages.js';
 
 /** Store the player in `town` as their next trip, only if they have still taken
  *  `tripsTaken` trips. `moved` is false when another boarding moved them first. */
@@ -28,22 +38,59 @@ export type MoveLocation = (move: {
   readonly tripsTaken: number;
 }) => Promise<{ readonly moved: boolean; readonly error: unknown }>;
 
-export type BoardDeps = DropConnectionsDeps & {
+/** What the ticket page reads: where the player stands, and the public ledger. */
+export type TicketDeps = WalletBalanceDeps & {
   readonly findPlayerLocation: FindPlayerLocation;
-  /** Take the player's box off every network it is on, answering with the rows removed,
-   *  which name the box that left. Empty when it was on none. */
-  readonly deleteOccupancies: (ownerKey: string) => Promise<{
-    readonly data: readonly { readonly workstation_machine_id: string }[] | null;
-    readonly error: unknown;
-  }>;
-  readonly moveLocation: MoveLocation;
 };
+
+export type BoardDeps = DropConnectionsDeps &
+  TicketDeps & {
+    /** Take the player's box off every network it is on, answering with the rows removed,
+     *  which name the box that left. Empty when it was on none. */
+    readonly deleteOccupancies: (ownerKey: string) => Promise<{
+      readonly data: readonly { readonly workstation_machine_id: string }[] | null;
+      readonly error: unknown;
+    }>;
+    readonly moveLocation: MoveLocation;
+  };
 
 /** The page a boarding answers with, and whether the player left the network they were
  *  on, which their own tab has to learn so it can take its WiFi down. */
 export type BoardAnswer = { readonly page: string; readonly left: boolean };
 
 const DECLARED_TOWNS = new Set(TOWNS.map((town) => town.name));
+
+const balanceAnswer = z.object({ balance: exactCount });
+
+type NextTrip = { readonly tripsTaken: number; readonly address: string; readonly paid: number };
+
+/** The trip the player would take next: the trips they have taken, the address it is paid
+ *  to, and the JSC that has arrived there. Null when either read failed, never a trip
+ *  that says nothing was paid when nobody could tell. */
+const nextTrip = async (playerKey: string, deps: TicketDeps): Promise<NextTrip | null> => {
+  const location = await deps.findPlayerLocation(playerKey);
+  if (location.error) return null;
+  const tripsTaken = location.data?.trips ?? 0;
+  const address = tripAddress(playerKey, tripsTaken);
+  // A read that failed answers an error, which does not parse as a balance.
+  const held = balanceAnswer.safeParse(
+    (await handleWalletBalance({ action: 'balance', address }, deps)).body,
+  );
+  if (!held.success) return null;
+  return { tripsTaken, address, paid: held.data.balance };
+};
+
+/** The ticket page for the verified reader, or null when the store could not be read. */
+export const answerTicket = async ({
+  playerKey,
+  deps,
+}: {
+  readonly playerKey: string;
+  readonly deps: TicketDeps;
+}): Promise<string | null> => {
+  const trip = await nextTrip(playerKey, deps);
+  return trip === null ? null : ticketPage(trip);
+};
 
 /** The answer to a boarding, or null when the store could not say what happened. */
 export const answerBoard = async ({
@@ -60,8 +107,9 @@ export const answerBoard = async ({
   const town = new URLSearchParams(form).get('town') ?? '';
   if (!DECLARED_TOWNS.has(town)) return { page: NOWHERE_PAGE, left: false };
 
-  const location = await deps.findPlayerLocation(playerKey);
-  if (location.error) return null;
+  const trip = await nextTrip(playerKey, deps);
+  if (trip === null) return null;
+  if (trip.paid < RIDE_FARE) return { page: unpaidPage(trip.paid), left: false };
 
   const left = await deps.deleteOccupancies(playerKey);
   if (left.error) return null;
@@ -77,7 +125,7 @@ export const answerBoard = async ({
   const move = await deps.moveLocation({
     ownerKey: playerKey,
     town,
-    tripsTaken: location.data?.trips ?? 0,
+    tripsTaken: trip.tripsTaken,
   });
   if (move.error) return null;
   return { page: move.moved ? arrivedPage(town) : USED_TICKET_PAGE, left: true };

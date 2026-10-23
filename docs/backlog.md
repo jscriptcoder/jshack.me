@@ -13,8 +13,11 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
 - **Crypto wallet — follow-ups deferred.** The wallet epic shipped at v0.362.0 (as-built:
   [`wallet-architecture.md`](./wallet-architecture.md)). Four things were left out on purpose:
   **recognition**, the other half of a mission reward, to be designed with missions; **anything to
-  spend JSC on**; **mission payouts**, which will call the operator mint; and **generated wallets
-  as loot**, a world-content story that would reopen the rule that generated boxes hold no loot.
+  spend JSC on**, which rideit.io's 25 JSC fare began to answer at v0.432.0; **mission payouts**,
+  which will call the operator mint; and **generated wallets as loot**, a world-content story that
+  would reopen the rule that generated boxes hold no loot. Wallets in the world, holding a
+  balance, are also a traveller's natural way to earn a fare: until they or missions ship, the
+  operator mint (or another player's wallet) is the only funding.
 
 - **emailit.io's root view has a size ceiling.** Since v0.389.0 a root shell on emailit.io is
   served every account's mailbox, built from the email tables, and it re-reads that tree before
@@ -951,6 +954,9 @@ decision, not a gap.
     (`procedural-world-architecture.md`, "Where a player stands"). Moving is what is left: a
     stored location that overrides the drawn town. Until it ships, a landmark with no site
     (Ridgemont's 18 and the other towns' 15) is reached only by players who start in its town.
+    - **A booking log on rideit.io naming destinations**: a tracking prize for whoever roots
+      rideit. Today its box logs only the access line, `POST /board` from the traveller's
+      source address, so a root learns that somebody on that network left, never where to.
   - **More ways in**: hidden ESSIDs joined by a name learnt elsewhere (`nmcli` would have to
     accept a known name missing from the scan), and a hacker BBS posting leads.
   - **The categories after healthcare**: education (schools, and universities in drawn towns),

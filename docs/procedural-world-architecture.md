@@ -300,9 +300,10 @@ than its gateway's ssh from outside.
   join refused; Ridgemont's hospital and a drawn shop), `testMillbrook`, `testFindit` and
   `testJoinRefusal` (a player who starts in Ridgemont joins a drawn Ridgemont network and is
   refused another town's and a drawn corporation's; a player who starts in that other town joins
-  it and is refused Ridgemont's), and `testTravel` (a boarding at rideit.io moves a player:
-  their network and the connections through it go, the join and the scan follow the new town,
-  rideit's log names no town, and two boardings at once count one trip).
+  it and is refused Ridgemont's), and `testTravel` (a boarding at rideit.io moves a player once
+  its fare has arrived at their trip address: their network and the connections through it go,
+  the join and the scan follow the new town, rideit's log names no town, one fare buys one trip,
+  and two boardings at once count one trip).
 
 ## Adding to the world
 
