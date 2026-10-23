@@ -3174,6 +3174,23 @@ describe("the towns' landmarks", () => {
     }
   });
 
+  it('publishes the site of each that keeps one as it was written, naming no town after its place', () => {
+    for (const town of drawnTowns()) {
+      const sited = networksIn(town).filter((network) => network.site !== undefined);
+      const drawn = sited.find(
+        (network) => !isLandmark(network.key) && network.site?.name.includes(town) === false,
+      );
+      if (drawn?.site === undefined) throw new Error(`${town} draws no place named for itself`);
+      // A place the town draws says where it stands; a landmark says only what was written.
+      expect(descriptionOf(homepageAt(drawn.site.domain)), town).toContain(`, ${town}`);
+      for (const landmark of sited.filter((network) => isLandmark(network.key))) {
+        expect(descriptionOf(homepageAt(landmark.site?.domain ?? '')), landmark.essid).not.toContain(
+          `, ${town}`,
+        );
+      }
+    }
+  });
+
   it('moves no network declared before them: each keeps its key, wifi, town, domain and address', () => {
     // Every network of v0.428.0, as one fingerprint: a town's landmarks only ever append.
     const before = DECLARED_NETWORKS.filter(

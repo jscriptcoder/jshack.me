@@ -185,6 +185,25 @@ describe('the web findit searches', () => {
     );
   });
 
+  it('lists every landmark of a town beyond Ridgemont that keeps a site in the top ten for its own name', async () => {
+    const web = await indexWith();
+    const landmarks = DECLARED_NETWORKS.filter(
+      (network) =>
+        network.town !== undefined &&
+        network.town !== 'Ridgemont' &&
+        isLandmark(network.key) &&
+        network.site !== undefined,
+    );
+    expect(landmarks).toHaveLength(28);
+    const missed = landmarks.flatMap((landmark) => {
+      const found = rankPages(web, landmark.site?.name ?? '')
+        .slice(0, 10)
+        .map((page) => page.address);
+      return found.includes(landmark.site?.domain ?? '') ? [] : [landmark.essid];
+    });
+    expect(missed).toEqual([]);
+  });
+
   it("finds every town's cafés for a cafe asked without its accent, as for one asked with it", async () => {
     const web = await indexWith();
     const towns = [...new Set(DECLARED_NETWORKS.flatMap((network) => network.town ?? []))];

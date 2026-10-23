@@ -122,6 +122,97 @@ const FINGERPRINTS: Readonly<Record<string, string>> = {
   'MEGA-LO-MART': 'a45b52aa846357a00c7c5d44b7b93c0b',
 };
 
+/** Each landmark of a town beyond Ridgemont as it was written, under its key, its wifi
+ *  above it. They came after the towns, so they keep their public address too. */
+const TOWN_FINGERPRINTS: Readonly<Record<string, string>> = {
+  // THE-SLAUGHTERED-LAMB
+  'r0/t1/n18': '4a6c2b04797f1b60cf047eee747dbff9',
+  // LOCAL-SHOP-LOCAL-PEOPLE
+  'r0/t1/n19': '2f6d0f45ddf74472bdb30eb30985b7e0',
+  // WRONG-TROUSERS
+  'r0/t1/n20': '7611db3116d7d17ca0e73d574dcbcf82',
+  // THE-WOOLPACK
+  'r0/t2/n18': 'f84b94da2d8143c058d7bb5a8a34480f',
+  // GREENDALE-POST-OFFICE
+  'r0/t2/n19': '446bd307558988cf0048c28e5d2d0936',
+  // SKELDALE-HOUSE
+  'r0/t2/n20': '59e4154a9efaf1d3788497883baed549',
+  // SARIF-INDUSTRIES
+  'r0/t3/n47': '1cb7c68412837f41edc2f0251c33acd6',
+  // DOUBLE-R-DINER
+  'r0/t3/n48': '736a08606dde26c493a8a4b44c371611',
+  // NOOKS-CRANNY
+  'r0/t3/n49': '26ec212a47efa91844f449d8362e80a4',
+  // LOG-LADY-CABIN
+  'r0/t3/n50': '1458bceeeebb37d3323641c5df3c7754',
+  // JOHNNY-5-AP
+  'r0/t3/n51': '232506efaeee0ea3de01c45a51adec36',
+  // LUMON-INDUSTRIES
+  'r0/t4/n166': '5fa2993d57ca0838b8a2e30dc87fae65',
+  // E-CORP-GUEST
+  'r0/t4/n167': 'e0853cfb9983cb68d106f5018468ca85',
+  // ENCOM-NET
+  'r0/t4/n168': 'e6d836a414aac88ead82602ed6d351b3',
+  // REYNHOLM-INDUSTRIES
+  'r0/t4/n169': '9b0688748d85289507c77d8c0d7cfe4d',
+  // CENTRAL-PERK
+  'r0/t4/n170': '480a2b08fb57e046f5ed68b9089c7e9a',
+  // LOS-POLLOS-HERMANOS
+  'r0/t4/n171': '98576325ffadd484d45c40129e631a9c',
+  // JOJAMART
+  'r0/t4/n172': 'd7038783092a08ee5d935b4b6bf0d2d2',
+  // 221B-WIFI
+  'r0/t4/n173': '123f1342c15a36279b2ba18291f6fec7',
+  // HAL-9000
+  'r0/t4/n174': '8899add2054ad9c80f9af38a9a7af87e',
+  // FSOCIETY
+  'r0/t4/n175': '3475a490cd8886e91917c133fc630e1b',
+  // THE-GREEN-MAN
+  'r0/t5/n15': '23353cf05159ffabbf7fdc4956204493',
+  // LON-LON-RANCH
+  'r0/t5/n16': '5b2b441c718f5d60ac28f1734fa0ddf7',
+  // TALKIE-TOASTER
+  'r0/t5/n17': 'df172cc67560df4c0facff55a25927e7',
+  // FAWLTY-TOWERS
+  'r0/t6/n20': 'f759a0d3a9b07e3f8cae491fa5434931',
+  // PIERRES-GENERAL-STORE
+  'r0/t6/n21': '1cb64efa4ee0f9be608ab38f9e1e4f72',
+  // THE-GIBSON
+  'r0/t6/n22': '41530721a24ae87f3f8f983789a62a1a',
+  // THE-THREE-BROOMSTICKS
+  'r0/t7/n17': '0f4f1149a5eb19267f764dc99e673f01',
+  // JUPITER-MINING
+  'r0/t7/n18': '5df00e83167d25adcc2de1640e0e0b71',
+  // THE-BURROW
+  'r0/t7/n19': 'fc1e09e30ca9fbe89342a3caf8e3e157',
+  // THE-HORSE-AND-GROOM
+  'r0/t8/n16': '1cf0b796371546abf44787fb6051cc99',
+  // BLACK-BOOKS
+  'r0/t8/n17': '76896432a5593d746e03acb2a171f6a2',
+  // DEEP-THOUGHT
+  'r0/t8/n18': '71aed0b478125931e57caa157cb561ca',
+  // INGEN-LABS
+  'r0/t9/n38': '52f1cad059a1080562ffb3f266418d46',
+  // LUKES-DINER
+  'r0/t9/n39': '8439406b7bbd64c353d7859c9cfdc468',
+  // SCOOPS-AHOY
+  'r0/t9/n40': '74142bc483116351abe3d4cfc2898240',
+  // BAG-END
+  'r0/t9/n41': 'eacac80c83219911a9453e2bb4fe3326',
+  // SETEC-ASTRONOMY
+  'r0/t9/n42': '953e7d2ea7db6309b8d9408bf2ab0307',
+  // WERNHAM-HOGG
+  'r0/t10/n51': '120fc281354bb05e36f19b7bd5ad722e',
+  // THE-WINCHESTER
+  'r0/t10/n52': 'c69e26131881baa73f73254804f9cf4f',
+  // TROTTERS-INDEPENDENT-TRADERS
+  'r0/t10/n53': '75c38a1eaebd759e8632dc0e5f88319a',
+  // METEOR-STREET-FLAT
+  'r0/t10/n54': '2bdc2b86071a64ce5d5ae7708071b8fb',
+  // THE-LONE-GUNMEN
+  'r0/t10/n55': 'f723e4b861795761529b3903b693ab42',
+};
+
 describe('the landmarks', () => {
   it('each keep everything but their public address from before the world had towns', () => {
     const landmarks = DECLARED_NETWORKS.filter(
@@ -133,5 +224,17 @@ describe('the landmarks', () => {
     );
 
     expect(fingerprints).toEqual(FINGERPRINTS);
+  });
+
+  it('of every other town each keep everything they were written with', () => {
+    const landmarks = DECLARED_NETWORKS.filter(
+      (network) => isLandmark(network.key) && network.town !== RIDGEMONT,
+    );
+
+    const fingerprints = Object.fromEntries(
+      landmarks.map((network) => [network.key, fingerprint(network.key)]),
+    );
+
+    expect(fingerprints).toEqual(TOWN_FINGERPRINTS);
   });
 });
