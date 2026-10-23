@@ -24,9 +24,10 @@
 //   - The join then refuses the town they started in and admits the one they travelled to,
 //     and the scan's server call answers the new town.
 //   - rideit's access log records `POST /board` from the network the traveller stood on,
-//     and never the town.
+//     and never the town. Its booking log holds one line for the ride taken, naming the
+//     town, the trip address that paid and that network, and none for a refused boarding.
 //   - Two boardings at once store one move and count one trip: one arrives, the other says
-//     the ticket was used, and both left.
+//     the ticket was used, and both left. The booking log holds one line for them.
 //   - A boarding for the town the player already stands in is a trip like any other.
 //   - Overpaying boards, and the excess stays at the trip address, where nothing moves it.
 //
@@ -48,6 +49,7 @@ import { siteAddress } from '../src/core/generation/publisher.js';
 import { RIDEIT_DOMAIN, RIDEIT_NETWORK } from '../src/core/generation/fixedSites.js';
 import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js';
 import { ACCESS_LOG_PATH } from '../src/core/logging/accessLog.js';
+import { RIDEIT_LOG_PATH } from '../src/core/logging/rideitLog.js';
 import { derivedPublicIpByEssid } from '../src/core/logging/crossPlayerSourceIp.js';
 import { RIDE_FARE, tripAddress } from '../src/core/rideit/fare.js';
 import { generateWalletKey, signerOf } from '../src/core/wallet/walletKey.js';
@@ -202,12 +204,12 @@ const endReasonOf = async (sessionId: string): Promise<string | null> => {
 };
 
 /** rideit's access log as its gateway's recorder wrote it. */
-const rideitLog = async (): Promise<string> => {
+const rideitLog = async (path: string = ACCESS_LOG_PATH): Promise<string> => {
   const { data, error } = await sr
     .from('patches')
     .select('writer_key, content')
     .eq('machine_id', RIDEIT_MACHINE)
-    .eq('path', ACCESS_LOG_PATH);
+    .eq('path', path);
   if (error) throw new Error(`log read failed: ${error.message}`);
   return ((data ?? []) as readonly { writer_key: string; content: string | null }[])
     .filter((row) => row.writer_key === apGatewayLogWriterKey(RIDEIT_NETWORK))
@@ -417,7 +419,8 @@ check(
   `status=${stranger.status} town=${String(field(stranger.body, 'town'))}`,
 );
 
-// === 5. rideit's log names who boarded and from where, never where to. ===
+// === 5. rideit's access log names who boarded and from where, never where to; its
+// booking log names where to, for the ride taken alone. ===
 const log = await rideitLog();
 const homeIp = (await derivedPublicIpByEssid(START_NETWORK.key)).data?.public_ip;
 const boardLines = log.split('\n').filter((line) => line.includes('"POST /board'));
@@ -430,6 +433,23 @@ check(
   "rideit's access log never names a town",
   !TOWNS.some((town) => log.includes(town.name)) && !log.includes('Atlantis'),
   `tail=${JSON.stringify(log.split('\n').slice(-3))}`,
+);
+/** The booking log's lines for one of the traveller's trip addresses. */
+const ridesPaidAt = async (address: string): Promise<readonly string[]> =>
+  (await rideitLog(RIDEIT_LOG_PATH)).split('\n').filter((line) => line.includes(` ${address} `));
+const firstRide = await ridesPaidAt(tripTo(0));
+check(
+  `rideit's booking log holds one line for the first ride: ${SECOND_TOWN}, its trip address, the network left`,
+  homeIp !== undefined &&
+    firstRide.length === 1 &&
+    (firstRide[0] ?? '').endsWith(` ride to ${SECOND_TOWN} paid at ${tripTo(0)} from ${homeIp}`),
+  `homeIp=${homeIp} lines=${JSON.stringify(firstRide)}`,
+);
+const secondTripRides = await ridesPaidAt(tripTo(1));
+check(
+  "rideit's booking log holds no line for the refused boardings",
+  !(await rideitLog(RIDEIT_LOG_PATH)).includes('Atlantis') && secondTripRides.length === 0,
+  `second trip lines=${JSON.stringify(secondTripRides)}`,
 );
 
 // === 6. Two boardings at once store one move and count one trip. ===
@@ -452,6 +472,12 @@ check(
   `the two count one trip: ${THIRD_TOWN} with two trips`,
   doubledLocation?.town === THIRD_TOWN && doubledLocation.trips === 2,
   `location=${JSON.stringify(doubledLocation)}`,
+);
+const doubledRides = await ridesPaidAt(tripTo(1));
+check(
+  `rideit's booking log holds one line for the two: ${THIRD_TOWN}`,
+  doubledRides.length === 1 && (doubledRides[0] ?? '').includes(` ride to ${THIRD_TOWN} paid at `),
+  `lines=${JSON.stringify(doubledRides)}`,
 );
 
 // === 7. A boarding for the town the player stands in is a trip like any other, and an

@@ -310,6 +310,44 @@ describe('answerBoard: two boardings at once', () => {
   });
 });
 
+/**
+ * A boarding that moved the player says which ride it was: the town, and the trip address
+ * the fare was paid at. That is what rideit's booking log records, so a boarding that moved
+ * nobody reports no ride at all.
+ */
+describe('answerBoard: the ride it reports', () => {
+  it('reports the town and the address the fare was paid at, for the trip it took', async () => {
+    const { deps } = makeDeps({ location: { town: FIRST_TOWN, trips: 2 } });
+
+    const answer = await board(boardFor(SECOND_TOWN), deps);
+
+    expect(answer?.ride).toEqual({ town: SECOND_TOWN, address: tripAddress(PLAYER, 2) });
+  });
+
+  it.each([
+    ['a town it does not go to', boardFor('Atlantis'), farePaid(0)],
+    ['a fare that has not arrived', boardFor(SECOND_TOWN), new Map<string, number>()],
+  ])('reports no ride for %s', async (_case, form, balances) => {
+    const { deps } = makeDeps({ balances });
+
+    expect((await board(form, deps))?.ride).toBeNull();
+  });
+
+  it('reports a ride for the boarding that moved the player, and none for the one that lost', async () => {
+    const { deps } = makeDeps({ location: { town: FIRST_TOWN, trips: 2 } });
+
+    const answers = await Promise.all([
+      board(boardFor(SECOND_TOWN), deps),
+      board(boardFor(SECOND_TOWN), deps),
+    ]);
+
+    expect(answers.map((answer) => answer?.ride)).toEqual([
+      { town: SECOND_TOWN, address: tripAddress(PLAYER, 2) },
+      null,
+    ]);
+  });
+});
+
 describe('answerBoard: a store that fails', () => {
   it('answers nothing, and leaves and moves nothing, when it cannot tell where the player stands', async () => {
     const { deps, deleteOccupancies, store } = makeDeps(

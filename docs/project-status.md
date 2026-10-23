@@ -1311,6 +1311,17 @@ agreed order:
     BEAN-THERE-WIFI, and `whois 87.1.0.159` answered `city: Ridgemont`. The store held Ridgemont
     with one trip, 25 JSC at the trip address and 75 in the wallet. No defect. **Pick up here
     (2026-10-23):** the owner's choice from the items still open in `backlog.md`.
+34. ✅ **rideit keeps a booking log (v0.434.0, 2026-10-23).** Rooting rideit told a player only
+    that somebody on a network left. Now each ride taken adds a line to `/var/log/rideit.log`:
+    the town, the trip address that paid and the network left (`core/logging/rideitLog.ts`,
+    written beside the access line in `resolveHttpFetch.ts`). The trip address leads on to the
+    paying wallet through chainit. A boarding that moved nobody writes no line. talkit's and
+    rideit's logs now share one timestamp (`core/logging/appLogTimestamp.ts`) and one appender.
+    `testTravel` reads the line off the live stack, and one line for two boardings at once. The
+    other small travel follow-up, a server check of the WiFi password, was dropped: the client
+    draws every crackable password itself, so it would stop nobody (`backlog.md`, under
+    "Travel"). As built: `procedural-world-architecture.md`, "Travelling". **Pick up here
+    (2026-10-23):** the owner's choice from the items still open in `backlog.md`.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

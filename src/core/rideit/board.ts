@@ -54,9 +54,17 @@ export type BoardDeps = DropConnectionsDeps &
     readonly moveLocation: MoveLocation;
   };
 
-/** The page a boarding answers with, and whether the player left the network they were
- *  on, which their own tab has to learn so it can take its WiFi down. */
-export type BoardAnswer = { readonly page: string; readonly left: boolean };
+/** A trip that was taken: the town it went to, and the trip address its fare was paid at. */
+export type Ride = { readonly town: string; readonly address: string };
+
+/** The page a boarding answers with, whether the player left the network they were on,
+ *  which their own tab has to learn so it can take its WiFi down, and the ride it took:
+ *  null when it moved nobody. */
+export type BoardAnswer = {
+  readonly page: string;
+  readonly left: boolean;
+  readonly ride: Ride | null;
+};
 
 const DECLARED_TOWNS = new Set(TOWNS.map((town) => town.name));
 
@@ -105,11 +113,11 @@ export const answerBoard = async ({
   readonly deps: BoardDeps;
 }): Promise<BoardAnswer | null> => {
   const town = new URLSearchParams(form).get('town') ?? '';
-  if (!DECLARED_TOWNS.has(town)) return { page: NOWHERE_PAGE, left: false };
+  if (!DECLARED_TOWNS.has(town)) return { page: NOWHERE_PAGE, left: false, ride: null };
 
   const trip = await nextTrip(playerKey, deps);
   if (trip === null) return null;
-  if (trip.paid < RIDE_FARE) return { page: unpaidPage(trip.paid), left: false };
+  if (trip.paid < RIDE_FARE) return { page: unpaidPage(trip.paid), left: false, ride: null };
 
   const left = await deps.deleteOccupancies(playerKey);
   if (left.error) return null;
@@ -128,5 +136,7 @@ export const answerBoard = async ({
     tripsTaken: trip.tripsTaken,
   });
   if (move.error) return null;
-  return { page: move.moved ? arrivedPage(town) : USED_TICKET_PAGE, left: true };
+  return move.moved
+    ? { page: arrivedPage(town), left: true, ride: { town, address: trip.address } }
+    : { page: USED_TICKET_PAGE, left: true, ride: null };
 };
