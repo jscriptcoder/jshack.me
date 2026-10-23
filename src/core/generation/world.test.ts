@@ -2387,9 +2387,10 @@ describe('a village', () => {
 });
 
 /**
- * Nothing in the world is out of reach. A network is found on findit, by standing in
- * Ridgemont, on its town's directory, or by a lead kept on a network found one of those
- * ways. One that none of them reach could never be played.
+ * Nothing in the world is out of reach. A network is found on findit, on its town's
+ * directory, by a lead kept on a network found one of those ways, or, for a landmark that
+ * publishes nothing, by standing in its town. One that none of them reach could never be
+ * played.
  */
 describe('the reach of the world', () => {
   it('leaves no network that nothing leads to', async () => {

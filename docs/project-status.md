@@ -1250,13 +1250,25 @@ agreed order:
     players who joined before stay put. Every joining wire-check signs up with
     `generateIdentityIn(town)`, and `testJoinRefusal` joins a player from another town at home
     and refuses them Ridgemont. As built: `procedural-world-architecture.md`, "Where a player
-    stands" and "Joining"; what it left out is in `backlog.md` under "Travel" and "Hand-written
-    places for the other towns". Browser close-out (2026-10-23, v0.428.0): a fresh player drawn
+    stands" and "Joining"; what it left out is in `backlog.md` under "Travel", and the other
+    towns' hand-written places followed in entry 32. Browser close-out (2026-10-23, v0.428.0): a fresh player drawn
     into Hollowmere scanned only Hollowmere's networks, a home among them, joined EASTFIELD-CAFE
     with a lease and an occupant row, `whois` on its public address answered `city: Hollowmere`,
-    and a reload kept them on it. No defect. **Pick up here (2026-10-23):** whether `kestrel` is
-    signed up again to stand in the owner's town is the owner's call; then entry 30's close-out
-    and the items still open in `backlog.md`.
+    and a reload kept them on it. No defect.
+32. 🔄 **Landmarks in every town (v0.429.0, 2026-10-23).** Only Ridgemont had places written by
+    hand; every other town was drawn whole. Now each keeps landmarks of its own
+    (`TOWN_LANDMARKS`, `pools/townLandmarks.ts`): 10 in Kingsford, 5 in each town and 3 in each
+    village, 43 in all, pubs, shops, offices, homes and haunts with a pop-culture nod, 28 of them
+    with a site and none an institution or a place of care. Each follows everything its town
+    draws, keyed and addressed as its next network, so no earlier network moved, and every
+    `isLandmark` rule holds: no drawn profile, no lead, no forward beyond its site, a site that
+    reads as written. A sited one is on findit, mapit and `whois` for everyone; a siteless one
+    only on its town's WiFi. Each is fingerprinted in `landmarks.test.ts`. The world grew to 655
+    networks, which moves the towns' shares of players a little, and the bundle ceiling rose
+    2,000 B to 288,975 B. As built: `procedural-world-architecture.md`, "The shape" and "The
+    declaration"; `world-content-architecture.md`, "The towns". **Pick up here (2026-10-23):**
+    the close-out browser run; whether `kestrel` is signed up again to stand in the owner's town
+    is the owner's call; then entry 30's close-out and the items still open in `backlog.md`.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
