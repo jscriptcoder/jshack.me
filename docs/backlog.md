@@ -954,9 +954,10 @@ decision, not a gap.
     "Travelling", and `wallet-architecture.md` for the fare. Left open:
     - **Earning a fare**: wallets in the world and mission payouts, under the crypto wallet
       follow-ups above. Until one ships, the operator mint is a traveller's only funding.
-    - **A booking log on rideit.io naming destinations**: a tracking prize for whoever roots
-      rideit. Today its box logs only the access line, `POST /board` from the traveller's
-      source address, so a root learns that somebody on that network left, never where to.
+    - ✅ **A booking log on rideit.io naming destinations**: shipped at v0.434.0.
+      `/var/log/rideit.log` holds one line per ride taken, naming the town, the trip address
+      that paid and the network left; as-built in `procedural-world-architecture.md`,
+      "Travelling".
   - **More ways in**: hidden ESSIDs joined by a name learnt elsewhere (`nmcli` would have to
     accept a known name missing from the scan), and a hacker BBS posting leads.
   - **The categories after healthcare**: education (schools, and universities in drawn towns),
@@ -967,9 +968,14 @@ decision, not a gap.
     route yet.
   - **The fixed-IP mission catalog** now has its substrate: a hand-written network declared after
     a town's drawn ones answers at a known derived address, as Millbrook's cottage hospital does.
-  - **The WiFi password is checked by the client only.** The server never verifies the cracked
-    password, so a modified client can join without `aircrack-ng`. It predates the epic and is
-    derivable server-side from the encoded pool.
+  - **The WiFi password is checked by the client only. DECIDED 2026-10-23, left as it is.** The
+    server never verifies the cracked password, so a modified client can join without
+    `aircrack-ng`. A server check would stop nobody: the client draws every crackable password
+    itself (`passwordForEssid`, the `wifi-pw-` stream), and the scan carries the plaintext so
+    `aircrack-ng` and `nmcli` can work, so a modified client would read it off its own bundle
+    and send it. It is part of the accepted limit "What a network was generated with is
+    computable by any client" above, and reopens only with that limit's server-only-secret
+    step, which keys `wifi-pw-` on the server.
   - **Ridgemont's council keeps no town directory**: it is a landmark, whose content cannot move.
     Giving it one is a decision of its own.
   - **Consequence to hold onto: the PUBLIC IP remains the primary cross-player attack surface**,

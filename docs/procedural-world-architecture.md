@@ -225,9 +225,15 @@ are burned are in `wallet-architecture.md`.
 - **rideit never says where the reader stands.** No page has a "From:", and a ride to the town
   the player already stands in is a trip like any other: it costs a fare and the connection, and
   they arrive where they were. Nothing warns them.
-- **rideit's box logs only the access line**: `POST /board` from the traveller's source address,
-  the public address of the WiFi they boarded from, never the destination. A root on rideit
-  learns that somebody on that network just left (`whois` names it), not where they went.
+- **rideit's box keeps a booking log.** Its access line records `POST /board` from the
+  traveller's source address, the public address of the WiFi they boarded from, and never the
+  form. A ride that was taken also adds a line to `/var/log/rideit.log`
+  (`core/logging/rideitLog.ts`), world-readable and root-written as `talkit.log` is:
+  `2026-10-23 14:37:02 ride to Ridgemont paid at <trip address> from <source address>`. A root on
+  rideit learns who left which network (`whois` names it) and where they went, and the trip
+  address is a lead beyond it: chainit shows which wallet paid it, though every trip is paid to
+  a fresh one. A boarding that moved nobody (a town rideit does not go to, a fare not yet
+  arrived, the loser of two boardings at once) writes no line. Nothing tells the traveller.
 - **Every declared town is a destination** the moment it is declared, in any region; the 28
   networks in no town never are.
 
@@ -340,8 +346,9 @@ than its gateway's ssh from outside.
   refused another town's and a drawn corporation's; a player who starts in that other town joins
   it and is refused Ridgemont's), and `testTravel` (a boarding at rideit.io moves a player once
   its fare has arrived at their trip address: their network and the connections through it go,
-  the join and the scan follow the new town, rideit's log names no town, one fare buys one trip,
-  and two boardings at once count one trip).
+  the join and the scan follow the new town, rideit's access log names no town and its booking
+  log holds one line per ride taken, one fare buys one trip, and two boardings at once count one
+  trip).
 
 ## Adding to the world
 

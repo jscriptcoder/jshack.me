@@ -1546,8 +1546,9 @@ describe('hireme.io takes an application', () => {
 /**
  * rideit.io sells tickets from a function, never from a file: a root on rideit can deface
  * its front page or plant a file at a ticket path, but cannot stop anybody riding. Boarding
- * is leaving, so the answer tells the traveller's own tab that it left, and the line rideit
- * records names who boarded and from where, never where they went.
+ * is leaving, so the answer tells the traveller's own tab that it left. Its access line
+ * records the POST from where the traveller left, never the form; a ride that was taken
+ * also goes in rideit's booking log, naming the town and the trip address that paid.
  */
 describe('rideit.io sells tickets and boards riders', () => {
   const RIDEIT_IP = siteAddress(RIDEIT_DOMAIN) ?? '';
@@ -1668,6 +1669,51 @@ describe('rideit.io sells tickets and boards riders', () => {
     });
   });
 
+  const writtenTo = (upsertPatch: ReturnType<typeof makeDeps>['upsertPatch'], path: string) =>
+    upsertPatch.mock.calls.map(([row]) => row).filter((row) => row.path === path);
+
+  it('writes where the traveller rode, the address that paid, and where they left from, to rideit.log', async () => {
+    const { deps, upsertPatch } = makeDeps(onRideit);
+
+    await handleResolveHttpFetch(request({ body: FORM }), deps);
+
+    expect(writtenTo(upsertPatch, '/var/log/rideit.log')).toEqual([
+      expect.objectContaining({
+        machine_id: RIDEIT_ID,
+        content: `2026-07-30 13:55:36 ride to ${TOWN} paid at ${tripAddress(BOB.publicKeyHex, 0)} from ${BOB_PUBLIC_IP}\n`,
+        owner: 'root',
+        permissions: { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] },
+      }),
+    ]);
+  });
+
+  it('writes nothing to rideit.log for a boarding the fare has not reached', async () => {
+    const { deps, upsertPatch } = makeDeps({
+      ...onRideit,
+      findBalance: async () => ({ data: null, error: null }),
+    });
+
+    await handleResolveHttpFetch(request({ body: FORM }), deps);
+
+    expect(writtenTo(upsertPatch, ACCESS_LOG_PATH)).toHaveLength(1);
+    expect(writtenTo(upsertPatch, '/var/log/rideit.log')).toEqual([]);
+  });
+
+  it('keeps a boarding that went through, though its line could not be written', async () => {
+    const { deps } = makeDeps({
+      ...onRideit,
+      upsertPatch: async (row) => {
+        if (row.path === '/var/log/rideit.log') throw new Error('journal unavailable');
+        return { error: null };
+      },
+    });
+
+    expect(await handleResolveHttpFetch(request({ body: FORM }), deps)).toEqual({
+      status: 200,
+      body: { ok: true, content: arrivedPage(TOWN), server: 'nginx', left: true },
+    });
+  });
+
   it('records the boarding as a POST from where the traveller stood before leaving, never naming the town', async () => {
     // At home the source is the network the box is on, and boarding takes it off: an
     // address looked up after leaving would be nobody's.
@@ -1693,7 +1739,7 @@ describe('rideit.io sells tickets and boards riders', () => {
     expect(accessLogOf(upsertPatch)?.content).toBe(
       `${BOB_PUBLIC_IP} - - [30/Jul/2026:13:55:36 +0000] "POST /board HTTP/1.1" 200 ${contentOf(response).length}\n`,
     );
-    expect(JSON.stringify(upsertPatch.mock.calls)).not.toContain(TOWN);
+    expect(accessLogOf(upsertPatch)?.content).not.toContain(TOWN);
   });
 
   it('boards from a form at /board however its query string reads', async () => {
