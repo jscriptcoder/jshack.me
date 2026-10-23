@@ -32,6 +32,19 @@ are whole numbers it prices anything from $1 up. The operator's usual 500 JSC mi
 $500 stake; rideit.io's fare (`RIDE_FARE`, `core/rideit/fare.ts`) is 25 JSC, inside what a
 real regional coach or train across a county costs ($10–$40).
 
+**The first thing JSC buys: a ride.** Since v0.432.0 a boarding at rideit.io costs the fare,
+paid with an ordinary `wallet send` to an address made for the traveller and their next
+trip: `jsc` + the first 40 hex of `sha256("rideit-trip-<identity key>-<trips taken>")`
+(`tripAddress`). rideit's `/ticket` quotes that address and what has arrived there, read
+through `handleWalletBalance` like chainit's lookup; `/board` is refused, changing nothing,
+until the whole fare has arrived, and the boarding moves the trip count on, so the next trip
+is paid to a fresh address and one fare buys one trip. The address is the memo: the ledger
+says only which address paid which, a wallet is not a player, and anybody reading chainit
+could claim another's transfer. No key was ever made for a trip address, so a fare is
+**burned**: its coins never move again, and JSC leaves an economy that until then only grew.
+An overpayment boards and the excess stays there, lost like coins sent to a mistyped address.
+Nothing on chainit marks a trip address as rideit's.
+
 ## 1. The server: two tables, two functions, one endpoint
 
 **Tables** (zero-trust, mirroring the rest of the schema: RLS on, **no policies**, so anon
