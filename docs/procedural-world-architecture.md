@@ -4,9 +4,10 @@ Beyond the WiFi a player stands in lies a declared, generated world: a region of
 each with its council, police and library, its shops, cafés, offices, homes and places of care,
 and a few dozen corporations that stand in no town. Every network answers at an address worked
 out from its place in the world, so any of them can be scanned, fetched or looked up from
-anywhere, and nothing about the world is stored. A player finds a network by searching findit,
-by following a town council's directory, by asking `whois` who holds an address, or by a lead
-found on another network's machines.
+anywhere, and nothing about the world is stored. A player starts in one of the towns, drawn from
+their key, and its networks are the WiFi they can scan and join. A player finds every other
+network by searching findit, by following a town council's directory, by asking `whois` who
+holds an address, or by a lead found on another network's machines.
 
 This is the shipped model of the procedural world epic (#572–#596, v0.284.0–v0.306.0, closed
 2026-10-03). The epic's plan file was retired on close-out; this doc holds its design, its
@@ -38,7 +39,8 @@ The world is **regions → towns → networks**, each level an append-only list.
 - **A network** is drawn from its town's row, or is one of two hand-written kinds: Ridgemont's
   57 **landmarks** (the catalog, `pools/essidCatalog.ts`) and Millbrook's cottage hospital.
 - **A corporation** is a head office answering in the placeless `193` block. The twenty landmark
-  corporations are declared in Ridgemont, so a scan offers them and they can be joined; the 28
+  corporations are declared in Ridgemont, so a scan there offers them and a player who starts
+  there can join them; the 28
   the world draws stand in no town, and nobody can join one.
 
 The world declares **612 networks**, plus findit, which broadcasts no WiFi and is not declared:
@@ -157,16 +159,52 @@ The random allocator, its 12 first octets and its `network_public_ips` table wer
 `reduce-system-complexity` program (#575, #576); the table was dropped on jshack-dev and
 jshack-prod on 2026-09-29.
 
+## Where a player stands
+
+Every town is a starting town. `startingTown(publicKeyHex)` (`core/generation/startingTown.ts`)
+draws one by **weighted rendezvous hashing**: each declared town scores the key on a stream of
+its own (`starting-town-<town name>-<key>`), scaled by how many declared networks stand in it,
+and the best score wins. So:
+
+- **A town's share of players is its share of the 584 networks that stand in a town**, and a
+  network is about as likely to have company wherever it is: Ridgemont 30.5%, Kingsford 28.4%,
+  Stonebury 8.7%, a village about 3%. Villages are included: a village player sees all of their
+  ~16 networks within a few scans, and that small world is part of the flavour. The 28 networks in
+  no town (findit, the corporations' head offices) are never a starting place.
+- **It is a pure function of the public key**, so the client that draws the scan offline and the
+  server that checks the join against the verified key always agree, and nothing is stored.
+- **It does not freeze.** A town or a region appended later joins the draw the moment it is
+  declared, and only the players it outscores move, all of them into it; the weights may change
+  too. Players shifting is the accepted price of a world that can grow. When travel ships, a
+  player's stored location overrides the drawn town, so a shift only ever touches players who
+  never moved.
+- **The game says nothing about it.** The town shows through the world: the names in the scan,
+  `whois` on the joined network's public address (`city:` and `region:`, or `<Town> Broadband`
+  for a home), findit and the town's council directory. Working out where you are is
+  reconnaissance; no banner, status field or command says it.
+
+**Your own town is on your WiFi, homes included; every other town is reachable only over the
+internet, and its homes only through leads.** One rule, with Ridgemont no longer a special case.
+A local can scan straight onto a home a lead points at, and that is what living there means.
+Ridgemont's 18 hand-written networks with no site and no lead (six homes, four university
+networks, four IoT, four hacker spaces) are therefore reached only by the ~30% of players who
+start in Ridgemont, until travel.
+
 ## Joining
 
-Everybody stands in Ridgemont until travel exists, so only Ridgemont's 178 networks can be
-joined. `handleRegisterNetwork` asks the world before it leases anything: a key outside
-Ridgemont (another town's, a drawn corporation's) is refused `403 network_not_joinable` and writes
-nothing. A key the world does not declare is refused the same way unless the local-only flag
-`JSHACK_ADMIT_LAB_NETWORKS=1` is set, which `vercel dev` needs for the wire-checks' lab
-networks (`MYSQL-LAB-3`, `LEASE-TEST-NET`, …) and which is set on neither Preview nor
-Production. An out-of-town key is refused with or without it. Procedural keys are guessable,
-so a modified client is the threat this closes.
+A player may join only the networks of the town they start in. `handleRegisterNetwork` asks the
+world before it leases anything: a declared network whose town is not `startingTown` of the
+verified key (another town's, a drawn corporation's, which stands in none) is refused
+`403 network_not_joinable` and writes nothing. A key the world does not declare is refused the
+same way unless the local-only flag `JSHACK_ADMIT_LAB_NETWORKS=1` is set, which `vercel dev`
+needs for the wire-checks' lab networks (`MYSQL-LAB-3`, `LEASE-TEST-NET`, …) and which is set on
+neither Preview nor Production. Another town's network is refused with or without it. Procedural
+keys are guessable, so a modified client is the threat this closes.
+
+A reload keeps the network a player is on (`ui/connectionPersistence.ts`) without asking the
+server, so a player who joined before the towns existed stays on their network until they
+disconnect; their next join must be in their own town. A wire-check that joins a declared network
+signs up with `generateIdentityIn(town)` (`src/test/factories/identityIn.ts`).
 
 The cracked WiFi password itself is still checked only by the client (deferred, §9).
 
@@ -174,21 +212,23 @@ The cracked WiFi password itself is still checked only by the client (deferred, 
 
 `generateWifi` (`wifi-<player key>-<scan index>`; each `airodump-ng` bumps the index) draws:
 
-- **2–3 crackable networks from Ridgemont's 178** (`crackableEssidPool`): the landmarks in the
-  catalog's order, then the drawn networks in key order. The scan picks by position, so this
-  order decides what every player is offered, and the golden scans in `generateWifi.test.ts`
-  pin it.
+- **2–3 crackable networks from the player's town** (`wifiPoolOf(startingTown(key))`): the
+  town's networks in declaration order, for Ridgemont its landmarks in the catalog's order, then
+  the networks it draws in key order. The scan picks by position, so this order decides what
+  every player is offered, and the golden scans in `generateWifi.test.ts` pin it.
 - **3–5 noise networks**, each failing exactly one `aircrack-ng` gate.
 - **Another player's network, rarely.** `airodump-ng` fetches the names everyone currently
-  occupies (`resolveOccupiedEssids`, name-only and ungated). Of those, only Ridgemont's that the
-  scan does not already show are in range, read in the pool's order so the order the server
+  occupies (`resolveOccupiedEssids`, name-only and ungated). Of those, only the player's town's
+  that the scan does not already show are in range, read in the pool's order so the order the server
   lists them in never changes a scan. With one or more in range the scan rolls once against
   `INJECT_CHANCE` (5%) and on a hit shows one of them; with none it takes no draw at all.
 
 The injector is the only way a stranger stumbles onto another player's network, and it is meant
-to be rare. Any one Ridgemont network shows in about 1.4% of base draws, so a network one other
-player occupies shows in about 6% of scans: about 16 rescans for two players who mean to meet,
-and nothing in 50 rescans about one time in 26. Deleting the injector was rejected: it would
+to be rare. Any one network shows in about 2.5 / N of base draws in a town of N networks (1.4%
+in Ridgemont), so a network one other player occupies shows in about 6% of a Ridgemont player's
+scans: about 16 rescans for two players who mean to meet, and nothing in 50 rescans about one
+time in 26. A village is smaller and meets sooner: in Fenwick's 15 networks one shows in about
+21% of scans, about 5 rescans. Deleting the injector was rejected: it would
 make chance encounters impossible and leave the shared-LAN machinery with no live consumer.
 `e2e-shared-network-verification.md` §4 tells a two-player run how to wait for it.
 
@@ -198,7 +238,10 @@ A test over the whole declaration (`world.test.ts`) proves every network is one 
 these, or is led to from one of these:
 
 - **listed on findit** (every publisher whose site is not unlisted, every corporation);
-- **standing in Ridgemont**, so in some scan;
+- **standing in Ridgemont**, so in some scan. Every town's networks are on the WiFi of the
+  players who start there, but the test asks more of every other town: a way in for a player who
+  starts anywhere. Only Ridgemont's are left to its locals, its 18 hand-written networks with no
+  site and no lead among them;
 - **an institution on its town's directory** (`/directory.html` on the council's site, which
   links every institution of the town, listed or not; Ridgemont's landmark council keeps none);
 - **the target of a lead** from one of the above: an IT contractor's ssh shortcut, an offsite
@@ -241,8 +284,9 @@ than its gateway's ssh from outside.
 - **Wire-checks** against `vercel dev` and local supabase: `testTowns` (every town's council by
   domain, its courthouse and hospital where kept, a site found by "<town> <kind>", `whois`, a
   join refused; Ridgemont's hospital and a drawn shop), `testMillbrook`, `testFindit` and
-  `testJoinRefusal` (a drawn Ridgemont network joins; another town's and a drawn corporation's are
-  refused).
+  `testJoinRefusal` (a player who starts in Ridgemont joins a drawn Ridgemont network and is
+  refused another town's and a drawn corporation's; a player who starts in that other town joins
+  it and is refused Ridgemont's).
 
 ## Adding to the world
 

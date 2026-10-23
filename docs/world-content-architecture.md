@@ -288,7 +288,7 @@ Beyond the twenty landmark corporations the world draws 20–40 more (`world.ts`
 after every town and keyed `c0`, `c1`, …, so no town's key moves. Each is one head office
 that **stands in no town**: its declaration names no town or region, `whois` prints no
 `city:` or `region:` for it, its people never name a town, and a join to it is refused as to
-any network outside Ridgemont. It answers in the placeless `193` block after findit and the
+any network outside the player's own town. It answers in the placeless `193` block after findit and the
 landmark corporations (`c<n>` at the block's position 21 + n).
 
 In every other rule it is an office: one of the five corporate kinds, no kind twice while

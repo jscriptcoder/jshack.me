@@ -43,8 +43,15 @@ until it showed (34 scans), `nmap -sV <A>` listed A's three born services, `hydr
 
 ### Two players on one network, without waiting for the injector
 
-Verified 2026-10-12 (v0.366.0): A and B met on BUY-N-LARGE after 7 and 5 scans, no luck
-involved. A scan's base draw is `generateWifi({ seedPubkeyHex, scanIndex })`, fixed per player
+**Both players must start in the same town**: a scan shows only the player's own town, and a
+join anywhere else is refused. Read each key's town offline
+([reaching-a-state.md](reaching-a-state.md), "A fresh player stands in the town their key
+draws") and re-mint B (`localStorage.clear()`, reload, NEW GAME) until B's town is A's: about one
+try in three when A is in Ridgemont or Kingsford, about one in thirty for a village. Two fresh
+players share a town about 18% of the time.
+
+Verified 2026-10-12 (v0.366.0), when every player stood in Ridgemont: A and B met on
+BUY-N-LARGE after 7 and 5 scans, no luck involved. A scan's base draw is `generateWifi({ seedPubkeyHex, scanIndex })`, fixed per player
 and per scan, and the first `airodump-ng` is scan 1. Mint both players, read each key
 (`JSON.parse(localStorage.getItem('jshack.identity')).publicKeyHex`), and compute offline the
 network both will be shown soonest:
