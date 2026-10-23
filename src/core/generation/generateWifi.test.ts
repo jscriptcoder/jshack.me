@@ -125,6 +125,29 @@ describe('generateWifi', () => {
     }
   });
 
+  it('offers every landmark of a town to the players who start there', () => {
+    for (const town of TOWNS.filter((candidate) => candidate.name !== RIDGEMONT)) {
+      const landmarks = DECLARED_NETWORKS.filter(
+        (network) => network.town === town.name && isLandmark(network.key),
+      ).map((network) => network.key);
+      const offered = new Set(
+        keysIn(town.name, 5).flatMap((seedPubkeyHex) =>
+          Array.from({ length: 100 }, (_, scanIndex) =>
+            generateWifi({ seedPubkeyHex, scanIndex })
+              .filter(isCrackable)
+              .map((network) => network.essid),
+          ).flat(),
+        ),
+      );
+
+      expect(landmarks.length, town.name).toBeGreaterThan(0);
+      expect(
+        landmarks.filter((key) => !offered.has(key)),
+        town.name,
+      ).toEqual([]);
+    }
+  });
+
   it("offers a town's networks in the order the world declares them", () => {
     for (const town of TOWNS) {
       expect(wifiPoolOf(town.name)).toEqual(
@@ -203,7 +226,7 @@ describe('generateWifi', () => {
   it('shuffles crackable and noise together into a stable seeded order', () => {
     // Golden snapshot for SEED_A's first scan: locks the seeded selection +
     // interleave. SEED_A starts in Stonebury, so its crackable APs are two of that town's
-    // networks (its town hall and LIGHTHOUSE-COFFEE, under their keys). They sit at
+    // networks (its town hall and GATEWAY-SYSTEMS, under their keys). They sit at
     // positions 3 and 6, interleaved with noise rather than grouped — proof the final
     // shuffle actually mixes the two populations.
     const order = generateWifi({ seedPubkeyHex: SEED_A }).map((network) => ({
@@ -217,7 +240,7 @@ describe('generateWifi', () => {
       { essid: 'r0/t10/n0', encryption: 'WPA2', crackable: true },
       { essid: 'SUBWAY_WIFI', encryption: 'WPA2', crackable: false },
       { essid: 'FREE_INTERNET', encryption: 'WPA3', crackable: false },
-      { essid: 'r0/t10/n7', encryption: 'WPA2', crackable: true },
+      { essid: 'r0/t10/n8', encryption: 'WPA2', crackable: true },
       { essid: 'ASUS_RT_AC68U', encryption: 'WPA3', crackable: false },
     ]);
   });

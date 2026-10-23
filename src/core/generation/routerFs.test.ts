@@ -28,7 +28,7 @@ import { readOpenPorts, type OpenPort } from '../services/pidfile.js';
 import { parseForwardRules } from '../network/iptablesRules.js';
 import { ESSID_CATALOG } from './pools/essidCatalog.js';
 import { publisherSite } from './publisher.js';
-import { DECLARED_NETWORKS } from './world.js';
+import { DECLARED_NETWORKS, isLandmark } from './world.js';
 import { generateHomeLan } from './generateHomeLan.js';
 import { hostServices } from './remoteHostFs.js';
 import { parseAclDenies } from '../network/switchAcl.js';
@@ -875,7 +875,10 @@ describe('the AP gateway of a network in another town', () => {
   const forwardsOf = (key: string) =>
     parseForwardRules(fileAt(buildApGatewayBaseFs(key), ['etc', 'iptables'], 'rules.v4'));
 
-  const millbrook = DECLARED_NETWORKS.filter((network) => network.town === 'Millbrook');
+  /** Millbrook's drawn networks: a landmark draws no forward beyond its site. */
+  const millbrook = DECLARED_NETWORKS.filter(
+    (network) => network.town === 'Millbrook' && !isLandmark(network.key),
+  );
 
   /** The forwards the gateway draws, after a publisher's site forward. */
   const seededOf = (key: string) => {

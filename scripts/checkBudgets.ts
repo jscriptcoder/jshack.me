@@ -42,11 +42,13 @@ import {
   generatedBaseFsForMachineId,
 } from '../src/core/generation/lanHostIdentity.js';
 
-/** 136,975 bytes gzipped before any world content, plus the 150 KB the content may add.
+/** 136,975 bytes gzipped before any world content, plus the 152 KB the content may add.
  *  The code part was 134,975 until talkit.io's forum added 1,011 B of code (pages, the
  *  post form, lynx's box several lines tall, the login a post carries), rounded up to
- *  2,000 so the forum costs the content none of its room. */
-const BUNDLE_CEILING_BYTES = 286_975;
+ *  2,000 so the forum costs the content none of its room. The content's part was 150 KB
+ *  until every town beyond Ridgemont wrote landmarks of its own: their 43 rows add
+ *  1,205 B, rounded up to 2,000. */
+const BUNDLE_CEILING_BYTES = 288_975;
 
 /** About a tenth of that before world content, so a loaded machine's noise cannot fail
  *  the check while a content change that makes boxes ten times dearer still does. */
@@ -119,7 +121,7 @@ const boxBuildsOf = (essid: string): readonly BoxBuild[] => {
   ];
 };
 
-/** The networks whose boxes are timed together: Ridgemont's landmarks, then every town the
+/** The networks whose boxes are timed together: every town's landmarks, then every town the
  *  world draws, Ridgemont's drawn networks among them, then the corporations, which stand in
  *  none. */
 const timedSets = (): readonly { readonly name: string; readonly keys: readonly string[] }[] => {
@@ -127,7 +129,7 @@ const timedSets = (): readonly { readonly name: string; readonly keys: readonly 
   const towns = [...new Set(drawn.flatMap((network) => network.town ?? []))];
   return [
     {
-      name: 'the Ridgemont landmarks',
+      name: 'the landmarks',
       keys: DECLARED_NETWORKS.filter((network) => isLandmark(network.key)).map(
         (network) => network.key,
       ),

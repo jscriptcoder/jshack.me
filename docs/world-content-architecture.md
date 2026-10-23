@@ -181,6 +181,13 @@ receives no lead, forwards nothing beyond its site, and its site reads as it was
 a drawn network is keyed and named, where it answers and how the scan offers it are in
 `procedural-world-architecture.md`.
 
+**Every other town keeps landmarks of its own** (`TOWN_LANDMARKS`, `pools/townLandmarks.ts`),
+written by hand as Ridgemont's are: 10 in Kingsford, 5 in each town and 3 in each village, 43
+in all, each an ESSID, a category, a place and, for 28 of them, a site. They are pubs, shops,
+offices, homes and haunts with a nod to film and television, scaled to the place, and none is
+an institution or a place of care. They follow everything their town draws, keyed and
+addressed as its next networks, and every `isLandmark` rule holds for them as for Ridgemont's.
+
 A row is a name and a **size class**, and the class is one table (`SIZE_CLASSES`) of how many
 of each kind of place the town draws beyond its institutions:
 
@@ -193,7 +200,8 @@ of each kind of place the town draws beyond its institutions:
 Oakhurst draws 47 networks: five institutions, 18 businesses, 20 homes, a clinic and a
 dentist, and branches of Dunmore Group and Sheridan & Mortimer. Kingsford draws 166: five
 institutions, 71 businesses, 80 homes, six practices and four corporations' branches. The later
-villages draw 15 to 20 networks each, Wexcombe 38 and Stonebury 51; the world declares 491.
+villages draw 15 to 20 networks each, Wexcombe 38 and Stonebury 51, each beside its landmarks;
+the world declares 655.
 
 - **Its institutions** come from one rule on the town's name (`institutionsOf`): the council
   (`{Town} Town Council`, `{town}.gov`, `TOWN-HALL-WIFI`, which keeps the town's directory),

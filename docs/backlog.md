@@ -949,12 +949,8 @@ decision, not a gap.
     address, since the address belongs to the network. Its first half shipped at v0.428.0: a
     player starts in a town drawn from their key, and the join refuses every network outside it
     (`procedural-world-architecture.md`, "Where a player stands"). Moving is what is left: a
-    stored location that overrides the drawn town. Until it ships, Ridgemont's 18 hand-written
-    networks with no site and no lead are reached only by players who start there.
-  - **Hand-written places for the other towns**, so every town has corners of its own, as
-    Ridgemont's landmarks are. Each is declared after the networks its town draws
-    (`procedural-world-architecture.md`, "Adding to the world"); the landmark catalog stays
-    closed at 57, and whether each new place keeps leads is decided per place.
+    stored location that overrides the drawn town. Until it ships, a landmark with no site
+    (Ridgemont's 18 and the other towns' 15) is reached only by players who start in its town.
   - **More ways in**: hidden ESSIDs joined by a name learnt elsewhere (`nmcli` would have to
     accept a known name missing from the scan), and a hacker BBS posting leads.
   - **The categories after healthcare**: education (schools, and universities in drawn towns),

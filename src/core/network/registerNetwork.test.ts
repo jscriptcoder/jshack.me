@@ -10,7 +10,7 @@ import { generateIdentityIn } from '../../test/factories/identityIn.js';
 import { assignHomeNetwork } from './homeNetwork.js';
 import { lanAddressFor } from './lanAddress.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
-import { DECLARED_NETWORKS, RIDGEMONT, TOWNS } from '../generation/world.js';
+import { DECLARED_NETWORKS, isLandmark, RIDGEMONT, TOWNS } from '../generation/world.js';
 import { sessionRow, sessionTable, type SessionRow } from '../../test/factories/sessionTable.js';
 
 /**
@@ -361,6 +361,39 @@ describe('handleRegisterNetwork: which networks a player may join', () => {
       );
     },
   );
+
+  it('refuses a player every landmark of a town they do not start in, sited or not, without writing', async () => {
+    // A landmark with a site is reached over the internet like any site; its WiFi is the town's own.
+    const landmarks = DECLARED_NETWORKS.filter(
+      (network) => network.town !== RIDGEMONT && isLandmark(network.key),
+    );
+    const refused = await Promise.all(
+      landmarks.map(async (landmark) => {
+        const outsider = TOWN_NAMES.find((town) => town !== landmark.town) ?? RIDGEMONT;
+        const { deps, allocateLanLease, upsertOccupant } = makeDeps();
+        const result = await handleRegisterNetwork(
+          envelope(generateIdentityIn(outsider), { essid: landmark.key }),
+          deps,
+        );
+        return {
+          key: landmark.key,
+          result,
+          leased: allocateLanLease.mock.calls.length,
+          written: upsertOccupant.mock.calls.length,
+        };
+      }),
+    );
+
+    expect(landmarks).toHaveLength(43);
+    expect(refused).toEqual(
+      landmarks.map((landmark) => ({
+        key: landmark.key,
+        result: NOT_JOINABLE,
+        leased: 0,
+        written: 0,
+      })),
+    );
+  });
 
   it('refuses a join to a network the world does not declare, without writing', async () => {
     const id = generateIdentity();

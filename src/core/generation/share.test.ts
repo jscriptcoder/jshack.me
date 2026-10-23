@@ -1203,11 +1203,13 @@ const uploadsIn = (log: string): readonly FtpLogLine[] =>
 
 /** The machine a person on the network writes from, as the file server sees it: across
  *  the LAN, or over the loopback when they sit at the file server itself. */
-const clientOf = (box: Box, fullName: string | undefined): string | undefined => {
-  const person = networkMail(box.essid).people.find((known) => known.fullName === fullName);
-  if (person === undefined) return undefined;
-  return person.host.ip === box.host.ip ? LOOPBACK : person.host.ip;
-};
+/** Every address a file by `fullName` could have arrived from: the machine of each login
+ *  on the network under that name. A service account may carry the name of the person
+ *  who looks after it, so one name can stand for two logins on two machines. */
+const clientsOf = (box: Box, fullName: string | undefined): readonly string[] =>
+  networkMail(box.essid)
+    .people.filter((known) => known.fullName === fullName)
+    .map((person) => (person.host.ip === box.host.ip ? LOOPBACK : person.host.ip));
 
 describe("the file server's own record of what arrived on its share", () => {
   it('logs the arrival of every file a working share holds, from the machine of whoever wrote it, to the byte', async () => {
@@ -1230,8 +1232,8 @@ describe("the file server's own record of what arrived on its share", () => {
         expect(upload.user, label).toBe(npcUsername(box.essid, box.host));
         if (!(upload.path ?? '').endsWith('.pdf')) continue;
         const lines = await readableLinesOf(content);
-        expect(upload.client, `${label} ${upload.path}`).toBe(
-          clientOf(box, pdfEntry(lines, 'Author')),
+        expect(clientsOf(box, pdfEntry(lines, 'Author')), `${label} ${upload.path}`).toContain(
+          upload.client,
         );
         // Saved straight onto the share: the moment it arrived is the moment the PDF
         // says it was last saved.
@@ -1275,8 +1277,8 @@ describe("the file server's own record of what arrived on its share", () => {
         expect(new Date(upload.at).getUTCHours(), `${label} ${upload.path}`).toBeLessThan(3);
         if (!path.endsWith('.pdf')) continue;
         const lines = await readableLinesOf(content);
-        expect(upload.client, `${label} ${upload.path}`).toBe(
-          clientOf(box, pdfEntry(lines, 'Author')),
+        expect(clientsOf(box, pdfEntry(lines, 'Author')), `${label} ${upload.path}`).toContain(
+          upload.client,
         );
         expect(pdfMoment(pdfEntry(lines, 'ModDate') ?? ''), `${label} ${upload.path}`).toBeLessThanOrEqual(
           upload.at,

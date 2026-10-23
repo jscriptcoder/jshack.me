@@ -985,18 +985,18 @@ describe("a town's page on mapit.io, as a reader of it sees it", () => {
     expect(asLines(MAPIT_PAGES['millbrook.html'] ?? '')).toEqual([
       'Millbrook',
       '',
-      'A village in Harrow Valley. 9 places.',
+      'A village in Harrow Valley. 11 places.',
       '',
       '+----------------------------------------------------------------------------+',
       '|                             M I L L B R O O K                              |',
       '|                                   |           |                            |',
-      '| 2           7     3               | 8 4       |         9                  |',
+      '|       7           3               |    4  8   |                9           |',
       '|                                   |           |                            |',
       '|-----------------------------------+-----------+----------------------------|',
       '|                                   |           |                            |',
-      '|               1 6                 |         5 |                            |',
+      '|             1  2  6               |           | 5     11                   |',
       '|                                   |           |                            |',
-      '|                                   |           |                            |',
+      '|                                   |           |                      10    |',
       '|                                   |           |                            |',
       '|                                   |           |                            |',
       '+----------------------------------------------------------------------------+',
@@ -1010,8 +1010,10 @@ describe("a town's page on mapit.io, as a reader of it sees it", () => {
       '[7]Broad Street Haulage         logistics   broadstreethaulage.com',
       '[8]Millbrook Cottage Hospital   hospital    millbrookhospital.org',
       '[9]Gateway Dental               dentist     gatewaydental.com',
+      '[10]The Slaughtered Lamb        cafe        slaughteredlamb.com',
+      '[11]The Local Shop              retail      localshopforlocalpeople.com',
       '',
-      '[10]Harrow Valley',
+      '[12]Harrow Valley',
     ]);
   });
 
@@ -1039,6 +1041,6 @@ describe('every page of mapit.io, as a reader of it sees it', () => {
     const rows = asLines(MAPIT_PAGES['index.html'] ?? '');
 
     expect(rows).toContain('[1]Ridgemont    city     102 places');
-    expect(rows).toContain('[6]Millbrook    village  9 places');
+    expect(rows).toContain('[6]Millbrook    village  11 places');
   });
 });

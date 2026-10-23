@@ -122,7 +122,7 @@ noise network, and no domain taken. A site's name is in brackets where it differ
 | `WERNHAM-HOGG` | corporate | Wernham Hogg | `wernhamhogg.com` | The Office (UK) |
 | `THE-WINCHESTER` | pub | the Winchester | `thewinchesterpub.com` (The Winchester) | Shaun of the Dead |
 | `TROTTERS-INDEPENDENT-TRADERS` | retail | Trotters Independent Traders | `trottersindependent.com` | Only Fools and Horses |
-| `23-METEOR-STREET` | home | 23 Meteor Street | | Spaced |
+| `METEOR-STREET-FLAT` | home | 23 Meteor Street | | Spaced |
 | `THE-LONE-GUNMEN` | hacker | the Lone Gunmen's office | | The X-Files |
 
 **Oakhurst** (town, 3 + 2)

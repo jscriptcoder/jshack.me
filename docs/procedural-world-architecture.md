@@ -36,39 +36,42 @@ The world is **regions → towns → networks**, each level an append-only list.
 - **A region** is a name and a first octet. There is one, Harrow Valley (`87`).
 - **A town** is a row: a name and a size class (village, town or city). Its index in the region
   is part of every key and address inside it.
-- **A network** is drawn from its town's row, or is one of two hand-written kinds: Ridgemont's
-  57 **landmarks** (the catalog, `pools/essidCatalog.ts`) and Millbrook's cottage hospital.
+- **A network** is drawn from its town's row, or is one of two hand-written kinds: the 100
+  **landmarks** (Ridgemont's 57 in the catalog, `pools/essidCatalog.ts`, and the 43 of the other
+  towns, `pools/townLandmarks.ts`: 10 in a city, 5 in a town, 3 in a village) and Millbrook's
+  cottage hospital.
 - **A corporation** is a head office answering in the placeless `193` block. The twenty landmark
   corporations are declared in Ridgemont, so a scan there offers them and a player who starts
   there can join them; the 28
   the world draws stand in no town, and nobody can join one.
 
-The world declares **612 networks**, plus findit, which broadcasts no WiFi and is not declared:
+The world declares **655 networks**, plus findit, which broadcasts no WiFi and is not declared:
 
-| Town                     | Key                | Size    | Block                      | Networks | Sites (unlisted) | Homes |
-| ------------------------ | ------------------ | ------- | -------------------------- | -------- | ---------------- | ----- |
-| Ridgemont: the landmarks | the ESSID          | city    | `87.1`, corporations `193` | 57       | 39 (0)           | 6     |
-| Ridgemont: drawn         | `r0/t0/n57`–`n177` | city    | `87.1`                     | 121      | 74 (11)          | 44    |
-| Millbrook                | `r0/t1`            | village | `87.98`                    | 18       | 11 (2)           | 6     |
-| Ashby                    | `r0/t2`            | village | `87.195`                   | 18       | 10 (2)           | 6     |
-| Oakhurst                 | `r0/t3`            | town    | `87.38`                    | 47       | 25 (4)           | 20    |
-| Kingsford                | `r0/t4`            | city    | `87.135`                   | 166      | 82 (12)          | 80    |
-| Fenwick                  | `r0/t5`            | village | `87.232`                   | 15       | 9 (1)            | 5     |
-| Thornbury                | `r0/t6`            | village | `87.75`                    | 20       | 10 (2)           | 8     |
-| Hollowmere               | `r0/t7`            | village | `87.172`                   | 17       | 11 (2)           | 4     |
-| Ely                      | `r0/t8`            | village | `87.15`                    | 16       | 7 (1)            | 8     |
-| Wexcombe                 | `r0/t9`            | town    | `87.112`                   | 38       | 24 (4)           | 12    |
-| Stonebury                | `r0/t10`           | town    | `87.209`                   | 51       | 27 (4)           | 22    |
-| The corporations         | `c0`–`c27`         |         | `193`                      | 28       | 28 (0)           |       |
+| Town                     | Key                | Size    | Block                      | Networks | Landmarks | Sites (unlisted) | Homes |
+| ------------------------ | ------------------ | ------- | -------------------------- | -------- | --------- | ---------------- | ----- |
+| Ridgemont: the landmarks | the ESSID          | city    | `87.1`, corporations `193` | 57       | 57        | 39 (0)           | 6     |
+| Ridgemont: drawn         | `r0/t0/n57`–`n177` | city    | `87.1`                     | 121      | 0         | 74 (11)          | 44    |
+| Millbrook                | `r0/t1`            | village | `87.98`                    | 21       | 3         | 13 (2)           | 6     |
+| Ashby                    | `r0/t2`            | village | `87.195`                   | 21       | 3         | 12 (2)           | 7     |
+| Oakhurst                 | `r0/t3`            | town    | `87.38`                    | 52       | 5         | 28 (4)           | 21    |
+| Kingsford                | `r0/t4`            | city    | `87.135`                   | 176      | 10        | 89 (12)          | 81    |
+| Fenwick                  | `r0/t5`            | village | `87.232`                   | 18       | 3         | 11 (1)           | 5     |
+| Thornbury                | `r0/t6`            | village | `87.75`                    | 23       | 3         | 12 (2)           | 8     |
+| Hollowmere               | `r0/t7`            | village | `87.172`                   | 20       | 3         | 13 (2)           | 5     |
+| Ely                      | `r0/t8`            | village | `87.15`                    | 19       | 3         | 9 (1)            | 8     |
+| Wexcombe                 | `r0/t9`            | town    | `87.112`                   | 43       | 5         | 27 (4)           | 13    |
+| Stonebury                | `r0/t10`           | town    | `87.209`                   | 56       | 5         | 30 (4)           | 23    |
+| The corporations         | `c0`–`c27`         |         | `193`                      | 28       | 0         | 28 (0)           |       |
 
-357 networks publish a site and 45 of them are unlisted. The counts are as of v0.306.0; the
+385 networks publish a site and 45 of them are unlisted. The counts are as of v0.429.0; the
 size classes and what each draws are in `world-content-architecture.md`, "The towns".
 
 ## The declaration
 
 `DECLARED_NETWORKS` (`world.ts`) is the whole world as one list, built once when the module
-loads: Ridgemont's landmarks, Millbrook's networks, the corporations, Millbrook's branches, each
-later town of `TOWN_ROWS` with its branches, then the networks Ridgemont draws. Each entry is a
+loads: Ridgemont's landmarks, Millbrook's networks, the corporations, Millbrook's branches and
+landmarks, each later town of `TOWN_ROWS` with its branches and landmarks, then the networks
+Ridgemont draws. Each entry is a
 `DeclaredNetwork`: its key and ESSID, category, place, site, town, region, and for a drawn one
 its profile, subtype, `unlisted` flag, `parent` (a branch) or `directory` (a council).
 `declaredNetwork(key)` looks one up. Anything that must list the world (findit's index, the
@@ -78,10 +81,12 @@ reverse address lookup, `whois`, the reachability test, the sweeps) walks this l
 and the like, listed in `world-content-architecture.md`, "Seeds and streams"). Its networks come
 in a fixed order: the institutions, the businesses, the homes, any institution declared later,
 the practices, then the corporations' branches. Each is keyed as the town's next network
-(`r0/t3/n0`, `n1`, …) and answers at the town's next address. The towns after Millbrook are one
-fold over `TOWN_ROWS`: each draws its names clear of every network declared before it, so
-declaring a town moves no earlier network's name, key or address, only the gateways of the
-corporations that open a branch there.
+(`r0/t3/n0`, `n1`, …) and answers at the town's next address. The town's landmarks
+(`TOWN_LANDMARKS`) follow everything it draws, keyed and addressed the same way. The towns after
+Millbrook are one fold over `TOWN_ROWS`: each draws its names clear of every network drawn
+before it, so declaring a town moves no earlier network's name, key or address, only the
+gateways of the corporations that open a branch there. The landmarks are left out of what a
+later town draws clear of, so writing one renames nothing drawn after it.
 
 **Ridgemont is a city row too** (`RIDGEMONT_ROW`), drawn last, after Stonebury. Its council,
 police, library and courthouse are landmarks, so of a city's institutions it keeps only the
@@ -94,16 +99,18 @@ cottage hospital is declared after its homes.
 written by hand. A landmark declares no profile or kind (it keeps the `deep` shape it was
 written with), keeps and receives no lead, forwards nothing beyond its site, and its site reads
 as written: nothing drawn names its town after a place. Every rule that leaves the landmarks out
-asks `isLandmark`, never the town, so Ridgemont's drawn networks are an ordinary town's. AC-7 of
-the epic held throughout: every landmark's LAN, content and passwords are pinned by a
-fingerprint test, and only its public address moved, once.
+asks `isLandmark`, never the town, so Ridgemont's drawn networks are an ordinary town's, and
+the other towns' landmarks follow every rule Ridgemont's do. AC-7 of the epic held throughout:
+every landmark's LAN, content and passwords are pinned by a fingerprint test, and only a
+Ridgemont landmark's public address moved, once.
 
 ### Keys and names
 
 **A network is known by its key everywhere; a player only ever reads the name it broadcasts.**
 
-- A landmark's key is its ESSID (`CITY-HALL-WIFI`). A town's network is `r<region>/t<town>/n<k>`,
-  a drawn corporation `c<n>`, and findit `findit.io`.
+- A Ridgemont landmark's key is its ESSID (`CITY-HALL-WIFI`). Every other town's network, its
+  landmarks included, is `r<region>/t<town>/n<k>`, a drawn corporation `c<n>`, and findit
+  `findit.io`.
 - Every seed and everything stored takes the key: the LAN (`home-lan-`), the WiFi password
   (`wifi-pw-`), the BSSID, the persona, the occupancy and lease rows, the journal, the scan's
   entries, the association and the remembered connection. Two towns' `TOWN-HALL-WIFI` therefore
@@ -166,10 +173,10 @@ draws one by **weighted rendezvous hashing**: each declared town scores the key 
 its own (`starting-town-<town name>-<key>`), scaled by how many declared networks stand in it,
 and the best score wins. So:
 
-- **A town's share of players is its share of the 584 networks that stand in a town**, and a
-  network is about as likely to have company wherever it is: Ridgemont 30.5%, Kingsford 28.4%,
-  Stonebury 8.7%, a village about 3%. Villages are included: a village player sees all of their
-  ~16 networks within a few scans, and that small world is part of the flavour. The 28 networks in
+- **A town's share of players is its share of the 627 networks that stand in a town**, and a
+  network is about as likely to have company wherever it is: Ridgemont 28.4%, Kingsford 28.1%,
+  Stonebury 8.9%, a village about 3%. Villages are included: a village player sees all of their
+  ~20 networks within a few scans, and that small world is part of the flavour. The 28 networks in
   no town (findit, the corporations' head offices) are never a starting place.
 - **It is a pure function of the public key**, so the client that draws the scan offline and the
   server that checks the join against the verified key always agree, and nothing is stored.
@@ -186,9 +193,10 @@ and the best score wins. So:
 **Your own town is on your WiFi, homes included; every other town is reachable only over the
 internet, and its homes only through leads.** One rule, with Ridgemont no longer a special case.
 A local can scan straight onto a home a lead points at, and that is what living there means.
-Ridgemont's 18 hand-written networks with no site and no lead (six homes, four university
-networks, four IoT, four hacker spaces) are therefore reached only by the ~30% of players who
-start in Ridgemont, until travel.
+A landmark keeps no lead, so one with no site is reached only by the players who start in its
+town, until travel: Ridgemont's 18 (six homes, four university networks, four IoT, four hacker
+spaces) and the other towns' 15. The other towns' 28 sited landmarks are on findit for
+everyone.
 
 ## Joining
 
@@ -214,7 +222,7 @@ The cracked WiFi password itself is still checked only by the client (deferred, 
 
 - **2–3 crackable networks from the player's town** (`wifiPoolOf(startingTown(key))`): the
   town's networks in declaration order, for Ridgemont its landmarks in the catalog's order, then
-  the networks it draws in key order. The scan picks by position, so this order decides what
+  the networks it draws in key order; for every other town what it draws, then its landmarks. The scan picks by position, so this order decides what
   every player is offered, and the golden scans in `generateWifi.test.ts` pin it.
 - **3–5 noise networks**, each failing exactly one `aircrack-ng` gate.
 - **Another player's network, rarely.** `airodump-ng` fetches the names everyone currently
@@ -227,8 +235,8 @@ The injector is the only way a stranger stumbles onto another player's network, 
 to be rare. Any one network shows in about 2.5 / N of base draws in a town of N networks (1.4%
 in Ridgemont), so a network one other player occupies shows in about 6% of a Ridgemont player's
 scans: about 16 rescans for two players who mean to meet, and nothing in 50 rescans about one
-time in 26. A village is smaller and meets sooner: in Fenwick's 15 networks one shows in about
-21% of scans, about 5 rescans. Deleting the injector was rejected: it would
+time in 26. A village is smaller and meets sooner: in Fenwick's 18 networks one shows in about
+18% of scans, about 5 rescans. Deleting the injector was rejected: it would
 make chance encounters impossible and leave the shared-LAN machinery with no live consumer.
 `e2e-shared-network-verification.md` §4 tells a two-player run how to wait for it.
 
@@ -238,10 +246,10 @@ A test over the whole declaration (`world.test.ts`) proves every network is one 
 these, or is led to from one of these:
 
 - **listed on findit** (every publisher whose site is not unlisted, every corporation);
-- **standing in Ridgemont**, so in some scan. Every town's networks are on the WiFi of the
-  players who start there, but the test asks more of every other town: a way in for a player who
-  starts anywhere. Only Ridgemont's are left to its locals, its 18 hand-written networks with no
-  site and no lead among them;
+- **a landmark with no site**, in some scan of its town. Every town's networks are on the WiFi
+  of the players who start there, but the test asks more of every other network: a way in for a
+  player who starts anywhere. Only a siteless landmark, which keeps no lead, is left to its
+  town's locals: Ridgemont's 18 and the other towns' 15;
 - **an institution on its town's directory** (`/directory.html` on the council's site, which
   links every institution of the town, listed or not; Ridgemont's landmark council keeps none);
 - **the target of a lead** from one of the above: an IT contractor's ssh shortcut, an offsite
@@ -277,7 +285,7 @@ than its gateway's ssh from outside.
   persona, forwards, relations, gateways, LAN and deep boxes, and findit's pages, compared key
   by key. A new town expects only itself and the gateways of the corporations branching there.
 - **`checkBudgets`** (`npm run build`'s `postbuild`) times the box builds a set at a time (the
-  Ridgemont landmarks, each drawn town, the corporations, Ridgemont's drawn networks), best of
+  landmarks of every town, each drawn town, the corporations, Ridgemont's drawn networks), best of
   three, under 2 ms a box each, and findit's generated web built from nothing under 1,000 ms
   (542–915 ms at v0.306.0, by how loaded the machine was, so watch it as the world grows). The
   timings run on developer machines only.
@@ -311,6 +319,10 @@ than its gateway's ssh from outside.
 - **A hand-written network in a drawn town or in Ridgemont**: declare it after what the town
   already draws, as Millbrook's cottage hospital is (`MILLBROOK_LATER_INSTITUTIONS`). Never
   insert into the catalog or a town's order: every later key and address would move.
+- **A landmark in a town beyond Ridgemont**: append it to the town's list in `TOWN_LANDMARKS`.
+  It takes the town's next key and address and moves no other network, but the town's share of
+  players and its mapit plan change with it. A town's landmarks are keyed after everything it
+  draws, so a corporation that opens a branch there later moves them.
 - **Words or templates**: append only, and only before launch; the name-space and fit tests say
   whether the lists still hold.
 - **A category**: append it to `NETWORK_CATEGORIES` and give every `Record<NetworkCategory, …>`

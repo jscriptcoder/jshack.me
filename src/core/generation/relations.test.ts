@@ -175,7 +175,8 @@ describe("a town network's relations", () => {
 
   it('leads nowhere from or to a landmark', () => {
     const landmarks = DECLARED_NETWORKS.filter((each) => isLandmark(each.key));
-    expect(landmarks).toHaveLength(57);
+    // Ridgemont's 57 and the 43 of the towns beyond it.
+    expect(landmarks).toHaveLength(100);
     for (const network of landmarks) {
       expect(relationsTo(network.key), network.key).toEqual([]);
       expect(relationsFrom(network.key), network.key).toEqual([]);
