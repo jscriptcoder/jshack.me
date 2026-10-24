@@ -1343,11 +1343,25 @@ agreed order:
     all 100 landmark fingerprints by one file. Its 947 B of code raised the bundle ceiling's code
     part by 1,000 B (`scripts/checkBudgets.ts`). Mutation gate 86.42% (0 timeouts) over the two new
     files; survivors are help/manual copy, equivalent/defensive guards, and lookup-query shapes the
-    wire-check proves. Browser E2E (a B-attacks-A lockout played live) deferred to the next
-    close-out, per the one-run-covers-all rule. Plan: `plans/passwd-command.md`. Found while
-    shipping it, pre-existing on `main`: findit's generated web builds in ~1,200 ms locally against
-    its 1,000 ms budget (Vercel skips timings). **Pick up here (2026-10-24):** the passwd browser
-    run, then the owner's choice from the items still open in `backlog.md`.
+    wire-check proves. Plan: `plans/passwd-command.md`. Found while shipping it, pre-existing on
+    `main`: findit's generated web builds in ~1,200 ms locally against its 1,000 ms budget (Vercel
+    skips timings).
+    Browser run (2026-10-24, v0.435.0, two players in Oakhurst on WESTGATE-BLOOMS): the own-box
+    refusal, masked prompts, empty-hash skip, wrong-current refusal and reload persistence held; B,
+    root on A's box over ssh, changed `root` and A's own account, `passwd mallory` answered `does
+    not exist` after the prompts, B logged in as `alice` with the password B set, a user-tier
+    `passwd` there was refused up front, and A's `auth.log` carried all four changes. **Two
+    defects, both own-box:** (1) a terminal already open on the box checked `su` (and `passwd`'s
+    current password) against the journal it last pulled, which another player's write does not
+    reach until the owner's next write, so A's first `su root` after the attack succeeded with the
+    replaced password — reproduced twice; (2) an own-box `passwd` write carried no owner or
+    permissions, so a user-tier self-change left `/etc/passwd` owned by that user and
+    user-writable, which the foreign-write gate then honours. Fixed on branch
+    `own-box-fresh-passwd` (v0.435.1): own-box `su` and `passwd` re-read the box
+    (`env.fs.reload()`) before checking or composing, and the write keeps owner `root` and
+    `PASSWD_FILE` permissions; verified live by writing another player's root change into the
+    journal under an open terminal. **Pick up here (2026-10-24):** the fix PR, then the owner's
+    choice from the items still open in `backlog.md`.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
