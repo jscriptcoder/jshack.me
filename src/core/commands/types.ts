@@ -173,7 +173,9 @@ export type FsView = {
    *  write from the stale copy does not just miss the other write, it reverts it.
    *
    *  So this is for the writers that must compose against the machine rather than
-   *  against their own memory of it, and for nothing else. A view with nothing behind
+   *  against their own memory of it, and for the password checks made on the player's
+   *  own box: whoever roots it can change `/etc/passwd`, and a replaced password checked
+   *  against the stale copy would still let its owner in. Nothing else needs it. A view with nothing behind
    *  it (a test, a client with no server) re-reads to what it already has, and a failed
    *  read keeps the tree rather than blanking it: a transient error must not read as a
    *  box whose files went away. */

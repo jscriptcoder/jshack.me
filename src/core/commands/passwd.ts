@@ -9,11 +9,17 @@
  * proceed would only waste a masked prompt on a refusal.
  */
 
-import type { Command, CommandEnv, CommandResult } from './types.js';
+import type { Command, CommandEnv, CommandResult, FsView } from './types.js';
 import { PATCH_ERROR_REASON } from './types.js';
 import { md5 } from '../generation/md5.js';
 import { isOwnWorkstation } from '../identity/workstation.js';
-import { accountIn, withAccountHash, PASSWD_PATH } from '../sessions/passwdAccount.js';
+import {
+  accountIn,
+  withAccountHash,
+  PASSWD_OWNER,
+  PASSWD_PATH,
+} from '../sessions/passwdAccount.js';
+import { PASSWD_FILE } from '../generation/baseFs.js';
 
 const refusal = (content: string): CommandResult => ({
   kind: 'sync',
@@ -132,8 +138,8 @@ const logChange = async (env: CommandEnv, target: string): Promise<void> => {
  *  Returns the file text, or '' when passwd is missing or not a file. This is the
  *  content the rewrite is composed against, carried as `baseContent` so a racing
  *  writer's change is detected rather than clobbered. */
-const readPasswd = (env: CommandEnv): string => {
-  const node = env.fs.stat(PASSWD_PATH);
+const readPasswd = (fs: FsView): string => {
+  const node = fs.stat(PASSWD_PATH);
   return node !== null && node.kind === 'file' ? node.content : '';
 };
 
@@ -157,10 +163,15 @@ const execute: Command['execute'] = async (env, args) => {
     return refusal(`passwd: you may not change the password for '${target}'`);
   }
 
-  // Read the box's tree once at ROOT privilege (`env.fs.root()` resolves the raw
-  // tree, bypassing the caller's read perms) — the setuid-root read `su` also makes.
-  // The account lookup and the row rewrite then compose against one same snapshot.
-  const root = env.fs.root();
+  // Re-read the box first: `env.fs` is what this client last pulled, and whoever roots
+  // this box can change its passwords without this terminal hearing of it. Checked
+  // against that copy a replaced password would still pass, and a rewrite composed
+  // from it would revert the other change.
+  const fs = await env.fs.reload();
+  // Read the box's tree once at ROOT privilege (`root()` resolves the raw tree,
+  // bypassing the caller's read perms) — the setuid-root read `su` also makes. The
+  // account lookup and the row rewrite then compose against one same snapshot.
+  const root = fs.root();
   const account = accountIn(root, target);
   if (account === null) {
     return refusal(`passwd: user '${target}' does not exist`);
@@ -181,7 +192,15 @@ const execute: Command['execute'] = async (env, args) => {
   if (!entered.ok) return entered.result;
 
   const rewritten = withAccountHash(root, target, md5(entered.password));
-  const result = await env.patches.write(PASSWD_PATH, rewritten, { baseContent: readPasswd(env) });
+  // The file keeps its own terms — owner root, the passwd file's permissions — rather
+  // than the caller's name and tier defaults a write is otherwise stamped with: a user
+  // changing their own password must not leave the file writable by the user tier,
+  // or any user shell on the box could rewrite root's line.
+  const result = await env.patches.write(PASSWD_PATH, rewritten, {
+    baseContent: readPasswd(fs),
+    owner: PASSWD_OWNER,
+    permissions: PASSWD_FILE,
+  });
   if (!result.ok) {
     // A stale buffer gets its own sentence: the file moved under us, so the typed
     // password is discarded and the player re-runs rather than clobbering the other
