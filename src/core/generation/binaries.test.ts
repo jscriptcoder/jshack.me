@@ -75,6 +75,15 @@ describe('binary stubs', () => {
     });
   });
 
+  it.each(boxes)('ship /bin/passwd on %s, runnable by anyone', (_label, root) => {
+    // `passwd` is binary-gated like `su`; without a seeded binary the shell reports
+    // `command not found` on every box, and a player could never change a password.
+    const node = new Map(filesIn(child(root, 'bin'))).get('passwd');
+
+    expect(node?.kind === 'file' ? stubName(node.content) : null).toBe('passwd');
+    expect(node?.perms.execute).toEqual(['root', 'user', 'guest']);
+  });
+
   it.each(boxes)('name each library on %s as the .so it is, never as a tool', (_label, root) => {
     const libraries = filesIn(child(root, 'lib'));
 

@@ -27,6 +27,12 @@ describe('commandRegistry', () => {
     }
   });
 
+  it('registers `passwd` so a player can change an account password', () => {
+    // The command module is fully built and tested, but a player can only reach
+    // it once it is in the builtin set the shell dispatches through.
+    expect(commandRegistry.has('passwd')).toBe(true);
+  });
+
   it('assigns every registered command a known category', () => {
     // Drives the `category` field `help` groups by: a command that forgot
     // to declare one (or declared a typo'd value) can never be sectioned,

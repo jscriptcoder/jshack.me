@@ -199,6 +199,17 @@ const syncResult = (
 };
 
 describe('passwd', () => {
+  it('declares a surface that gates it to the local box, any tier, and an interactive terminal', () => {
+    // These fields are the command's contract with the shell runner: a password change
+    // happens only on the box you are sitting on (`localhost-only`), is reachable by any
+    // tier that can open a shell (`guest`), and — depending on masked prompts — refuses in
+    // a script or without a TTY rather than hanging on a prompt that can never be answered.
+    expect(passwd.availability).toEqual({ kind: 'localhost-only' });
+    expect(passwd.tier).toBe('guest');
+    expect(passwd.withoutTty).toContain('terminal');
+    expect(passwd.withoutScript).toContain('script');
+  });
+
   it('refuses a user changing another account up front, before any prompt', async () => {
     const { env, promptCalls } = passwdEnv({ callerName: 'neo', callerType: 'user' });
 
@@ -382,20 +393,46 @@ describe('passwd', () => {
     expect(exitCode).toBe(1);
   });
 
-  it('aborts with exit 130 and writes nothing when a prompt is cancelled', async () => {
+  it('aborts with exit 130 and writes nothing when the current-password prompt is cancelled', async () => {
     const { env, promptCalls, writes } = passwdEnv({
       callerName: 'neo',
       callerType: 'user',
       abortPromptMessage: CURRENT_PROMPT,
     });
 
-    const { exitCode } = syncResult(await passwd.execute(env, [], NO_FLAGS));
+    const result = await passwd.execute(env, [], NO_FLAGS);
 
-    // Exit 130 (SIGINT), like a cancelled `su` prompt — nothing is written, and no
-    // further prompt is shown after the cancel.
-    expect(exitCode).toBe(130);
+    // Exit 130 (SIGINT), like a cancelled `su` prompt — nothing is written, nothing is
+    // printed (not one line), and no further prompt is shown after the cancel.
+    expect(result).toEqual({ kind: 'sync', lines: [], exitCode: 130 });
     expect(writes).toEqual([]);
     expect(promptCalls).toEqual([{ message: CURRENT_PROMPT, masked: true }]);
+  });
+
+  it('aborts with exit 130 and writes nothing when the RETYPE prompt is cancelled', async () => {
+    // Cancelling the second new-password entry must behave exactly like cancelling the
+    // first: the typed new password is discarded, nothing is written, nothing printed.
+    const { env, promptCalls, writes } = passwdEnv({
+      callerName: 'neo',
+      callerType: 'user',
+      promptResponses: {
+        [CURRENT_PROMPT]: CALLER_PASSWORD,
+        [NEW_PROMPT]: 'freshpw',
+      },
+      abortPromptMessage: RETYPE_PROMPT,
+    });
+
+    const result = await passwd.execute(env, [], NO_FLAGS);
+
+    // Exactly as the current-password cancel: exit 130, not one line printed, nothing written.
+    expect(result).toEqual({ kind: 'sync', lines: [], exitCode: 130 });
+    expect(writes).toEqual([]);
+    // All three prompts were reached, in order, before the cancel ended it.
+    expect(promptCalls).toEqual([
+      { message: CURRENT_PROMPT, masked: true },
+      { message: NEW_PROMPT, masked: true },
+      { message: RETYPE_PROMPT, masked: true },
+    ]);
   });
 
   it('lets root change another account without proving a password', async () => {

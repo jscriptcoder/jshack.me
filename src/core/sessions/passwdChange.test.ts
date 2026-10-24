@@ -327,6 +327,21 @@ describe('handlePasswdChange', () => {
     expect(upsertPatch).not.toHaveBeenCalled();
   });
 
+  it('rejects an envelope that smuggles a client-supplied writer_key, writing nothing', async () => {
+    // writer_key is the row's provenance, which the server stamps from the verified
+    // pubkey; a client-claimed one is forged provenance and rejected like player_key.
+    const { deps, upsertPatch, findOccupantWorkstationByMachineId } = makeDeps();
+
+    const result = await handlePasswdChange(
+      envelope(generateIdentity(), { username: 'root', new_hash: NEW_HASH, writer_key: 'attacker' }),
+      deps,
+    );
+
+    expect(result.status).toBe(400);
+    expect(findOccupantWorkstationByMachineId).not.toHaveBeenCalled();
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
   it('rejects a tampered envelope without writing', async () => {
     const attacker = generateIdentity();
     const { deps, upsertPatch } = makeDeps();

@@ -52,6 +52,7 @@ import { whois } from './whois.js';
 import { node } from './node.js';
 import { ping } from './ping.js';
 import { ps } from './ps.js';
+import { passwd } from './passwd.js';
 import { pwd } from './pwd.js';
 import { reboot } from './reboot.js';
 import { newGame } from './newGame.js';
@@ -119,6 +120,7 @@ const builtins: readonly Command[] = [
   node,
   nslookup,
   whois,
+  passwd,
   ping,
   ps,
   pwd,
