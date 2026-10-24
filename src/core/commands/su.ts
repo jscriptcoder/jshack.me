@@ -5,8 +5,8 @@
  *
  * Who answers depends on whose box it is:
  *
- * On the player's OWN workstation the command answers itself. It reads
- * `/etc/passwd` at ROOT privilege — `env.fs.stat` resolves the raw node, bypassing
+ * On the player's OWN workstation the command answers itself. It re-reads the box
+ * and reads `/etc/passwd` at ROOT privilege — `stat` resolves the raw node, bypassing
  * the CALLER's read perms — modelling a real setuid-root `su` (which reads the
  * password DB as root regardless of who invoked it). That is what lets a guest,
  * who cannot normally read passwd, still switch to another account.
@@ -34,7 +34,7 @@ import { asAbsPath, type AbsPath, type UserType } from '../types.js';
 import { md5 } from '../generation/md5.js';
 import { userTypeFromPasswdFields } from '../generation/passwdTier.js';
 import { isOwnWorkstation } from '../identity/workstation.js';
-import type { Command, CommandEnv, CommandResult, Session } from './types.js';
+import type { Command, CommandEnv, CommandResult, FsView, Session } from './types.js';
 import { homeDirectory } from '../sessions/homeDirectory.js';
 
 const PASSWD_PATH = asAbsPath('/etc/passwd');
@@ -63,8 +63,8 @@ type TargetUser = {
 /** Read `/etc/passwd` at ROOT privilege via `stat` (which resolves the raw node,
  *  bypassing the caller's read perms) — modelling a setuid-root `su`. Returns
  *  the file text, or '' when passwd is missing or not a file. */
-const readPasswd = (env: CommandEnv): string => {
-  const node = env.fs.stat(PASSWD_PATH);
+const readPasswd = (fs: FsView): string => {
+  const node = fs.stat(PASSWD_PATH);
   return node !== null && node.kind === 'file' ? node.content : '';
 };
 
@@ -183,7 +183,11 @@ const execute: Command['execute'] = async (env, args) => {
     return elevateThroughServer(env, targetName);
   }
 
-  const target = targetFrom(readPasswd(env), targetName);
+  // Re-read the box before checking anything. `env.fs` is what this client last
+  // pulled, and whoever roots this box can change its passwords without this
+  // terminal hearing of it: checked against that copy, a replaced password would
+  // keep letting its owner in.
+  const target = targetFrom(readPasswd(await env.fs.reload()), targetName);
   if (target === null) return noSuchUser(targetName);
 
   // Root may switch to anyone without a password; a password-less account

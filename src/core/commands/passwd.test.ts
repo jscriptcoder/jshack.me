@@ -20,6 +20,7 @@ import {
   type UserType,
 } from '../types.js';
 import type { AuthLogEvent, CommandResult, PatchResult } from './types.js';
+import type { FilePermissions } from '../filesystem/types.js';
 import { passwd } from './passwd.js';
 
 /**
@@ -50,6 +51,8 @@ type CapturedWrite = {
   readonly path: AbsPath;
   readonly content: string;
   readonly baseContent: string | undefined;
+  readonly owner: string | undefined;
+  readonly permissions: FilePermissions | undefined;
 };
 
 type PasswdEnvOpts = {
@@ -72,6 +75,10 @@ type PasswdEnvOpts = {
   readonly writeResult?: PatchResult;
   /** Make the auth.log append reject, to prove the change does not hinge on it. */
   readonly authLogThrows?: boolean;
+  /** The hashes the box holds when `passwd` re-reads it: somebody who rooted the box
+   *  changed them after this terminal last read it. Absent, a re-read hands back the
+   *  same tree — a box nobody else is writing. */
+  readonly reloaded?: { readonly rootHash?: string; readonly callerHash?: string };
 };
 
 /** Build an env around a realistic `/etc/passwd` (root with a password, the
@@ -87,16 +94,20 @@ const passwdEnv = (opts: PasswdEnvOpts = {}) => {
   const writes: CapturedWrite[] = [];
   const authLogEvents: AuthLogEvent[] = [];
 
-  const tree = buildDirectory({
-    etc: buildDirectory({
-      passwd: buildFile(
-        `root:${md5('toor1234')}:0:0:root:/root:/bin/bash\n` +
-          `${callerName}:${callerHash}:1000:1000::/home/${callerName}:/bin/bash\n` +
-          `guest:${md5('guestpw')}:1001:1001:guest:/home/guest:/bin/bash\n`,
-        { owner: 'root', perms: { read: ['root', 'user'] } },
-      ),
-    }),
-  });
+  const treeWith = (hashes: { readonly rootHash: string; readonly callerHash: string }) =>
+    buildDirectory({
+      etc: buildDirectory({
+        passwd: buildFile(
+          `root:${hashes.rootHash}:0:0:root:/root:/bin/bash\n` +
+            `${callerName}:${hashes.callerHash}:1000:1000::/home/${callerName}:/bin/bash\n` +
+            `guest:${md5('guestpw')}:1001:1001:guest:/home/guest:/bin/bash\n`,
+          { owner: 'root', perms: { read: ['root', 'user'] } },
+        ),
+      }),
+    });
+  const born = { rootHash: md5('toor1234'), callerHash };
+  const tree = treeWith(born);
+  const reloaded = opts.reloaded;
 
   const env = mockCommandEnv({
     identity: mockIdentity({ publicKeyHex: PUBKEY }),
@@ -107,7 +118,13 @@ const passwdEnv = (opts: PasswdEnvOpts = {}) => {
       userType: callerType,
       essid: opts.essid ?? null,
     }),
-    fs: mockFsViewFromTree(tree, { userType: callerType, cwd: () => asAbsPath('/') }),
+    fs: mockFsViewFromTree(tree, {
+      userType: callerType,
+      cwd: () => asAbsPath('/'),
+      ...(reloaded === undefined
+        ? {}
+        : { onReload: async () => treeWith({ ...born, ...reloaded }) }),
+    }),
     now: () => asEpochMs(123),
     prompt: async (promptOpts) => {
       promptCalls.push(promptOpts);
@@ -118,7 +135,13 @@ const passwdEnv = (opts: PasswdEnvOpts = {}) => {
     },
     patches: mockPatchApi({
       write: async (path, content, options) => {
-        writes.push({ path, content, baseContent: options?.baseContent });
+        writes.push({
+          path,
+          content,
+          baseContent: options?.baseContent,
+          owner: options?.owner,
+          permissions: options?.permissions,
+        });
         return opts.writeResult ?? { ok: true };
       },
     }),
@@ -458,6 +481,83 @@ describe('passwd', () => {
       `guest:${md5('rootset')}:1001:1001:guest:/home/guest:/bin/bash`,
     );
   });
+
+  // Whoever roots the player's box can change its passwords, and nothing pushes that
+  // change to a terminal already open on it, so both the check and the rewrite have to
+  // be made against the box as it stands.
+  it('refuses a current password that was replaced since this terminal last read the box', async () => {
+    const { env, writes } = passwdEnv({
+      callerName: 'neo',
+      callerType: 'user',
+      reloaded: { callerHash: md5('lockedout') },
+      promptResponses: {
+        [CURRENT_PROMPT]: CALLER_PASSWORD,
+        [NEW_PROMPT]: 'freshpw',
+        [RETYPE_PROMPT]: 'freshpw',
+      },
+    });
+
+    const { text, exitCode } = syncResult(await passwd.execute(env, [], NO_FLAGS));
+
+    expect(text).toContain('passwd: Authentication failure');
+    expect(exitCode).toBe(1);
+    expect(writes).toEqual([]);
+  });
+
+  it('composes the rewrite against the box as it stands, keeping a change made since', async () => {
+    const { env, writes } = passwdEnv({
+      callerName: 'neo',
+      callerType: 'root',
+      reloaded: { rootHash: md5('lockedout') },
+      promptResponses: {
+        [NEW_PROMPT]: 'rootset',
+        [RETYPE_PROMPT]: 'rootset',
+      },
+    });
+
+    const { exitCode } = syncResult(await passwd.execute(env, ['guest'], NO_FLAGS));
+
+    expect(exitCode).toBe(0);
+    const asItStands =
+      `root:${md5('lockedout')}:0:0:root:/root:/bin/bash\n` +
+      `neo:${md5(CALLER_PASSWORD)}:1000:1000::/home/neo:/bin/bash\n`;
+    expect(writes).toMatchObject([
+      {
+        path: asAbsPath('/etc/passwd'),
+        content: `${asItStands}guest:${md5('rootset')}:1001:1001:guest:/home/guest:/bin/bash\n`,
+        baseContent: `${asItStands}guest:${md5('guestpw')}:1001:1001:guest:/home/guest:/bin/bash\n`,
+      },
+    ]);
+  });
+
+  // The write would otherwise be stamped with the caller's own name and the defaults
+  // of the caller's tier: a user changing their own password would leave the file
+  // theirs, writable by the user tier, and anyone holding a user shell on the box
+  // could then rewrite root's line.
+  it.each<UserType>(['user', 'root'])(
+    'leaves /etc/passwd root-owned and writable by root alone when a %s changes a password',
+    async (callerType) => {
+      const { env, writes } = passwdEnv({
+        callerName: 'neo',
+        callerType,
+        promptResponses: {
+          [CURRENT_PROMPT]: CALLER_PASSWORD,
+          [NEW_PROMPT]: 'freshpw',
+          [RETYPE_PROMPT]: 'freshpw',
+        },
+      });
+
+      const { exitCode } = syncResult(await passwd.execute(env, [], NO_FLAGS));
+
+      expect(exitCode).toBe(0);
+      expect(writes.map(({ owner, permissions }) => ({ owner, permissions }))).toEqual([
+        {
+          owner: 'root',
+          permissions: { read: ['root', 'user'], write: ['root'], execute: ['root'] },
+        },
+      ]);
+    },
+  );
 
   it('records a passwd auth.log line for the changed account on success', async () => {
     const { env, authLogEvents } = passwdEnv({
