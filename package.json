@@ -32,7 +32,7 @@
     "@noble/hashes": "^2.2.0",
     "@supabase/supabase-js": "^2.106.2",
     "solid-js": "^1.9.17",
-    "zod": "^4.4.3"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@solidjs/testing-library": "^0.8.10",
