@@ -1323,6 +1323,29 @@ agreed order:
     "Travel"). As built: `procedural-world-architecture.md`, "Travelling". **Pick up here
     (2026-10-23):** the owner's choice from the items still open in `backlog.md`.
 
+35. ⏳ **`passwd` — change (and lock out) an account's password (v0.435.0, PR #735 open, 2026-10-24).**
+    The write-mirror of `su`. On the player's own workstation a caller changes their OWN account at
+    any tier (a setuid-root `passwd`); a NAMED other account needs root, and a non-root self-change
+    is first asked for the current password (skipped for an empty-hash account, as `su` is). On any
+    box that is not the caller's own, every `passwd` needs an active ROOT session there, enforced by
+    the server (`handlePasswdChange`, L1/L2): with root on A's box, `passwd root` rewrites A's
+    `/etc/passwd` row under the caller's verified key and locks A out of the next `su`/`ssh` with the
+    old password — open sessions survive (future auth only, so a victim still sitting as root can
+    change it straight back). A successful change leaves a real `passwd[pid]: password changed for
+    <user>` line on the box's `auth.log`, server-stamped (the client cannot forge the time); failures
+    are not logged. The new password is entered twice (mismatch/empty refused); interactive-only,
+    like `su`. Five TDD slices (surface + up-front refusals; own-box self-change with the
+    old-password gate; own-box auth.log + root-changes-another; foreign-box through the server;
+    cross-player wire-check `scripts/testPasswdCrossPlayer.ts`, 8/8 — L2 refuses a non-root foreign
+    write, the rewrite persists and composes OVER a prior `/etc/passwd` patch from another writer
+    rather than erasing it, the server stamps the log, the lockout bites the next login). Registered
+    on the builtin set and seeded as `/bin/passwd` on every box (binary-gated like `su`), which moved
+    all 100 landmark fingerprints by one file. Mutation gate 86.42% (0 timeouts) over the two new
+    files; survivors are help/manual copy, equivalent/defensive guards, and lookup-query shapes the
+    wire-check proves. Browser E2E (a B-attacks-A lockout played live) deferred to the next
+    close-out, per the one-run-covers-all rule. Plan: `plans/passwd-command.md`. **Pick up here
+    (2026-10-24):** merge PR #735, then the owner's choice from the items still open in `backlog.md`.
+
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
 and that is expected. For the shipped systems, start from the three as-built docs named at the top
