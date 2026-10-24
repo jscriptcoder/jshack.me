@@ -72,6 +72,8 @@ import type {
   ScanRecordParams,
   Session,
   SuElevateParams,
+  PasswdChangeParams,
+  PasswdChangeResult,
   RebootEvictResult,
   HydraCrackParams,
   HydraCrackResult,
@@ -159,6 +161,7 @@ import {
   authCreateServerSessionPublic,
   authCreateServerSessionSameLan,
   authElevateServerSession,
+  changeServerPasswd,
   connectDatabase,
   connectStore,
   walkDevice,
@@ -786,6 +789,14 @@ const suElevate = (params: SuElevateParams): Promise<RemoteAuthResult> =>
   sessionsClientDeps === undefined
     ? Promise.resolve({ ok: false, error: 'network_error' })
     : authElevateServerSession(sessionsClientDeps, params);
+
+/** Change an account's password on a box that is not the player's own (backs
+ *  `env.passwd.change`). Degrades to a network error before `startGame` wires the
+ *  sessions client, as `suElevate` does. */
+const passwdChange = (params: PasswdChangeParams): Promise<PasswdChangeResult> =>
+  sessionsClientDeps === undefined
+    ? Promise.resolve({ ok: false, error: 'network_error' })
+    : changeServerPasswd(sessionsClientDeps, params);
 
 /** End every session the player holds on a machine, because the box went down
  *  under them (backs `env.reboot.evict`). Degrades to a network error before
@@ -2072,6 +2083,7 @@ const shellEnv = (session: Session, patches: PatchApi, signal: AbortSignal): Com
     onNcConnectSameLan: ncConnectSameLan,
     onNcConnectInnerGateway: ncConnectInnerGateway,
     onSuElevate: suElevate,
+    onPasswdChange: passwdChange,
     onRebootEvict: rebootEvict,
     onChainOpenSessionIds: chainOpenSessionIds,
     // Nothing of the player's goes with either read: the ledger answers anyone about any address.

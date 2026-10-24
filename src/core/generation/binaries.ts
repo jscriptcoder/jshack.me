@@ -68,6 +68,7 @@ export const SYSTEM_UTILITY_NAMES = [
   'find',
   'grep',
   'su',
+  'passwd',
   'man',
   'nano',
   'strings',

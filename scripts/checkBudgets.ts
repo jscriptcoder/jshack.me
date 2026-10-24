@@ -42,13 +42,14 @@ import {
   generatedBaseFsForMachineId,
 } from '../src/core/generation/lanHostIdentity.js';
 
-/** 136,975 bytes gzipped before any world content, plus the 152 KB the content may add.
+/** 137,975 bytes gzipped before any world content, plus the 152 KB the content may add.
  *  The code part was 134,975 until talkit.io's forum added 1,011 B of code (pages, the
  *  post form, lynx's box several lines tall, the login a post carries), rounded up to
- *  2,000 so the forum costs the content none of its room. The content's part was 150 KB
- *  until every town beyond Ridgemont wrote landmarks of its own: their 43 rows add
- *  1,205 B, rounded up to 2,000. */
-const BUNDLE_CEILING_BYTES = 288_975;
+ *  2,000 so the forum costs the content none of its room; then the `passwd` command added
+ *  947 B (the command, its server seam and the client adapter), rounded up to 1,000. The
+ *  content's part was 150 KB until every town beyond Ridgemont wrote landmarks of its own:
+ *  their 43 rows add 1,205 B, rounded up to 2,000. */
+const BUNDLE_CEILING_BYTES = 289_975;
 
 /** About a tenth of that before world content, so a loaded machine's noise cannot fail
  *  the check while a content change that makes boxes ten times dearer still does. */
