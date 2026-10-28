@@ -7,10 +7,10 @@
  * it claims, as apt would. A hole whose fix is still inside its patch delay stays open
  * until a later round: the operator answers to the world's clock like everybody else.
  *
- * A patch evicts nobody, and leaves no trace but the versions it moved. Its row is
- * written as the box itself, under the network key its logs accrete under, so nothing on
- * the box says the operator came by. A bricked box is left alone: apt cannot run on a box
- * that does not boot, and only a restore brings it back.
+ * A patch evicts nobody, and leaves no trace but the versions it moved: the passwords the
+ * same round changes are `rotate.ts`'s, and leave their own. Its row is written as the box
+ * itself, under the network key its logs accrete under. A bricked box is left alone: apt
+ * cannot run on a box that does not boot, and only a restore brings it back.
  *
  * Pure, framework-agnostic (core/): the journal and the day are supplied by the script.
  */
@@ -97,30 +97,38 @@ const heldPart = (held: readonly Held[]): string => {
   return `${held.length} held (${waiting.join(', ')})`;
 };
 
-/** What a patch did, in the operator's words — the line, without the box's name. */
-export const patchSummary = (outcome: PatchOutcome): string => {
+const passwordsPart = (passwords: number): readonly string[] =>
+  passwords > 0 ? [`${plural(passwords, 'password', 'passwords')} changed`] : [];
+
+/** What a patch did, in the operator's words — the line, without the box's name — with the
+ *  passwords the round changed on the box beside it. */
+export const patchSummary = (outcome: PatchOutcome, passwords: number): string => {
   if (outcome.kind === 'bricked') return 'bricked — restore it to bring it back';
   const holding = outcome.held.length > 0 ? [heldPart(outcome.held)] : [];
-  if (outcome.kind === 'up-to-date') return ['up to date', ...holding].join(', ');
+  const changed = passwordsPart(passwords);
+  if (outcome.kind === 'up-to-date') return ['up to date', ...holding, ...changed].join(', ');
   const moved = outcome.upgrades.map(({ pkg, from, to }) => `${pkg} ${from} → ${to}`);
-  return [`${outcome.upgrades.length} upgraded (${moved.join(', ')})`, ...holding].join(', ');
+  return [`${outcome.upgrades.length} upgraded (${moved.join(', ')})`, ...holding, ...changed].join(
+    ', ',
+  );
 };
 
 /** The operator's line for one box. */
-export const patchLine = (name: string, outcome: PatchOutcome): string =>
-  `${name}: ${patchSummary(outcome)}`;
+export const patchLine = (name: string, outcome: PatchOutcome, passwords: number): string =>
+  `${name}: ${patchSummary(outcome, passwords)}`;
 
 /** The line before the round: how many boxes, and the database the rows go to. */
 export const patchHeader = (count: number, host: string): string =>
   `Patching ${plural(count, 'box', 'boxes')} on ${host}`;
 
 /** The line after the round. */
-export const patchTotal = (outcomes: readonly PatchOutcome[]): string => {
+export const patchTotal = (outcomes: readonly PatchOutcome[], passwords: number): string => {
   const count = (kind: PatchOutcome['kind']): number =>
     outcomes.filter((outcome) => outcome.kind === kind).length;
   return (
     `Patched ${plural(outcomes.length, 'box', 'boxes')}: ${count('upgraded')} upgraded, ` +
-    `${count('up-to-date')} up to date, ${count('bricked')} bricked.`
+    `${count('up-to-date')} up to date, ${count('bricked')} bricked, ` +
+    `${plural(passwords, 'password', 'passwords')} changed.`
   );
 };
 

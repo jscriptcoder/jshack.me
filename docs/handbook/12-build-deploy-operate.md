@@ -167,18 +167,24 @@ installed with until it is reinstalled.
     tampered boxes to restore, restore those, patch. `report [name…]` writes nothing. For each box
     it prints how many packages a patch would move today, and whether it is tampered: an open
     session on it (with the account), every path written that is not the box's own log line or the
-    guardian's manifest or boot marker (a player's write, a wiped log, a database rewritten through
-    its port), or a brick. A visit's log lines are never tampering. `patch [name…]`: each named
+    guardian's manifest, passwords or boot marker (a player's write, a wiped log, a database
+    rewritten through its port), or a brick. A visit's log lines are never tampering. `patch [name…]`: each named
     public website (a domain, any case, or `boards.hireme.io`), or with no name the patrol (every
     fixed box, then each `government` and `public` network's site, 52 boxes), has every package
     moved onto the fix that has shipped for it today, exactly as a root's `apt upgrade` would; a
-    hole whose fix is still in its patch delay stays open. It evicts nobody and leaves no trace but
-    the moved versions; a bricked box is named and left for a restore. One line per box, then a
-    total. An unknown or repeated name refuses the whole round before anything is read.
+    hole whose fix is still in its patch delay stays open. It also changes every password on the
+    box: `/etc/passwd` is rewritten as generated, each account on a fresh word drawn (by the
+    operating system, never a seed) from the pool it was generated from, and `auth.log` gets the
+    `passwd` command's line for each. A seeded password is one a player who decodes the bundle can
+    work out without the `hydra` run that would log them; a drawn one is not, and the box stays as
+    hard as it was born. A player's own `passwd` change, or an account they added, is undone. It
+    evicts nobody; a bricked box is named and left for a restore. One line per box, then a total.
+    An unknown or repeated name refuses the whole round before anything is read.
     `restore <name…>` reboots each named public website into its generated state, patched: it ends
     every session on the box (`rebooted`) and every one stacked on those (`upstream_lost`), deletes
-    its journal, and writes today's manifest and a fresh boot marker. Only the site's own box; its
-    gateway and a fixed site's tables keep what they hold. It always names its boxes.
+    its journal, and writes today's manifest, fresh passwords and a fresh boot marker. Only the
+    site's own box; its gateway and a fixed site's tables keep what they hold. It always names its
+    boxes.
   - `scripts/mintCoins.ts <address> <amount>` credits a ledger address with new coins.
   - `scripts/talkitRemove.ts thread <id>` or `comment <id> <n>` takes a thread, with all its
     comments, or one comment off talkit.io. A thread is deleted; a comment keeps its number and

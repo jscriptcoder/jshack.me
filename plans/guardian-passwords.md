@@ -1,6 +1,23 @@
 # Plan: the guardian changes passwords
 
-**Status:** grill complete + plan drafted (2026-10-28) — ready to implement (TDD). Not yet started.
+**Status:** implemented on branch `guardian-passwords` (v0.436.0, 2026-10-28) — all seven steps;
+unit suite 9,863/9,863, wire-checks `testGuardian` 36/36, `testHiremeBoardRoot` 13/13,
+`testRestoreSite` on all nine fixed sites. Mutation gate (scoped battery over `rotate.ts`,
+`patch.ts`, `restore.ts`, `report.ts`, `passwdAccount.ts`): `patch`/`report`/`restore` all killed;
+two survivors killed by new tests (a root-only `auth.log` is read as root, not wiped; a fixed
+site's one account by name); left: `?? ''` defaults no generated public box reaches, and
+pre-existing `accountAtOrAbove` code outside this battery. PR not yet opened.
+
+**As-built, where it departs from the design below:** the rotation is its own pure decider,
+`src/core/guardian/rotate.ts` `decideRotation({ box, journal, draw, now })`, not part of
+`decidePatch`, because `report` calls `decidePatch` to count what is behind and a report must
+never draw. `decidePatch`'s outcome is unchanged; the script's `patch` writes the manifest row
+and the rotation's rows together, and `decideRestore` returns `{ patch, rotation, rows }`.
+`patchSummary`/`patchLine`/`patchTotal`/`restoreLine` take the count of passwords changed. The
+every-account passwd rewriter `withAccountHashes` sits beside `withAccountHash` in
+`sessions/passwdAccount.ts`, which now delegates to it. The wire-check proves the lockout on
+`findit.io` (a fixed box is its own gateway, so `ssh root@` reaches it directly); its "seeded
+word refused" check allows the 1-in-52 case where the round draws the seeded word again.
 
 Every guardian `patch` (and so every `restore`, which ends by patching) rewrites each patrolled
 box's `/etc/passwd` as generated, with every account holding a freshly drawn password of the

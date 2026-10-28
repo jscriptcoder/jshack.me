@@ -10,18 +10,6 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   needs production credentials in a cloud routine, and a rule for restores with nobody there to
   pick them (patch only, or restore only a brick).
 
-- **The guardian changes NPC passwords.** A player who decodes the bundle can work out an NPC
-  box's password and log in on the first try, without the `hydra` run whose attempts land in
-  `auth.log`. A guardian verb that rewrites a box's `/etc/passwd` hash (as the box itself, like
-  `restore`'s writes) defeats that: `ssh`, `su` and `hydra` all resolve the password server-side
-  from the box's replayed journal, so a written hash beats the seed's with no engine change. Open
-  when it is designed: whether the new word comes from the crackable pool (the `hydra` route
-  stays, only the shortcut goes) or the uncrackable one (only an exploit opens the box); which
-  boxes it reaches, since the patrol today covers only the public websites and not every NPC
-  box; and how it survives `restore`, which deletes the whole journal and the changed password
-  with it. Whoever writes last wins, so a rooted player's own `passwd` replaces the guardian's
-  until the next round, and a change ends no session already on the box.
-
 - **Crypto wallet — follow-ups deferred.** The wallet epic shipped at v0.362.0 (as-built:
   [`wallet-architecture.md`](./wallet-architecture.md)). Four things were left out on purpose:
   **recognition**, the other half of a mission reward, to be designed with missions; **anything to

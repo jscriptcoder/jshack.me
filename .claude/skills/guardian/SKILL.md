@@ -22,7 +22,9 @@ npx dotenv -e .env.production.local -- npx tsx scripts/guardian.ts <report|patch
 ```
 
 - `report [name…]` reads and writes nothing. Run it freely.
-- `patch [name…]` closes holes and evicts nobody. Run it freely, as step 5 says.
+- `patch [name…]` closes holes, gives every account on each box a fresh password, and evicts
+  nobody. Run it freely, as step 5 says. Nobody sees the new words, the owner included: a
+  password round is what keeps the bundle's seeded passwords from opening the public web.
 - `restore <name…>` ends every session on the box and wipes its journal. Run it ONLY on the
   boxes the owner picked in this round, by name, never with a name they did not pick.
 
@@ -48,7 +50,7 @@ each `government` and `public` network's site, 52 boxes.
 4. **Restore the picks**, all in one `restore` run naming exactly them. With no picks, skip
    this step.
 5. **Patch** with the same names as the report, or none. A box just restored reads
-   `up to date`.
+   `up to date`, and its passwords change once more.
 6. **Tell the owner** the three totals: what the report found, what was restored, and what the
    patch moved (its last line).
 
@@ -69,7 +71,8 @@ Looked over 52 boxes: 49 behind, 2 tampered, 1 bricked.
 - **Behind** is how many packages `patch` would move today. A hole whose fix has not shipped
   stays open until a later round; the patch line says when it is due.
 - **Tampered** is an open session on the box (the account it was opened as), a write that is
-  not the box's own log line (a player's, a wiped log included, or a database rewritten through
-  its port), or a brick. A visit's log lines are never tampering.
+  not the box's own log line or the guardian's (a player's, a wiped log or their own `passwd`
+  included, or a database rewritten through its port), or a brick. A visit's log lines are never
+  tampering.
 - To read a defaced page before choosing, visit it in the game (`curl`); the round itself
   reads nothing more than the report.
