@@ -598,11 +598,12 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   own write. `ftp put` still writes the login's default.
 
 - **`~` expands only as `~` and `~/path` (v0.328.0, #621).** Expansion happens in the tokenizer, so
-  every command and redirect target gets it. Still missing: `~user` (another account's home —
-  bash resolves it through `/etc/passwd`, which the box has), tab completion of a `~/…` path
-  (`shell/complete.ts` does not expand before matching), and the `ftp>`, `mysql>` and `redis>`
-  prompts, which never pass through the shell (real `ftp` does not expand `~` either, so that one is
-  probably right as it is).
+  every command and redirect target gets it. Tab completion of a `~/…` path expands it the same
+  way since v0.436.1 (a quoted `~`, or one that does not start the word, stays literal there as
+  it does when the line runs). Still missing: `~user` (another account's home — bash resolves it
+  through `/etc/passwd`, which the box has), and the `ftp>`, `mysql>` and `redis>` prompts, which
+  never pass through the shell (real `ftp` does not expand `~` either, so that one is probably
+  right as it is).
 
 - **`apache2` was hollow, so a workstation was never born with it — RESOLVED 2026-10-08
   (v0.331.0–v0.334.0, #625–#628).** It had no release history and shared nginx's row and pidfile,
