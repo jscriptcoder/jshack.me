@@ -308,18 +308,12 @@ describe('Terminal', () => {
     expect(screen.queryByText(/KEY FOUND/)).not.toBeInTheDocument();
   });
 
-  it('Ctrl-C stops a running script and leaves what it already printed', async () => {
-    // The whole chain, from the keystroke to the marker: the key aborts the
-    // run's controller → the script's in-flight `sleep` rejects → `node` sees
-    // that the RUN was aborted and rejects its own stream rather than dressing
-    // the abort as a script error → the same catch that prints `^C` for
-    // aircrack-ng prints it here. Before this, a script was the one running
-    // command Ctrl-C could not produce a `^C` for: `runScript` is total, so
-    // `node`'s stream never rejected and the player got `AbortError` and exit 1.
-    //
-    // The world is PLANTED through the boot journal rather than built by
-    // `apt install node` + `su` + `nano`, which is three commands of setup for a
-    // test about a keystroke — the mysql test below establishes the pattern.
+  /** A terminal on a box holding `node` and `/home/alice/slow.js`, a script that
+   *  prints one line, sleeps nine seconds, then prints another. The world is
+   *  PLANTED through the boot journal rather than built by `apt install node` +
+   *  `su` + `nano`, which is three commands of setup for a test about a
+   *  keystroke — the mysql test below establishes the pattern. */
+  const renderWithSlowScript = async () => {
     const script = [
       "console.log('scanning 10.0.0.1')",
       'await sleep(9000)',
@@ -370,6 +364,17 @@ describe('Terminal', () => {
       await runInput();
       expect(scrollback().some((entry) => entry.content.includes('node'))).toBe(true);
     });
+  };
+
+  it('Ctrl-C stops a running script and leaves what it already printed', async () => {
+    // The whole chain, from the keystroke to the marker: the key aborts the
+    // run's controller → the script's in-flight `sleep` rejects → `node` sees
+    // that the RUN was aborted and rejects its own stream rather than dressing
+    // the abort as a script error → the same catch that prints `^C` for
+    // aircrack-ng prints it here. Before this, a script was the one running
+    // command Ctrl-C could not produce a `^C` for: `runScript` is total, so
+    // `node`'s stream never rejected and the player got `AbortError` and exit 1.
+    await renderWithSlowScript();
 
     runCommand('node /home/alice/slow.js');
     // Waited for, not slept through: the assertion below is that this line
@@ -385,6 +390,36 @@ describe('Terminal', () => {
     ).toBeInTheDocument();
     expect(screen.queryByText((content) => content.includes('scanning 10.0.0.2'))).toBeNull();
     expect(screen.queryByText((content) => content.includes('AbortError'))).toBeNull();
+  });
+
+  it('Ctrl-C marks a run whose output was redirected, and writes no file', async () => {
+    // A redirect collects the whole stream before writing, so the abort lands
+    // while the line is still being collected rather than while it streams.
+    // The marker belongs on the screen either way, and never in the file.
+    await renderWithSlowScript();
+
+    runCommand('node /home/alice/slow.js > /home/alice/out.txt');
+    // Nothing reaches the screen while the output goes to the file, so the
+    // busy bar is what says the script is running.
+    expect(await screen.findByTestId('terminal-loading')).toHaveTextContent('node...');
+    fireEvent.keyDown(document, { key: 'c', ctrlKey: true });
+
+    expect(await screen.findByText('^C')).toBeInTheDocument();
+    await awaitPrompt();
+    setInput('cat /home/alice/out.txt');
+    await runInput();
+    expect(scrollback().at(-1)?.content).toContain('No such file or directory');
+  });
+
+  it('Ctrl-C marks a run piped into another command', async () => {
+    // A pipe collects the first stage the same way a redirect does.
+    await renderWithSlowScript();
+
+    runCommand('node /home/alice/slow.js | grep scanning');
+    expect(await screen.findByTestId('terminal-loading')).toHaveTextContent('node...');
+    fireEvent.keyDown(document, { key: 'c', ctrlKey: true });
+
+    expect(await screen.findByText('^C')).toBeInTheDocument();
   });
 
   it('runs a binary the player carried in by naming its path', async () => {

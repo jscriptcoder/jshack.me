@@ -757,14 +757,14 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   world installs that no command answers to reads as a broken install. One line in
   `registry.ts` plus a gating test; left alone because it is not the DNS door's bug.
 
-- **An interrupted REDIRECT is silent — no `^C`, no error.** `state.ts` prints the marker
-  inside its `if (result.kind === 'async')` branch, but a redirect collects the stream
-  first, so the abort's rejection escapes `runCommandLine` during collection and never
-  reaches that branch. `airodump-ng > scan.txt` and `node sweep.js > out.txt` both just
-  return to the prompt having written nothing. The half that matters is already right —
-  no partial file, and the marker cannot be captured INTO the file, which is why `node`
-  throws rather than printing (D9 decision 13, verified in the browser). Found at D9
-  slice 4's close-out; belongs to a change that owns the redirect path.
+- **An interrupted REDIRECT was silent — no `^C`, no error — RESOLVED 2026-10-28
+  (v0.436.2).** `state.ts` printed the marker inside its `if (result.kind === 'async')`
+  branch, but a redirect collects the stream first, so the abort's rejection escaped
+  `runCommandLine` during collection and never reached that branch. `airodump-ng > scan.txt`
+  and `node sweep.js > out.txt` both just returned to the prompt having written nothing, and
+  so did the first stage of a pipe. `runInput` now catches the abort around the whole run, so
+  both print `^C`. Still no partial file, and the marker is never captured INTO the file,
+  which is why `node` throws rather than printing (D9 decision 13).
 
 - **`Command.tier` is declared by every command and read by NO production code.** The only
   `.tier` outside tests is `snmpwalk.ts`'s unrelated `walked.tier`. Surfaced at D9 slice 3's
