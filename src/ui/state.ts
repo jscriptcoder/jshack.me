@@ -2328,20 +2328,18 @@ const executeLine = async (line: string): Promise<void> => {
       return;
     }
     // Streamed commands (airodump-ng, aircrack-ng) append each line as it arrives, so
-    // the terminal fills live rather than all at once. A Ctrl-C abort rejects
-    // the in-flight `env.sleep`, which surfaces here — print a `^C` marker and
-    // stop, leaving the partial output. Any other error is a real fault.
-    if (result.kind === 'async') {
-      try {
-        for await (const streamed of result.lines) {
-          setScrollback((previous) => [...previous, streamed]);
-        }
-        await result.exitCode();
-      } catch (streamError) {
-        if (!controller.signal.aborted) throw streamError;
-        setScrollback((previous) => [...previous, { kind: 'text', content: '^C' }]);
-      }
+    // the terminal fills live rather than all at once.
+    for await (const streamed of result.lines) {
+      setScrollback((previous) => [...previous, streamed]);
     }
+    await result.exitCode();
+  } catch (runError) {
+    // A Ctrl-C abort rejects the in-flight `env.sleep`: while the lines stream, or
+    // earlier, inside `runCommandLine`, when a redirect or a pipe is collecting
+    // them. Either way print a `^C` marker and stop, leaving any partial output
+    // on the screen and nothing in the file. Any other error is a real fault.
+    if (!controller.signal.aborted) throw runError;
+    setScrollback((previous) => [...previous, { kind: 'text', content: '^C' }]);
   } finally {
     activeRun = undefined;
     setRunningCommand(null);
