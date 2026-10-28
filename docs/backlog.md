@@ -622,8 +622,11 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   whether "no fix yet" should still move a box to the newest release, with a test in
   `apt.test.ts` beside the upgrade-status ones.
 
-- **`apt install` of a package the box already carries prints `Setting up` twice. Seen in the
-  browser 2026-10-19, cosmetic.** On the AP gateway, `apt install snmp` printed a bare
+- **`apt install` of a package the box already carries printed `Setting up` twice — RESOLVED
+  2026-10-28 (v0.436.3).** The bare line is now skipped whenever an upgrade of that package
+  follows, so the versioned line is the only one. A reinstall with nothing newer keeps the bare
+  line, since it still lays the binary down again and nothing else says so. Seen in the
+  browser 2026-10-19, cosmetic. On the AP gateway, `apt install snmp` printed a bare
   `Setting up snmp ...` and the `already exists, keeping your copy` lines, then
   `The following packages will be upgraded:`, `Unpacking snmp (5.9.15) over (5.9.4) ...` and
   `Setting up snmp (5.9.15) ...`. The install path in `commands/apt.ts` writes its unversioned

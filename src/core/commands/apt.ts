@@ -622,7 +622,11 @@ export async function* installNewest(
     yield text(`  ${arriving.join(' ')}`);
   }
   await env.sleep(STEP_DELAY_MS);
-  yield text(`Setting up ${packageName} ...`);
+  // A carried package that moves gets its own versioned line from the upgrade below,
+  // and apt sets a package up once.
+  if (planUpgrade(manifest, gameDay, packageName).upgrades.length === 0) {
+    yield text(`Setting up ${packageName} ...`);
+  }
 
   for (const { binary, isDaemon } of binaries) {
     const directory = isDaemon ? DAEMON_DIR : TOOL_DIR;
