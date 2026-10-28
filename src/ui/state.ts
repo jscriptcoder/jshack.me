@@ -1967,6 +1967,7 @@ const buildCompleteAdapter = (): CompleteAdapter => {
     },
     isDirectory: (abs) => fsView.stat(asAbsPath(abs))?.kind === 'directory',
     resolvePath: (path) => resolveAbsPath(cwd(), path),
+    home: homeDirectory(activeSession),
   };
 };
 

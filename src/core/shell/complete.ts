@@ -31,6 +31,8 @@ export type CompleteAdapter = {
   readonly listPath: (absPath: string) => readonly string[] | null;
   readonly isDirectory: (absPath: string) => boolean;
   readonly resolvePath: (path: string) => string;
+  /** the session's home, which a leading `~` names */
+  readonly home: string;
 };
 
 export type CompletionOutcome = {
@@ -165,6 +167,15 @@ const splitDirectoryAndPrefix = (
   };
 };
 
+/** The directory to list for the one typed. An unquoted `~` that is the whole
+ *  directory or followed by `/` is the home, as the tokenizer expands it when the
+ *  line runs, so completion offers what the command will be handed; quoted, or
+ *  followed by anything else (`~notes`), it stays literal there and here. */
+const expandHome = (directory: string, ctx: CursorContext, home: string): string =>
+  ctx.quoteChar === '' && (directory === '~' || directory.startsWith('~/'))
+    ? home + directory.slice(1)
+    : directory;
+
 const buildReplacement = (
   input: string,
   ctx: CursorContext,
@@ -230,7 +241,7 @@ const completePath = (
   adapter: CompleteAdapter,
 ): CompletionOutcome => {
   const { directory, namePrefix } = splitDirectoryAndPrefix(ctx.prefix);
-  const resolvedDir = adapter.resolvePath(directory);
+  const resolvedDir = adapter.resolvePath(expandHome(directory, ctx, adapter.home));
   const entries = adapter.listPath(resolvedDir);
   if (!entries) return emptyOutcome(input, cursorPos, 'path');
 

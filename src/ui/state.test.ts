@@ -545,6 +545,44 @@ describe('runInput command serialization', () => {
   });
 });
 
+describe('tab completion', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const startTestGame = async () => {
+    vi.resetModules();
+    const store = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => store.set(key, value),
+      removeItem: (key: string) => store.delete(key),
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ patches: [], sessions: [] }),
+      })),
+    );
+    const state = await import('./state.js');
+    state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
+    return state;
+  };
+
+  it('completes a path under ~/ from the session home, wherever the shell stands', async () => {
+    const state = await startTestGame();
+    // Away from the home, where the README a new box is born with lives, so only
+    // the `~` can lead the completion there.
+    state.setInput('cd /');
+    await state.runInput();
+
+    state.setInput('cat ~/REA');
+    state.tabComplete('cat ~/REA'.length);
+
+    expect(state.input()).toBe('cat ~/README');
+  });
+});
+
 /**
  * The boot screen asks `resolveBootCheck` whether the player's OWN box can come
  * up. It must resolve the own-workstation FS — base seed + the replayed shared

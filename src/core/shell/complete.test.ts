@@ -40,6 +40,7 @@ const makeAdapter = (overrides: Partial<CompleteAdapter>): CompleteAdapter => ({
   listPath: () => null,
   isDirectory: () => false,
   resolvePath: (path) => path,
+  home: '/home/alice',
   ...overrides,
 });
 
@@ -358,6 +359,58 @@ describe('complete', () => {
 
       expect(result.matches).toEqual(['notes.txt', 'nums.csv']);
       expect(result.displayText).toBe('notes.txt  nums.csv');
+    });
+  });
+
+  describe('path completion from the home directory', () => {
+    // The tree a real resolvePath would see: `~` itself is not an entry
+    // anywhere, so a lookup that skipped the expansion finds nothing.
+    const adapter = makeAdapter({
+      home: '/home/alice',
+      listPath: (abs) => {
+        if (abs === '/home/alice') return ['notes.txt', 'nums.csv', 'docs'];
+        if (abs === '/home/alice/docs') return ['report.md'];
+        return null;
+      },
+      isDirectory: (abs) => abs === '/home/alice/docs',
+    });
+
+    it('completes a name under ~/ and keeps the ~ the player typed', () => {
+      const result = complete('cat ~/no', 8, adapter);
+
+      expect(result.matches).toEqual(['notes.txt']);
+      expect(result.replacement).toBe('cat ~/notes.txt');
+    });
+
+    it('lists the whole home for a bare ~/', () => {
+      const result = complete('ls ~/', 5, adapter);
+
+      expect(result.matches).toEqual(['docs/', 'notes.txt', 'nums.csv']);
+      expect(result.replacement).toBe('ls ~/');
+    });
+
+    it('completes a directory deeper under the home', () => {
+      const result = complete('cat ~/docs/r', 12, adapter);
+
+      expect(result.replacement).toBe('cat ~/docs/report.md');
+    });
+
+    it('completes a redirect target under ~/', () => {
+      const result = complete('echo hi > ~/nu', 14, adapter);
+
+      expect(result.replacement).toBe('echo hi > ~/nums.csv');
+    });
+
+    it('leaves a quoted ~ literal, as the shell will when the line runs', () => {
+      const result = complete('cat "~/no', 9, adapter);
+
+      expect(result.matches).toEqual([]);
+    });
+
+    it('leaves a ~ that does not start the word literal', () => {
+      const result = complete('cat a~/no', 9, adapter);
+
+      expect(result.matches).toEqual([]);
     });
   });
 
