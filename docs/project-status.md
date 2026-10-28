@@ -1363,6 +1363,33 @@ agreed order:
     `passwd` on v0.435.0 keeps the loose row until its next `/etc/passwd` write. **Pick up here
     (2026-10-24):** the owner's choice from the items still open in `backlog.md`.
 
+36. ✅ **The guardian changes passwords on its rounds (v0.436.0, PR #738, 2026-10-28).** A generated
+    box's passwords are seeded, so a player who decodes the bundle could work a crackable word out
+    and log in first try, without the `hydra` run whose attempts land in `auth.log`. Now every
+    guardian `patch` (and so every `restore`, which ends by patching) rewrites each box it reaches
+    (the named public websites, or the patrol; shops' servers, NPC hosts and gateways stay
+    neglected) with `/etc/passwd` as generated, every account on a fresh password drawn by
+    `node:crypto` from the pool it was born in, so the box stays exactly as hard as generated and
+    only the shortcut goes. The box's `auth.log` gets the `passwd` command's line per account. A
+    rooted player's own `passwd` change or added account is undone; nobody is evicted; a bricked box
+    is left alone. Owner decisions (grill, 2026-10-28): same pool kind as generated (no "crackable
+    only" carve-out), the patch's reach, the whole file as generated, `patch` rotates with no new
+    verb, an `auth.log` trace, repeats left to luck (17 crackable words, so `guest` keeps its word
+    about 1 round in 17). As built: the rotation is its own pure decider,
+    `core/guardian/rotate.ts` `decideRotation`, not part of `decidePatch`, because `report` counts
+    what is behind through `decidePatch` and must never draw; `report` reads the guardian's own
+    `/etc/passwd` as the box's own; operator lines count `N passwords changed`; the every-account
+    rewriter `withAccountHashes` sits beside `withAccountHash` in `sessions/passwdAccount.ts`.
+    Wire-check `testGuardian` 36/36 proves the lockout on findit.io (a fixed box is its own
+    gateway, so `ssh root@` reaches it): the intruder's own `passwd` word and the seeded word are
+    refused after the round (allowing the 1-in-52 redraw), the drawn word opens it, the intruder
+    already inside stays; `testHiremeBoardRoot` 13/13, `testRestoreSite` on all nine fixed sites.
+    Mutation gate 344 killed / 6 survived / 17 no coverage of 367; the two survivors in new code
+    became tests (a root-only `auth.log` is read as root and appended to, not wiped). No browser
+    run (no client change); the owner's next production `/guardian` round is the real-world
+    confirmation. The plan was retired on close-out. **Pick up here (2026-10-28):** the owner's
+    choice from the items still open in `backlog.md`.
+
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
 and that is expected. For the shipped systems, start from the three as-built docs named at the top
