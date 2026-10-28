@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { decideReport, reportHeader, reportLine, reportTotal, type Report } from './report.js';
 import { decidePatch } from './patch.js';
 import { decideRestore } from './restore.js';
+import { decideRotation, type PasswordDraw } from './rotate.js';
 import { publicBox, type PublicBox } from './publicBoxes.js';
 import { planUpgrade } from '../cve/planUpgrade.js';
 import { readDpkgStatus } from '../packages/dpkgStatus.js';
@@ -13,6 +14,13 @@ import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
  * box's own log lines; anything else in its journal, an open session or a brick is the
  * work of somebody who got in.
  */
+
+const DRAW: PasswordDraw = {
+  crackable: () => 'crackable-hash',
+  uncrackable: () => 'uncrackable-hash',
+};
+
+const NOW = Date.parse('2026-10-28T09:30:00.000Z');
 
 const boxNamed = (name: string): PublicBox => {
   const box = publicBox(name);
@@ -99,7 +107,7 @@ describe('decideReport', () => {
   it('reads a box just restored as up to date and untouched', () => {
     const box = boxNamed('millbrook.gov');
     const gameDay = dayWithFixes(box);
-    const { rows } = decideRestore({ box, gameDay, bootId: 'fresh' });
+    const { rows } = decideRestore({ box, gameDay, bootId: 'fresh', draw: DRAW, now: NOW });
 
     const report = decideReport({
       box,
@@ -109,6 +117,20 @@ describe('decideReport', () => {
     });
 
     expect(reportLine(box.name, report)).toBe('millbrook.gov: up to date');
+  });
+
+  it("reads the guardian's own password round as nothing but the box's own", () => {
+    const box = boxNamed('findit.io');
+    const { rows } = decideRotation({ box, journal: null, draw: DRAW, now: NOW });
+
+    const report = decideReport({
+      box,
+      journal: rows.map((row) => ({ ...row, updated_at: '2026-10-22T10:00:00.000Z' })),
+      openSessions: [],
+      gameDay: 0,
+    });
+
+    expect(report.written).toEqual([]);
   });
 
   it('names the account every open session on the box was opened as', () => {

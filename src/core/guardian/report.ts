@@ -9,9 +9,9 @@
  *     next boot stands the hop back up on it, so stale or not it is a foothold;
  *   - a row in its journal that is not the box's own. A visit leaves only the box's log
  *     lines, filed under the key its logs accrete under, and the guardian leaves its
- *     manifest and boot marker under the same key. Anything else is somebody's write: a
- *     player's (logs included, which is how a root wiping their trail shows up), and a
- *     daemon's data rewritten through its port, which the box files under its own key;
+ *     manifest, passwords and boot marker under the same key. Anything else is somebody's
+ *     write: a player's (logs included, which is how a root wiping their trail shows up),
+ *     and a daemon's data rewritten through its port, which the box files under its own key;
  *   - a brick, which comes with the write that killed the box.
  *
  * A report writes nothing. Pure, framework-agnostic (core/): the journal, the open
@@ -20,6 +20,7 @@
 
 import { BOOT_ID_PATH } from '../boot/bootId.js';
 import { DPKG_STATUS_PATH } from '../packages/dpkgStatus.js';
+import { PASSWD_PATH } from '../sessions/passwdAccount.js';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
 import { decidePatch, plural, type PatchOutcome } from './patch.js';
@@ -44,10 +45,13 @@ export type Report = {
 
 const LOG_DIR = '/var/log/';
 
+/** What the guardian writes as the box: the manifest, the passwords and the boot marker. */
+const GUARDIAN_PATHS: ReadonlySet<string> = new Set([DPKG_STATUS_PATH, PASSWD_PATH, BOOT_ID_PATH]);
+
 /** Whether the box wrote `row` itself: a log line about a visitor, or the guardian's own. */
 const isOwnRow = (box: PublicBox, row: OwnerPatchRow): boolean =>
   row.writer_key === apGatewayLogWriterKey(box.networkKey) &&
-  (row.path.startsWith(LOG_DIR) || row.path === DPKG_STATUS_PATH || row.path === BOOT_ID_PATH);
+  (row.path.startsWith(LOG_DIR) || GUARDIAN_PATHS.has(row.path));
 
 /** How `box` stands on `gameDay`, given everything written to it and everyone on it. */
 export const decideReport = ({ box, journal, openSessions, gameDay }: ReportInput): Report => {

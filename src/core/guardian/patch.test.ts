@@ -172,9 +172,10 @@ describe('patchLine', () => {
       },
     };
 
-    expect(patchLine('millbrook.gov', outcome)).toBe(
+    expect(patchLine('millbrook.gov', outcome, 3)).toBe(
       'millbrook.gov: 2 upgraded (nginx 1.26.0 → 1.26.2, libssl 3.2.1 → 3.2.4), ' +
-        '2 held (libpam: no fix yet — ETA ~2 days, vsftpd: no fix yet — ETA ~1 day)',
+        '2 held (libpam: no fix yet — ETA ~2 days, vsftpd: no fix yet — ETA ~1 day), ' +
+        '3 passwords changed',
     );
   });
 
@@ -193,18 +194,28 @@ describe('patchLine', () => {
       },
     };
 
-    expect(patchLine('findit.io', outcome)).toBe('findit.io: 1 upgraded (nginx 1.26.0 → 1.26.2)');
+    expect(patchLine('findit.io', outcome, 1)).toBe(
+      'findit.io: 1 upgraded (nginx 1.26.0 → 1.26.2), 1 password changed',
+    );
   });
 
   it('calls a box with nothing to install up to date, and still names what waits for a fix', () => {
-    expect(patchLine('ashby.gov', { kind: 'up-to-date', held: [] })).toBe('ashby.gov: up to date');
-    expect(patchLine('ashby.gov', { kind: 'up-to-date', held: [held('libz', 3)] })).toBe(
-      'ashby.gov: up to date, 1 held (libz: no fix yet — ETA ~3 days)',
+    expect(patchLine('ashby.gov', { kind: 'up-to-date', held: [] }, 3)).toBe(
+      'ashby.gov: up to date, 3 passwords changed',
+    );
+    expect(patchLine('ashby.gov', { kind: 'up-to-date', held: [held('libz', 3)] }, 3)).toBe(
+      'ashby.gov: up to date, 1 held (libz: no fix yet — ETA ~3 days), 3 passwords changed',
+    );
+  });
+
+  it('says nothing of passwords when none changed', () => {
+    expect(patchLine('ashby.gov', { kind: 'up-to-date', held: [] }, 0)).toBe(
+      'ashby.gov: up to date',
     );
   });
 
   it('tells the operator a bricked box needs a restore', () => {
-    expect(patchLine('elypd.gov', { kind: 'bricked' })).toBe(
+    expect(patchLine('elypd.gov', { kind: 'bricked' }, 0)).toBe(
       'elypd.gov: bricked — restore it to bring it back',
     );
   });
@@ -218,7 +229,7 @@ describe('patchHeader and patchTotal', () => {
     expect(patchHeader(1, '127.0.0.1')).toBe('Patching 1 box on 127.0.0.1');
   });
 
-  it('counts every outcome of the round', () => {
+  it('counts every outcome of the round, and every password it changed', () => {
     const upgraded: PatchOutcome = {
       kind: 'upgraded',
       upgrades: [],
@@ -234,10 +245,12 @@ describe('patchHeader and patchTotal', () => {
     };
     const upToDate: PatchOutcome = { kind: 'up-to-date', held: [] };
 
-    expect(patchTotal([upgraded, upgraded, upToDate, { kind: 'bricked' }])).toBe(
-      'Patched 4 boxes: 2 upgraded, 1 up to date, 1 bricked.',
+    expect(patchTotal([upgraded, upgraded, upToDate, { kind: 'bricked' }], 7)).toBe(
+      'Patched 4 boxes: 2 upgraded, 1 up to date, 1 bricked, 7 passwords changed.',
     );
-    expect(patchTotal([upToDate])).toBe('Patched 1 box: 0 upgraded, 1 up to date, 0 bricked.');
+    expect(patchTotal([upToDate], 1)).toBe(
+      'Patched 1 box: 0 upgraded, 1 up to date, 0 bricked, 1 password changed.',
+    );
   });
 });
 

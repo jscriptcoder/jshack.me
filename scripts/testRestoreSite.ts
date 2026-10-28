@@ -53,7 +53,10 @@ import { md5 } from '../src/core/generation/md5.js';
 import { deserializeTree, type SerializedDirectory } from '../src/core/filesystem/treeCodec.js';
 import type { Directory, FileNode } from '../src/core/filesystem/types.js';
 import { asEpochMs } from '../src/core/types.js';
+import type { PasswordDraw } from '../src/core/guardian/rotate.js';
 import { publicAddressOf } from './publicAddressOf.js';
+
+const PATHS_ONLY_DRAW: PasswordDraw = { crackable: () => '', uncrackable: () => '' };
 
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
@@ -240,11 +243,15 @@ const restore = (env: NodeJS.ProcessEnv = process.env, domain: string = site.dom
   });
 
 /** What a restore leaves on the server's day: the patched manifest when a fix has shipped
- *  for anything the site runs, and the boot marker — both written as the site itself. */
+ *  for anything the site runs, fresh passwords with their auth.log lines, and the boot
+ *  marker — all written as the site itself. */
 const restoredPaths = decideRestore({
   box: publicBox(site.domain)!,
   gameDay: today,
   bootId: 'expected',
+  // Only the paths are read: which words the restore drew is the script's business.
+  draw: PATHS_ONLY_DRAW,
+  now: Date.now(),
 }).rows.map(({ path }) => path);
 const isRestored = (journal: readonly { path: string; writer_key: string }[]): boolean =>
   journal.length === restoredPaths.length &&
