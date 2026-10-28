@@ -42,14 +42,16 @@ import {
   generatedBaseFsForMachineId,
 } from '../src/core/generation/lanHostIdentity.js';
 
-/** 137,975 bytes gzipped before any world content, plus the 152 KB the content may add.
+/** 145,175 bytes gzipped before any world content, plus the 152 KB the content may add.
  *  The code part was 134,975 until talkit.io's forum added 1,011 B of code (pages, the
  *  post form, lynx's box several lines tall, the login a post carries), rounded up to
  *  2,000 so the forum costs the content none of its room; then the `passwd` command added
- *  947 B (the command, its server seam and the client adapter), rounded up to 1,000. The
+ *  947 B (the command, its server seam and the client adapter), rounded up to 1,000; then
+ *  zod 4.4.3 → 4.6.7 added 7,128 B, rounded up to 7,200 — its classic API hangs every
+ *  method on every schema, so none of its growth tree-shakes away. The
  *  content's part was 150 KB until every town beyond Ridgemont wrote landmarks of its own:
  *  their 43 rows add 1,205 B, rounded up to 2,000. */
-const BUNDLE_CEILING_BYTES = 289_975;
+const BUNDLE_CEILING_BYTES = 297_175;
 
 /** About a tenth of that before world content, so a loaded machine's noise cannot fail
  *  the check while a content change that makes boxes ten times dearer still does. */
