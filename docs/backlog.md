@@ -13,8 +13,11 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
 - **Crypto wallet — follow-ups deferred.** The wallet epic shipped at v0.362.0 (as-built:
   [`wallet-architecture.md`](./wallet-architecture.md)). Four things were left out on purpose:
   **recognition**, the other half of a mission reward, to be designed with missions; **anything to
-  spend JSC on**; **mission payouts**, which will call the operator mint; and **generated wallets
-  as loot**, a world-content story that would reopen the rule that generated boxes hold no loot.
+  spend JSC on**, which rideit.io's 25 JSC fare began to answer at v0.432.0; **mission payouts**,
+  which will call the operator mint; and **generated wallets as loot**, a world-content story that
+  would reopen the rule that generated boxes hold no loot. Wallets in the world, holding a
+  balance, are also a traveller's natural way to earn a fare: until they or missions ship, the
+  operator mint (or another player's wallet) is the only funding.
 
 - **emailit.io's root view has a size ceiling.** Since v0.389.0 a root shell on emailit.io is
   served every account's mailbox, built from the email tables, and it re-reads that tree before
@@ -945,12 +948,16 @@ decision, not a gap.
       2.15 ms against 2 ms; findit's generated web, 1,170 ms against 1,000 ms), and
       `relations.test.ts` once timed out in a full run ("keeps no shortcut to a client on any
       other box of the office", about 39 s against 30 s) while passing alone.
-  - **Travel** between towns and regions. Joining another town's WiFi gives another public
-    address, since the address belongs to the network. Its first half shipped at v0.428.0: a
-    player starts in a town drawn from their key, and the join refuses every network outside it
-    (`procedural-world-architecture.md`, "Where a player stands"). Moving is what is left: a
-    stored location that overrides the drawn town. Until it ships, a landmark with no site
-    (Ridgemont's 18 and the other towns' 15) is reached only by players who start in its town.
+  - ✅ **Travel** between towns and regions: shipped. A player starts in a town drawn from their
+    key (v0.428.0) and moves by buying a 25 JSC ride at rideit.io (v0.430.0–v0.432.0, PRs #730,
+    #731, #733); as-built in `procedural-world-architecture.md`, "Where a player stands" and
+    "Travelling", and `wallet-architecture.md` for the fare. Left open:
+    - **Earning a fare**: wallets in the world and mission payouts, under the crypto wallet
+      follow-ups above. Until one ships, the operator mint is a traveller's only funding.
+    - ✅ **A booking log on rideit.io naming destinations**: shipped at v0.434.0.
+      `/var/log/rideit.log` holds one line per ride taken, naming the town, the trip address
+      that paid and the network left; as-built in `procedural-world-architecture.md`,
+      "Travelling".
   - **More ways in**: hidden ESSIDs joined by a name learnt elsewhere (`nmcli` would have to
     accept a known name missing from the scan), and a hacker BBS posting leads.
   - **The categories after healthcare**: education (schools, and universities in drawn towns),
@@ -961,9 +968,14 @@ decision, not a gap.
     route yet.
   - **The fixed-IP mission catalog** now has its substrate: a hand-written network declared after
     a town's drawn ones answers at a known derived address, as Millbrook's cottage hospital does.
-  - **The WiFi password is checked by the client only.** The server never verifies the cracked
-    password, so a modified client can join without `aircrack-ng`. It predates the epic and is
-    derivable server-side from the encoded pool.
+  - **The WiFi password is checked by the client only. DECIDED 2026-10-23, left as it is.** The
+    server never verifies the cracked password, so a modified client can join without
+    `aircrack-ng`. A server check would stop nobody: the client draws every crackable password
+    itself (`passwordForEssid`, the `wifi-pw-` stream), and the scan carries the plaintext so
+    `aircrack-ng` and `nmcli` can work, so a modified client would read it off its own bundle
+    and send it. It is part of the accepted limit "What a network was generated with is
+    computable by any client" above, and reopens only with that limit's server-only-secret
+    step, which keys `wifi-pw-` on the server.
   - **Ridgemont's council keeps no town directory**: it is a landmark, whose content cannot move.
     Giving it one is a decision of its own.
   - **Consequence to hold onto: the PUBLIC IP remains the primary cross-player attack surface**,

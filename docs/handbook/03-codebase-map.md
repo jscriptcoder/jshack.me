@@ -93,8 +93,8 @@ src/
 | `talkit/`          | talkit.io's pages, player text shown safely, its views from the forum tables, the checks on a new thread or comment, the operator's removal words. | —       |
 | `hireme/`          | hireme.io's pages, and an application: the address read as `mail` reads it, its refusals, the board address drawn and drawn again; the board page, and the lookup that finds the boards' server at a held address. | —       |
 | `valleynews/`      | valleynews.io's pages, its sections and stories read from the stories table, and the operator's story file and the lines its script prints. | —       |
-| `rideit/`          | rideit.io's pages, the one fare to any town, and boarding: leaving the network and the move to another town.              | —       |
-| `guardian/`        | The operator's guardian: which box a public website's name reaches, the patrol a round walks, and a report's, a patch's and a restore's decision and the lines its script prints. | 12      |
+| `rideit/`          | rideit.io's pages, the one fare to any town and the trip address it is paid to, and boarding: the fare checked, leaving the network and the move to another town. | —       |
+| `guardian/`        | The operator's guardian: which box a public website's name reaches, the patrol a round walks, and a report's, a patch's, a password round's and a restore's decision and the lines its script prints. | 12      |
 | `logging/`         | One formatter per log file; source-IP and writer-key rules.                                                               | 8       |
 | `patches/`         | Server handlers for the journal (write, list, remove, log appends, traces), L1, L2, the read filter.                      | 9, 10   |
 | `signedRequest/`   | Envelope schema, signing, verification.                                                                                   | 9       |
@@ -125,7 +125,7 @@ builders), `lanDatabase.ts` and `lanStore.ts` (find real generated database and 
 | `test*.ts` (129 files)     | Wire-checks: drive the real `api/` endpoints against `vercel dev` and local Supabase.                                            |
 | `publicAddressOf.ts`       | A declared network's derived public address, for a wire-check to aim at; stops the run for a network the world does not declare. |
 | `seedCrossPlayerTarget.ts` | One-shot setup for a two-player browser run (not self-cleaning; run with `clean` after).                                         |
-| `guardian.ts`              | Operator tool: the guardian's round, run on prod by the `/guardian` skill. `report [name…]` reads each named public website (or the patrol) as behind and tampered, writing nothing; `patch [name…]` moves every package on each named public website (or the patrol) onto its shipped fix, as `apt upgrade` would; `restore <name…>` reboots each named public website into its generated state, patched. Can target production. |
+| `guardian.ts`              | Operator tool: the guardian's round, run on prod by the `/guardian` skill. `report [name…]` reads each named public website (or the patrol) as behind and tampered, writing nothing; `patch [name…]` moves every package on each named public website (or the patrol) onto its shipped fix, as `apt upgrade` would, and gives every account a fresh password; `restore <name…>` reboots each named public website into its generated state, patched. Can target production. |
 | `mintCoins.ts`             | Operator tool: credit a ledger address with new coins. Can target production.                                                    |
 | `talkitRemove.ts`          | Operator tool: remove a talkit.io thread, or one comment, which then reads `#n [removed]`. Can target production.                |
 | `valleynews.ts`            | Operator tool: post, edit or remove a valleynews.io story (`post <file>`, `edit <id> <file>`, `remove <id>`). Can target production. |

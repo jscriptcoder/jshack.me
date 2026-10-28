@@ -58,6 +58,10 @@ type SuEnvOpts = {
   readonly callerType?: UserType;
   /** The network of the box `su` runs on — null for the player's own workstation. */
   readonly essid?: string | null;
+  /** The root password the box holds when `su` re-reads it: somebody who rooted the
+   *  box changed it after this terminal last read it. Absent, a re-read hands back the
+   *  same tree — a box nobody else is writing. */
+  readonly reloadedRootPassword?: string;
 };
 
 /** Build an env around a realistic `/etc/passwd` (root with a password, the
@@ -75,16 +79,18 @@ const suEnv = (opts: SuEnvOpts = {}) => {
   const promptCalls: PromptCall[] = [];
   const authLogs: AuthLogEvent[] = [];
 
-  const tree = buildDirectory({
-    etc: buildDirectory({
-      passwd: buildFile(
-        `root:${md5(rootPassword)}:0:0:root:/root:/bin/bash\n` +
-          `${userName}::1000:1000::/home/${userName}:/bin/bash\n` +
-          `guest:${md5(guestPassword)}:1001:1001:guest:/home/guest:/bin/bash\n`,
-        { owner: 'root', perms: { read: ['root', 'user'] } },
-      ),
-    }),
-  });
+  const treeWithRootPassword = (password: string) =>
+    buildDirectory({
+      etc: buildDirectory({
+        passwd: buildFile(
+          `root:${md5(password)}:0:0:root:/root:/bin/bash\n` +
+            `${userName}::1000:1000::/home/${userName}:/bin/bash\n` +
+            `guest:${md5(guestPassword)}:1001:1001:guest:/home/guest:/bin/bash\n`,
+          { owner: 'root', perms: { read: ['root', 'user'] } },
+        ),
+      }),
+    });
+  const reloadedRootPassword = opts.reloadedRootPassword;
 
   const env = mockCommandEnv({
     session: mockSession({
@@ -94,7 +100,13 @@ const suEnv = (opts: SuEnvOpts = {}) => {
       userType: callerType,
       essid: opts.essid ?? null,
     }),
-    fs: mockFsViewFromTree(tree, { userType: callerType, cwd: () => asAbsPath('/') }),
+    fs: mockFsViewFromTree(treeWithRootPassword(rootPassword), {
+      userType: callerType,
+      cwd: () => asAbsPath('/'),
+      ...(reloadedRootPassword === undefined
+        ? {}
+        : { onReload: async () => treeWithRootPassword(reloadedRootPassword) }),
+    }),
     now: () => asEpochMs(123),
     prompt: async (promptOpts) => {
       promptCalls.push(promptOpts);
@@ -190,6 +202,36 @@ describe('su', () => {
     expect(text).toContain('su: Authentication failure');
     expect(exitCode).toBe(1);
     expect(pushed).toEqual([]);
+  });
+
+  // Whoever roots the player's box can change its passwords, and nothing pushes that
+  // change to a terminal already open on it: the check has to be made against the box
+  // as it stands, or the replaced password keeps letting its owner in.
+  it('refuses a root password that was replaced since this terminal last read the box', async () => {
+    const { env, pushed } = suEnv({
+      rootPassword: 'toor1234',
+      reloadedRootPassword: 'lockedout',
+      typed: 'toor1234',
+    });
+
+    const { text, exitCode } = syncResult(await su.execute(env, [], NO_FLAGS));
+
+    expect(text).toContain('su: Authentication failure');
+    expect(exitCode).toBe(1);
+    expect(pushed).toEqual([]);
+  });
+
+  it('accepts the root password the box holds now, even when this terminal last read another', async () => {
+    const { env, pushed } = suEnv({
+      rootPassword: 'toor1234',
+      reloadedRootPassword: 'lockedout',
+      typed: 'lockedout',
+    });
+
+    const { exitCode } = syncResult(await su.execute(env, [], NO_FLAGS));
+
+    expect(exitCode).toBe(0);
+    expect(pushed.map((session) => session.userType)).toEqual(['root']);
   });
 
   it('does not switch when the prompt is cancelled (Ctrl-C)', async () => {

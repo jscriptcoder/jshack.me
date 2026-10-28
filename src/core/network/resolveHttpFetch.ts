@@ -56,8 +56,8 @@ import { answerSignup, type SignUp } from '../emailit/signup.js';
 import { answerApply, type Apply } from '../hireme/apply.js';
 import { loggedRequestPath, type FindBoardHandle } from '../hireme/boards.js';
 import { boardPage } from '../hireme/pages.js';
-import { answerBoard, type BoardDeps } from '../rideit/board.js';
-import { BOARD_PATH as RIDE_BOARD_PATH, TICKET_PAGE, TICKET_PATH } from '../rideit/pages.js';
+import { answerBoard, answerTicket, type BoardDeps } from '../rideit/board.js';
+import { BOARD_PATH as RIDE_BOARD_PATH, TICKET_PATH } from '../rideit/pages.js';
 import { answerPost, type PostThread } from '../talkit/answerPost.js';
 import { answerComment, type PostComment } from '../talkit/answerComment.js';
 import { indexedWeb, siteOn, type MachinePatchRow } from '../findit/webIndex.js';
@@ -93,7 +93,14 @@ import {
   formatTalkitPostLine,
 } from '../logging/talkitLog.js';
 import {
+  RIDEIT_LOG_OWNER,
+  RIDEIT_LOG_PATH,
+  RIDEIT_LOG_PERMISSIONS,
+  formatRideitLine,
+} from '../logging/rideitLog.js';
+import {
   appendMachineLog,
+  type MachineLogTarget,
   type MachineLogReadQuery,
   type MachineLogReadResult,
 } from '../patches/appendMachineLog.js';
@@ -185,9 +192,10 @@ export type ResolveHttpFetchDeps = WebTargetDeps & {
   /** Comment on a thread at talkit.io. Only a form POSTed to talkit's `/comment` reaches
    *  it. */
   readonly postComment: PostComment;
-  /** Board a ride at rideit.io: where the traveller stands, the leaving and the move.
-   *  Only a form POSTed to rideit's `/board` reaches it. */
-  readonly board: BoardDeps;
+  /** Ride at rideit.io: where the traveller stands, the leaving and the move. Only
+   *  rideit's `/ticket` and `/board` reach it, and they read the fare off the public
+   *  ledger exactly as chainit does. */
+  readonly board: Omit<BoardDeps, 'findBalance'>;
 } & LedgerReads &
   ChainReads &
   ForumReads &
@@ -512,23 +520,34 @@ const NEWS_VIEWS = new Map<string, (requestPath: string, news: NewsReads) => Pro
 /** A request path without its query string. */
 const pathOf = (requestPath: string): string => requestPath.split('?')[0] ?? requestPath;
 
-/** One line in talkit.io's own log, for a thread or a comment that went up. Best-effort,
- *  as `logFetch` is: what a player wrote stands regardless of a logging failure. */
-const appendTalkitLine = async (
+/** A site's own application log: where it lives on the box, and who may read it. */
+type SiteLog = Pick<MachineLogTarget, 'path' | 'owner' | 'permissions'>;
+
+const TALKIT_LOG: SiteLog = {
+  path: TALKIT_LOG_PATH,
+  owner: TALKIT_LOG_OWNER,
+  permissions: TALKIT_LOG_PERMISSIONS,
+};
+
+const RIDEIT_LOG: SiteLog = {
+  path: RIDEIT_LOG_PATH,
+  owner: RIDEIT_LOG_OWNER,
+  permissions: RIDEIT_LOG_PERMISSIONS,
+};
+
+/** One line in a site's own log: talkit.io's, for a thread or a comment that went up, and
+ *  rideit.io's, for a ride boarded. Best-effort, as `logFetch` is: what a player did
+ *  stands regardless of a logging failure. */
+const appendSiteLine = async (
   deps: ResolveHttpFetchDeps,
   target: FetchTarget,
+  log: SiteLog,
   line: string,
 ): Promise<void> => {
   try {
     await appendMachineLog(
       { readLog: deps.readLog, upsertPatch: deps.upsertPatch },
-      {
-        writerKey: target.logWriterKey,
-        machineId: target.machineId,
-        path: TALKIT_LOG_PATH,
-        owner: TALKIT_LOG_OWNER,
-        permissions: TALKIT_LOG_PERMISSIONS,
-      },
+      { writerKey: target.logWriterKey, machineId: target.machineId, ...log },
       line,
     );
   } catch {
@@ -669,9 +688,10 @@ export const handleResolveHttpFetch = async (
       size: answer.page.length,
     });
     if (answer.posted !== null) {
-      await appendTalkitLine(
+      await appendSiteLine(
         deps,
         target,
+        TALKIT_LOG,
         formatTalkitPostLine({ time: asGameTime(deps.now()), sourceIp, ...answer.posted }),
       );
     }
@@ -699,9 +719,10 @@ export const handleResolveHttpFetch = async (
       size: answer.page.length,
     });
     if (answer.commented !== null) {
-      await appendTalkitLine(
+      await appendSiteLine(
         deps,
         target,
+        TALKIT_LOG,
         formatTalkitCommentLine({ time: asGameTime(deps.now()), sourceIp, ...answer.commented }),
       );
     }
@@ -710,8 +731,9 @@ export const handleResolveHttpFetch = async (
 
   // rideit.io's `/board` takes a boarding, answered from a function like hireme's `/apply`:
   // a root on rideit can deface the front page, but never stop anybody riding. Boarding is
-  // leaving, and at home the source the line records is the network being left, so it is
-  // worked out first. The line names who boarded, never where to: the form is not logged.
+  // leaving, and at home the source the lines record is the network being left, so it is
+  // worked out first. The access line never holds the form; a ride that was taken also
+  // goes in the site's booking log, naming the town and the trip address that paid.
   if (
     payload.body !== undefined &&
     target.essid === RIDEIT_NETWORK &&
@@ -721,7 +743,11 @@ export const handleResolveHttpFetch = async (
       actorKey: publicKey,
       standingEssid: standing.standingEssid,
     });
-    const answer = await answerBoard({ form: payload.body, playerKey: publicKey, deps: deps.board });
+    const answer = await answerBoard({
+      form: payload.body,
+      playerKey: publicKey,
+      deps: { ...deps.board, findBalance: deps.findBalance },
+    });
     if (answer === null) return { status: 500, body: { error: 'board_failed' } };
     await logFetchFrom(deps, target, sourceIp, {
       method: 'POST',
@@ -729,6 +755,14 @@ export const handleResolveHttpFetch = async (
       status: 200,
       size: answer.page.length,
     });
+    if (answer.ride !== null) {
+      await appendSiteLine(
+        deps,
+        target,
+        RIDEIT_LOG,
+        formatRideitLine({ time: asGameTime(deps.now()), sourceIp, ...answer.ride }),
+      );
+    }
     return {
       status: 200,
       body: { ok: true, content: answer.page, server: target.server, left: answer.left },
@@ -767,19 +801,26 @@ export const handleResolveHttpFetch = async (
   }
 
   // rideit sells tickets from a function, never from a file: a root on rideit can deface
-  // its front page or plant a file at a ticket path, but cannot stop anybody riding. A
-  // browser going back to the page it boarded from asks for `/board` without the form,
-  // and gets the tickets afresh, boarding nobody.
+  // its front page or plant a file at a ticket path, but cannot stop anybody riding. The
+  // page is the reader's own, quoting where their next trip is paid. A browser going back
+  // to the page it boarded from asks for `/board` without the form, and gets the tickets
+  // afresh, boarding nobody.
   if (
     target.essid === RIDEIT_NETWORK &&
     [TICKET_PATH, RIDE_BOARD_PATH].includes(pathOf(payload.path))
   ) {
+    const ticket = await answerTicket({
+      playerKey: publicKey,
+      deps: { ...deps.board, findBalance: deps.findBalance },
+    });
+    // No page was served, so nothing is recorded, as for chainit's failed read.
+    if (ticket === null) return { status: 500, body: { error: 'ticket_failed' } };
     await logFetch(deps, target, publicKey, standing.standingEssid, {
       path: loggedPath,
       status: 200,
-      size: TICKET_PAGE.length,
+      size: ticket.length,
     });
-    return { status: 200, body: { ok: true, content: TICKET_PAGE, server: target.server } };
+    return { status: 200, body: { ok: true, content: ticket, server: target.server } };
   }
 
   // chainit answers its views from the ledger, like findit's search, never from a file:

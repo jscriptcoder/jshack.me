@@ -12,13 +12,17 @@
 //     world-readable; whatever is still waiting for its fix is held.
 //   - THE DOOR SHUTS. The CVE that opened a shell before the round is refused after it, and
 //     the intruder already inside is left standing: a patch evicts nobody.
-//   - A SECOND ROUND THE SAME DAY WRITES NOTHING, and says so.
+//   - A ROUND CHANGES THE PASSWORDS. On findit.io, the root word the bundle gives away and
+//     the one a rooted player set with `passwd` both opened `ssh` before the round and are
+//     refused after it; the word the guardian drew opens it, from the same pool the account
+//     was born in. The file is root's as generated, and auth.log names every account changed.
+//   - A SECOND ROUND THE SAME DAY MOVES NO PACKAGE, and changes the passwords again.
 //   - A BRICKED BOX IS LEFT ALONE and named as needing a restore.
 //   - ANY PUBLIC WEBSITE CAN BE NAMED: a shop's site and the boards' server both patch.
 //   - A REFUSED ORDER TOUCHES NOTHING: an unknown name, or missing env.
 //   - A RESTORE IS A REBOOT ONTO TODAY'S FIXES. The defaced, rolled-back site serves its
-//     generated page again, its journal holds the patched manifest and a fresh boot marker
-//     and nothing else, the intruder's shell on it is closed as `rebooted` and the hop they
+//     generated page again, its journal holds the patched manifest, fresh passwords with
+//     their auth.log lines and a fresh boot marker, and nothing else, the intruder's shell on it is closed as `rebooted` and the hop they
 //     stacked on it as `upstream_lost`, and the CVE that opened it is refused. Their foothold
 //     on the network's gateway is not the site's, and stays.
 //   - A BRICKED SITE COMES BACK, booting and patched; A SECOND RESTORE RUNS CLEAN; and a
@@ -56,7 +60,15 @@ import {
 import { exploitOutcome } from '../src/core/cve/exploitEffect.js';
 import { packageTimeline, upgradeStatusFor } from '../src/core/cve/packageTimeline.js';
 import { gameDayAt } from '../src/core/cve/worldClock.js';
-import { accountAtOrAbove } from '../src/core/sessions/passwdAccount.js';
+import {
+  accountAtOrAbove,
+  accountsIn,
+  PASSWD_PATH,
+  withAccountHash,
+} from '../src/core/sessions/passwdAccount.js';
+import { PASSWD_FILE } from '../src/core/generation/baseFs.js';
+import { AUTH_LOG_PATH } from '../src/core/logging/authLog.js';
+import { CRACKABLE_PASSWORDS, plaintextFor, UNCRACKABLE_PASSWORDS } from '../src/test/passwords.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { asEpochMs } from '../src/core/types.js';
 import { publicAddressOf } from './publicAddressOf.js';
@@ -159,7 +171,10 @@ if (SITE === undefined) {
 const BRICKED = PATROL.find(
   (box) => box !== SITE && box.machineId !== computeApGatewayId(box.networkKey),
 )!;
-const OTHERS = [boxNamed('findit.io'), boxNamed('kwikemart.com'), boxNamed('boards.hireme.io')];
+const FINDIT = boxNamed('findit.io');
+const OTHERS = [FINDIT, boxNamed('kwikemart.com'), boxNamed('boards.hireme.io')];
+/** The word a rooted player set on findit.io's root with `passwd`, before the round. */
+const INTRUDERS_WORD = 'the-intruders-own-word';
 const WEB_PORT = 80;
 const SITE_IP = publisherIp(SITE.networkKey);
 if (SITE_IP === undefined) {
@@ -302,12 +317,96 @@ const journalOf = async (box: PublicBox): Promise<readonly JournalRow[]> => {
   return (data ?? []) as readonly JournalRow[];
 };
 
-/** Whether a box's journal is exactly what a restore leaves: today's manifest and a boot
- *  marker, both written as the box itself. */
+const CRACKABLE_HASHES: ReadonlySet<string> = new Set(CRACKABLE_PASSWORDS.map(md5));
+const UNCRACKABLE_HASHES: ReadonlySet<string> = new Set(UNCRACKABLE_PASSWORDS.map(md5));
+
+/** Whether `passwd` holds `box`'s generated accounts, in order, each on a word from the pool
+ *  the account was born in. Not necessarily a different word: a redraw may land on it. */
+const freshPasswords = (box: PublicBox, passwd: string): boolean => {
+  const generated = accountsIn(box.baseFs());
+  const rows = passwd
+    .split('\n')
+    .filter((line) => line.length > 0)
+    .map((line) => line.split(':'));
+  return (
+    rows.length === generated.length &&
+    generated.every(({ username, hash }, index) => {
+      const [name, drawn = ''] = rows[index] ?? [];
+      const pool = CRACKABLE_HASHES.has(hash) ? CRACKABLE_HASHES : UNCRACKABLE_HASHES;
+      return name === username && pool.has(drawn);
+    })
+  );
+};
+
+type PasswdRow = {
+  readonly content: string | null;
+  readonly owner: string;
+  readonly permissions: unknown;
+  readonly updated_at: string;
+};
+
+/** The `/etc/passwd` the guardian wrote to `box`, as the box itself. */
+const guardianPasswd = async (box: PublicBox): Promise<PasswdRow | undefined> => {
+  const { data, error } = await sr
+    .from('patches')
+    .select('content, owner, permissions, updated_at')
+    .eq('machine_id', box.machineId)
+    .eq('path', PASSWD_PATH)
+    .eq('writer_key', apGatewayLogWriterKey(box.networkKey))
+    .maybeSingle();
+  if (error) throw new Error(`passwd read failed: ${error.message}`);
+  return (data ?? undefined) as PasswdRow | undefined;
+};
+
+/** The hash `passwd` holds for `username`. */
+const hashIn = (passwd: string, username: string): string | undefined =>
+  passwd
+    .split('\n')
+    .map((line) => line.split(':'))
+    .find(([name]) => name === username)?.[1];
+
+/** The box's auth.log as the system wrote it, under the network's key. */
+const boxAuthLog = async (box: PublicBox): Promise<string> => {
+  const { data, error } = await sr
+    .from('patches')
+    .select('content')
+    .eq('machine_id', box.machineId)
+    .eq('path', AUTH_LOG_PATH)
+    .eq('writer_key', apGatewayLogWriterKey(box.networkKey))
+    .maybeSingle();
+  if (error) throw new Error(`auth.log read failed: ${error.message}`);
+  return (data as { content: string | null } | null)?.content ?? '';
+};
+
+/** `ssh root@findit.io` with `password`, from the intruder's home. A login that opens is
+ *  closed again at once, so it never counts as a foothold the checks below look for. */
+const sshFindit = async (password: string): Promise<number> => {
+  fired += 1;
+  const sessionId = `guardian-ssh-${fired}-${Date.now()}`;
+  const login = await post(
+    SESSIONS,
+    signRequest(attacker, 'authCreateSessionPublic', {
+      session_id: sessionId,
+      target: publicAddressOf(FINDIT.networkKey),
+      username: 'root',
+      password,
+    }),
+  );
+  await sr
+    .from('sessions')
+    .update({ ended_at: new Date().toISOString(), end_reason: 'user_exit' })
+    .eq('session_id', sessionId);
+  return login.status;
+};
+
+/** Whether a box's journal is exactly what a restore leaves: today's manifest, fresh
+ *  passwords with their auth.log lines, and a boot marker, all written as the box itself. */
 const restoredJournal = (box: PublicBox, rows: readonly JournalRow[]): boolean =>
-  rows.length === 2 &&
+  rows.length === 4 &&
   rows.every((row) => row.writer_key === apGatewayLogWriterKey(box.networkKey)) &&
   rows.some((row) => row.path === BOOT_ID_PATH) &&
+  rows.some((row) => row.path === PASSWD_PATH && freshPasswords(box, row.content ?? '')) &&
+  rows.some((row) => row.path === AUTH_LOG_PATH) &&
   rows.some((row) => row.path === DPKG_STATUS_PATH && fullyPatched(row.content ?? ''));
 
 /** The line a guardian run gave `box`. */
@@ -388,8 +487,13 @@ const cleanup = async () => {
       .from('patches')
       .delete()
       .eq('machine_id', box.machineId)
-      .eq('path', DPKG_STATUS_PATH)
+      .in('path', [DPKG_STATUS_PATH, PASSWD_PATH, AUTH_LOG_PATH])
       .eq('writer_key', apGatewayLogWriterKey(box.networkKey));
+    await sr
+      .from('patches')
+      .delete()
+      .eq('machine_id', box.machineId)
+      .eq('writer_key', attacker.publicKeyHex);
   }
   await sr.from('sessions').delete().eq('player_key', attacker.publicKeyHex);
   await sr.from('home_network_occupants').delete().eq('owner_key', attacker.publicKeyHex);
@@ -444,6 +548,22 @@ const main = async () => {
       `open ${openBeforeReport} → ${await openSessionsOn(SITE)}`,
   );
   const behindBefore = /: (\d+) packages? behind/.exec(lookedLine)?.[1];
+
+  // ...and on findit.io, rooted, they set root's password with `passwd`.
+  const seededRoot = accountsIn(FINDIT.baseFs()).find(({ username }) => username === 'root');
+  if (seededRoot === undefined) throw new Error('findit.io has no root account');
+  const seededWord = plaintextFor(seededRoot.hash);
+  await writeAsAttacker(
+    FINDIT,
+    PASSWD_PATH,
+    withAccountHash(FINDIT.baseFs(), 'root', md5(INTRUDERS_WORD)),
+  );
+  const ownWordBefore = await sshFindit(INTRUDERS_WORD);
+  check(
+    "before the round, the intruder's own root word opens findit.io",
+    ownWordBefore === 200,
+    `status ${ownWordBefore}`,
+  );
 
   // 2. THE ROUND.
   const round = runGuardian(['patch', SITE.name, 'findit.io']);
@@ -505,16 +625,65 @@ const main = async () => {
     `status ${refused.status}, body ${JSON.stringify(refused.body)}`,
   );
 
-  // 4. A SECOND ROUND THE SAME DAY WRITES NOTHING.
+  // 3b. THE PASSWORDS CHANGE.
+  const sitePasswd = await guardianPasswd(SITE);
+  const finditPasswd = await guardianPasswd(FINDIT);
+  const asGenerated = (box: PublicBox, row: PasswdRow | undefined): boolean =>
+    row !== undefined &&
+    row.owner === 'root' &&
+    JSON.stringify(row.permissions) === JSON.stringify(PASSWD_FILE) &&
+    freshPasswords(box, row.content ?? '');
+  check(
+    "both boxes' /etc/passwd is root's as generated, each account on a word from its own pool",
+    asGenerated(SITE, sitePasswd) && asGenerated(FINDIT, finditPasswd),
+    `site ${sitePasswd === undefined ? 'no row' : `owner ${sitePasswd.owner}`}, ` +
+      `findit ${finditPasswd === undefined ? 'no row' : `owner ${finditPasswd.owner}`}`,
+  );
+  check(
+    'the patch line names the passwords it changed, and the total counts them',
+    / \d+ passwords? changed$/.test(lines[1] ?? '') &&
+      / 1 password changed$/.test(lines[2] ?? '') &&
+      / passwords changed\.$/.test(lines[3] ?? ''),
+    JSON.stringify(lines),
+  );
+  const ownWordAfter = await sshFindit(INTRUDERS_WORD);
+  check(
+    "after the round, the intruder's own word is refused",
+    ownWordAfter === 401,
+    `status ${ownWordAfter}`,
+  );
+  const drawnHash = hashIn(finditPasswd?.content ?? '', 'root');
+  const redrawn = drawnHash === seededRoot.hash;
+  const seededAfter = await sshFindit(seededWord);
+  check(
+    'the word the bundle gives away is refused (unless the round happened to draw it again)',
+    redrawn ? seededAfter === 200 : seededAfter === 401,
+    `status ${seededAfter}${redrawn ? ' — the round drew the seeded word again' : ''}`,
+  );
+  const drawnLogin = drawnHash === undefined ? 0 : await sshFindit(plaintextFor(drawnHash));
+  check('the word the guardian drew opens it', drawnLogin === 200, `status ${drawnLogin}`);
+  const finditLog = await boxAuthLog(FINDIT);
+  check(
+    "findit.io's auth.log says, as passwd says it, that root's password changed",
+    / passwd\[\d+\]: password changed for root$/m.test(finditLog),
+    finditLog.trim().split('\n').slice(-3).join(' | ') || '(empty log)',
+  );
+
+  // 4. A SECOND ROUND THE SAME DAY MOVES NO PACKAGE, AND CHANGES THE PASSWORDS AGAIN.
   const again = runGuardian(['patch', SITE.name]);
   const after = await guardianRow(SITE);
+  const passwdAgain = await guardianPasswd(SITE);
   check(
-    'a second round the same day says up to date and writes nothing',
+    'a second round the same day moves no package and changes the passwords again',
     again.status === 0 &&
-      again.stdout.includes(`${SITE.name}: up to date`) &&
-      after?.updated_at === written?.updated_at,
-    `exit ${again.status}; ${again.stdout.trim().split('\n')[1] ?? ''}; ` +
-      `updated_at ${written?.updated_at} → ${after?.updated_at}`,
+      lineFor(again, SITE).startsWith(`${SITE.name}: up to date, `) &&
+      / \d+ passwords? changed$/.test(lineFor(again, SITE)) &&
+      after?.updated_at === written?.updated_at &&
+      passwdAgain !== undefined &&
+      passwdAgain.updated_at !== sitePasswd?.updated_at,
+    `exit ${again.status}; ${lineFor(again, SITE)}; ` +
+      `manifest ${written?.updated_at} → ${after?.updated_at}, ` +
+      `passwd ${sitePasswd?.updated_at} → ${passwdAgain?.updated_at}`,
   );
 
   // 5. A BRICKED BOX IS LEFT ALONE.
@@ -524,7 +693,8 @@ const main = async () => {
     'a bricked site is named as needing a restore, and nothing is written to it',
     bricked.status === 0 &&
       bricked.stdout.includes(`${BRICKED.name}: bricked — restore it to bring it back`) &&
-      (await guardianRow(BRICKED)) === undefined,
+      (await guardianRow(BRICKED)) === undefined &&
+      (await guardianPasswd(BRICKED)) === undefined,
     `exit ${bricked.status}; ${bricked.stdout.trim()}`,
   );
   const brickedReport = runGuardian(['report', BRICKED.name]);
@@ -613,7 +783,7 @@ const main = async () => {
   );
   const journal = await journalOf(SITE);
   check(
-    "the site's journal holds today's manifest and a fresh boot marker, as the box itself",
+    "the site's journal holds today's manifest, fresh passwords and a boot marker, as the box itself",
     restoredJournal(SITE, journal),
     JSON.stringify(journal.map(({ path, writer_key }) => ({ path, writer_key }))),
   );
@@ -640,7 +810,7 @@ const main = async () => {
   const loggedSince = await rowCount(SITE);
   const twice = runGuardian(['restore', SITE.name]);
   check(
-    'a second restore runs clean and leaves the same two rows',
+    'a second restore runs clean and leaves the same four rows',
     twice.status === 0 &&
       twice.stdout.includes(
         `${SITE.name}: restored (0 sessions closed, ${loggedSince} rows removed), `,
@@ -660,7 +830,7 @@ const main = async () => {
   const visited = runGuardian(['report', SITE.name]);
   check(
     'a report reads the restored site, visited since, as up to date and untouched',
-    visitedRows > 2 &&
+    visitedRows > 4 &&
       visited.status === 0 &&
       lineFor(visited, SITE) === `${SITE.name}: up to date` &&
       visited.stdout.includes('Looked over 1 box: 0 behind, 0 tampered, 0 bricked.'),

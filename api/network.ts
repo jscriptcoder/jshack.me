@@ -270,8 +270,11 @@ const dropConnectionsDepsVia = ({ supabase, label }: QuerySpec): DropConnections
  * The move names the trip count it read. A first trip inserts the row, and a second
  * boarding that read no row either hits the primary key; a later trip updates only the row
  * still holding that count. Either way the boarding that lost the race writes nothing.
+ *
+ * The fare is read off the public ledger by the fetch's own `findBalance`, so these hold
+ * no ledger read of their own.
  */
-const boardDepsVia = ({ supabase, label }: QuerySpec): BoardDeps => ({
+const boardDepsVia = ({ supabase, label }: QuerySpec): Omit<BoardDeps, 'findBalance'> => ({
   findPlayerLocation: findPlayerLocationVia({ supabase, label }),
   deleteOccupancies: async (ownerKey) => {
     const { data, error } = await supabase
@@ -635,9 +638,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         logFailure('http-fetch talkit comment', error);
         return { data: data as unknown, error };
       },
-      // Only a lookup at chainit.io's /address reaches these two: the public ledger, read
-      // exactly as api/wallet.ts reads it for `wallet balance` and `wallet history` (an
-      // api/ file is an endpoint of its own, so the reads are written here again). The
+      // Only a lookup at chainit.io's /address and rideit.io's fare reach these two: the
+      // public ledger, read exactly as api/wallet.ts reads it for `wallet balance` and
+      // `wallet history` (an api/ file is an endpoint of its own, so the reads are written
+      // here again). The
       // handler parses the rows itself, so they are handed over as they came off the wire.
       findBalance: async (address: string) => {
         const { data, error } = await supabase

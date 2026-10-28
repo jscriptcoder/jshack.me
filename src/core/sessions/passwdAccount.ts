@@ -77,8 +77,8 @@ export const accountAtOrAbove = (fs: Directory, tier: UserType): NamedPasswdAcco
     .find((account) => account !== undefined);
 };
 
-/** The box's passwd with ONE account's hash replaced and every other byte left where it
- *  was: the other accounts, any field this parser does not read, the blank line a
+/** The box's passwd with every account's hash replaced by `hashFor` that account, and every
+ *  other byte left where it was: any field this parser does not read, the blank line a
  *  hand-edited file may carry.
  *
  *  It lives beside the reader above because it is the same knowledge: a writer that
@@ -88,12 +88,24 @@ export const accountAtOrAbove = (fs: Directory, tier: UserType): NamedPasswdAcco
  *  A box carrying no passwd file has no accounts to name, so every caller has already
  *  had to refuse before reaching this — and the empty text it falls back on rewrites to
  *  itself rather than inventing a file the box never had. */
-export const withAccountHash = (fs: Directory, username: string, hash: string): string =>
+export const withAccountHashes = (
+  fs: Directory,
+  hashFor: (account: NamedPasswdAccount) => string,
+): string =>
   (passwdFile(fs)?.content ?? '')
     .split('\n')
     .map((line) => {
       const fields = line.split(':');
-      if (fields.length < 2 || fields[0] !== username) return line;
-      return [fields[0], hash, ...fields.slice(2)].join(':');
+      if (fields.length < 2) return line;
+      const account = {
+        username: fields[0] ?? '',
+        hash: fields[1] ?? '',
+        userType: userTypeFromPasswdFields(fields),
+      };
+      return [fields[0], hashFor(account), ...fields.slice(2)].join(':');
     })
     .join('\n');
+
+/** The box's passwd with ONE account's hash replaced, every other account keeping its own. */
+export const withAccountHash = (fs: Directory, username: string, hash: string): string =>
+  withAccountHashes(fs, (account) => (account.username === username ? hash : account.hash));

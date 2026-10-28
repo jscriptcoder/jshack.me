@@ -173,7 +173,9 @@ export type FsView = {
    *  write from the stale copy does not just miss the other write, it reverts it.
    *
    *  So this is for the writers that must compose against the machine rather than
-   *  against their own memory of it, and for nothing else. A view with nothing behind
+   *  against their own memory of it, and for the password checks made on the player's
+   *  own box: whoever roots it can change `/etc/passwd`, and a replaced password checked
+   *  against the stale copy would still let its owner in. Nothing else needs it. A view with nothing behind
    *  it (a test, a client with no server) re-reads to what it already has, and a failed
    *  read keeps the tree rather than blanking it: a transient error must not read as a
    *  box whose files went away. */
@@ -494,6 +496,16 @@ export type AuthLogEvent =
       readonly direction: TransferDirection;
       readonly path: AbsPath;
       readonly bytes: number;
+    }
+  | {
+      /** A `passwd` change on the player's own box — `passwd`'s own line, naming the
+       *  account whose hash was rewritten. Written on SUCCESS only: the one failure
+       *  that can reach a log point is the owner fumbling their own current password,
+       *  which informs nobody. */
+      readonly kind: 'passwdChange';
+      readonly machineId: MachineId;
+      readonly targetUser: string;
+      readonly hostname: string;
     };
 
 /** The crash a `msfconsole --local` MISS hands to `log.appendKernLog` — the command
@@ -902,6 +914,44 @@ export type SuElevateParams = {
  *  `authElevateServerSession` adapter; `core/` stays adapter-free. */
 export type SuApi = {
   readonly elevate: (params: SuElevateParams) => Promise<RemoteAuthResult>;
+};
+
+/** What `passwd` hands to `env.passwd.change` to rewrite an account's hash on a box that
+ *  is NOT the player's own, in a shell they already hold there. The server finds the box
+ *  from that shell's session row, confirms the session is ROOT (only root may write the
+ *  root-owned `/etc/passwd` on a foreign box — the same L2 gate every foreign write meets),
+ *  composes the row rewrite against the box's LIVE `/etc/passwd`, writes the patch, AND
+ *  server-stamps the `passwd` auth.log line — one authorized act, so a tampered client can
+ *  neither write the row without the trace nor forge the time. The new password crosses as
+ *  its md5 hash, never in the clear: there is nothing to compare here, only to store, so the
+ *  plaintext never leaves the client. */
+export type PasswdChangeParams = {
+  /** The machine the player is currently on (the foreign box). */
+  readonly machineId: MachineId;
+  /** The account whose hash is being rewritten. */
+  readonly username: string;
+  /** The md5 of the new password — what field 2 of the account's row becomes. */
+  readonly newHash: string;
+};
+
+/** The outcome of a foreign-box password change. `not_authorized` is the server's L2
+ *  refusal (the session is not root) — the command refuses a non-root caller up front, so
+ *  this is the rare race where the session lapsed between the check and the call.
+ *  `user_not_found` is the box having no such account; `network_error` is OUR side failing
+ *  to complete the round-trip. */
+export type PasswdChangeResult =
+  | { readonly ok: true }
+  | {
+      readonly ok: false;
+      readonly error: 'not_authorized' | 'user_not_found' | 'network_error';
+    };
+
+/** The `passwd` seam for a box that is not the player's own — backed by the signed
+ *  `passwdChange` endpoint. The UI wires it to the `changeServerPasswd` adapter; `core/`
+ *  stays adapter-free. Only a `passwd` typed off a FOREIGN box calls it; the own box
+ *  rewrites `/etc/passwd` through `env.patches.write` and logs through `env.log`. */
+export type PasswdApi = {
+  readonly change: (params: PasswdChangeParams) => Promise<PasswdChangeResult>;
 };
 
 /** What a reboot's eviction can report back. Deliberately NOT `PatchResult`: a
@@ -1792,6 +1842,7 @@ export type CommandEnv = {
   readonly scp: ScpApi;
   readonly apt: AptApi;
   readonly su: SuApi;
+  readonly passwd: PasswdApi;
   readonly reboot: RebootApi;
   readonly chain: ChainApi;
   readonly scan: ScanApi;

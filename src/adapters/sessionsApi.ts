@@ -55,6 +55,8 @@ import type {
   SameLanAuthParams,
   Session,
   SuElevateParams,
+  PasswdChangeParams,
+  PasswdChangeResult,
   HydraCrackParams,
   HydraCrackResult,
   ExploitRunParams,
@@ -628,6 +630,36 @@ export const authElevateServerSession = async (
     }
     if (response.status === 401) return { ok: false, error: 'invalid_credentials' };
     if (response.status === 404) return { ok: false, error: 'host_unreachable' };
+    return { ok: false, error: 'network_error' };
+  } catch {
+    return { ok: false, error: 'network_error' };
+  }
+};
+
+/** Change an account's password on a box that is NOT the player's own, in a root shell
+ *  they already hold there: the server finds the box from that shell's session row,
+ *  confirms it is root (L2), composes the row rewrite against the box's live `/etc/passwd`,
+ *  writes it, and stamps the trace — one authorized act. Only the new md5 hash crosses the
+ *  wire. 403 → the session is not root (or lapsed); a 404 naming `user_not_found` is the box
+ *  having no such account; every other refusal, an unreachable box included, reads as a
+ *  network error. */
+export const changeServerPasswd = async (
+  deps: SessionsClientDeps,
+  params: PasswdChangeParams,
+): Promise<PasswdChangeResult> => {
+  try {
+    const response = await post(deps, 'passwdChange', {
+      machine_id: params.machineId,
+      username: params.username,
+      new_hash: params.newHash,
+    });
+    if (response.ok) return { ok: true };
+    if (response.status === 403) return { ok: false, error: 'not_authorized' };
+    if (response.status === 404) {
+      const body: unknown = await response.json().catch(() => null);
+      const error = (body as { error?: unknown } | null)?.error;
+      return { ok: false, error: error === 'user_not_found' ? 'user_not_found' : 'network_error' };
+    }
     return { ok: false, error: 'network_error' };
   } catch {
     return { ok: false, error: 'network_error' };

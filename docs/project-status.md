@@ -1215,7 +1215,8 @@ agreed order:
     `backlog.md` under "valleynews — follow-ups deferred". The opening stories are on prod, the
     last of them the `/dev` launch note (story 13, 2026-10-22), whose scale numbers come from
     [`world-in-numbers.md`](./world-in-numbers.md), refreshed at v0.424.0 to count the paper.
-30. 🔄 **The guardian's rounds over the public web (from v0.425.0, 2026-10-22).** Players are
+30. ✅ **The guardian's rounds over the public web (v0.425.0–v0.427.0, PRs #725, #726, #727,
+    2026-10-22).** Players are
     on the game and every public website was open to them for good, since NPC boxes freeze at
     their start tuple. The operator now looks after the public web by hand, on rounds nobody can
     predict. Slice 1 (v0.425.0): `scripts/guardian.ts patch [name…]` moves every package on a
@@ -1234,10 +1235,21 @@ agreed order:
     patch would move) and tampered (an open session, a write that is not the box's own log line,
     or a brick), writing nothing, and the checked-in `/guardian` skill runs a round on prod:
     report, the owner picks the restores, restore those, patch. `testGuardian.ts` (29 checks)
-    tells a visited box from a broken-into one live. The decisions and slices are in
-    `plans/guardian.md`.
-    **Pick up here (2026-10-22):** the guardian's close-out: the first `/guardian` round on prod
-    with the owner picking, and the browser run; then the items still open in `backlog.md`.
+    tells a visited box from a broken-into one live. As built: `vulnerability-architecture.md`,
+    "What a box sits on"; the commands in the handbook's chapter 12, "Data fixes"; what it left
+    out is in `backlog.md` ("A scheduled guardian"). First round on prod (2026-10-23, v0.433.0):
+    the patrol, 52 boxes since rideit.io joined it, read 1 behind, 0 tampered, 0 bricked; the
+    owner patched rideit.io (11 upgraded). A report naming the 28 landmark sites of the other
+    towns, off the patrol by design, read 28 behind and none tampered, and they were left open.
+    Browser close-out (2026-10-23, v0.433.0): a fresh player in Oakhurst joined THE-GRANARY and
+    read millbrook.gov's front page and `nmap -sV` (Apache 2.4.62 with a high hole on 80); a
+    page planted on the site's box showed through `curl` at once, and `report millbrook.gov`
+    named it tampered with its one path. `restore millbrook.gov` (11 upgraded) brought the
+    generated page back, `nmap -sV` showed Apache 3.0.4 on 80 with no hole, and the report read
+    up to date. Ports 22, 161 and 2222 on the same address kept their old versions: they are the
+    network's gateway and a forward to a neighbour, which a restore leaves alone by design. No
+    defect.
+    **Pick up here (2026-10-23):** the owner's choice from the items still open in `backlog.md`.
 31. ✅ **Players start in different towns (v0.428.0, PR #728, 2026-10-23).** Every player stood in
     Ridgemont, so all of them shared its 178 networks and the chance of landing on somebody grew
     with the share of those occupied. Now `startingTown(publicKeyHex)` draws each player's town
@@ -1273,18 +1285,110 @@ agreed order:
     from there opened Kingsford's Central Perk as written. No defect. **Pick up here
     (2026-10-23):** whether `kestrel` is signed up again to stand in the owner's town is the
     owner's call; then entry 30's close-out and the items still open in `backlog.md`.
-33. 🚧 **Travel between towns (in flight).** A player buys a ride on rideit.io, the ninth fixed
-    site, paying a flat 25 JSC fare to a payment address made for their trip; boarding is
-    leaving, and the next scan is the new town's. The decisions and the three slices are in
-    `plans/travel.md`. Slice 1 (v0.430.0): rideit.io stands in the valley, at `193.103.160.138`,
+33. ✅ **Travel between towns (v0.430.0–v0.432.0, PRs #730, #731, #733, 2026-10-23).** A player
+    buys a ride on rideit.io, the ninth fixed site, paying a flat 25 JSC fare to a payment
+    address made for their trip; boarding is leaving, and the next scan is the new town's. Slice 1 (v0.430.0): rideit.io stands in the valley, at `193.103.160.138`,
     its front page quoting the fare and listing every town, found on findit by "ticket" and
     "travel"; booking is not open yet. Slice 2 (v0.431.0): a free ride to any town. rideit's
     `/ticket` lists every town with a `[ Board ]` each; `POST /board` takes the player's box off
     every network (as `nmcli disconnect`), writes `player_locations` (town, trips; a guarded
     write, so two boardings at once count one trip) and answers `left`, on which the player's tab
     takes `wlan0` down. The join and the scan's server call read where the player stands
-    (`standingTown`); rideit's log records `POST /board` and never the town. **Pick up here
-    (2026-10-23):** Slice 3, the 25 JSC fare.
+    (`standingTown`); rideit's log records `POST /board` and never the town. Slice 3
+    (v0.432.0): the ride costs 25 JSC. `/ticket` quotes the reader's trip address
+    (`tripAddress`: their key and trips taken, hashed) and what has arrived there; `/board` is
+    refused, changing nothing, until the whole fare has, and the boarding moves the trip count
+    on, so one fare buys one trip. Fares are burned. As built: `procedural-world-architecture.md`,
+    "Where a player stands", "Joining", "The scan" and "Travelling"; `wallet-architecture.md` for
+    the fare; what it left out is in `backlog.md` under "Travel". Browser close-out (2026-10-23,
+    v0.432.0): a fresh player drawn into Wexcombe cracked and joined BARN-CONVERSION, ran
+    `wallet init`, took an operator mint of 100 JSC and opened `lynx rideit.io/ticket`, which
+    quoted their trip address (`tripAddress(key, 0)` exactly) and "0 of 25 JSC". Boarding for
+    Ridgemont unpaid was refused with the WiFi still up; after `wallet send` of 25 the page read
+    "25 of 25 JSC", and boarding answered "You have arrived in Ridgemont." with the link OFFLINE
+    and `wlan0` down. A reload restored no network; the next scan offered Ridgemont's
+    GARROW-COMPUTING and BEAN-THERE-WIFI, as predicted offline; they cracked and joined
+    BEAN-THERE-WIFI, and `whois 87.1.0.159` answered `city: Ridgemont`. The store held Ridgemont
+    with one trip, 25 JSC at the trip address and 75 in the wallet. No defect. **Pick up here
+    (2026-10-23):** the owner's choice from the items still open in `backlog.md`.
+34. ✅ **rideit keeps a booking log (v0.434.0, 2026-10-23).** Rooting rideit told a player only
+    that somebody on a network left. Now each ride taken adds a line to `/var/log/rideit.log`:
+    the town, the trip address that paid and the network left (`core/logging/rideitLog.ts`,
+    written beside the access line in `resolveHttpFetch.ts`). The trip address leads on to the
+    paying wallet through chainit. A boarding that moved nobody writes no line. talkit's and
+    rideit's logs now share one timestamp (`core/logging/appLogTimestamp.ts`) and one appender.
+    `testTravel` reads the line off the live stack, and one line for two boardings at once. The
+    other small travel follow-up, a server check of the WiFi password, was dropped: the client
+    draws every crackable password itself, so it would stop nobody (`backlog.md`, under
+    "Travel"). As built: `procedural-world-architecture.md`, "Travelling". **Pick up here
+    (2026-10-23):** the owner's choice from the items still open in `backlog.md`.
+
+35. ✅ **`passwd` — change (and lock out) an account's password (v0.435.0, PR #735, 2026-10-24).**
+    The write-mirror of `su`. On the player's own workstation a caller changes their OWN account at
+    any tier (a setuid-root `passwd`); a NAMED other account needs root, and a non-root self-change
+    is first asked for the current password (skipped for an empty-hash account, as `su` is). On any
+    box that is not the caller's own, every `passwd` needs an active ROOT session there, enforced by
+    the server (`handlePasswdChange`, L1/L2): with root on A's box, `passwd root` rewrites A's
+    `/etc/passwd` row under the caller's verified key and locks A out of the next `su`/`ssh` with the
+    old password — open sessions survive (future auth only, so a victim still sitting as root can
+    change it straight back). A successful change leaves a real `passwd[pid]: password changed for
+    <user>` line on the box's `auth.log`, server-stamped (the client cannot forge the time); failures
+    are not logged. The new password is entered twice (mismatch/empty refused); interactive-only,
+    like `su`. Five TDD slices (surface + up-front refusals; own-box self-change with the
+    old-password gate; own-box auth.log + root-changes-another; foreign-box through the server;
+    cross-player wire-check `scripts/testPasswdCrossPlayer.ts`, 8/8 — L2 refuses a non-root foreign
+    write, the rewrite persists and composes OVER a prior `/etc/passwd` patch from another writer
+    rather than erasing it, the server stamps the log, the lockout bites the next login). Registered
+    on the builtin set and seeded as `/bin/passwd` on every box (binary-gated like `su`), which moved
+    all 100 landmark fingerprints by one file. Its 947 B of code raised the bundle ceiling's code
+    part by 1,000 B (`scripts/checkBudgets.ts`). Mutation gate 86.42% (0 timeouts) over the two new
+    files; survivors are help/manual copy, equivalent/defensive guards, and lookup-query shapes the
+    wire-check proves. The plan was retired on close-out. Found while shipping it, pre-existing on
+    `main`: findit's generated web builds in ~1,200 ms locally against its 1,000 ms budget (Vercel
+    skips timings).
+    Browser run (2026-10-24, v0.435.0, two players in Oakhurst on WESTGATE-BLOOMS): the own-box
+    refusal, masked prompts, empty-hash skip, wrong-current refusal and reload persistence held; B,
+    root on A's box over ssh, changed `root` and A's own account, `passwd mallory` answered `does
+    not exist` after the prompts, B logged in as `alice` with the password B set, a user-tier
+    `passwd` there was refused up front, and A's `auth.log` carried all four changes. **Two
+    defects, both own-box:** (1) a terminal already open on the box checked `su` (and `passwd`'s
+    current password) against the journal it last pulled, which another player's write does not
+    reach until the owner's next write, so A's first `su root` after the attack succeeded with the
+    replaced password — reproduced twice; (2) an own-box `passwd` write carried no owner or
+    permissions, so a user-tier self-change left `/etc/passwd` owned by that user and
+    user-writable, which the foreign-write gate then honours. Fixed in v0.435.1 (PR #736): own-box
+    `su` and `passwd` re-read the box (`env.fs.reload()`) before checking or composing, and the
+    write keeps owner `root` and `PASSWD_FILE` permissions; verified live by writing another
+    player's root change into the journal under an open terminal. A box that ran a user-tier
+    `passwd` on v0.435.0 keeps the loose row until its next `/etc/passwd` write. **Pick up here
+    (2026-10-24):** the owner's choice from the items still open in `backlog.md`.
+
+36. ✅ **The guardian changes passwords on its rounds (v0.436.0, PR #738, 2026-10-28).** A generated
+    box's passwords are seeded, so a player who decodes the bundle could work a crackable word out
+    and log in first try, without the `hydra` run whose attempts land in `auth.log`. Now every
+    guardian `patch` (and so every `restore`, which ends by patching) rewrites each box it reaches
+    (the named public websites, or the patrol; shops' servers, NPC hosts and gateways stay
+    neglected) with `/etc/passwd` as generated, every account on a fresh password drawn by
+    `node:crypto` from the pool it was born in, so the box stays exactly as hard as generated and
+    only the shortcut goes. The box's `auth.log` gets the `passwd` command's line per account. A
+    rooted player's own `passwd` change or added account is undone; nobody is evicted; a bricked box
+    is left alone. Owner decisions (grill, 2026-10-28): same pool kind as generated (no "crackable
+    only" carve-out), the patch's reach, the whole file as generated, `patch` rotates with no new
+    verb, an `auth.log` trace, repeats left to luck (17 crackable words, so `guest` keeps its word
+    about 1 round in 17). As built: the rotation is its own pure decider,
+    `core/guardian/rotate.ts` `decideRotation`, not part of `decidePatch`, because `report` counts
+    what is behind through `decidePatch` and must never draw; `report` reads the guardian's own
+    `/etc/passwd` as the box's own; operator lines count `N passwords changed`; the every-account
+    rewriter `withAccountHashes` sits beside `withAccountHash` in `sessions/passwdAccount.ts`.
+    Wire-check `testGuardian` 36/36 proves the lockout on findit.io (a fixed box is its own
+    gateway, so `ssh root@` reaches it): the intruder's own `passwd` word and the seeded word are
+    refused after the round (allowing the 1-in-52 redraw), the drawn word opens it, the intruder
+    already inside stays; `testHiremeBoardRoot` 13/13, `testRestoreSite` on all nine fixed sites.
+    Mutation gate 344 killed / 6 survived / 17 no coverage of 367; the two survivors in new code
+    became tests (a root-only `auth.log` is read as root and appended to, not wiped). No browser
+    run (no client change); the owner's next production `/guardian` round is the real-world
+    confirmation. The plan was retired on close-out. **Pick up here (2026-10-28):** the owner's
+    choice from the items still open in `backlog.md`.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

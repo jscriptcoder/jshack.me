@@ -112,6 +112,27 @@ export const formatSshdAuthLine = (event: CredentialAttempt): string =>
         : `Failed password for ${escapeLogField(event.user)} from ${event.fromIp}`,
   });
 
+export type PasswdChangeEvent = {
+  /** The account whose hash was rewritten. */
+  readonly user: string;
+  readonly hostname: string;
+  readonly time: GameTime;
+  readonly pid: number;
+};
+
+/** Render a `passwd` password change as its `/var/log/auth.log` line —
+ *  `password changed for <user>`, the real-`passwd` breadcrumb a later root (or the
+ *  guardian's round) reads back to see that, and when, a password was changed. Same
+ *  syslog core as `su`; the `passwd` service tag is the only structural difference. */
+export const formatPasswdLine = (event: PasswdChangeEvent): string =>
+  formatSyslogLine({
+    time: event.time,
+    hostname: event.hostname,
+    service: 'passwd',
+    pid: event.pid,
+    message: `password changed for ${escapeLogField(event.user)}`,
+  });
+
 export type RootSessionEvent = {
   readonly time: GameTime;
   readonly hostname: string;

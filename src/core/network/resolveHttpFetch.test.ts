@@ -69,7 +69,14 @@ import { logRead } from '../../test/factories/logRows.js';
 import { derivedPublicIpByEssid, type FindPublicIpByEssid } from '../logging/crossPlayerSourceIp.js';
 import type { FindActiveSession } from '../patches/authorizeMachineAccess.js';
 import type { BoardDeps } from '../rideit/board.js';
-import { arrivedPage, NOWHERE_PAGE, RIDEIT_FRONT_PAGE, TICKET_PAGE } from '../rideit/pages.js';
+import { RIDE_FARE, tripAddress } from '../rideit/fare.js';
+import {
+  arrivedPage,
+  NOWHERE_PAGE,
+  RIDEIT_FRONT_PAGE,
+  ticketPage,
+  unpaidPage,
+} from '../rideit/pages.js';
 import { TOWNS } from '../generation/world.js';
 import { sessionTable } from '../../test/factories/sessionTable.js';
 
@@ -234,7 +241,7 @@ type FetchOverrides = {
   findStory?: NewsReads['findStory'];
   postThread?: PostThread;
   postComment?: PostComment;
-  board?: Partial<BoardDeps>;
+  board?: Partial<Omit<BoardDeps, 'findBalance'>>;
 };
 
 const makeDeps = (over: FetchOverrides = {}) => {
@@ -319,9 +326,9 @@ const makeDeps = (over: FetchOverrides = {}) => {
       (async () => ({ data: { outcome: 'commented', number: 3 }, error: null })),
   );
   // Default: a player who never travelled, on no network, whose every move is written.
-  // Only rideit's `/board` ever asks.
+  // Only rideit's `/ticket` and `/board` ever ask; they read the ledger above.
   const sessions = sessionTable([]);
-  const board: BoardDeps = {
+  const board: Omit<BoardDeps, 'findBalance'> = {
     findPlayerLocation: async () => ({ data: null, error: null }),
     deleteOccupancies: async () => ({ data: [], error: null }),
     moveLocation: async () => ({ moved: true, error: null }),
@@ -1539,8 +1546,9 @@ describe('hireme.io takes an application', () => {
 /**
  * rideit.io sells tickets from a function, never from a file: a root on rideit can deface
  * its front page or plant a file at a ticket path, but cannot stop anybody riding. Boarding
- * is leaving, so the answer tells the traveller's own tab that it left, and the line rideit
- * records names who boarded and from where, never where they went.
+ * is leaving, so the answer tells the traveller's own tab that it left. Its access line
+ * records the POST from where the traveller left, never the form; a ride that was taken
+ * also goes in rideit's booking log, naming the town and the trip address that paid.
  */
 describe('rideit.io sells tickets and boards riders', () => {
   const RIDEIT_IP = siteAddress(RIDEIT_DOMAIN) ?? '';
@@ -1554,7 +1562,11 @@ describe('rideit.io sells tickets and boards riders', () => {
     }),
     listOccupantsByEssid: async () => ({ data: [], error: null }),
     listLeasesByEssid: async () => ({ data: [], error: null }),
+    // Every address holds the fare, so whoever boards has paid for their trip.
+    findBalance: async () => ({ data: { balance: RIDE_FARE, next_sequence: 1 }, error: null }),
   };
+  /** The ticket page Bob reads before his first trip, its fare paid. */
+  const BOB_TICKET = ticketPage({ address: tripAddress(BOB.publicKeyHex, 0), paid: RIDE_FARE });
   const request = (fields: Record<string, unknown>) =>
     signRequest(BOB, 'resolveHttpFetch', {
       target: RIDEIT_IP,
@@ -1570,15 +1582,30 @@ describe('rideit.io sells tickets and boards riders', () => {
   const movingStore = () =>
     vi.fn<BoardDeps['moveLocation']>(async () => ({ moved: true, error: null }));
 
-  it.each(['/ticket', '/board'])('serves the ticket page at %s, boarding nobody', async (path) => {
-    const moveLocation = movingStore();
-    const { deps } = makeDeps({ ...onRideit, board: { moveLocation } });
+  it.each(['/ticket', '/board'])(
+    'serves the reader their ticket page at %s, read from the ledger, boarding nobody',
+    async (path) => {
+      const moveLocation = movingStore();
+      const { deps, findBalance } = makeDeps({ ...onRideit, board: { moveLocation } });
 
-    expect(await handleResolveHttpFetch(request({ path }), deps)).toEqual({
-      status: 200,
-      body: { ok: true, content: TICKET_PAGE, server: 'nginx' },
+      expect(await handleResolveHttpFetch(request({ path }), deps)).toEqual({
+        status: 200,
+        body: { ok: true, content: BOB_TICKET, server: 'nginx' },
+      });
+      expect(findBalance.mock.calls).toEqual([[tripAddress(BOB.publicKeyHex, 0)]]);
+      expect(moveLocation).not.toHaveBeenCalled();
+    },
+  );
+
+  it('quotes a traveller the address of the trip after the ones they have taken', async () => {
+    const { deps } = makeDeps({
+      ...onRideit,
+      board: { findPlayerLocation: async () => ({ data: { town: TOWN, trips: 2 }, error: null }) },
     });
-    expect(moveLocation).not.toHaveBeenCalled();
+
+    expect(contentOf(await handleResolveHttpFetch(request({ path: '/ticket' }), deps))).toBe(
+      ticketPage({ address: tripAddress(BOB.publicKeyHex, 2), paid: RIDE_FARE }),
+    );
   });
 
   it('records a look at the ticket page in its log', async () => {
@@ -1587,8 +1614,37 @@ describe('rideit.io sells tickets and boards riders', () => {
     await handleResolveHttpFetch(request({ path: '/ticket' }), deps);
 
     expect(accessLogOf(upsertPatch)?.content).toBe(
-      `${BOB_PUBLIC_IP} - - [30/Jul/2026:13:55:36 +0000] "GET /ticket HTTP/1.1" 200 ${TICKET_PAGE.length}\n`,
+      `${BOB_PUBLIC_IP} - - [30/Jul/2026:13:55:36 +0000] "GET /ticket HTTP/1.1" 200 ${BOB_TICKET.length}\n`,
     );
+  });
+
+  it('reports a ticket page it could not read as a server error, and records nothing', async () => {
+    const { deps, upsertPatch } = makeDeps({
+      ...onRideit,
+      findBalance: async () => ({ data: null, error: { message: 'down' } }),
+    });
+
+    expect(await handleResolveHttpFetch(request({ path: '/ticket' }), deps)).toEqual({
+      status: 500,
+      body: { error: 'ticket_failed' },
+    });
+    expect(accessLogOf(upsertPatch)).toBeUndefined();
+  });
+
+  it('refuses a boarding the fare has not reached, tells the tab it stayed, and records the POST', async () => {
+    const moveLocation = movingStore();
+    const { deps, upsertPatch } = makeDeps({
+      ...onRideit,
+      findBalance: async () => ({ data: null, error: null }),
+      board: { moveLocation },
+    });
+
+    expect(await handleResolveHttpFetch(request({ body: FORM }), deps)).toEqual({
+      status: 200,
+      body: { ok: true, content: unpaidPage(0), server: 'nginx', left: false },
+    });
+    expect(moveLocation).not.toHaveBeenCalled();
+    expect(accessLogOf(upsertPatch)?.content).toContain('"POST /board HTTP/1.1" 200');
   });
 
   it('boards the verified signer for the town the form names, and tells their tab they left', async () => {
@@ -1610,6 +1666,51 @@ describe('rideit.io sells tickets and boards riders', () => {
     expect(await handleResolveHttpFetch(request({ body: 'town=Atlantis' }), deps)).toEqual({
       status: 200,
       body: { ok: true, content: NOWHERE_PAGE, server: 'nginx', left: false },
+    });
+  });
+
+  const writtenTo = (upsertPatch: ReturnType<typeof makeDeps>['upsertPatch'], path: string) =>
+    upsertPatch.mock.calls.map(([row]) => row).filter((row) => row.path === path);
+
+  it('writes where the traveller rode, the address that paid, and where they left from, to rideit.log', async () => {
+    const { deps, upsertPatch } = makeDeps(onRideit);
+
+    await handleResolveHttpFetch(request({ body: FORM }), deps);
+
+    expect(writtenTo(upsertPatch, '/var/log/rideit.log')).toEqual([
+      expect.objectContaining({
+        machine_id: RIDEIT_ID,
+        content: `2026-07-30 13:55:36 ride to ${TOWN} paid at ${tripAddress(BOB.publicKeyHex, 0)} from ${BOB_PUBLIC_IP}\n`,
+        owner: 'root',
+        permissions: { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] },
+      }),
+    ]);
+  });
+
+  it('writes nothing to rideit.log for a boarding the fare has not reached', async () => {
+    const { deps, upsertPatch } = makeDeps({
+      ...onRideit,
+      findBalance: async () => ({ data: null, error: null }),
+    });
+
+    await handleResolveHttpFetch(request({ body: FORM }), deps);
+
+    expect(writtenTo(upsertPatch, ACCESS_LOG_PATH)).toHaveLength(1);
+    expect(writtenTo(upsertPatch, '/var/log/rideit.log')).toEqual([]);
+  });
+
+  it('keeps a boarding that went through, though its line could not be written', async () => {
+    const { deps } = makeDeps({
+      ...onRideit,
+      upsertPatch: async (row) => {
+        if (row.path === '/var/log/rideit.log') throw new Error('journal unavailable');
+        return { error: null };
+      },
+    });
+
+    expect(await handleResolveHttpFetch(request({ body: FORM }), deps)).toEqual({
+      status: 200,
+      body: { ok: true, content: arrivedPage(TOWN), server: 'nginx', left: true },
     });
   });
 
@@ -1638,7 +1739,7 @@ describe('rideit.io sells tickets and boards riders', () => {
     expect(accessLogOf(upsertPatch)?.content).toBe(
       `${BOB_PUBLIC_IP} - - [30/Jul/2026:13:55:36 +0000] "POST /board HTTP/1.1" 200 ${contentOf(response).length}\n`,
     );
-    expect(JSON.stringify(upsertPatch.mock.calls)).not.toContain(TOWN);
+    expect(accessLogOf(upsertPatch)?.content).not.toContain(TOWN);
   });
 
   it('boards from a form at /board however its query string reads', async () => {
@@ -1687,7 +1788,7 @@ describe('rideit.io sells tickets and boards riders', () => {
       '<h1>OWNED</h1>',
     );
     expect(contentOf(await handleResolveHttpFetch(request({ path: '/ticket' }), deps))).toBe(
-      TICKET_PAGE,
+      BOB_TICKET,
     );
     expect(contentOf(await handleResolveHttpFetch(request({ body: FORM }), deps))).toBe(
       arrivedPage(TOWN),

@@ -30,6 +30,7 @@ import type {
   SshApi,
   NcApi,
   SuApi,
+  PasswdApi,
   RebootApi,
   HydraApi,
   ExploitApi,
@@ -261,6 +262,15 @@ export const mockSuApi = (overrides: Partial<SuApi> = {}): SuApi => ({
   ...overrides,
 });
 
+/** The foreign-passwd seam. Load-bearing like `su.elevate`: its answer IS whether the
+ *  lockout landed, so an unstubbed call must be loud rather than silently reporting a
+ *  change no box ever made. A `passwd` on the own box never touches it (that path writes
+ *  through `patches.write`), so a throwing default keeps an accidental dependency loud. */
+export const mockPasswdApi = (overrides: Partial<PasswdApi> = {}): PasswdApi => ({
+  change: NOT_IMPLEMENTED('passwd.change'),
+  ...overrides,
+});
+
 /** The eviction seam. Load-bearing rather than fire-and-forget: a default that
  *  quietly reported success would let a test believe a box came up empty when
  *  nothing was ever ended, which is exactly the failure `reboot` exists to refuse
@@ -363,6 +373,7 @@ export const mockCommandEnv = (overrides: Partial<CommandEnv> = {}): CommandEnv 
   scp: mockScpApi(),
   apt: mockAptApi(),
   su: mockSuApi(),
+  passwd: mockPasswdApi(),
   reboot: mockRebootApi(),
   // A server that could not be asked, so a test standing two hops deep runs its
   // line as it always did unless it says otherwise.

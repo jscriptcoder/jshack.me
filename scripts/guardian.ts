@@ -4,14 +4,18 @@
 //   report [name…]    Read each box and say how it stands, writing nothing
 //                     (`core/guardian/report.ts`): how many packages a patch would move
 //                     today, and whether a player has done more than visit — an open
-//                     session on it, a write that is not the box's own log line, or a
-//                     brick. What the operator reads before picking the boxes to restore.
+//                     session on it, a write that is not the box's own log line or the
+//                     guardian's, or a brick. What the operator reads before picking the boxes
+//                     to restore.
 //
 //   patch [name…]     Move every package on each box onto the fix that has shipped for it,
 //                     exactly as a root's `apt upgrade` would (`core/guardian/patch.ts`). A
 //                     hole whose fix is still inside its patch delay stays open until a later
-//                     round. Nobody is evicted, and nothing but the moved versions marks that
-//                     the guardian came by. A bricked box is reported and left alone.
+//                     round. Then every account on the box gets a fresh password, drawn here
+//                     from the pool it was generated from (`core/guardian/rotate.ts`), with
+//                     the `passwd` line for each on its auth.log: a seeded password is one a
+//                     player who decodes the bundle can work out, a drawn one is not. Nobody
+//                     is evicted. A bricked box is reported and left alone.
 //
 //   restore <name…>   Put each box back as generated, then patch it — a reinstall from
 //                     current media (`core/guardian/restore.ts`). A restore is a REBOOT, in
@@ -24,9 +28,9 @@
 //                          written mid-restore survives onto the clean one.
 //                       2. DELETE its whole journal: the defaced page, the rolled-back
 //                          manifest, the poisoned logs and a brick's `/boot` tombstone.
-//                       3. WRITE the patched manifest and a fresh boot marker, as the box
-//                          itself. The marker is what tells a terminal already standing on the
-//                          box that it went down.
+//                       3. WRITE the patched manifest, fresh passwords and a fresh boot marker,
+//                          as the box itself. The marker is what tells a terminal already
+//                          standing on the box that it went down.
 //                     Only the box the name is served from: the gateway and every other box
 //                     on its network keep what they hold. A fixed site's tables (boards,
 //                     stories, threads, the ledger) are not its journal and stay. There is no
@@ -49,7 +53,7 @@
 // done before it stays done, and the line names the box and the step that failed), 2 on an
 // order it refuses or missing env — both before anything is read or written.
 
-import { randomUUID } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import {
   boxesNamed,
@@ -75,6 +79,9 @@ import {
   type Report,
 } from '../src/core/guardian/report.js';
 import type { PublicBox } from '../src/core/guardian/publicBoxes.js';
+import { decideRotation, type PasswordDraw } from '../src/core/guardian/rotate.js';
+import { CRACKABLE_PASSWORDS, UNCRACKABLE_HASHES } from '../src/core/generation/passwordPools.js';
+import { md5 } from '../src/core/generation/md5.js';
 import type { OwnerPatchRow } from '../src/core/network/materializeMachineFs.js';
 import {
   endChainsAbove,
@@ -112,6 +119,19 @@ if (!url || !serviceKey) {
 
 const sr = createClient(url, serviceKey, { auth: { persistSession: false } });
 
+/** One entry of `pool`, drawn by the operating system: a seeded draw would only be a new
+ *  shortcut for whoever decodes the seed. */
+const drawFrom = (pool: readonly string[]): string => {
+  const entry = pool[randomInt(pool.length)];
+  if (entry === undefined) throw new Error('an empty password pool');
+  return entry;
+};
+
+const draw: PasswordDraw = {
+  crackable: () => md5(drawFrom(CRACKABLE_PASSWORDS)),
+  uncrackable: () => drawFrom(UNCRACKABLE_HASHES),
+};
+
 const fail = (box: PublicBox, label: string, error: { message: string }): never => {
   console.error(`${box.name}: ${label} failed: ${error.message}`);
   process.exit(1);
@@ -141,18 +161,21 @@ const report = async (box: PublicBox, gameDay: number): Promise<Report> => {
   return decideReport({ box, journal, openSessions: accounts, gameDay });
 };
 
-const patch = async (box: PublicBox, gameDay: number): Promise<PatchOutcome> => {
-  const outcome = decidePatch({ box, journal: await journalOf(box), gameDay });
-  if (outcome.kind === 'upgraded') {
-    const written = await sr
-      .from('patches')
-      .upsert(
-        { machine_id: box.machineId, ...outcome.row },
-        { onConflict: 'machine_id,path,writer_key' },
-      );
-    if (written.error) fail(box, 'writing the manifest', written.error);
+type Patched = { readonly outcome: PatchOutcome; readonly passwords: number };
+
+const patch = async (box: PublicBox, gameDay: number): Promise<Patched> => {
+  const journal = await journalOf(box);
+  const outcome = decidePatch({ box, journal, gameDay });
+  const rotation = decideRotation({ box, journal, draw, now: Date.now() });
+  const rows = [...(outcome.kind === 'upgraded' ? [outcome.row] : []), ...rotation.rows];
+  if (rows.length > 0) {
+    const written = await sr.from('patches').upsert(
+      rows.map((row) => ({ machine_id: box.machineId, ...row })),
+      { onConflict: 'machine_id,path,writer_key' },
+    );
+    if (written.error) fail(box, 'writing the manifest and passwords', written.error);
   }
-  return outcome;
+  return { outcome, passwords: rotation.accounts.length };
 };
 
 /** One rung of a chain standing on a closed session: that player's open rows above it. */
@@ -183,7 +206,11 @@ const restore = async (box: PublicBox, gameDay: number): Promise<string> => {
   const removed = await sr.from('patches').delete().eq('machine_id', box.machineId).select('path');
   if (removed.error) fail(box, 'emptying the journal', removed.error);
 
-  const { patch: patched, rows } = decideRestore({ box, gameDay, bootId: randomUUID() });
+  const {
+    patch: patched,
+    rotation,
+    rows,
+  } = decideRestore({ box, gameDay, bootId: randomUUID(), draw, now: Date.now() });
   const written = await sr.from('patches').upsert(
     rows.map((row) => ({ machine_id: box.machineId, ...row })),
     { onConflict: 'machine_id,path,writer_key' },
@@ -194,6 +221,7 @@ const restore = async (box: PublicBox, gameDay: number): Promise<string> => {
     closed: onBox.length + chains.closed.size,
     removed: removed.data?.length ?? 0,
     patch: patched,
+    passwords: rotation.accounts.length,
   });
 };
 
@@ -210,13 +238,18 @@ const reportRound = async (boxes: readonly PublicBox[], gameDay: number) => {
 
 const patchRound = async (boxes: readonly PublicBox[], gameDay: number) => {
   console.log(patchHeader(boxes.length, new URL(url).host));
-  const outcomes: PatchOutcome[] = [];
+  const done: Patched[] = [];
   for (const box of boxes) {
-    const outcome = await patch(box, gameDay);
-    console.log(`  ${patchLine(box.name, outcome)}`);
-    outcomes.push(outcome);
+    const patched = await patch(box, gameDay);
+    console.log(`  ${patchLine(box.name, patched.outcome, patched.passwords)}`);
+    done.push(patched);
   }
-  console.log(patchTotal(outcomes));
+  console.log(
+    patchTotal(
+      done.map(({ outcome }) => outcome),
+      done.reduce((sum, { passwords }) => sum + passwords, 0),
+    ),
+  );
 };
 
 const restoreRound = async (boxes: readonly PublicBox[], gameDay: number) => {

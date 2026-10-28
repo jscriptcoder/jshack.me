@@ -61,156 +61,157 @@ const fingerprint = (key: string): string => {
  *  was), and whenever the uncrackable pool in `JSHACK_SECRETS` changes, since every
  *  landmark holds a door that drew from it; and when each kind of place lost one of its
  *  ordinary mail threads to keep the bundle under its ceiling, since a landmark's
- *  mailboxes are written from them. */
+ *  mailboxes are written from them; and when `passwd` shipped and every box gained a
+ *  `/bin/passwd` binary beside `/bin/su`, so each landmark's boxes carry one more file. */
 const FINGERPRINTS: Readonly<Record<string, string>> = {
-  'ACME-CORP': '96fe6bf75e9b8dd4d432cb6aa98d6374',
-  'INITECH-5G': '61b8cd448dbe0dee034ad0c4da9974d0',
-  'GLOBEX-NET': 'bcab2cc01f90e496adbb8aa7b943ca04',
-  'WAYSTAR-WIFI': 'dab0f66cdf40a98b2ec275bfa9c5b325',
-  'DUNDER-LAN': '24df221ddf937bc3c9fc6371fb5e294a',
-  'HOOLI-SEC': 'fff28cb197ef2655c8b4c2dbef102fb4',
-  'UMBRELLA-NET': 'd65ea867bd7236ab81ad70aa37356c33',
-  'STARK-WIFI': '45a9503a87c77496dda671381392e63f',
-  'CYBERDYNE-5G': 'a28a4cae0072a90521a17ec1e471e82e',
-  'OSCORP-GUEST': '7fa4fd411b07916f45f5e5ffc2be4064',
-  'WEYLAND-NET': 'ca57333b047e4c636c510ff2f9c3eb7f',
-  'TYRELL-CORP': 'b0048643f94e1fa25c9c55c82e453fca',
-  'APERTURE-WIFI': '3697cb486b1d0c4fda975e7c3823d374',
-  'SHINRA-5G': '75b61d79895eddd7242f99632151033a',
-  'ABSTERGO-NET': 'ee13286b3f6798d499547cbbf0544c1d',
-  'WONKA-LABS': '2ff71bd7380360acd39bb7fa33c470fe',
-  'OMNI-CORP': 'e25a2753970abcc0a5278324fe80375e',
-  'PIED-PIPER': 'b46224baf59ea9e7a589aa40c0cba324',
-  'VANDELAY-INDUSTRIES': '37a246b1687320a78055061733fed383',
-  'NAKATOMI-PLAZA': 'b2b331ce4fa717d9670251e3c2d9d6b5',
-  'BREW-AND-CODE': '6bbd07c77fef886d8301f3672b0ae5ce',
-  'BEAN-THERE-WIFI': '72e106cdbc46a678fe08f4cbc1b35225',
-  'MIDNIGHT-DINER': 'f7cfa6a1346308bb07c84aba8c13e828',
-  'NIGHT-OWL-CAFE': 'e5b45ba28c8b3226e72cf56a44c46a43',
-  'GROUND-ZERO-COFFEE': '8c11cc2797718a86b6f47cd18ab75b38',
-  'ESPRESSO-EXPRESS': '70b91affee4a7ac6ee9387a17b4bc510',
-  'APT-3B-WIFI': '86272b8e26285e66900fb2fd7aca1850',
-  'UPSTAIRS-NEIGHBOR': 'b1912a14d7ad1763b2218df61cd20414',
-  'FAMILY-WIFI-2G': 'f62b96035cbfd8b134f6758b20c4f53a',
-  'CASA-DE-RAMIREZ': '0a398a6597bdbf2e324aeede38d7e563',
-  'SUITE-401': '3a19c2d251316c8f9400dfa322f49ffd',
-  'HOUSE-OF-CARDS': 'cbd2f9578ceef24dc1574fe29bee4443',
-  'UNIV-DORM-7': '957caa4b5fe593adc4381581ee16a6c2',
-  'CS-DEPT-LAB': '5b0e6dfc4c9f944c63ace994bb28bfb6',
-  'GRAD-STUDENT-WIFI': '594be7a5daebd9112c46e4864acdee60',
-  'CAMPUS-GUEST-OPEN': '4d05e5e81267353a0f293ea060e12535',
-  'LIB-2ND-FLOOR': 'bba606a4ee5eb8e12518d6f14a9a039b',
-  'LIBRARY-PATRON': '28d1b53855c7a57818bb2511846f1744',
-  'CITY-PARK-WIFI': '0a48b3e74f01c7dd554fc3e8dedd8f60',
-  'METRO-COMMUTER': '1fd469f28ee8e37613ea47af7ee31aa0',
-  'AIRPORT-LOUNGE-VIP': '1ba5eeb8382c69382c3330cd61afd0a1',
-  'TRAIN-STATION-FREE': '27d47862c5a9d6b3aa1a52aabf3ff6fd',
-  'SMART-FRIDGE-NET': '5710adbedeb46a1f838c0b00fca57384',
-  'EV-CHARGER-LOT-3': '0e28e7060dcd57ed131b0c543355364f',
-  'DOORBELL-CAM-OPEN': 'c14726ca9e0d6a87a28a2c3f6553d430',
-  'ROBOVAC-AP': '83bde3f3e23ad83487bbb8c25c15f285',
-  'DEFCON-VILLAGE': 'd068f22e7f2e1186a5693bcaa689c4b3',
-  'HACKERSPACE-2600': '8b5cc499c8c427122e5263a0e0ab8f66',
-  'BOFH-KEEPOUT': '552c29b1b53e9cdada499ef012843bb0',
-  'NULL-BYTE': '1b45b1d8fbc2cf4884940af10c279b3f',
-  'RIDGEMONT-PD': '37ce7c2eade7494b6272195dd18c121e',
-  'CITY-HALL-WIFI': 'c928ad7c60cb68a077c1fcd3d51b5bcf',
-  'COURTHOUSE-GUEST': '132ee47eae01ab14d82e662ba83055b1',
-  'KWIK-E-MART': '1ed0ad8a01ab9d6e31004ad92ce950eb',
-  MONSTROMART: '3a6ddbc5e5576b2458f8a377ffe9613a',
-  'BUY-N-LARGE': 'bf11aba57f9a8a680eea8efb8e2ba11a',
-  'MEGA-LO-MART': 'a45b52aa846357a00c7c5d44b7b93c0b',
+  'ACME-CORP': 'cc270a04cacbd03afc7f06ae36d35191',
+  'INITECH-5G': '2a45b2b551e015b5ac6ee8bbab2ae65a',
+  'GLOBEX-NET': '2015330056e65580b0f8129f23213183',
+  'WAYSTAR-WIFI': '3d44eff2df179d56584ccffc7f9e81b4',
+  'DUNDER-LAN': 'c61c61ebb251f26432b628d0854fb325',
+  'HOOLI-SEC': '1a0e76b23de556ebbdbf769d802627bd',
+  'UMBRELLA-NET': '539807eb5524a63958bbb82babbaab12',
+  'STARK-WIFI': '03d0cf98dab7809c765c99047fd93ca1',
+  'CYBERDYNE-5G': '845b3b893e9b2d70d9429bb668ee6f44',
+  'OSCORP-GUEST': 'b293aee9b07d2a28beb0bdf0f1a1546f',
+  'WEYLAND-NET': '373c4eef6df567161fbaa3301288e61e',
+  'TYRELL-CORP': '7a70e0eee0bc054b0da0d4f7fbc043e3',
+  'APERTURE-WIFI': 'ea7283ddcf7e45fd78d4870df7d5a1fa',
+  'SHINRA-5G': 'e4f06650bb05253dbcf067f569c57e22',
+  'ABSTERGO-NET': '426ed89efe486e97bdff799cfac154a5',
+  'WONKA-LABS': 'fcf14ec6fc1e3f6f7cad6a85c2d544cc',
+  'OMNI-CORP': '7e7056b9c50ffb9cb41f87cc8c1e850f',
+  'PIED-PIPER': '9eaa502f1ca520eeace504de3f07c26d',
+  'VANDELAY-INDUSTRIES': '3edfef8eb2b0e965fc183fc20027a00f',
+  'NAKATOMI-PLAZA': 'd5834f50c296f8cdd62dab09cd6b192c',
+  'BREW-AND-CODE': 'a6c4fc049dade2575e7c373558498f96',
+  'BEAN-THERE-WIFI': 'e36e65b0d76f5284586c5a893dbf89cf',
+  'MIDNIGHT-DINER': '7f16c727adbdf2306237a5fcfeaaa121',
+  'NIGHT-OWL-CAFE': '43d164e31679d94756aca95411fb3b2b',
+  'GROUND-ZERO-COFFEE': 'ac4f009fe3251aa599d6d69a0b8426f3',
+  'ESPRESSO-EXPRESS': 'f68183dc8cbd71d3230d347379567a0d',
+  'APT-3B-WIFI': 'ec873eb7947bed7d5ce87a095a6bed7e',
+  'UPSTAIRS-NEIGHBOR': '605cdd70ee680f1d4ce3e7358d2cb860',
+  'FAMILY-WIFI-2G': '721e0991d1e677b76c63c0d867d6053b',
+  'CASA-DE-RAMIREZ': '2bce1e3c0f56e2bba6ddfed592fdda5e',
+  'SUITE-401': 'ce0a01a913b0693066680b5bc785b58f',
+  'HOUSE-OF-CARDS': 'da564f5dd3b556781fa6eabe021cc824',
+  'UNIV-DORM-7': 'b7b1067c2ffc35b921336f1b2bfceab6',
+  'CS-DEPT-LAB': '4da961671f6474be73b98b332b5fbc73',
+  'GRAD-STUDENT-WIFI': '3e982233c0be6e2e60ea1d4dbe015b37',
+  'CAMPUS-GUEST-OPEN': 'b29cef920e323280fda7f99b0b4d1c10',
+  'LIB-2ND-FLOOR': '202e39b20adbb8326f778055432f01a3',
+  'LIBRARY-PATRON': '476605d62e056492a4f814ddc7a9bec1',
+  'CITY-PARK-WIFI': '2353ec261c5a2881cac8bc01e241f7a0',
+  'METRO-COMMUTER': '27f1d3405d3a40691fa76879c64ad717',
+  'AIRPORT-LOUNGE-VIP': '82065043be99ba11d6b86fa05c110277',
+  'TRAIN-STATION-FREE': '5392d1d04d278b598d1635ad95956cc5',
+  'SMART-FRIDGE-NET': '477c12153b4e022471324d0b4022077f',
+  'EV-CHARGER-LOT-3': '078a8ade7bcd256d080e077c6cd1d313',
+  'DOORBELL-CAM-OPEN': '055cd5e834e02141d7e46d7c7fc765cd',
+  'ROBOVAC-AP': '692eaebd8778578dc4c6e3746d4bd56f',
+  'DEFCON-VILLAGE': '2d9f76ec5ab0be5db04735bcd3064a66',
+  'HACKERSPACE-2600': 'd2d24ae06d2ad7e2fb922f8d3f91e8f4',
+  'BOFH-KEEPOUT': '38cb44ea41f4d2f2a6cff25cf9d381ed',
+  'NULL-BYTE': 'ae84c0c7236ca9c363fe7500a13788a9',
+  'RIDGEMONT-PD': 'f61b89d223d8799fc3205f03b6a16f18',
+  'CITY-HALL-WIFI': '87685c6460b04ff6e0ffc6c0acfe4ef6',
+  'COURTHOUSE-GUEST': '8ad7502b60adba24a2409e7e7e8b9a6b',
+  'KWIK-E-MART': 'c7faca2bbb2adfd4d02746a1448f56f5',
+  MONSTROMART: 'cf7b91598caa2b508dc175617270d435',
+  'BUY-N-LARGE': '8f7a712dae006c862927ac4e774c35f9',
+  'MEGA-LO-MART': 'a3dac5442c296105f81d5f533177f3db',
 };
 
 /** Each landmark of a town beyond Ridgemont as it was written, under its key, its wifi
  *  above it. They came after the towns, so they keep their public address too. */
 const TOWN_FINGERPRINTS: Readonly<Record<string, string>> = {
   // THE-SLAUGHTERED-LAMB
-  'r0/t1/n18': '4a6c2b04797f1b60cf047eee747dbff9',
+  'r0/t1/n18': '33092aad85f06e47eb5e46e14743b378',
   // LOCAL-SHOP-LOCAL-PEOPLE
-  'r0/t1/n19': '2f6d0f45ddf74472bdb30eb30985b7e0',
+  'r0/t1/n19': 'f312a9e0d1882630791afb1f0f90e74d',
   // WRONG-TROUSERS
-  'r0/t1/n20': '7611db3116d7d17ca0e73d574dcbcf82',
+  'r0/t1/n20': '34569346d8eca0b766e49394a5d63e3c',
   // THE-WOOLPACK
-  'r0/t2/n18': 'f84b94da2d8143c058d7bb5a8a34480f',
+  'r0/t2/n18': '0233cb44c0ac6b8f621c329260f40738',
   // GREENDALE-POST-OFFICE
-  'r0/t2/n19': '446bd307558988cf0048c28e5d2d0936',
+  'r0/t2/n19': 'f27f1cff517603614a2be24cd4e79266',
   // SKELDALE-HOUSE
-  'r0/t2/n20': '59e4154a9efaf1d3788497883baed549',
+  'r0/t2/n20': 'c9922f5e953215ff4e0e56bb8e8f9c84',
   // SARIF-INDUSTRIES
-  'r0/t3/n47': '1cb7c68412837f41edc2f0251c33acd6',
+  'r0/t3/n47': 'a860e2810e7d4e26659d58588e322d62',
   // DOUBLE-R-DINER
-  'r0/t3/n48': '736a08606dde26c493a8a4b44c371611',
+  'r0/t3/n48': 'd6655cc19c4f951b32ef8f47cb691f61',
   // NOOKS-CRANNY
-  'r0/t3/n49': '26ec212a47efa91844f449d8362e80a4',
+  'r0/t3/n49': 'a5288850cf2df9594627d6cf02ad165e',
   // LOG-LADY-CABIN
-  'r0/t3/n50': '1458bceeeebb37d3323641c5df3c7754',
+  'r0/t3/n50': '600408b4d0d315c714c0faf333ebbdd1',
   // JOHNNY-5-AP
-  'r0/t3/n51': '232506efaeee0ea3de01c45a51adec36',
+  'r0/t3/n51': 'd1a272b185b0c262d01d1546f91c12b1',
   // LUMON-INDUSTRIES
-  'r0/t4/n166': '5fa2993d57ca0838b8a2e30dc87fae65',
+  'r0/t4/n166': 'a54615f46a22a812784b1da816270c4d',
   // E-CORP-GUEST
-  'r0/t4/n167': 'e0853cfb9983cb68d106f5018468ca85',
+  'r0/t4/n167': 'd6203bcc7439debc08adbb131bb61696',
   // ENCOM-NET
-  'r0/t4/n168': 'e6d836a414aac88ead82602ed6d351b3',
+  'r0/t4/n168': 'dbfae67b3efa974a537fc117f741e448',
   // REYNHOLM-INDUSTRIES
-  'r0/t4/n169': '9b0688748d85289507c77d8c0d7cfe4d',
+  'r0/t4/n169': '568c98caebf7bbf3ab1a8612463a4ad4',
   // CENTRAL-PERK
-  'r0/t4/n170': '480a2b08fb57e046f5ed68b9089c7e9a',
+  'r0/t4/n170': 'bb9eeb9a588f112b8ee56650d29af16a',
   // LOS-POLLOS-HERMANOS
-  'r0/t4/n171': '98576325ffadd484d45c40129e631a9c',
+  'r0/t4/n171': '1f100de282c974e0befbe8d75a576cfc',
   // JOJAMART
-  'r0/t4/n172': 'd7038783092a08ee5d935b4b6bf0d2d2',
+  'r0/t4/n172': '5b10d8716e938f6baf2c72c89eec19ca',
   // 221B-WIFI
-  'r0/t4/n173': '123f1342c15a36279b2ba18291f6fec7',
+  'r0/t4/n173': 'cf7ac432062c8ee72f07de39925a9643',
   // HAL-9000
-  'r0/t4/n174': '8899add2054ad9c80f9af38a9a7af87e',
+  'r0/t4/n174': '396d45664c07608d1c2bd10fc7bf68b3',
   // FSOCIETY
-  'r0/t4/n175': '3475a490cd8886e91917c133fc630e1b',
+  'r0/t4/n175': '97d1b63b500626657f78a46ee0a07879',
   // THE-GREEN-MAN
-  'r0/t5/n15': '23353cf05159ffabbf7fdc4956204493',
+  'r0/t5/n15': '0689e0e2098872faaf1824cf67dc591d',
   // LON-LON-RANCH
-  'r0/t5/n16': '5b2b441c718f5d60ac28f1734fa0ddf7',
+  'r0/t5/n16': '3da1f537477f91cb60839ae0ac493567',
   // TALKIE-TOASTER
-  'r0/t5/n17': 'df172cc67560df4c0facff55a25927e7',
+  'r0/t5/n17': 'a81792bfc00c9db6380e97d284138c80',
   // FAWLTY-TOWERS
-  'r0/t6/n20': 'f759a0d3a9b07e3f8cae491fa5434931',
+  'r0/t6/n20': 'acbd410d422f6407801647aba4f4c0a2',
   // PIERRES-GENERAL-STORE
-  'r0/t6/n21': '1cb64efa4ee0f9be608ab38f9e1e4f72',
+  'r0/t6/n21': '125f2d8af679db328978df3430970e3e',
   // THE-GIBSON
-  'r0/t6/n22': '41530721a24ae87f3f8f983789a62a1a',
+  'r0/t6/n22': '5bd3cfbe80cfe7386fc7abece65b1070',
   // THE-THREE-BROOMSTICKS
-  'r0/t7/n17': '0f4f1149a5eb19267f764dc99e673f01',
+  'r0/t7/n17': 'dbfaddb6fb1c04f8fd38107f1e6b5968',
   // JUPITER-MINING
-  'r0/t7/n18': '5df00e83167d25adcc2de1640e0e0b71',
+  'r0/t7/n18': 'c7df55b6e9989bbd7d0cc7c454784b4c',
   // THE-BURROW
-  'r0/t7/n19': 'fc1e09e30ca9fbe89342a3caf8e3e157',
+  'r0/t7/n19': 'd1fa964a97aa0f78e56f971a192930ce',
   // THE-HORSE-AND-GROOM
-  'r0/t8/n16': '1cf0b796371546abf44787fb6051cc99',
+  'r0/t8/n16': 'c1a70112f154fff5f9bf66732e091242',
   // BLACK-BOOKS
-  'r0/t8/n17': '76896432a5593d746e03acb2a171f6a2',
+  'r0/t8/n17': '00ea3d99c1208ca6fae873b605df57df',
   // DEEP-THOUGHT
-  'r0/t8/n18': '71aed0b478125931e57caa157cb561ca',
+  'r0/t8/n18': '3f0cbe721538926b03270db64ecba847',
   // INGEN-LABS
-  'r0/t9/n38': '52f1cad059a1080562ffb3f266418d46',
+  'r0/t9/n38': 'e930e165ba8ed4387bd0231bc16d67c0',
   // LUKES-DINER
-  'r0/t9/n39': '8439406b7bbd64c353d7859c9cfdc468',
+  'r0/t9/n39': 'dbcca60e36074df6d08ea94cd81f4b87',
   // SCOOPS-AHOY
-  'r0/t9/n40': '74142bc483116351abe3d4cfc2898240',
+  'r0/t9/n40': '2d440e078293d05a46f74259bb8d6cf1',
   // BAG-END
-  'r0/t9/n41': 'eacac80c83219911a9453e2bb4fe3326',
+  'r0/t9/n41': '41f443f13857acf386afdd38a058ca57',
   // SETEC-ASTRONOMY
-  'r0/t9/n42': '953e7d2ea7db6309b8d9408bf2ab0307',
+  'r0/t9/n42': 'f3625cd7576f80683282deaabf38cc7a',
   // WERNHAM-HOGG
-  'r0/t10/n51': '120fc281354bb05e36f19b7bd5ad722e',
+  'r0/t10/n51': '51f7aadefb5f484eaef33639826859a5',
   // THE-WINCHESTER
-  'r0/t10/n52': 'c69e26131881baa73f73254804f9cf4f',
+  'r0/t10/n52': '0e7b9623b7ec444b968fe40695a6a59f',
   // TROTTERS-INDEPENDENT-TRADERS
-  'r0/t10/n53': '75c38a1eaebd759e8632dc0e5f88319a',
+  'r0/t10/n53': '4350b9cec86120083b7d21fa50a377e2',
   // METEOR-STREET-FLAT
-  'r0/t10/n54': '2bdc2b86071a64ce5d5ae7708071b8fb',
+  'r0/t10/n54': '6f6b95ba8e3890fdf0524a635d2c3573',
   // THE-LONE-GUNMEN
-  'r0/t10/n55': 'f723e4b861795761529b3903b693ab42',
+  'r0/t10/n55': '2cf7f79e65772167e7c4e7cbb47fa5de',
 };
 
 describe('the landmarks', () => {

@@ -7,6 +7,7 @@ import {
   restoreTotal,
 } from './restore.js';
 import { decidePatch, type Held, type PatchOutcome } from './patch.js';
+import { decideRotation, type PasswordDraw } from './rotate.js';
 import { publicBox, type PublicBox } from './publicBoxes.js';
 import { planUpgrade } from '../cve/planUpgrade.js';
 import { DPKG_STATUS_PERMISSIONS, readDpkgStatus } from '../packages/dpkgStatus.js';
@@ -28,6 +29,13 @@ const boxNamed = (name: string): PublicBox => {
 };
 
 const BOOT_ID = '6f1c2a9e-0b4d-4e57-9a3c-2d8e7f6a1b05';
+
+const NOW = Date.parse('2026-10-28T09:30:00.000Z');
+
+const DRAW: PasswordDraw = {
+  crackable: () => 'crackable-hash',
+  uncrackable: () => 'uncrackable-hash',
+};
 
 /** The first game day `box`, as generated, has a fix to install. */
 const dayWithFixes = (box: PublicBox): number => {
@@ -51,18 +59,22 @@ const held = (pkg: string, etaDays: number): Held => ({
 });
 
 describe('decideRestore', () => {
-  it('writes the generated box, upgraded, and a fresh boot marker, both as the box itself', () => {
+  it('writes the generated box, upgraded, its passwords changed and a fresh boot marker, all as the box itself', () => {
     const box = boxNamed('millbrook.gov');
     const gameDay = dayWithFixes(box);
     const reinstalled = decidePatch({ box, journal: null, gameDay });
     if (reinstalled.kind !== 'upgraded') throw new Error('expected a fix to install');
 
-    const restore = decideRestore({ box, gameDay, bootId: BOOT_ID });
+    const restore = decideRestore({ box, gameDay, bootId: BOOT_ID, draw: DRAW, now: NOW });
 
+    const rotation = decideRotation({ box, journal: null, draw: DRAW, now: NOW });
+    expect(rotation.accounts.length).toBeGreaterThan(0);
     expect(restore).toEqual({
       patch: reinstalled,
+      rotation,
       rows: [
         reinstalled.row,
+        ...rotation.rows,
         {
           path: BOOT_ID_PATH,
           content: `${BOOT_ID}\n`,
@@ -79,28 +91,32 @@ describe('decideRestore', () => {
     const box = boxNamed('findit.io');
     const gameDay = dayWithFixes(box);
 
-    const { rows } = decideRestore({ box, gameDay, bootId: BOOT_ID });
+    const { rows } = decideRestore({ box, gameDay, bootId: BOOT_ID, draw: DRAW, now: NOW });
 
     expect(decidePatch({ box, journal: asJournal(rows), gameDay })).toMatchObject({
       kind: 'up-to-date',
     });
   });
 
-  it('writes only the marker when the generated box has nothing to install', () => {
+  it('changes the passwords even when the generated box has nothing to install', () => {
     const box = boxNamed('boards.hireme.io');
 
-    const restore = decideRestore({ box, gameDay: 0, bootId: BOOT_ID });
+    const restore = decideRestore({ box, gameDay: 0, bootId: BOOT_ID, draw: DRAW, now: NOW });
 
     expect(restore.patch).toEqual({ kind: 'up-to-date', held: [] });
-    expect(restore.rows.map(({ path }) => path)).toEqual([BOOT_ID_PATH]);
+    expect(restore.rows.map(({ path }) => path)).toEqual([
+      '/etc/passwd',
+      '/var/log/auth.log',
+      BOOT_ID_PATH,
+    ]);
   });
 
-  it('writes the same rows for the same day and boot id, so a second restore changes nothing', () => {
+  it('writes the same rows for the same day, boot id and draw', () => {
     const box = boxNamed('ashbylibrary.org');
     const gameDay = dayWithFixes(box);
 
-    expect(decideRestore({ box, gameDay, bootId: BOOT_ID })).toEqual(
-      decideRestore({ box, gameDay, bootId: BOOT_ID }),
+    expect(decideRestore({ box, gameDay, bootId: BOOT_ID, draw: DRAW, now: NOW })).toEqual(
+      decideRestore({ box, gameDay, bootId: BOOT_ID, draw: DRAW, now: NOW }),
     );
   });
 });
@@ -134,23 +150,37 @@ describe('restoreLine', () => {
   };
 
   it('counts what it threw off and wiped, then says what the reinstall upgraded', () => {
-    expect(restoreLine('millbrook.gov', { closed: 2, removed: 23, patch: upgraded })).toBe(
+    expect(
+      restoreLine('millbrook.gov', { closed: 2, removed: 23, patch: upgraded, passwords: 3 }),
+    ).toBe(
       'millbrook.gov: restored (2 sessions closed, 23 rows removed), ' +
         '2 upgraded (nginx 1.26.0 → 1.26.2, libssl 3.2.1 → 3.2.4), ' +
-        '1 held (libpam: no fix yet — ETA ~2 days)',
+        '1 held (libpam: no fix yet — ETA ~2 days), 3 passwords changed',
     );
   });
 
   it('counts one of each in the singular, and calls a box with nothing to install up to date', () => {
     expect(
-      restoreLine('findit.io', { closed: 1, removed: 1, patch: { kind: 'up-to-date', held: [] } }),
-    ).toBe('findit.io: restored (1 session closed, 1 row removed), up to date');
+      restoreLine('findit.io', {
+        closed: 1,
+        removed: 1,
+        patch: { kind: 'up-to-date', held: [] },
+        passwords: 1,
+      }),
+    ).toBe('findit.io: restored (1 session closed, 1 row removed), up to date, 1 password changed');
   });
 
   it('counts an untouched box as nothing closed and nothing removed', () => {
     expect(
-      restoreLine('ashby.gov', { closed: 0, removed: 0, patch: { kind: 'up-to-date', held: [] } }),
-    ).toBe('ashby.gov: restored (0 sessions closed, 0 rows removed), up to date');
+      restoreLine('ashby.gov', {
+        closed: 0,
+        removed: 0,
+        patch: { kind: 'up-to-date', held: [] },
+        passwords: 3,
+      }),
+    ).toBe(
+      'ashby.gov: restored (0 sessions closed, 0 rows removed), up to date, 3 passwords changed',
+    );
   });
 });
 

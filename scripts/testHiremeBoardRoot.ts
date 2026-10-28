@@ -34,10 +34,13 @@ import { decideRestore } from '../src/core/guardian/restore.js';
 import { publicBox } from '../src/core/guardian/publicBoxes.js';
 import { gameDayAt } from '../src/core/cve/worldClock.js';
 import { asEpochMs } from '../src/core/types.js';
+import type { PasswordDraw } from '../src/core/guardian/rotate.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { boardPage } from '../src/core/hireme/pages.js';
 import { deserializeTree, type SerializedDirectory } from '../src/core/filesystem/treeCodec.js';
 import type { Directory, FileNode } from '../src/core/filesystem/types.js';
+
+const PATHS_ONLY_DRAW: PasswordDraw = { crackable: () => '', uncrackable: () => '' };
 
 type Identity = ReturnType<typeof generateIdentity>;
 
@@ -316,15 +319,18 @@ const main = async () => {
   );
   const rows = await journal();
   // What a restore writes on the server's day: the patched manifest when a fix has shipped
-  // for anything the box runs, and the boot marker.
+  // for anything the box runs, fresh passwords with their auth.log lines, and the boot marker.
   const restoredPaths = decideRestore({
     box: publicBox(BOARD_SERVER_NETWORK)!,
     gameDay: gameDayAt(asEpochMs(Date.now())),
     bootId: 'expected',
+    // Only the paths are read: which words the restore drew is the script's business.
+    draw: PATHS_ONLY_DRAW,
+    now: Date.now(),
   }).rows.map(({ path }) => path);
   const journalPaths = rows.map(({ path }) => path);
   check(
-    "the boards' server's journal holds today's manifest and a fresh boot marker, nothing else",
+    "the boards' server's journal holds today's manifest, fresh passwords and a boot marker, nothing else",
     journalPaths.length === restoredPaths.length &&
       restoredPaths.every((path) => journalPaths.includes(path)) &&
       rows.every((row) => row.writer_key === apGatewayLogWriterKey(BOARD_SERVER_NETWORK)),

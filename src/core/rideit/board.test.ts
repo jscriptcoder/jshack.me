@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { answerBoard, type BoardDeps } from './board.js';
+import { answerBoard, answerTicket, type BoardDeps } from './board.js';
+import { RIDE_FARE, tripAddress } from './fare.js';
 import { TOWNS } from '../generation/world.js';
 import type { PlayerLocationRow } from '../network/playerLocation.js';
 import { sessionRow, sessionTable, type SessionRow } from '../../test/factories/sessionTable.js';
@@ -7,6 +8,11 @@ import { sessionRow, sessionTable, type SessionRow } from '../../test/factories/
 /**
  * Boarding a ride at rideit.io: a form POSTed to `/board` naming a town. A town the world
  * declares moves the player there; anything else is refused and changes nothing.
+ *
+ * A ride costs the fare, paid to an address made for the player and their next trip. Until
+ * the whole fare has arrived there, a boarding is refused and changes nothing. A boarding
+ * moves the trip count on, so the next trip is paid to a fresh address and one fare buys
+ * one trip.
  *
  * Boarding is leaving, exactly as `nmcli disconnect` is: the player's box comes off every
  * network it is on, and every connection that ran through it closes, both ways. Only then
@@ -21,6 +27,17 @@ const BOX = 'skylab-deadbeef';
 const [FIRST_TOWN, SECOND_TOWN] = [TOWNS[0]!.name, TOWNS[1]!.name];
 
 const boardFor = (town: string): string => new URLSearchParams({ town }).toString();
+
+/** The fare, arrived at the player's trip address once they have taken `tripsTaken`. */
+const farePaid = (tripsTaken: number): ReadonlyMap<string, number> =>
+  new Map([[tripAddress(PLAYER, tripsTaken), RIDE_FARE]]);
+
+/** An in-memory public ledger: the JSC held at each address, none anywhere else. */
+const ledgerOf = (balances: ReadonlyMap<string, number>) =>
+  vi.fn<BoardDeps['findBalance']>(async (address) => ({
+    data: balances.has(address) ? { balance: balances.get(address), next_sequence: 1 } : null,
+    error: null,
+  }));
 
 /** An in-memory `player_locations` table holding `initial` for the player, whose write
  *  holds only while the trip count it names is still the stored one. */
@@ -41,16 +58,19 @@ const locationStore = (initial: PlayerLocationRow | null) => {
 };
 
 /** A rideit wired to an in-memory location and `sessions` table, the player's box on one
- *  network unless `onNetworks` says otherwise. */
+ *  network unless `onNetworks` says otherwise, and a ledger holding the fare for the
+ *  player's next trip unless `balances` says what it holds. */
 const makeDeps = (
   options: {
     readonly location?: PlayerLocationRow | null;
     readonly onNetworks?: number;
     readonly sessions?: readonly SessionRow[];
+    readonly balances?: ReadonlyMap<string, number>;
   } = {},
   over: Partial<BoardDeps> = {},
 ) => {
   const store = locationStore(options.location ?? null);
+  const findBalance = ledgerOf(options.balances ?? farePaid(options.location?.trips ?? 0));
   const table = sessionTable(options.sessions ?? []);
   const deleteOccupancies = vi.fn<BoardDeps['deleteOccupancies']>(async () => ({
     data: Array.from({ length: options.onNetworks ?? 1 }, () => ({
@@ -60,6 +80,7 @@ const makeDeps = (
   }));
   const deps: BoardDeps = {
     findPlayerLocation: store.findPlayerLocation,
+    findBalance,
     moveLocation: store.moveLocation,
     deleteOccupancies,
     endVisitorSessions: table.endVisitorSessions,
@@ -67,7 +88,7 @@ const makeDeps = (
     endSessionsAbove: table.endSessionsAbove,
     ...over,
   };
-  return { deps, store, table, deleteOccupancies };
+  return { deps, store, table, deleteOccupancies, findBalance };
 };
 
 const board = (form: string, deps: BoardDeps) => answerBoard({ form, playerKey: PLAYER, deps });
@@ -112,6 +133,15 @@ describe('answerBoard: where a ride goes', () => {
     expect(store.current()).toEqual({ town: FIRST_TOWN, trips: 2 });
   });
 
+  it('refuses a town it does not go to before it asks whether the fare was paid', async () => {
+    const { deps, findBalance } = makeDeps({ balances: new Map() });
+
+    const answer = await board(boardFor('Atlantis'), deps);
+
+    expect(textOf(answer!.page)).toContain('We do not go there.');
+    expect(findBalance).not.toHaveBeenCalled();
+  });
+
   it('reads where the player stands by the key it was given', async () => {
     const { deps, store } = makeDeps();
 
@@ -138,6 +168,79 @@ describe('answerBoard: where a ride goes', () => {
     expect(deleteOccupancies).not.toHaveBeenCalled();
     expect(store.moveLocation).not.toHaveBeenCalled();
     expect(store.current()).toEqual({ town: FIRST_TOWN, trips: 1 });
+  });
+});
+
+describe('answerBoard: the fare', () => {
+  it.each([
+    ['nothing has', new Map<string, number>(), 'The fare has not arrived: 0 of 25 JSC.'],
+    [
+      'one coin short has',
+      new Map([[tripAddress(PLAYER, 2), RIDE_FARE - 1]]),
+      'The fare has not arrived: 24 of 25 JSC.',
+    ],
+    [
+      'only the last trip’s fare has',
+      new Map([[tripAddress(PLAYER, 1), RIDE_FARE]]),
+      'The fare has not arrived: 0 of 25 JSC.',
+    ],
+    [
+      'only another player’s fare has',
+      new Map([[tripAddress('bob-key', 2), RIDE_FARE]]),
+      'The fare has not arrived: 0 of 25 JSC.',
+    ],
+  ])(
+    'refuses a boarding when %s arrived, says how much, and changes nothing',
+    async (_case, balances, says) => {
+      const { deps, store, deleteOccupancies } = makeDeps({
+        location: { town: FIRST_TOWN, trips: 2 },
+        balances,
+      });
+
+      const answer = await board(boardFor(SECOND_TOWN), deps);
+
+      expect(answer?.left).toBe(false);
+      expect(textOf(answer!.page)).toContain(says);
+      expect(deleteOccupancies).not.toHaveBeenCalled();
+      expect(store.moveLocation).not.toHaveBeenCalled();
+      expect(store.current()).toEqual({ town: FIRST_TOWN, trips: 2 });
+    },
+  );
+
+  it.each([
+    ['exactly the fare', RIDE_FARE],
+    ['more than the fare', RIDE_FARE + 5],
+  ])('boards when %s has arrived at the trip address', async (_case, paid) => {
+    const { deps, store, findBalance } = makeDeps({
+      location: { town: FIRST_TOWN, trips: 2 },
+      balances: new Map([[tripAddress(PLAYER, 2), paid]]),
+    });
+
+    const answer = await board(boardFor(SECOND_TOWN), deps);
+
+    expect(answer?.left).toBe(true);
+    expect(textOf(answer!.page)).toContain(`You have arrived in ${SECOND_TOWN}.`);
+    expect(store.current()).toEqual({ town: SECOND_TOWN, trips: 3 });
+    expect(findBalance.mock.calls).toEqual([[tripAddress(PLAYER, 2)]]);
+  });
+
+  it('takes a player who never travelled on their first fare, paid to their first trip address', async () => {
+    const { deps, store } = makeDeps({ balances: farePaid(0) });
+
+    await board(boardFor(SECOND_TOWN), deps);
+
+    expect(store.current()).toEqual({ town: SECOND_TOWN, trips: 1 });
+  });
+
+  it('buys one trip with one fare: the next boarding finds the next address empty', async () => {
+    const { deps, store } = makeDeps({ balances: farePaid(0) });
+
+    await board(boardFor(SECOND_TOWN), deps);
+    const again = await board(boardFor(FIRST_TOWN), deps);
+
+    expect(again?.left).toBe(false);
+    expect(textOf(again!.page)).toContain('The fare has not arrived: 0 of 25 JSC.');
+    expect(store.current()).toEqual({ town: SECOND_TOWN, trips: 1 });
   });
 });
 
@@ -207,6 +310,44 @@ describe('answerBoard: two boardings at once', () => {
   });
 });
 
+/**
+ * A boarding that moved the player says which ride it was: the town, and the trip address
+ * the fare was paid at. That is what rideit's booking log records, so a boarding that moved
+ * nobody reports no ride at all.
+ */
+describe('answerBoard: the ride it reports', () => {
+  it('reports the town and the address the fare was paid at, for the trip it took', async () => {
+    const { deps } = makeDeps({ location: { town: FIRST_TOWN, trips: 2 } });
+
+    const answer = await board(boardFor(SECOND_TOWN), deps);
+
+    expect(answer?.ride).toEqual({ town: SECOND_TOWN, address: tripAddress(PLAYER, 2) });
+  });
+
+  it.each([
+    ['a town it does not go to', boardFor('Atlantis'), farePaid(0)],
+    ['a fare that has not arrived', boardFor(SECOND_TOWN), new Map<string, number>()],
+  ])('reports no ride for %s', async (_case, form, balances) => {
+    const { deps } = makeDeps({ balances });
+
+    expect((await board(form, deps))?.ride).toBeNull();
+  });
+
+  it('reports a ride for the boarding that moved the player, and none for the one that lost', async () => {
+    const { deps } = makeDeps({ location: { town: FIRST_TOWN, trips: 2 } });
+
+    const answers = await Promise.all([
+      board(boardFor(SECOND_TOWN), deps),
+      board(boardFor(SECOND_TOWN), deps),
+    ]);
+
+    expect(answers.map((answer) => answer?.ride)).toEqual([
+      { town: SECOND_TOWN, address: tripAddress(PLAYER, 2) },
+      null,
+    ]);
+  });
+});
+
 describe('answerBoard: a store that fails', () => {
   it('answers nothing, and leaves and moves nothing, when it cannot tell where the player stands', async () => {
     const { deps, deleteOccupancies, store } = makeDeps(
@@ -239,6 +380,27 @@ describe('answerBoard: a store that fails', () => {
     expect(store.moveLocation).not.toHaveBeenCalled();
   });
 
+  it('answers nothing, and leaves and moves nothing, when the ledger cannot be read', async () => {
+    const { deps, deleteOccupancies, store } = makeDeps(
+      {},
+      { findBalance: async () => ({ data: null, error: new Error('down') }) },
+    );
+
+    expect(await board(boardFor(SECOND_TOWN), deps)).toBeNull();
+    expect(deleteOccupancies).not.toHaveBeenCalled();
+    expect(store.moveLocation).not.toHaveBeenCalled();
+  });
+
+  it('answers nothing, and leaves nothing, when the ledger answers a row that is not a balance', async () => {
+    const { deps, deleteOccupancies } = makeDeps(
+      {},
+      { findBalance: async () => ({ data: { balance: 'lots' }, error: null }) },
+    );
+
+    expect(await board(boardFor(SECOND_TOWN), deps)).toBeNull();
+    expect(deleteOccupancies).not.toHaveBeenCalled();
+  });
+
   it('answers nothing when the move cannot be written', async () => {
     const { deps } = makeDeps(
       {},
@@ -246,5 +408,72 @@ describe('answerBoard: a store that fails', () => {
     );
 
     expect(await board(boardFor(SECOND_TOWN), deps)).toBeNull();
+  });
+});
+
+/**
+ * The ticket page is written for its reader: the fare, the address their next trip is paid
+ * to, and how much has arrived there. The address stays the same until they board.
+ */
+describe('answerTicket', () => {
+  const ticket = (deps: BoardDeps) => answerTicket({ playerKey: PLAYER, deps });
+
+  it('quotes a player who never travelled their first trip address, and nothing arrived', async () => {
+    const { deps } = makeDeps({ balances: new Map() });
+
+    const page = await ticket(deps);
+
+    expect(textOf(page!)).toContain(tripAddress(PLAYER, 0));
+    expect(textOf(page!)).toContain('Paid so far: 0 of 25 JSC.');
+  });
+
+  it('quotes a traveller the address of the trip after the ones they have taken, and what arrived', async () => {
+    const { deps, findBalance } = makeDeps({
+      location: { town: FIRST_TOWN, trips: 3 },
+      balances: new Map([
+        [tripAddress(PLAYER, 3), 10],
+        [tripAddress(PLAYER, 2), RIDE_FARE],
+      ]),
+    });
+
+    const page = await ticket(deps);
+
+    expect(textOf(page!)).toContain(`$ wallet send ${tripAddress(PLAYER, 3)} 25`);
+    expect(textOf(page!)).toContain('Paid so far: 10 of 25 JSC.');
+    expect(findBalance.mock.calls).toEqual([[tripAddress(PLAYER, 3)]]);
+  });
+
+  it('quotes the same address on every visit, and a fresh one once the player boards', async () => {
+    const { deps } = makeDeps();
+
+    const first = await ticket(deps);
+    const again = await ticket(deps);
+    await board(boardFor(SECOND_TOWN), deps);
+    const after = await ticket(deps);
+
+    expect(again).toBe(first);
+    expect(textOf(after!)).toContain(tripAddress(PLAYER, 1));
+    expect(textOf(after!)).not.toContain(tripAddress(PLAYER, 0));
+  });
+
+  it('never shows the player their key, nor where they stand', async () => {
+    const { deps } = makeDeps({ location: { town: FIRST_TOWN, trips: 1 } });
+
+    const page = await ticket(deps);
+
+    expect(page).not.toContain(PLAYER);
+    expect(textOf(page!)).not.toMatch(new RegExp(`(from|in) ${FIRST_TOWN}`, 'i'));
+  });
+
+  it.each([
+    [
+      'where the player stands',
+      { findPlayerLocation: async () => ({ data: null, error: new Error('down') }) },
+    ],
+    ['the ledger', { findBalance: async () => ({ data: null, error: new Error('down') }) }],
+  ] as const)('answers nothing when %s cannot be read', async (_case, over) => {
+    const { deps } = makeDeps({}, over);
+
+    expect(await ticket(deps)).toBeNull();
   });
 });

@@ -27,6 +27,7 @@ import {
   AUTH_LOG_OWNER,
   AUTH_LOG_PATH,
   AUTH_LOG_PERMISSIONS,
+  formatPasswdLine,
   formatSessionOpenedLine,
   formatSuAuthLine,
 } from '../logging/authLog.js';
@@ -131,6 +132,19 @@ const ftpTransferSchema = z
   })
   .refine(noStampedKeys);
 
+// A `passwd` change on the caller's own box. It carries only the account whose hash was
+// rewritten; the server formats passwd's own breadcrumb line. Success-only by the time it
+// reaches here — the command never sends the one failure it could log.
+const passwdChangeSchema = z
+  .looseObject({
+    action: z.literal('appendAuthLog'),
+    kind: z.literal('passwdChange'),
+    machine_id: z.string().min(1),
+    target_user: z.string().min(1),
+    hostname: z.string().min(1),
+  })
+  .refine(noStampedKeys);
+
 // The discriminated shapes first, so a payload carrying a discriminant is matched by its
 // own shape rather than falling through to the su schema (which would reject it for
 // missing su fields); a su envelope fails every kind literal and routes on.
@@ -138,6 +152,7 @@ const appendAuthLogSchema = z.union([
   sessionOpenedSchema,
   doorLoginSchema,
   ftpTransferSchema,
+  passwdChangeSchema,
   suSwitchSchema,
 ]);
 
@@ -185,6 +200,12 @@ const lineFor = (
     return {
       log: authLog,
       line: formatSessionOpenedLine({ user: payload.user, hostname: payload.hostname, time, pid }),
+    };
+  }
+  if (payload.kind === 'passwdChange') {
+    return {
+      log: authLog,
+      line: formatPasswdLine({ user: payload.target_user, hostname: payload.hostname, time, pid }),
     };
   }
   return {

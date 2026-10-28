@@ -20,6 +20,7 @@
 import { asAbsPath, type AbsPath, type GameTime } from '../types.js';
 import type { FilePermissions } from '../filesystem/types.js';
 import { escapeLogField } from './escapeLogField.js';
+import { formatAppLogTimestamp } from './appLogTimestamp.js';
 
 /** The canonical `/var/log/talkit.log` storage identity. World-READABLE like the other
  *  trace files, since getting on the box is the gate; root-only WRITE, as the forum's
@@ -33,15 +34,6 @@ export const TALKIT_LOG_PERMISSIONS: FilePermissions = {
   execute: ['root'],
 };
 
-const padZero = (value: number): string => value.toString().padStart(2, '0');
-
-/** `2026-10-19 14:37:02`, in UTC. */
-const formatTalkitTimestamp = (time: GameTime): string => {
-  const date = new Date(time);
-  const day = `${date.getUTCFullYear()}-${padZero(date.getUTCMonth() + 1)}-${padZero(date.getUTCDate())}`;
-  return `${day} ${padZero(date.getUTCHours())}:${padZero(date.getUTCMinutes())}:${padZero(date.getUTCSeconds())}`;
-};
-
 /** The line for a thread that went up: when, which thread, whose handle, from where. */
 export const formatTalkitPostLine = (post: {
   readonly time: GameTime;
@@ -49,7 +41,7 @@ export const formatTalkitPostLine = (post: {
   readonly handle: string;
   readonly sourceIp: string;
 }): string =>
-  `${formatTalkitTimestamp(post.time)} post #${post.id} by ${escapeLogField(post.handle)} from ${post.sourceIp}`;
+  `${formatAppLogTimestamp(post.time)} post #${post.id} by ${escapeLogField(post.handle)} from ${post.sourceIp}`;
 
 /** The line for a comment that went up: when, which comment on which thread, whose
  *  handle, from where. */
@@ -60,4 +52,4 @@ export const formatTalkitCommentLine = (comment: {
   readonly handle: string;
   readonly sourceIp: string;
 }): string =>
-  `${formatTalkitTimestamp(comment.time)} comment #${comment.number} on #${comment.threadId} by ${escapeLogField(comment.handle)} from ${comment.sourceIp}`;
+  `${formatAppLogTimestamp(comment.time)} comment #${comment.number} on #${comment.threadId} by ${escapeLogField(comment.handle)} from ${comment.sourceIp}`;

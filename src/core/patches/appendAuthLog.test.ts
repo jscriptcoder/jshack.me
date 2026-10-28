@@ -482,6 +482,80 @@ describe('handleAppendAuthLog — a login through a door on the own box', () => 
   });
 });
 
+// A `passwd` change on the caller's own box: passwd's own breadcrumb, naming the account
+// whose hash was rewritten, in the same auth.log a su switch lands in.
+describe('handleAppendAuthLog — a passwd change on the own box', () => {
+  const passwdEvent = (publicKeyHex: string, over: Record<string, unknown> = {}) => ({
+    kind: 'passwdChange' as const,
+    machine_id: computeWorkstationId('skylab', publicKeyHex),
+    target_user: 'root',
+    hostname: 'rig',
+    ...over,
+  });
+
+  it('stamps the server time+pid into a passwd line naming the changed account', async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'appendAuthLog', passwdEvent(id.publicKeyHex));
+    const { deps, upsertPatch } = makeDeps();
+
+    const result = await handleAppendAuthLog(envelope, deps);
+
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
+      path: AUTH_LOG_PATH,
+      content: `Jun  7 14:32:01 rig passwd[${derivePid(STAMP)}]: password changed for root\n`,
+      owner: AUTH_LOG_OWNER,
+      permissions: AUTH_LOG_PERMISSIONS,
+    });
+  });
+
+  it('appends after what the log already held', async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(
+      id,
+      'appendAuthLog',
+      passwdEvent(id.publicKeyHex, { target_user: 'guest' }),
+    );
+    const { deps, upsertPatch } = makeDeps({ readAuthLog: async () => logRead('PRIOR\n') });
+
+    await handleAppendAuthLog(envelope, deps);
+
+    expect(upsertPatch.mock.calls[0]![0].content).toBe(
+      `PRIOR\nJun  7 14:32:01 rig passwd[${derivePid(STAMP)}]: password changed for guest\n`,
+    );
+  });
+
+  it('rejects a passwd change on a machine that is not the caller’s workstation with 403', async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(
+      id,
+      'appendAuthLog',
+      passwdEvent(id.publicKeyHex, { machine_id: computeWorkstationId('victim', 'b'.repeat(64)) }),
+    );
+    const { deps, upsertPatch } = makeDeps();
+
+    const result = await handleAppendAuthLog(envelope, deps);
+
+    expect(result).toEqual({ status: 403, body: { error: 'no_session' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('rejects a passwd change missing its target account with 400 payload_invalid', async () => {
+    const id = generateIdentity();
+    const envelope = signRequest(id, 'appendAuthLog', {
+      kind: 'passwdChange',
+      machine_id: computeWorkstationId('skylab', id.publicKeyHex),
+      hostname: 'rig',
+    });
+    const { deps, upsertPatch } = makeDeps();
+
+    const result = await handleAppendAuthLog(envelope, deps);
+
+    expect(result).toEqual({ status: 400, body: { error: 'payload_invalid' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+});
+
 // A file moved over an ftp login to the caller's own box. The client answered that login
 // itself, so no session row names the account: the transfer is itemised here, beside the
 // login, in the log a stranger's box would keep it in.

@@ -238,8 +238,9 @@ world's DNS (chapter 7). Its search is computed at request time on the server:
 Rooting findit and restoring it are covered in [`discovery-architecture.md`](../discovery-architecture.md).
 `scripts/guardian.ts restore <name…>` is the operator tool that reboots a public website into
 its generated state, patched: it ends its sessions and the ones stacked on them, deletes its
-journal, and writes today's manifest and a fresh boot marker. A site is named by its domain, the
-boards' server as `boards.hireme.io`.
+journal, and writes today's manifest, fresh passwords and a fresh boot marker. A site is named by
+its domain, the boards' server as `boards.hireme.io`. Every `patch` changes the passwords too,
+so a public website's are never the seeded ones a decoded bundle gives away.
 
 ## Traces: actions leave log lines
 

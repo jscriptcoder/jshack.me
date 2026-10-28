@@ -37,6 +37,7 @@ import {
   handleAuthElevateSession,
   type SuSessionRow,
 } from '../src/core/sessions/authElevateSession.js';
+import { handlePasswdChange } from '../src/core/sessions/passwdChange.js';
 import type { OccupantWorkstation } from '../src/core/sessions/stoodOnBox.js';
 import {
   handleListSessions,
@@ -1047,6 +1048,39 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       insertSession: insertSessionVia({ supabase, label: 'su-elevate insert' }),
       readAuthLog: listPathPatchesVia({ supabase, label: 'su auth-log read' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'su auth-log upsert' }),
+    });
+    res.status(status).json(body);
+    return;
+  }
+
+  if (actionOf(req.body) === 'passwdChange') {
+    // `passwd` on a box that is not the caller's own. The handler starts from the caller's
+    // live ROOT shell on the machine — only root may rewrite the root-owned `/etc/passwd`
+    // (L2) — finds the box from the network that shell is on, composes the row rewrite
+    // against the box as its journal leaves it, writes it under the caller's key, and
+    // stamps the `passwd` trace under the key that owns the box's logs. The occupant lookup
+    // is shaped exactly as `suElevate`'s: one player on N APs has N rows with the same
+    // workstation id, so `.limit(1)` picks any.
+    const findOccupantWorkstationByMachineId = async (machineId: string) => {
+      const { data, error } = await supabase
+        .from('home_network_occupants')
+        .select(
+          'owner_key, workstation_machine_id, essid, workstation_username, workstation_machine_name, workstation_root_hash',
+        )
+        .eq('workstation_machine_id', machineId)
+        .limit(1)
+        .maybeSingle();
+      logFailure('passwd-change occupant lookup', error);
+      return { data: data as OccupantWorkstation | null, error };
+    };
+    const { status, body } = await handlePasswdChange(req.body, {
+      nonceStore: noopNonceStore,
+      now: () => Date.now(),
+      findOccupantWorkstationByMachineId,
+      findActiveSession: findActiveSessionVia({ supabase, label: 'passwd-change active-session' }),
+      findPatches: findPatchesVia({ supabase, label: 'passwd-change journal lookup' }),
+      readAuthLog: listPathPatchesVia({ supabase, label: 'passwd auth-log read' }),
+      upsertPatch: upsertPatchVia({ supabase, label: 'passwd write + auth-log upsert' }),
     });
     res.status(status).json(body);
     return;

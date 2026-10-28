@@ -211,6 +211,14 @@ const authLogFields = (event: AuthLogEvent): Record<string, string | number> => 
       hostname: event.hostname,
     };
   }
+  if (event.kind === 'passwdChange') {
+    return {
+      kind: 'passwdChange',
+      machine_id: event.machineId,
+      target_user: event.targetUser,
+      hostname: event.hostname,
+    };
+  }
   if (event.kind === 'doorLogin') {
     return {
       kind: 'doorLogin',

@@ -4,6 +4,8 @@ import { pickWebPage } from '../core/generation/pools/webPages.js';
 import { MAPIT_PAGES } from '../core/mapit/pages.js';
 import { EMAILIT_FRONT_PAGE } from '../core/emailit/pages.js';
 import { TALKIT_FRONT_PAGE } from '../core/talkit/pages.js';
+import { ticketPage } from '../core/rideit/pages.js';
+import { TOWNS } from '../core/generation/world.js';
 
 /** The page a test renders from, when where it came from does not matter. Links
  *  resolve against it, so it has to be a real address. */
@@ -1042,5 +1044,41 @@ describe('every page of mapit.io, as a reader of it sees it', () => {
 
     expect(rows).toContain('[1]Ridgemont    city     102 places');
     expect(rows).toContain('[6]Millbrook    village  11 places');
+  });
+});
+
+describe("rideit.io's ticket page, as a reader of it sees it", () => {
+  const TICKET_PAGE = ticketPage({
+    address: 'jsc0612820023d341ff3ace924e0e4cafda09b51a98',
+    paid: 0,
+  });
+  const longest = Math.max(...TOWNS.map((town) => town.name.length));
+
+  it('lists every town as a bullet, one under the next, its button lined up with the others', () => {
+    const lines = asLines(TICKET_PAGE);
+    const first = lines.findIndex((line) => line.startsWith(`* ${TOWNS[0]!.name}`));
+
+    expect(lines.slice(first, first + TOWNS.length)).toEqual(
+      TOWNS.map((town) => `* ${town.name.padEnd(longest)}  [ Board ]`),
+    );
+  });
+
+  it('boards each button for its own town, posted to /board', () => {
+    const buttons = renderPage({ html: TICKET_PAGE, url: 'http://rideit.io/ticket' }).flatMap(
+      (line) => line.segments.filter((segment) => segment.kind === 'submit'),
+    );
+
+    expect(buttons).toEqual(
+      TOWNS.map((town, index) => ({
+        kind: 'submit',
+        text: '[ Board ]',
+        form: {
+          id: index,
+          action: 'http://rideit.io/board',
+          method: 'post',
+          hidden: [{ name: 'town', value: town.name }],
+        },
+      })),
+    );
   });
 });
