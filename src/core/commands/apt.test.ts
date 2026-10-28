@@ -888,6 +888,44 @@ describe('apt', () => {
       expect(text).not.toContain('NEW packages');
     });
 
+    it('sets up a carried package it upgrades once, at the release it moved to', async () => {
+      // The upgrade block says what was set up, version and all. A bare line ahead of it
+      // would report the same package twice for the one install.
+      const carried = startingVersionOf(REDIS)!;
+      const gameDay = [300, 301, 302].find(
+        (day) => upgradeStatusFor(REDIS, carried, day).kind === 'upgradable',
+      )!;
+      const { env } = aptEnv({ gameDay, carries: { [REDIS]: carried } });
+
+      const { lines } = await streamResult(await apt.execute(env, ['install', REDIS], NO_FLAGS));
+
+      const setups = lines
+        .map(({ content }) => content)
+        .filter((line) => line.startsWith('Setting up'));
+      expect(setups).toEqual([
+        `Setting up ${REDIS} (${newestReleaseOn(REDIS, gameDay)}) ...`,
+      ]);
+    });
+
+    it('still sets up a carried package with nothing newer, since it lays the binary down again', async () => {
+      // No upgrade block follows to say anything was set up, and the reinstall did put
+      // the binary back, so the bare line is the one that accounts for it.
+      const gameDay = 300;
+      const { env } = aptEnv({
+        gameDay,
+        carries: { [REDIS]: newestReleaseOn(REDIS, gameDay)! },
+      });
+
+      const { lines } = await streamResult(await apt.execute(env, ['install', REDIS], NO_FLAGS));
+
+      const setups = lines
+        .map(({ content }) => content)
+        .filter((line) => line.startsWith('Setting up'));
+      expect(setups).toEqual([
+        `Setting up ${REDIS} ...`,
+      ]);
+    });
+
     it('writes the whole manifest when the box carries none at all', async () => {
       // Root can delete `/var/lib/dpkg/status`. What lands then is the file itself rather
       // than rows appended to nothing, so the box is not left with a manifest that opens
