@@ -612,7 +612,14 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   50/50 with nginx. As built: `docs/vulnerability-architecture.md` "One service, two programs:
   the web".
 
-- **`apt install` of a base-image service inside its patch window leaves it at the start tuple.**
+- **CLOSED 2026-10-29, as intended — `apt install` of a base-image service inside its patch
+  window leaves it at the start tuple.** Decided: it stays put. The game's apt moves a package
+  to the newest release whose own hole has not landed, never merely the newest one; inside the
+  window every newer release is already exposed, so a move would trade one live hole for
+  another and fix nothing. `apt install`, `apt upgrade` and the guardian's rounds all read
+  `planUpgrade` so they cannot disagree, and the window is where a defender is told the truth
+  and can do nothing about it. Real apt would take the newest release; this apt is not a clone
+  of it. The original note:
   `openssh-server` and `vsftpd` are base-image packages (`BASE_IMAGE_PACKAGES`), so `apt install`
   on them is an upgrade. Inside the package's no-fix-yet window the upgrade has nothing safe to
   move to and stays put, though a newer (exposed) release exists, so the box keeps its start-tuple
