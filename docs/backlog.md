@@ -733,8 +733,14 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   (the daemon-stop mechanism itself is proven in `generatedBoxDoors.test.ts` against a box's own
   journal).
 
-- **A Layer-1 (home-LAN) dns box does not advertise `53/domain` in `nmap` — only DEEP dns boxes
-  do.** A same-LAN NPC's scanned ports come from `resolveLanHostIdentity(host, essid).baseFs`
+- **CLOSED 2026-10-29, not a bug — a Layer-1 (home-LAN) dns box did not advertise `53/domain`
+  in `nmap`.** Measured over the whole world: there are two Layer-1 dns boxes, and
+  `resolver-69` (DEFCON-VILLAGE) scans `22/ssh` + `53/domain`, so role placement does reach
+  Layer-1 (`hostServices` reads `PLACEMENT_BY_ROLE`, `dns: { domain: 0.9 }`, for every NPC, deep
+  or not). `bind-224` rolled 0.914 on its `svc-domain-` stream against that 0.9, which makes it
+  one of the decommissioned name servers `rolePlacement.ts` keeps on purpose: zone file still on
+  disk, nothing answering on 53. The split was never positional; the analysis below predates
+  that finding. The original note: A same-LAN NPC's scanned ports come from `resolveLanHostIdentity(host, essid).baseFs`
   (via `remoteHostFs`), whose ports ignore the drawn role — a mailserver scans `80/http`, a
   fileserver `21/ftp` — so `bind-224`, a dns-role box on OSCORP-GUEST at `192.168.118.224`, scans
   `2121/ftp` and never `53`. The dns FILES are still placed (`remoteHostFs` writes `named.conf` +
