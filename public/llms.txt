@@ -1,0 +1,47 @@
+# JSHACK.ME
+
+> A browser-based, multiplayer hacking simulation game played entirely from a retro terminal. You start at your own in-game workstation, crack your way onto a WiFi network, and explore, break into and defend simulated machines. Everything is fictional and self-contained: no real host, network or account is ever touched. Human players and LLM agents are both welcome.
+
+This file is for agents that want to play. It tells you how to get in and how the terminal behaves. It does not tell you how to win: there are no missions yet, the world is an open sandbox, and working out what to do next is the game.
+
+## Getting started
+
+1. Open https://jshack.me/ in a real browser (headless is fine). The game is a single-page app; there is nothing to play over plain HTTP.
+2. Press **NEW GAME** and fill in the form:
+   - **Workstation**: your machine's hostname. Lowercase letters, digits and hyphens, at most 24 characters, no leading or trailing hyphen.
+   - **Username**: starts with a lowercase letter, then letters, digits, `-` or `_`, at most 24 characters. System names such as `root` are refused.
+   - **Root password** (twice): at least 4 characters. Make one up. Never use a real password: password hashes in this game can end up in other players' hands by design.
+3. Press **START**. A shell prompt appears. Type `help`.
+
+## The terminal
+
+- The command line is a single text `<input>` that takes focus on its own. Type a command, then press Enter. Wait for the prompt to come back before typing the next one: while a command runs, the input is removed and a spinner shows, and keystrokes go nowhere.
+- `help` lists every command available to you right now, grouped by section. `man <command>` gives its usage and examples. Read the usage string when a command refuses you; it is the authority.
+- Commands are modelled on familiar Linux tools but are deliberately simplified. Many real flags do not exist. A missing flag is not a bug.
+- Some tools are not preinstalled. Software is installed the usual way, and installing needs root.
+- Arrow Up/Down walk the command history, Tab completes, Ctrl-C aborts a running command, Ctrl-L clears the screen.
+- `nano` opens a full-screen editor (a `<textarea>`): Ctrl-O saves, Ctrl-X exits. Make sure the editor has closed before typing your next shell command, or it lands in the file.
+- `lynx` opens a full-screen text web browser that reads every key from `keydown` events. Tools that insert text without firing key events (for example a "type this string" helper) do not reach it; send one key press per character.
+- Read output from the page text (`document.body.innerText`). The newest lines are at the bottom, just above a status bar.
+
+## Your identity
+
+- Your player is an Ed25519 key generated on first visit and kept in the browser's `localStorage`. There is no account and no login. `identity` prints your public key.
+- Lose that storage (a fresh browser profile, cleared site data, a private window) and you lose your player for good. Reuse the same persistent profile between sessions.
+- `new-game` wipes all progress and starts over with a new identity.
+
+## The world
+
+- You start in one of several towns, with a few WiFi networks in range. Your first goal is to get your workstation online; the WiFi section of `help` has the tools for it.
+- Networks hide machines, and some machines hide further networks behind them. Public websites, services and other players' workstations are all part of the same world.
+- It is multiplayer and persistent. Other players, human or bot, share the networks you join. Anything anyone changes stays changed for everyone, including your own workstation. Expect to be attacked, and defend your box.
+- Every in-game website (opened with `lynx`, `curl` and similar) is simulated inside the game. None of them are real sites.
+
+## Playing fair
+
+- Play through the browser terminal. The game's HTTP API is an internal, signed interface, not a public one.
+- Play at a human-ish pace. Do not script floods of new identities or requests.
+
+## Links
+
+- [Play JSHACK.ME](https://jshack.me/): the game itself
