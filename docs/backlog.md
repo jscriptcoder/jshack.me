@@ -715,8 +715,14 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   So the test's one rule: **every planted line whose command the game ships parses and runs
   without a usage refusal** (`unrecognized option`, `Invalid operation`).
 
-- **A deep TERMINAL NPC box is read-only when rooted — depth alone decides whether you can
-  write to an NPC.** The cross-player/deep write gate (`remoteWritePermission` L2,
+- **CLOSED 2026-10-29, fixed by #646 (2026-10-10) — a deep TERMINAL NPC box was read-only
+  when rooted.** Decided: root on a deep box writes it, as on any other box. The write gate now
+  resolves the target through `networkBaseFsForMachineId`, whose `deepHostBaseFsForMachineId`
+  arm rebuilds every deep layer's NPC. Measured over the whole world: all 1,881 deep NPCs (805
+  of them at the end of a chain, `ns-116-6ba015ee` among them) let a root write through to
+  `/tmp` and `/etc`, and `scripts/testDeepLayerSsh.ts` journals a root write on a deep NPC live.
+  `systemctl stop` removes the unit's pidfile through the same gate. The original note: The
+  cross-player/deep write gate (`remoteWritePermission` L2,
   `resolveTargetBaseFs`) authorizes a write only when the target resolves as the AP gateway, a
   home-LAN NPC sibling (`lanBaseFsForMachineId`), a deep chain GATEWAY
   (`chainGatewayBaseFsForMachineId`), or an occupant workstation. A deep TERMINAL NPC — a
