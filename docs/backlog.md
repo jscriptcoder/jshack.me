@@ -156,6 +156,16 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
     the journal it already read. A round racing a live login is rare, and the line lost is the
     operator's own.
 
+- **Prod sometimes refuses a box read with `PGRST303 "JWT issued at future"`.** The database
+  rejects a request token stamped a moment ahead of its own clock. Vercel's runtime errors show
+  it first on 2026-09-27 and again at 2026-10-30 13:06:31 UTC, when the v0.437.1 smoke loaded
+  kestrel's page: `POST /api/patches` `listPatches` logged `[patches] list error` (`api/patches.ts`)
+  and answered with that error. The page still booted with the box's state, so something took
+  another read; the client's retry path was not checked. It is clock skew between Vercel and the
+  Supabase project, not game code, and it is rare. Before acting, count how often it happens over
+  a week (`get_runtime_errors` keeps 7 days). If it grows, retry a `PGRST303` read once on the
+  server, and ask Supabase about the project's clock if that is not enough.
+
 - **`resolveOccupantSweep.test.ts`'s bad-signature test fails in some full runs, and never
   alone.** "rejects an envelope whose signature does not verify" failed in 3 of 6 full runs on
   the talkit slice 1 branch (2026-10-19). Its tampering, replacing the signature's first byte
