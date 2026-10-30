@@ -1390,6 +1390,23 @@ agreed order:
     confirmation. The plan was retired on close-out. **Pick up here (2026-10-28):** the owner's
     choice from the items still open in `backlog.md`.
 
+37. ✅ **Two log lines landing together both land (v0.437.1, 2026-10-30).** Every system log line
+    was read, extended and written back by the handler, so two lines landing on one log at once
+    could build on the same copy and the second dropped the first. Now `appendMachineLog` sends
+    the line to the `append_machine_log` database function, which locks the log's path, builds on
+    the latest row a reader would see and writes the appended row in one transaction; every
+    handler takes one `appendLog` dep where it had a log read and a write, and `appendAuthLog` /
+    `appendKernLog` answer `500 append_failed`. The journal stamps `updated_at` with
+    `clock_timestamp()` so an append that waited on the lock ranks above the row it built on.
+    Accepted limits (in `backlog.md`): a player's own log write, the own-box daemon logs and the
+    guardian's lines still read then write. Wire-check `testLogAppend` (new) lands 20 parallel
+    looks in one `access.log` (12 to 16 before); `testLogWipeSticks` 11/11, `testTalkit` 87/87
+    fetching in parallel again, and every `scripts/test*.ts` passes (`testRestoreSite` on all nine
+    sites). Mutation gate on the three append modules: 166 killed, 0 survived, 0 timed out. No
+    browser run (no client change). The migration reached jshack-dev and jshack-prod before the
+    merge. The plan was retired on close-out. **Pick up here (2026-10-30):** the owner's choice from the
+    items still open in `backlog.md`.
+
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
 and that is expected. For the shipped systems, start from the three as-built docs named at the top

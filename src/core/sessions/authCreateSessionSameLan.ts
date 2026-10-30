@@ -32,13 +32,8 @@ import { accountIn } from './passwdAccount.js';
 import { formatLoginLines, type SweepLog } from '../services/serviceCatalog.js';
 import { LOOPBACK_IPV4 } from '../network/interfaces.js';
 import { derivePid } from '../logging/syslog.js';
-import {
-  appendMachineLogLines,
-  type MachineLogReadQuery,
-  type MachineLogReadResult,
-} from '../patches/appendMachineLog.js';
+import { appendMachineLogLines, type AppendLog } from '../patches/appendMachineLog.js';
 import { asGameTime } from '../types.js';
-import type { PatchRow } from '../patches/upsertPatch.js';
 import { DOOR_KINDS, reachDoor, type AuthSessionRow, type HandlerResponse } from './authCreateSession.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import { resolveCallerVantage, type CallerVantageDeps } from './callerVantage.js';
@@ -79,11 +74,7 @@ export type AuthCreateSessionSameLanDeps = CallerVantageDeps & {
   readonly insertSession: (row: AuthSessionRow) => Promise<{ readonly error: unknown }>;
   /** The server's wall clock, epoch-ms (UTC) — stamps the auth.log trace line. */
   readonly now: () => number;
-  /** Read the current content of A's workstation auth.log on the shared journal,
-   *  keyed `(machine_id, path, writer_key)` — the read half of the appended line. */
-  readonly readAuthLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
-  /** Write a patch (here: the appended auth.log line on A's workstation). */
-  readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
+  readonly appendLog: AppendLog;
 };
 
 // The destination ssh port when the client sends none — a bare `ssh user@host` is :22.
@@ -147,7 +138,7 @@ const logSameLanAuth = async (
   });
   try {
     await appendMachineLogLines(
-      { readLog: deps.readAuthLog, upsertPatch: deps.upsertPatch },
+      { appendLog: deps.appendLog },
       {
         writerKey: target.ownerKey,
         machineId: target.machineId,

@@ -30,19 +30,15 @@ import { recordSweep } from './resolveHttpSweep.js';
 import { sweepWord } from './webSweep.js';
 import { DIRLIST_PATH, parseDirlist } from './defaultDirlist.js';
 import { wordlistOn } from '../wordlist/passwordSweep.js';
-import type {
-  MachineLogReadQuery,
-  MachineLogReadResult,
-} from '../patches/appendMachineLog.js';
-import type { ListPathPatchesResult, PatchRow } from '../patches/upsertPatch.js';
+import type { AppendLog } from '../patches/appendMachineLog.js';
+import type { ListPathPatchesResult } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 export type ResolveOccupantSweepDeps = OccupantWebTargetDeps & {
   readonly nonceStore: NonceStore;
   /** The universe clock (UTC epoch-ms). ONE reading for the whole run. */
   readonly now: () => number;
-  readonly readLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
-  readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
+  readonly appendLog: AppendLog;
   /** Every writer's rows at the path list on the box the caller stands on — the file
    *  belongs to the box, not to whoever wrote it last. */
   readonly listPathPatches: (query: {

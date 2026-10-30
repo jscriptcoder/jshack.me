@@ -49,8 +49,9 @@ most are enforced by a property test named in "How it is tested".
    as abandoned at 2026-07-12 — accepted. The one timestamp past the epoch is a DHCP lease's
    expiry, and every listed lease is still held at it.
 5. **History lives in rotated `.1` logs; live logs start empty.** Forced, not chosen: the log
-   appenders (`appendMachineLog`, `appendAuthLog`, …) read-modify-write the WRITER's own patch
-   row and start from `''`, so history seeded into a live log would vanish at the first trace.
+   appenders (`appendMachineLog`, `appendAuthLog`, …) append to the latest journal row at the
+   path and start from `''` when there is none, so history seeded into a live log would vanish at
+   the first trace.
    A `.1` exists only when it holds a line, only beside its live log, with that log's exact
    permissions. Plain text only, no `.gz`. No `dpkg.log` history (it would carry versions).
 6. **Every generated machine, never a player workstation.** NPC hosts of every role on every

@@ -20,9 +20,8 @@ import { DIRLIST_PATH } from './defaultDirlist.js';
 import { ACCESS_LOG_PATH, formatAccessLogLine } from '../logging/accessLog.js';
 import { asGameTime } from '../types.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
-import type { ListPathPatchesResult, PatchRow } from '../patches/upsertPatch.js';
-import { logRead } from '../../test/factories/logRows.js';
+import type { AppendLog, MachineLogAppend } from '../patches/appendMachineLog.js';
+import type { ListPathPatchesResult } from '../patches/upsertPatch.js';
 import { withForgedSignature } from '../../test/factories/signedEnvelope.js';
 
 /**
@@ -175,11 +174,8 @@ const makeDeps = ({
   const listPathPatches = vi.fn<ResolveOccupantSweepDeps['listPathPatches']>(
     over.listPathPatches ?? listing('index.html'),
   );
-  const readLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(
-    over.readLog ?? (async () => ({ data: null, error: null })),
-  );
-  const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(
-    over.upsertPatch ?? (async () => ({ error: null })),
+  const appendLog = vi.fn<AppendLog>(
+    over.appendLog ?? (async () => ({ error: null })),
   );
   const deps: ResolveOccupantSweepDeps = {
     nonceStore: freshStore,
@@ -195,10 +191,9 @@ const makeDeps = ({
     findPatches,
     listOccupantsByEssid,
     listPathPatches,
-    readLog,
-    upsertPatch,
+    appendLog,
   };
-  return { deps, findPatches, listOccupantsByEssid, listPathPatches, readLog, upsertPatch };
+  return { deps, findPatches, listOccupantsByEssid, listPathPatches, appendLog };
 };
 
 type Asked = {
@@ -219,10 +214,10 @@ const envelope = (asked: Asked = {}) =>
   });
 
 /** What the swept box was told, as the lines of each append. */
-const appendedLines = (upsertPatch: { mock: { calls: readonly (readonly PatchRow[])[] } }) =>
-  upsertPatch.mock.calls
+const appendedLines = (appendLog: { mock: { calls: readonly (readonly MachineLogAppend[])[] } }) =>
+  appendLog.mock.calls
     .filter(([row]) => row.path === ACCESS_LOG_PATH)
-    .map(([row]) => (row.content ?? '').split('\n').filter((line) => line.length > 0));
+    .map(([row]) => row.text.split('\n').filter((line) => line.length > 0));
 
 const UNREACHABLE = { status: 404, body: { error: 'host_unreachable' } };
 const REFUSED = { status: 404, body: { error: 'connection_refused' } };
@@ -334,7 +329,7 @@ describe('the list a sweep asks with', () => {
   });
 
   it('reports a missing list instead of an empty run, and asks the box nothing', async () => {
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       listPathPatches: async () => ({ data: [], error: null }),
     });
 
@@ -344,21 +339,21 @@ describe('the list a sweep asks with', () => {
       status: 200,
       body: { ok: true, dirlistFound: false, results: [] },
     });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('sweeps nothing and says nothing when the list is present but empty', async () => {
-    const { deps, upsertPatch } = makeDeps({ listPathPatches: listing() });
+    const { deps, appendLog } = makeDeps({ listPathPatches: listing() });
 
     expect(await handleResolveOccupantSweep(await envelope(), deps)).toEqual({
       status: 200,
       body: { ok: true, dirlistFound: true, results: [] },
     });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('distinguishes a list it could not read from a list that is not there', async () => {
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       listPathPatches: async () => ({ data: null, error: new Error('journal offline') }),
     });
 
@@ -368,33 +363,33 @@ describe('the list a sweep asks with', () => {
       status: 500,
       body: { error: 'dirlist_lookup_failed' },
     });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 });
 
 describe('the swept box records the whole run', () => {
   it('writes every path asked about as ONE append in the OWNER’s log, from the caller’s LAN address', async () => {
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       listPathPatches: listing('index.html', 'admin', 'backup'),
     });
 
     await handleResolveOccupantSweep(await envelope(), deps);
 
     // The wall of 404s under one stamp is the defender's tell.
-    expect(appendedLines(upsertPatch)).toEqual([
+    expect(appendedLines(appendLog)).toEqual([
       [
         logLine('/index.html', 200, 'hello'.length),
         logLine('/admin', 404, 0),
         logLine('/backup', 404, 0),
       ],
     ]);
-    expect(upsertPatch).toHaveBeenCalledWith(
+    expect(appendLog).toHaveBeenCalledWith(
       expect.objectContaining({ writer_key: ALICE.publicKeyHex, machine_id: ALICE_WS }),
     );
   });
 
   it('records both requests a directory word costs, not only the one that answered', async () => {
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       aliceJournal: aliceServing(
         publishedDir('/hidden'),
         publishedPage('/hidden/index.html', 'notes'),
@@ -404,13 +399,13 @@ describe('the swept box records the whole run', () => {
 
     await handleResolveOccupantSweep(await envelope(), deps);
 
-    expect(appendedLines(upsertPatch)).toEqual([
+    expect(appendedLines(appendLog)).toEqual([
       [logLine('/hidden', 404, 0), logLine('/hidden/', 200, 'notes'.length)],
     ]);
   });
 
   it('records a path that climbed out of the document root as asked, and reports a miss', async () => {
-    const { deps, upsertPatch } = makeDeps({ listPathPatches: listing('../../etc/passwd') });
+    const { deps, appendLog } = makeDeps({ listPathPatches: listing('../../etc/passwd') });
 
     const { body } = await handleResolveOccupantSweep(await envelope(), deps);
 
@@ -419,39 +414,25 @@ describe('the swept box records the whole run', () => {
       dirlistFound: true,
       results: [{ path: '/../../etc/passwd', status: 404, size: 0 }],
     });
-    expect(appendedLines(upsertPatch)).toEqual([[logLine('/../../etc/passwd', 404, 0)]]);
-  });
-
-  it('accretes onto the log the box already holds', async () => {
-    const previous = '203.0.113.9 - - [29/Jul/2026:09:00:00 +0000] "GET / HTTP/1.1" 200 12\n';
-    const { deps, upsertPatch, readLog } = makeDeps({ readLog: async () => logRead(previous) });
-
-    await handleResolveOccupantSweep(await envelope(), deps);
-
-    expect(readLog).toHaveBeenCalledWith({ machine_id: ALICE_WS, path: ACCESS_LOG_PATH });
-    expect(upsertPatch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        content: `${previous}${logLine('/index.html', 200, 'hello'.length)}\n`,
-      }),
-    );
+    expect(appendedLines(appendLog)).toEqual([[logLine('/../../etc/passwd', 404, 0)]]);
   });
 
   it('records a caller the LAN cannot place as unknown', async () => {
     // On the network, holding no lease: there is no address to derive.
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       findHomeVantage: async () => ({ data: { essid: ESSID, octet: null }, error: null }),
     });
 
     await handleResolveOccupantSweep(await envelope(), deps);
 
-    expect(appendedLines(upsertPatch)).toEqual([
+    expect(appendedLines(appendLog)).toEqual([
       [logLine('/index.html', 200, 'hello'.length, 'unknown')],
     ]);
   });
 
   it('reports what it found even when the lines cannot be written', async () => {
     const { deps } = makeDeps({
-      upsertPatch: async () => {
+      appendLog: async () => {
         throw new Error('storage down');
       },
     });
@@ -482,11 +463,11 @@ describe('a box that does not answer a sweep', () => {
   ] satisfies readonly (readonly [string, Asked, Overrides])[])(
     'is unreachable when %s, and no list is read',
     async (_label, asked, over) => {
-      const { deps, listPathPatches, upsertPatch } = makeDeps(over);
+      const { deps, listPathPatches, appendLog } = makeDeps(over);
 
       expect(await handleResolveOccupantSweep(await envelope(asked), deps)).toEqual(UNREACHABLE);
       expect(listPathPatches).not.toHaveBeenCalled();
-      expect(upsertPatch).not.toHaveBeenCalled();
+      expect(appendLog).not.toHaveBeenCalled();
     },
   );
 
@@ -505,10 +486,10 @@ describe('a box that does not answer a sweep', () => {
   ] satisfies readonly (readonly [string, Asked, readonly OwnerPatchRow[]])[])(
     'is refused when %s, and the box hears nothing',
     async (_label, asked, aliceJournal) => {
-      const { deps, upsertPatch } = makeDeps({ aliceJournal });
+      const { deps, appendLog } = makeDeps({ aliceJournal });
 
       expect(await handleResolveOccupantSweep(await envelope(asked), deps)).toEqual(REFUSED);
-      expect(upsertPatch).not.toHaveBeenCalled();
+      expect(appendLog).not.toHaveBeenCalled();
     },
   );
 });
@@ -531,13 +512,13 @@ describe('a caller in a shell on the box they sweep', () => {
     });
 
   it('sweeps with the list on THAT box, and is logged from its address', async () => {
-    const { deps, listPathPatches, upsertPatch } = shellOnAliceBox();
+    const { deps, listPathPatches, appendLog } = shellOnAliceBox();
 
     await handleResolveOccupantSweep(await envelope({ caller_machine_id: ALICE_WS }), deps);
 
     // Tools run where you stand, and so does the ammunition.
     expect(listPathPatches).toHaveBeenCalledWith({ machine_id: ALICE_WS, path: DIRLIST_PATH });
-    expect(appendedLines(upsertPatch)).toEqual([
+    expect(appendedLines(appendLog)).toEqual([
       [logLine('/index.html', 200, 'hello'.length, ALICE_LAN_IP)],
     ]);
   });
@@ -557,7 +538,7 @@ describe('a caller in a shell on the box they sweep', () => {
   });
 
   it('sweeps the box over loopback, and the whole run is logged as a local visit', async () => {
-    const { deps, listPathPatches, upsertPatch } = shellOnAliceBox({
+    const { deps, listPathPatches, appendLog } = shellOnAliceBox({
       listPathPatches: listing('index.html', 'admin'),
     });
 
@@ -568,13 +549,13 @@ describe('a caller in a shell on the box they sweep', () => {
 
     expect(response.status).toBe(200);
     expect(listPathPatches).toHaveBeenCalledWith({ machine_id: ALICE_WS, path: DIRLIST_PATH });
-    expect(appendedLines(upsertPatch)).toEqual([
+    expect(appendedLines(appendLog)).toEqual([
       [
         logLine('/index.html', 200, 'hello'.length, LOOPBACK_IPV4),
         logLine('/admin', 404, 0, LOOPBACK_IPV4),
       ],
     ]);
-    expect(upsertPatch).toHaveBeenCalledWith(
+    expect(appendLog).toHaveBeenCalledWith(
       expect.objectContaining({ writer_key: ALICE.publicKeyHex, machine_id: ALICE_WS }),
     );
   });
@@ -582,7 +563,7 @@ describe('a caller in a shell on the box they sweep', () => {
 
 describe('the LAN boundary', () => {
   it('refuses a caller standing on another network, before anything is read', async () => {
-    const { deps, listOccupantsByEssid, listPathPatches, upsertPatch } = makeDeps({
+    const { deps, listOccupantsByEssid, listPathPatches, appendLog } = makeDeps({
       findHomeVantage: async () => ({
         data: { essid: 'SOMEWHERE-ELSE', octet: BOB_OCTET },
         error: null,
@@ -595,7 +576,7 @@ describe('the LAN boundary', () => {
     });
     expect(listOccupantsByEssid).not.toHaveBeenCalled();
     expect(listPathPatches).not.toHaveBeenCalled();
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('refuses a caller naming a box they hold no shell on, so nobody sweeps with a list they did not reach', async () => {

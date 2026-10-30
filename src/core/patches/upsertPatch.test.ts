@@ -43,6 +43,7 @@ import { buildApGatewayBaseFs } from '../generation/routerFs.js';
 import { computeApGatewayId } from '../identity/router.js';
 import { KERN_LOG_PATH } from '../logging/kernLog.js';
 import { DPKG_LOG_PATH } from '../logging/dpkgLog.js';
+import type { AppendLog, MachineLogAppend } from './appendMachineLog.js';
 import { asEpochMs } from '../types.js';
 import type { UserType } from '../types.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
@@ -144,6 +145,7 @@ const makeDeps = (over: Partial<UpsertPatchDeps> = {}) => {
     error: null,
   }));
   const writeBootId = vi.fn<RebootSequenceDeps['writeBootId']>(async () => ({ error: null }));
+  const appendLog = vi.fn<AppendLog>(async () => ({ error: null }));
   const deps: UpsertPatchDeps = {
     nonceStore: freshStore,
     upsertPatch,
@@ -156,7 +158,7 @@ const makeDeps = (over: Partial<UpsertPatchDeps> = {}) => {
     writeBootId,
     now: () => FLASH_NOW,
     findHomeNetworkByOwnerKey: async () => ({ data: { public_ip: '203.0.113.9' }, error: null }),
-    readLog: listPathPatches,
+    appendLog,
     newBootId: () => 'boot-after-flash',
     ...over,
   };
@@ -170,6 +172,7 @@ const makeDeps = (over: Partial<UpsertPatchDeps> = {}) => {
     endMachineSessions,
     endSessionsAbove,
     writeBootId,
+    appendLog,
   };
 };
 
@@ -1167,11 +1170,13 @@ describe('handleUpsertPatch — moving a router’s firmware reboots it', () => 
 
   const rowsAt = (upsertPatch: { mock: { calls: [PatchRow][] } }, path: string) =>
     upsertPatch.mock.calls.map(([row]) => row).filter((row) => row.path === path);
+  const appendsAt = (appendLog: { mock: { calls: [MachineLogAppend][] } }, path: string) =>
+    appendLog.mock.calls.map(([append]) => append).filter((append) => append.path === path);
 
   it('reboots the gateway when a write moves its firmware forward', async () => {
     const id = generateIdentity();
     const gateway = gatewayFirmware();
-    const { deps, upsertPatch, endMachineSessions, writeBootId } = makeDeps({
+    const { deps, upsertPatch, appendLog, endMachineSessions, writeBootId } = makeDeps({
       findActiveSession: standingAsRoot,
     });
 
@@ -1195,12 +1200,12 @@ describe('handleUpsertPatch — moving a router’s firmware reboots it', () => 
       player_key: id.publicKeyHex,
       boot_id: 'boot-after-flash',
     });
-    const kern = rowsAt(upsertPatch, KERN_LOG_PATH);
+    const kern = appendsAt(appendLog, KERN_LOG_PATH);
     expect(kern).toHaveLength(1);
     expect(kern[0]?.writer_key).toBe(`ap:${FLASH_ESSID}`);
-    expect(kern[0]?.content).toContain(`System restart requested from ${LOGIN_IP} `);
+    expect(kern[0]?.text).toContain(`System restart requested from ${LOGIN_IP} `);
     // Forward is a patch, not a rollback: there is nothing for the owner to be warned of.
-    expect(rowsAt(upsertPatch, DPKG_LOG_PATH)).toEqual([]);
+    expect(appendsAt(appendLog, DPKG_LOG_PATH)).toEqual([]);
   });
 
   it('ends the chains standing on every session the flash closed', async () => {
@@ -1234,7 +1239,7 @@ describe('handleUpsertPatch — moving a router’s firmware reboots it', () => 
     const id = generateIdentity();
     const gateway = gatewayFirmware();
     const flashed = withPackageVersion(gateway.manifest, gateway.firmware, gateway.newer);
-    const { deps, upsertPatch, endMachineSessions } = makeDeps({
+    const { deps, appendLog, endMachineSessions } = makeDeps({
       findActiveSession: standingAsRoot,
       listMachinePatches: priorManifest(flashed),
     });
@@ -1249,15 +1254,14 @@ describe('handleUpsertPatch — moving a router’s firmware reboots it', () => 
     );
 
     expect(result).toEqual({ status: 200, body: { ok: true } });
-    const dpkg = rowsAt(upsertPatch, DPKG_LOG_PATH);
+    const dpkg = appendsAt(appendLog, DPKG_LOG_PATH);
     expect(dpkg).toHaveLength(1);
     expect(dpkg[0]?.writer_key).toBe(`ap:${FLASH_ESSID}`);
     // Old version then new, dpkg's own order — reversed it would read as an upgrade.
-    expect(dpkg[0]?.content).toContain(
+    expect(dpkg[0]?.text).toContain(
       `downgrade ${gateway.firmware} ${gateway.newer} ${gateway.generated} Client "${LOGIN_IP}"`,
     );
-    const dpkgWrite = upsertPatch.mock.calls.findIndex(([row]) => row.path === DPKG_LOG_PATH);
-    expect(upsertPatch.mock.invocationCallOrder[dpkgWrite]).toBeLessThan(
+    expect(appendLog.mock.invocationCallOrder[0]).toBeLessThan(
       endMachineSessions.mock.invocationCallOrder[0] ?? 0,
     );
     expect(endMachineSessions).toHaveBeenCalledTimes(1);
@@ -1266,7 +1270,7 @@ describe('handleUpsertPatch — moving a router’s firmware reboots it', () => 
   it('reboots nothing when a write moves only a service row', async () => {
     const id = generateIdentity();
     const gateway = gatewayFirmware();
-    const { deps, upsertPatch, endMachineSessions, writeBootId } = makeDeps({
+    const { deps, appendLog, endMachineSessions, writeBootId } = makeDeps({
       findActiveSession: standingAsRoot,
     });
 
@@ -1282,7 +1286,7 @@ describe('handleUpsertPatch — moving a router’s firmware reboots it', () => 
     expect(result).toEqual({ status: 200, body: { ok: true } });
     expect(endMachineSessions).not.toHaveBeenCalled();
     expect(writeBootId).not.toHaveBeenCalled();
-    expect(rowsAt(upsertPatch, KERN_LOG_PATH)).toEqual([]);
+    expect(appendsAt(appendLog, KERN_LOG_PATH)).toEqual([]);
   });
 
   it('reboots nothing when the firmware row is rewritten at the version it already holds', async () => {
@@ -1303,7 +1307,7 @@ describe('handleUpsertPatch — moving a router’s firmware reboots it', () => 
     const id = generateIdentity();
     const gateway = gatewayFirmware();
     const flashed = withPackageVersion(gateway.manifest, gateway.firmware, gateway.newer);
-    const { deps, upsertPatch, endMachineSessions } = makeDeps({
+    const { deps, appendLog, endMachineSessions } = makeDeps({
       findActiveSession: standingAsRoot,
       listMachinePatches: priorManifest(flashed),
       findOccupantWorkstationByMachineId: async () => ({
@@ -1322,7 +1326,7 @@ describe('handleUpsertPatch — moving a router’s firmware reboots it', () => 
     );
 
     expect(result).toEqual({ status: 200, body: { ok: true } });
-    expect(rowsAt(upsertPatch, DPKG_LOG_PATH)).toEqual([]);
+    expect(appendsAt(appendLog, DPKG_LOG_PATH)).toEqual([]);
     expect(endMachineSessions).toHaveBeenCalledTimes(1);
   });
 

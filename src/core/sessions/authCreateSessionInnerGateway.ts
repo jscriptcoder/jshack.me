@@ -40,13 +40,8 @@ import {
   formatSshdAuthLine,
 } from '../logging/authLog.js';
 import { derivePid } from '../logging/syslog.js';
-import {
-  appendMachineLog,
-  type MachineLogReadQuery,
-  type MachineLogReadResult,
-} from '../patches/appendMachineLog.js';
+import { appendMachineLog, type AppendLog } from '../patches/appendMachineLog.js';
 import { asGameTime } from '../types.js';
-import type { PatchRow } from '../patches/upsertPatch.js';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import { DOOR_KINDS, type AuthSessionRow, type HandlerResponse } from './authCreateSession.js';
 import { listenerOn, readOpenPorts } from '../services/pidfile.js';
@@ -64,11 +59,7 @@ export type AuthCreateSessionInnerGatewayDeps = CallerVantageDeps & {
   readonly insertSession: (row: AuthSessionRow) => Promise<{ readonly error: unknown }>;
   /** The server's wall clock, epoch-ms (UTC) — stamps the deep-reach auth.log line. */
   readonly now: () => number;
-  /** Read the current content of the landed deep box's auth.log on the shared journal,
-   *  keyed `(machine_id, path, writer_key)` — the read half of the appended line. */
-  readonly readAuthLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
-  /** Write a patch (here: the appended auth.log line on the landed deep box). */
-  readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
+  readonly appendLog: AppendLog;
 };
 
 // The destination ssh port when the client sends none — a bare `ssh user@host` is
@@ -130,7 +121,7 @@ const logDeepReachAuth = async (
   });
   try {
     await appendMachineLog(
-      { readLog: deps.readAuthLog, upsertPatch: deps.upsertPatch },
+      { appendLog: deps.appendLog },
       {
         writerKey: target.writerKey,
         machineId: target.machineId,

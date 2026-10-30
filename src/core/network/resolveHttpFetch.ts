@@ -101,11 +101,9 @@ import {
 import {
   appendMachineLog,
   type MachineLogTarget,
-  type MachineLogReadQuery,
-  type MachineLogReadResult,
+  type AppendLog,
 } from '../patches/appendMachineLog.js';
 import { asGameTime } from '../types.js';
-import type { PatchRow } from '../patches/upsertPatch.js';
 import type { OccupantWorkstation } from '../patches/remoteWritePermission.js';
 import type { Directory } from '../filesystem/types.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
@@ -162,8 +160,7 @@ export type ResolveHttpFetchDeps = WebTargetDeps & {
   /** The universe clock (UTC epoch-ms) at the moment the hit is recorded. Server-side, so
    *  a requester cannot date their own visit. */
   readonly now: () => number;
-  readonly readLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
-  readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
+  readonly appendLog: AppendLog;
   /** The requester's own home network — the source IP the line records when they fetch
    *  from home, derived from their VERIFIED key rather than anything they sent. */
   readonly findHomeNetworkByOwnerKey: FindHomeNetworkByOwnerKey;
@@ -387,7 +384,7 @@ const logFetchFrom = async (
   });
   try {
     await appendMachineLog(
-      { readLog: deps.readLog, upsertPatch: deps.upsertPatch },
+      { appendLog: deps.appendLog },
       {
         writerKey: target.logWriterKey,
         machineId: target.machineId,
@@ -546,7 +543,7 @@ const appendSiteLine = async (
 ): Promise<void> => {
   try {
     await appendMachineLog(
-      { readLog: deps.readLog, upsertPatch: deps.upsertPatch },
+      { appendLog: deps.appendLog },
       { writerKey: target.logWriterKey, machineId: target.machineId, ...log },
       line,
     );

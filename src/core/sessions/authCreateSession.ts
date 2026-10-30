@@ -42,15 +42,10 @@ import { LOOPBACK_IPV4 } from '../network/interfaces.js';
 import type { Directory } from '../filesystem/types.js';
 import { derivePid } from '../logging/syslog.js';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
-import {
-  appendMachineLogLines,
-  type MachineLogReadQuery,
-  type MachineLogReadResult,
-} from '../patches/appendMachineLog.js';
+import { appendMachineLogLines, type AppendLog } from '../patches/appendMachineLog.js';
 import { accountIn } from './passwdAccount.js';
 import { resolveCallerVantage, type CallerVantageDeps } from './callerVantage.js';
 import { asGameTime, type UserType } from '../types.js';
-import type { PatchRow } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /** The doors this endpoint opens. Three of them authenticate the same way —
@@ -109,12 +104,7 @@ export type AuthCreateSessionDeps = CallerVantageDeps & {
   readonly findPatches: (query: {
     readonly machine_id: string;
   }) => Promise<{ readonly data: readonly OwnerPatchRow[] | null; readonly error: unknown }>;
-  /** Read the current content of a log file on the host's shared journal, keyed
-   *  `(machine_id, path, writer_key)` — the read half of the system-written
-   *  auth.log line. */
-  readonly readAuthLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
-  /** Write a patch (here: the appended auth.log line on the remote host). */
-  readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
+  readonly appendLog: AppendLog;
 };
 
 export type HandlerResponse = {
@@ -187,7 +177,7 @@ const logLoginAttempt = async (
   const lines = formatLoginLines(attempt.sweepLog, record);
   try {
     await appendMachineLogLines(
-      { readLog: deps.readAuthLog, upsertPatch: deps.upsertPatch },
+      { appendLog: deps.appendLog },
       {
         writerKey: apGatewayLogWriterKey(attempt.essid),
         machineId: attempt.machineId,

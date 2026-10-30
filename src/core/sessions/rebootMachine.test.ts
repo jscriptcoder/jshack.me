@@ -13,16 +13,11 @@ import { chainLinks, machineIdForLanHost } from '../generation/lanTopology.js';
 import { wifiPoolOf } from '../generation/generateWifi.js';
 import { RIDGEMONT } from '../generation/world.js';
 import type { FindOccupantWorkstationByMachineId } from '../patches/remoteWritePermission.js';
-import type {
-  MachineLogReadQuery,
-  MachineLogReadResult,
-} from '../patches/appendMachineLog.js';
-import type { PatchRow } from '../patches/upsertPatch.js';
+import type { AppendLog } from '../patches/appendMachineLog.js';
 import { KERN_LOG_PATH, KERN_LOG_PERMISSIONS } from '../logging/kernLog.js';
 import type { Identity } from '../commands/types.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import type { UserType } from '../types.js';
-import { logRead } from '../../test/factories/logRows.js';
 import { sessionRow, sessionTable } from '../../test/factories/sessionTable.js';
 
 /**
@@ -109,11 +104,8 @@ const makeDeps = (over: Partial<RebootMachineDeps> = {}) => {
   const findActiveSession = vi.fn<FindActiveSession<StandingSession>>(
     over.findActiveSession ?? holdingNothing,
   );
-  const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(
-    over.upsertPatch ?? (async () => ({ error: null })),
-  );
-  const readLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(
-    over.readLog ?? (async () => ({ data: null, error: null })),
+  const appendLog = vi.fn<AppendLog>(
+    over.appendLog ?? (async () => ({ error: null })),
   );
   const deps: RebootMachineDeps = {
     nonceStore: over.nonceStore ?? freshStore,
@@ -134,10 +126,9 @@ const makeDeps = (over: Partial<RebootMachineDeps> = {}) => {
       over.findOccupantWorkstationByMachineId ?? ownedByNobody,
     findHomeNetworkByOwnerKey:
       over.findHomeNetworkByOwnerKey ?? (async () => ({ data: { public_ip: ACTOR_IP }, error: null })),
-    readLog,
-    upsertPatch,
+    appendLog,
   };
-  return { deps, endMachineSessions, writeBootId, findActiveSession, upsertPatch, readLog };
+  return { deps, endMachineSessions, writeBootId, findActiveSession, appendLog };
 };
 
 describe('handleRebootMachine', () => {
@@ -482,7 +473,7 @@ describe('the line a reboot leaves behind', () => {
   it('records the reboot on the box that went down, naming where the login came from', async () => {
     const identity = generateIdentity();
     const envelope = signRequest(identity, 'rebootMachine', { machine_id: FOREIGN_BOX });
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       findActiveSession: holding('root'),
       findOccupantWorkstationByMachineId: ownedBy('0a0a0a0a'),
     });
@@ -493,15 +484,14 @@ describe('the line a reboot leaves behind', () => {
     // One line, in the box's own kernel log, in the shape the rest of that file
     // is written in — a defender reads this with `cat`, so it has to read like
     // the entries already above it.
-    expect(upsertPatch).toHaveBeenCalledWith({
+    expect(appendLog).toHaveBeenCalledWith({
       writer_key: '0a0a0a0a',
       machine_id: FOREIGN_BOX,
       path: KERN_LOG_PATH,
-      content:
+      text:
         'Sep 18 12:03:44 victim kernel: [reboot] System restart requested from 198.51.100.23 — all sessions terminated\n',
       owner: 'root',
       permissions: KERN_LOG_PERMISSIONS,
-      node_type: 'file',
     });
   });
 
@@ -509,12 +499,9 @@ describe('the line a reboot leaves behind', () => {
     const first = generateIdentity();
     const second = generateIdentity();
     const owned = ownedBy('0a0a0a0a');
-    const existing =
-      'Sep 18 11:00:00 victim kernel: [reboot] System restart requested from 198.51.100.4 — all sessions terminated\n';
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       findActiveSession: holding('root'),
       findOccupantWorkstationByMachineId: owned,
-      readLog: async () => logRead(existing),
     });
 
     await handleRebootMachine(
@@ -530,30 +517,29 @@ describe('the line a reboot leaves behind', () => {
     // line filed under each attacker's own key would mean the newer row replacing
     // the older one wholesale — the defender reading half a break-in and never
     // knowing the other half existed.
-    const written = upsertPatch.mock.calls.at(-1)?.[0];
-    expect(written?.writer_key).toBe('0a0a0a0a');
-    expect(written?.content).toBe(
-      `${existing}Sep 18 12:03:44 victim kernel: [reboot] System restart requested from 198.51.100.23 — all sessions terminated\n`,
-    );
+    expect(appendLog.mock.calls.map(([append]) => append.writer_key)).toEqual([
+      '0a0a0a0a',
+      '0a0a0a0a',
+    ]);
   });
 
   it('records a reboot the owner ran on their own box', async () => {
     const identity = generateIdentity();
     const ownBox = ownBoxOf(identity);
     const envelope = signRequest(identity, 'rebootMachine', { machine_id: ownBox });
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       findOccupantWorkstationByMachineId: ownedBy(identity.publicKeyHex),
     });
 
     await handleRebootMachine(envelope, deps);
 
     // Unconditional, exactly as your own `su` shows up in your own `auth.log`.
-    expect(upsertPatch).toHaveBeenCalledWith(
+    expect(appendLog).toHaveBeenCalledWith(
       expect.objectContaining({
         writer_key: identity.publicKeyHex,
         machine_id: ownBox,
         path: KERN_LOG_PATH,
-        content:
+        text:
           'Sep 18 12:03:44 skylab kernel: [reboot] System restart requested from 203.0.113.77 — all sessions terminated\n',
       }),
     );
@@ -563,7 +549,7 @@ describe('the line a reboot leaves behind', () => {
     const identity = generateIdentity();
     const gateway = computeApGatewayId('HOME-9F2A');
     const envelope = signRequest(identity, 'rebootMachine', { machine_id: gateway });
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       findActiveSession: holding('root'),
       findOccupantWorkstationByMachineId: ownedByNobody,
     });
@@ -573,7 +559,7 @@ describe('the line a reboot leaves behind', () => {
     // Nobody owns an access point, so its log needs a key that does not move when
     // players join and leave: the network's own. Under the rebooter's own key instead,
     // two attackers would erase each other here.
-    expect(upsertPatch).toHaveBeenCalledWith(
+    expect(appendLog).toHaveBeenCalledWith(
       expect.objectContaining({ writer_key: apGatewayLogWriterKey('HOME-9F2A'), machine_id: gateway }),
     );
   });
@@ -584,16 +570,16 @@ describe('the line a reboot leaves behind', () => {
       machine_id: FOREIGN_BOX,
       source_ip: '198.51.100.250',
     });
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       findActiveSession: holding('root'),
       findOccupantWorkstationByMachineId: ownedBy('0a0a0a0a'),
     });
 
     await handleRebootMachine(envelope, deps);
 
-    const written = upsertPatch.mock.calls.at(-1)?.[0];
-    expect(written?.content).toContain(LOGIN_IP);
-    expect(written?.content).not.toContain('198.51.100.250');
+    const written = appendLog.mock.calls.at(-1)?.[0];
+    expect(written?.text).toContain(LOGIN_IP);
+    expect(written?.text).not.toContain('198.51.100.250');
   });
 
   // The intruder's login already left `Accepted password ... from <address>` in this
@@ -603,22 +589,22 @@ describe('the line a reboot leaves behind', () => {
   it("names the address the session's login came from, not the actor's home", async () => {
     const identity = generateIdentity();
     const envelope = signRequest(identity, 'rebootMachine', { machine_id: FOREIGN_BOX });
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       findActiveSession: holding('root', '10.0.0.14'),
       findOccupantWorkstationByMachineId: ownedBy('0a0a0a0a'),
     });
 
     await handleRebootMachine(envelope, deps);
 
-    const written = upsertPatch.mock.calls.at(-1)?.[0];
-    expect(written?.content).toContain('requested from 10.0.0.14 —');
-    expect(written?.content).not.toContain(ACTOR_IP);
+    const written = appendLog.mock.calls.at(-1)?.[0];
+    expect(written?.text).toContain('requested from 10.0.0.14 —');
+    expect(written?.text).not.toContain(ACTOR_IP);
   });
 
   it('says unknown rather than guessing when the session carries no address', async () => {
     const identity = generateIdentity();
     const envelope = signRequest(identity, 'rebootMachine', { machine_id: FOREIGN_BOX });
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       findActiveSession: holding('root', null),
       findOccupantWorkstationByMachineId: ownedBy('0a0a0a0a'),
     });
@@ -626,23 +612,23 @@ describe('the line a reboot leaves behind', () => {
     await handleRebootMachine(envelope, deps);
 
     // A false origin in a defender's log is worse than no origin.
-    const written = upsertPatch.mock.calls.at(-1)?.[0];
-    expect(written?.content).toContain('requested from unknown');
+    const written = appendLog.mock.calls.at(-1)?.[0];
+    expect(written?.text).toContain('requested from unknown');
   });
 
   it('says unknown when the owner reboots their own box from no network', async () => {
     const identity = generateIdentity();
     const ownBox = ownBoxOf(identity);
     const envelope = signRequest(identity, 'rebootMachine', { machine_id: ownBox });
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       findOccupantWorkstationByMachineId: ownedBy(identity.publicKeyHex),
       findHomeNetworkByOwnerKey: async () => ({ data: null, error: null }),
     });
 
     await handleRebootMachine(envelope, deps);
 
-    const written = upsertPatch.mock.calls.at(-1)?.[0];
-    expect(written?.content).toContain('requested from unknown');
+    const written = appendLog.mock.calls.at(-1)?.[0];
+    expect(written?.text).toContain('requested from unknown');
   });
 
   // A defender who reads `hostname` on the box, or saw it on a scan, must recognise the
@@ -652,12 +638,12 @@ describe('the line a reboot leaves behind', () => {
     const identity = generateIdentity();
     const gateway = computeApGatewayId('HOME-9F2A');
     const envelope = signRequest(identity, 'rebootMachine', { machine_id: gateway });
-    const { deps, upsertPatch } = makeDeps({ findActiveSession: holding('root') });
+    const { deps, appendLog } = makeDeps({ findActiveSession: holding('root') });
 
     await handleRebootMachine(envelope, deps);
 
-    const written = upsertPatch.mock.calls.at(-1)?.[0];
-    expect(written?.content).toContain(`${seedApGatewayHostname('HOME-9F2A')} kernel: [reboot]`);
+    const written = appendLog.mock.calls.at(-1)?.[0];
+    expect(written?.text).toContain(`${seedApGatewayHostname('HOME-9F2A')} kernel: [reboot]`);
   });
 
   it('names a gateway in the network chain by the hostname it answers to', async () => {
@@ -665,12 +651,12 @@ describe('the line a reboot leaves behind', () => {
     const [link] = chainLinks('HOME-9F2A');
     if (link === undefined) throw new Error('fixture: HOME-9F2A has no gateway chain');
     const envelope = signRequest(identity, 'rebootMachine', { machine_id: link.machineId });
-    const { deps, upsertPatch } = makeDeps({ findActiveSession: holding('root') });
+    const { deps, appendLog } = makeDeps({ findActiveSession: holding('root') });
 
     await handleRebootMachine(envelope, deps);
 
-    const written = upsertPatch.mock.calls.at(-1)?.[0];
-    expect(written?.content).toContain(`${link.host.hostname} kernel: [reboot]`);
+    const written = appendLog.mock.calls.at(-1)?.[0];
+    expect(written?.text).toContain(`${link.host.hostname} kernel: [reboot]`);
   });
 
   // A deep child hangs below the home LAN, so the LAN alone does not know its name: the
@@ -682,7 +668,7 @@ describe('the line a reboot leaves behind', () => {
       .find(({ link }) => link.parentMachineId !== null);
     if (deep === undefined) throw new Error('fixture: no network grows a deep child gateway');
     const envelope = signRequest(identity, 'rebootMachine', { machine_id: deep.link.machineId });
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       findActiveSession: async () => ({
         data: { username: 'root', userType: 'root', essid: deep.essid, sourceIp: LOGIN_IP },
         error: null,
@@ -691,8 +677,8 @@ describe('the line a reboot leaves behind', () => {
 
     await handleRebootMachine(envelope, deps);
 
-    const written = upsertPatch.mock.calls.at(-1)?.[0];
-    expect(written?.content).toContain(`${deep.link.host.hostname} kernel: [reboot]`);
+    const written = appendLog.mock.calls.at(-1)?.[0];
+    expect(written?.text).toContain(`${deep.link.host.hostname} kernel: [reboot]`);
   });
 
   it('names a generated box on the network by its generated hostname', async () => {
@@ -701,19 +687,19 @@ describe('the line a reboot leaves behind', () => {
     if (sibling === undefined) throw new Error('fixture: HOME-9F2A generates no machine');
     const machineId = machineIdForLanHost(sibling, 'HOME-9F2A');
     const envelope = signRequest(identity, 'rebootMachine', { machine_id: machineId });
-    const { deps, upsertPatch } = makeDeps({ findActiveSession: holding('root') });
+    const { deps, appendLog } = makeDeps({ findActiveSession: holding('root') });
 
     await handleRebootMachine(envelope, deps);
 
-    const written = upsertPatch.mock.calls.at(-1)?.[0];
-    expect(written?.content).toContain(`${sibling.hostname} kernel: [reboot]`);
+    const written = appendLog.mock.calls.at(-1)?.[0];
+    expect(written?.text).toContain(`${sibling.hostname} kernel: [reboot]`);
   });
 
   it('names a box its network does not generate by its id', async () => {
     const identity = generateIdentity();
     const generated = 'lan-host-10-0-0-77';
     const envelope = signRequest(identity, 'rebootMachine', { machine_id: generated });
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       findActiveSession: holding('root'),
       findOccupantWorkstationByMachineId: ownedByNobody,
     });
@@ -722,14 +708,14 @@ describe('the line a reboot leaves behind', () => {
 
     // A player's box carries a name in its id and a generated one does not, so
     // the hostname column falls back to the id itself rather than going blank.
-    const written = upsertPatch.mock.calls.at(-1)?.[0];
-    expect(written?.content).toContain(`${generated} kernel: [reboot]`);
+    const written = appendLog.mock.calls.at(-1)?.[0];
+    expect(written?.text).toContain(`${generated} kernel: [reboot]`);
   });
 
   it('leaves no line behind when the reboot itself was refused', async () => {
     const identity = generateIdentity();
     const envelope = signRequest(identity, 'rebootMachine', { machine_id: FOREIGN_BOX });
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       findActiveSession: holdingNothing,
       findOccupantWorkstationByMachineId: ownedBy('0a0a0a0a'),
     });
@@ -739,13 +725,13 @@ describe('the line a reboot leaves behind', () => {
     // A stranger who cannot reboot a box cannot write in its logs either — a
     // forged entry naming somebody else is its own attack on the defender.
     expect(result.status).toBe(403);
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('still reports the eviction when the trace cannot be filed', async () => {
     const identity = generateIdentity();
     const envelope = signRequest(identity, 'rebootMachine', { machine_id: FOREIGN_BOX });
-    const { deps, upsertPatch, endMachineSessions } = makeDeps({
+    const { deps, appendLog, endMachineSessions } = makeDeps({
       findActiveSession: holding('root'),
       findOccupantWorkstationByMachineId: async () => ({ data: null, error: 'down' }),
     });
@@ -759,7 +745,7 @@ describe('the line a reboot leaves behind', () => {
     // stranger's evidence under the wrong row.
     expect(result).toEqual({ status: 200, body: { ok: true } });
     expect(endMachineSessions).toHaveBeenCalled();
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 });
 

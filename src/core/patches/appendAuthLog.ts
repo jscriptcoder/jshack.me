@@ -4,16 +4,18 @@
  * session opened with no authentication, a login through one of its own doors, or a file
  * moved over its own ftp door — with a timestamp the SERVER stamps from its own UTC clock.
  *
- * The client sends only the EVENT — never a time. The server reads the current log content, formats the syslog line via
- * the shared `core/logging/authLog` formatter using `deps.now()` (UTC), appends,
- * and upserts. This is the single source of truth for game time: a crafted
+ * The client sends only the EVENT — never a time. The server formats the syslog line via
+ * the shared `core/logging/authLog` formatter using `deps.now()` (UTC) and appends it.
+ * This is the single source of truth for game time: a crafted
  * request cannot dictate the clock, which is what the future CVE time-gating
  * relies on (services age into vulnerability by SERVER time, not client claims).
  *
  * Flow mirrors `handleUpsertPatch`: verify the signed envelope → confirm the
  * target is the caller's OWN workstation → server-stamp writer_key from the
- * VERIFIED pubkey → read-modify-write the auth.log row (keyed on the owner's own
- * `(machine_id, AUTH_LOG_PATH, writer_key)` in the shared journal). The payload
+ * VERIFIED pubkey → append to the log as a reader sees it (the database's
+ * `append_machine_log`, which `appendMachineLog` lands every system line through), as
+ * the owner's own row in the shared journal. Unlike a system line, a failed append
+ * answers 500: the player asked for this line. The payload
  * schema rejects a client-supplied player_key/writer_key outright; any client
  * `time`/`pid` field is simply never read.
  */
@@ -41,22 +43,14 @@ import {
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import { SERVICE_CATALOG, formatLoginLines, type SweepLog } from '../services/serviceCatalog.js';
 import { SERVICE_BY_DOOR } from '../sessions/authCreateSession.js';
-import type { PatchRow } from './upsertPatch.js';
-import {
-  logAsReadersSeeIt,
-  type MachineLogReadQuery,
-  type MachineLogReadResult,
-} from './appendMachineLog.js';
+import type { AppendLog } from './appendMachineLog.js';
 
 export type AppendAuthLogDeps = {
   readonly nonceStore: NonceStore;
   /** The server's wall clock, epoch-ms (UTC). Injected so the handler is pure
    *  and deterministic under test. */
   readonly now: () => number;
-  /** Every writer's copy of the log on the caller's machine — an intruder with root
-   *  may have wiped it, and the owner's next line must not bring the wiped lines back. */
-  readonly readAuthLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
-  readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
+  readonly appendLog: AppendLog;
 };
 
 export type HandlerResponse = {
@@ -238,23 +232,16 @@ export const handleAppendAuthLog = async (
   }
 
   const { log, line } = lineFor(payload, deps.now());
-  const existing = await deps.readAuthLog({ machine_id: payload.machine_id, path: log.path });
-  if (existing.error) {
-    return { status: 500, body: { error: 'read_failed' } };
-  }
-  const current = logAsReadersSeeIt(existing.data);
-
-  const { error } = await deps.upsertPatch({
-    writer_key: publicKey,
+  const { error } = await deps.appendLog({
     machine_id: payload.machine_id,
     path: log.path,
-    content: `${current}${line}\n`,
+    writer_key: publicKey,
     owner: log.owner,
     permissions: log.permissions,
-    node_type: 'file',
+    text: `${line}\n`,
   });
   if (error) {
-    return { status: 500, body: { error: 'upsert_failed' } };
+    return { status: 500, body: { error: 'append_failed' } };
   }
 
   return { status: 200, body: { ok: true } };

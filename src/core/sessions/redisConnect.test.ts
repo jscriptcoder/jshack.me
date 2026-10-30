@@ -24,10 +24,8 @@ import { md5 } from '../generation/md5.js';
 import { DATADIR_PATH } from '../redis/datadir.js';
 import type { ApNetworkLookup, NatOccupantRow } from '../network/resolvePublicTarget.js';
 import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
-import type { PatchRow } from '../patches/upsertPatch.js';
+import type { AppendLog } from '../patches/appendMachineLog.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
-import { logRead } from '../../test/factories/logRows.js';
 
 /**
  * `handleRedisConnect` opens a key-value store, and it opens one for ANYBODY.
@@ -43,7 +41,7 @@ import { logRead } from '../../test/factories/logRows.js';
  *
  * NO session row is minted, for a reason sharper than the database door's: that door
  * at least validated a credential, and this one has none to validate. A row would hand
- * `listPatches` and `upsertPatch` to anyone who can reach port 6379.
+ * `listPatches` and `appendLog` to anyone who can reach port 6379.
  */
 
 const freshStore: NonceStore = async () => ({ fresh: true });
@@ -94,18 +92,14 @@ const makeDeps = (over: Partial<RedisConnectDeps> = {}) => {
     data: [],
     error: null,
   }));
-  const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async () => ({
+  const appendLog = vi.fn<AppendLog>(async () => ({
     error: null,
   }));
-  const readRedisLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(
-    async () => ({ data: null, error: null }),
-  );
   const deps: RedisConnectDeps = {
     nonceStore: freshStore,
     now: () => FIXED_NOW,
     findPatches,
-    readRedisLog,
-    upsertPatch,
+    appendLog,
     findNetworkByPublicIp: async () => ({ data: null, error: null }),
     listOccupantsByEssid: async () => ({ data: [], error: null }),
     listLeasesByEssid: async () => ({ data: [], error: null }),
@@ -116,7 +110,7 @@ const makeDeps = (over: Partial<RedisConnectDeps> = {}) => {
     ...homeVantage(ESSID),
     ...over,
   };
-  return { deps, findPatches, readRedisLog, upsertPatch };
+  return { deps, findPatches, appendLog };
 };
 
 const signedConnect = (
@@ -227,13 +221,13 @@ describe('what the store cannot be reached through', () => {
 
   it('writes nothing at all on a box it could not reach', async () => {
     const identity = generateIdentity();
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     await handleRedisConnect(await signedConnect(identity, { target_ip: '192.168.1.253' }), deps);
 
     // There is no machine to log on. A line written here would be a daemon's note
     // about a connection no daemon ever saw.
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 });
 
@@ -242,25 +236,24 @@ describe('the line the daemon leaves behind', () => {
     const identity = generateIdentity();
     const host = storeHostOn(ESSID);
     const { machineId } = resolveLanHostIdentity(host, ESSID);
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     await handleRedisConnect(await signedConnect(identity, { target_ip: host.ip }), deps);
 
-    expect(upsertPatch).toHaveBeenCalledWith({
+    expect(appendLog).toHaveBeenCalledWith({
       writer_key: apGatewayLogWriterKey(ESSID),
       machine_id: machineId,
       path: REDIS_LOG_PATH,
-      content: `${arrivalLine()}\n`,
+      text: `${arrivalLine()}\n`,
       owner: REDIS_LOG_OWNER,
       permissions: REDIS_LOG_PERMISSIONS,
-      node_type: 'file',
     });
   });
 
   it('writes ONE line per connection — an arrival, and no attempt beside it', async () => {
     const identity = generateIdentity();
     const host = storeHostOn(ESSID);
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     await handleRedisConnect(await signedConnect(identity, { target_ip: host.ip }), deps);
 
@@ -268,30 +261,15 @@ describe('the line the daemon leaves behind', () => {
     // the credential in the handshake. Nothing was attempted here — there was no
     // credential to attempt — so a second line would be recording a thing that did
     // not happen.
-    const [written] = upsertPatch.mock.calls[0] ?? [];
-    expect(written?.content).toBe(`${arrivalLine()}\n`);
-    expect(upsertPatch).toHaveBeenCalledTimes(1);
-  });
-
-  it('appends to the log the box already has rather than replacing it', async () => {
-    const identity = generateIdentity();
-    const host = storeHostOn(ESSID);
-    const earlier = '1234:M 08 Aug 2026 09:14:02.000 * Client connected from 10.0.0.9';
-    const { deps, upsertPatch } = makeDeps({
-      readRedisLog: async () => logRead(`${earlier}\n`),
-    });
-
-    await handleRedisConnect(await signedConnect(identity, { target_ip: host.ip }), deps);
-
-    expect(upsertPatch).toHaveBeenCalledWith(
-      expect.objectContaining({ content: `${earlier}\n${arrivalLine()}\n` }),
-    );
+    const [written] = appendLog.mock.calls[0] ?? [];
+    expect(written?.text).toBe(`${arrivalLine()}\n`);
+    expect(appendLog).toHaveBeenCalledTimes(1);
   });
 
   it('records an arrival it was told no address for as coming from nowhere nameable', async () => {
     const identity = generateIdentity();
     const host = storeHostOn(ESSID);
-    const { deps, upsertPatch } = makeDeps(homeVantage(ESSID, null));
+    const { deps, appendLog } = makeDeps(homeVantage(ESSID, null));
 
     await handleRedisConnect(
       await signedConnect(identity, { target_ip: host.ip, source_ip: null }),
@@ -302,8 +280,8 @@ describe('the line the daemon leaves behind', () => {
     // knows nothing and the claim is all there is — so a caller who claims nothing is
     // written down as exactly that, rather than as an empty field that reads like a
     // line the daemon never finished.
-    expect(upsertPatch).toHaveBeenCalledWith(
-      expect.objectContaining({ content: expect.stringContaining('Client connected from unknown') }),
+    expect(appendLog).toHaveBeenCalledWith(
+      expect.objectContaining({ text: expect.stringContaining('Client connected from unknown') }),
     );
   });
 
@@ -311,7 +289,7 @@ describe('the line the daemon leaves behind', () => {
     const identity = generateIdentity();
     const host = storeHostOn(ESSID);
     const { deps } = makeDeps({
-      upsertPatch: async () => ({ error: new Error('journal is down') }),
+      appendLog: async () => ({ error: new Error('journal is down') }),
     });
 
     const response = await handleRedisConnect(
@@ -477,42 +455,42 @@ describe('a store on a hidden layer', () => {
 
   it('records the arrival on the DEEP box, at the address NAT showed it', async () => {
     const identity = generateIdentity();
-    const { deps, upsertPatch } = makeDeps({ ...homeVantage(DEEP.essid), findPatches: throughForward() });
+    const { deps, appendLog } = makeDeps({ ...homeVantage(DEEP.essid), findPatches: throughForward() });
 
     await openDeepStore(identity, deps);
 
     // Behind NAT the box only ever saw the fronting gateway's `.1`, whoever was behind
     // it. Writing the caller's own address here would put the defender's evidence and
     // the route in disagreement.
-    expect(upsertPatch).toHaveBeenCalledWith(
+    expect(appendLog).toHaveBeenCalledWith(
       expect.objectContaining({
         machine_id: DEEP.machineId,
         path: REDIS_LOG_PATH,
-        content: expect.stringContaining(`Client connected from ${DEEP.natIp}`),
+        text: expect.stringContaining(`Client connected from ${DEEP.natIp}`),
       }),
     );
-    expect(upsertPatch).not.toHaveBeenCalledWith(
-      expect.objectContaining({ content: expect.stringContaining(CLIENT_IP) }),
+    expect(appendLog).not.toHaveBeenCalledWith(
+      expect.objectContaining({ text: expect.stringContaining(CLIENT_IP) }),
     );
   });
 
   it('leaves the gateway with nothing written on it, because NAT does not log', async () => {
     const identity = generateIdentity();
-    const { deps, upsertPatch } = makeDeps({ ...homeVantage(DEEP.essid), findPatches: throughForward() });
+    const { deps, appendLog } = makeDeps({ ...homeVantage(DEEP.essid), findPatches: throughForward() });
 
     await openDeepStore(identity, deps);
 
     // The gateway carried the packet and ran nothing. A row filed against it is a trace
     // pointing at the wrong box, which is worse for the defender than no trace at all.
-    expect(upsertPatch).toHaveBeenCalled();
+    expect(appendLog).toHaveBeenCalled();
     expect(
-      upsertPatch.mock.calls.every(([row]) => row.machine_id === DEEP.machineId),
+      appendLog.mock.calls.every(([row]) => row.machine_id === DEEP.machineId),
     ).toBe(true);
   });
 
   it('refuses a deep box whose daemon was stopped through its own journal', async () => {
     const identity = generateIdentity();
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       ...homeVantage(DEEP.essid),
       findPatches: throughForward([patchRow(pidfilePath(SERVICE_CATALOG.redis), null)]),
     });
@@ -523,12 +501,12 @@ describe('a store on a hidden layer', () => {
     // up. Reading that would answer for a store the player has already stopped, so the
     // reach materializes the journal on top before it asks what is listening.
     expect(response).toEqual({ status: 404, body: { error: 'service_not_running' } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('refuses a deep box bricked through its own journal', async () => {
     const identity = generateIdentity();
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       ...homeVantage(DEEP.essid),
       findPatches: throughForward([patchRow('/boot/vmlinuz', null)]),
     });
@@ -537,7 +515,7 @@ describe('a store on a hidden layer', () => {
 
     // A box with its kernel removed is dark to every tool, at any depth.
     expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('refuses a port the gateway forwards to a daemon that is not the store', async () => {
@@ -658,14 +636,14 @@ describe("another player's store, reached by their public address", () => {
 
   it("records the arrival on the defender's own box, under the DEFENDER's key", async () => {
     const identity = generateIdentity();
-    const { deps, upsertPatch } = crossPlayerDeps();
+    const { deps, appendLog } = crossPlayerDeps();
 
     await openAcrossTheWorld(identity, deps);
 
     // `patches` is keyed (machine_id, path, writer_key). A row per attacker would fold
     // to whichever was written last, so the defender's log would keep only the most
     // recent stranger and silently drop the rest.
-    expect(upsertPatch).toHaveBeenCalledWith(
+    expect(appendLog).toHaveBeenCalledWith(
       expect.objectContaining({
         writer_key: DEFENDER.publicKeyHex,
         machine_id: DEFENDER_WS,
@@ -676,19 +654,19 @@ describe("another player's store, reached by their public address", () => {
 
   it('writes the address the SERVER derived, never the one the client typed', async () => {
     const identity = generateIdentity();
-    const { deps, upsertPatch } = crossPlayerDeps();
+    const { deps, appendLog } = crossPlayerDeps();
 
     await openAcrossTheWorld(identity, deps);
 
     // A defender's log is their evidence, and evidence a client can write is none. The
     // attacker's own public address is resolved from their VERIFIED key.
-    expect(upsertPatch).toHaveBeenCalledWith(
+    expect(appendLog).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: expect.stringContaining(`Client connected from ${ATTACKER_PUBLIC_IP}`),
+        text: expect.stringContaining(`Client connected from ${ATTACKER_PUBLIC_IP}`),
       }),
     );
-    expect(upsertPatch).not.toHaveBeenCalledWith(
-      expect.objectContaining({ content: expect.stringContaining(CLIENT_IP) }),
+    expect(appendLog).not.toHaveBeenCalledWith(
+      expect.objectContaining({ text: expect.stringContaining(CLIENT_IP) }),
     );
   });
 
@@ -697,14 +675,14 @@ describe("another player's store, reached by their public address", () => {
     // Nobody has registered this address. If the reach fell through to the caller's own
     // LAN it would find the seeded store host sitting on that essid and open it —
     // handing the player somebody else's box under a stranger's name.
-    const { deps, upsertPatch } = crossPlayerDeps({
+    const { deps, appendLog } = crossPlayerDeps({
       findNetworkByPublicIp: async () => ({ data: null, error: null }),
     });
 
     const response = await openAcrossTheWorld(identity, deps);
 
     expect(response.status).toBe(404);
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('refuses a forward that reaches a live port the store is not the one holding', async () => {
@@ -730,7 +708,7 @@ describe("another player's store, reached by their public address", () => {
 
   it('refuses a defender who bought the store but never started it, as simple silence', async () => {
     const identity = generateIdentity();
-    const { deps, upsertPatch } = crossPlayerDeps({
+    const { deps, appendLog } = crossPlayerDeps({
       findPatches: journals({
         [AP_GATEWAY_ID]: [publicForward()],
         [DEFENDER_WS]: [defenderDatadir],
@@ -749,12 +727,12 @@ describe("another player's store, reached by their public address", () => {
     // one's own gateways the same case answers `service_not_running`, because there the
     // player is inside the network and asking about their own layer.
     expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('refuses a defender whose box will not boot, before anything is asked of it', async () => {
     const identity = generateIdentity();
-    const { deps, upsertPatch } = crossPlayerDeps({
+    const { deps, appendLog } = crossPlayerDeps({
       findPatches: journals({
         [AP_GATEWAY_ID]: [publicForward()],
         [DEFENDER_WS]: [defenderRedisd, defenderDatadir, patchRow('/boot/vmlinuz', null)],
@@ -766,7 +744,7 @@ describe("another player's store, reached by their public address", () => {
     // A bricked box is dark to every door. Nothing is written on a machine that cannot
     // come up.
     expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 });
 
@@ -845,23 +823,23 @@ describe('a fellow occupant, on the WiFi they are both connected to', () => {
 
   it("records the arrival at the address the LEASE says, under the DEFENDER's key", async () => {
     const identity = generateIdentity();
-    const { deps, upsertPatch } = sameLanDeps(identity.publicKeyHex);
+    const { deps, appendLog } = sameLanDeps(identity.publicKeyHex);
 
     await openNextDoor(identity, deps);
 
     // A defender's log is their evidence. On this vantage the address is a LEASE rather
     // than a NAT address, because there is nothing in between to rewrite it — the box
     // really did see the caller's own address on the WiFi they share.
-    expect(upsertPatch).toHaveBeenCalledWith(
+    expect(appendLog).toHaveBeenCalledWith(
       expect.objectContaining({
         writer_key: DEFENDER.publicKeyHex,
         machine_id: DEFENDER_WS,
         path: REDIS_LOG_PATH,
-        content: expect.stringContaining(`Client connected from ${ATTACKER_LAN_IP}`),
+        text: expect.stringContaining(`Client connected from ${ATTACKER_LAN_IP}`),
       }),
     );
-    expect(upsertPatch).not.toHaveBeenCalledWith(
-      expect.objectContaining({ content: expect.stringContaining(CLIENT_IP) }),
+    expect(appendLog).not.toHaveBeenCalledWith(
+      expect.objectContaining({ text: expect.stringContaining(CLIENT_IP) }),
     );
   });
 
@@ -879,7 +857,7 @@ describe('a fellow occupant, on the WiFi they are both connected to', () => {
 
   it('reaches nothing on a WiFi the caller is not on', async () => {
     const identity = generateIdentity();
-    const { deps, upsertPatch } = sameLanDeps(identity.publicKeyHex, {
+    const { deps, appendLog } = sameLanDeps(identity.publicKeyHex, {
       occupants: [defenderOccupant],
     });
 
@@ -888,12 +866,12 @@ describe('a fellow occupant, on the WiFi they are both connected to', () => {
     // The LAN boundary: you reach a box on a WiFi by being on that WiFi. A caller with
     // no occupancy row is shown the generated world, which has nobody at this address.
     expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('loses the box when its owner leaves the WiFi, lease or no lease', async () => {
     const identity = generateIdentity();
-    const { deps, upsertPatch } = sameLanDeps(identity.publicKeyHex, {
+    const { deps, appendLog } = sameLanDeps(identity.publicKeyHex, {
       occupants: [attackerOccupant(identity.publicKeyHex)],
     });
 
@@ -902,12 +880,12 @@ describe('a fellow occupant, on the WiFi they are both connected to', () => {
     // Occupancy IS the reach here, so `nmcli disconnect` takes the box off the LAN even
     // though its lease is still held. Nothing across NAT behaves like this.
     expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('refuses rather than falling through when the occupancy read fails', async () => {
     const identity = generateIdentity();
-    const { deps, upsertPatch } = sameLanDeps(identity.publicKeyHex, {
+    const { deps, appendLog } = sameLanDeps(identity.publicKeyHex, {
       over: { listOccupantsByEssid: async () => ({ data: null, error: new Error('offline') }) },
     });
 
@@ -916,12 +894,12 @@ describe('a fellow occupant, on the WiFi they are both connected to', () => {
     // Quietly dropping to the generated world would route the caller onto a seeded box
     // standing where a real player is, and write their data to it.
     expect(response).toEqual({ status: 500, body: { error: 'occupants_lookup_failed' } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('refuses rather than falling through when the lease read fails', async () => {
     const identity = generateIdentity();
-    const { deps, upsertPatch } = sameLanDeps(identity.publicKeyHex, {
+    const { deps, appendLog } = sameLanDeps(identity.publicKeyHex, {
       over: { listLeasesByEssid: async () => ({ data: null, error: new Error('offline') }) },
     });
 
@@ -931,7 +909,7 @@ describe('a fellow occupant, on the WiFi they are both connected to', () => {
     // know what OTHER identities were issued, which is the drift the lease store exists
     // to end.
     expect(response).toEqual({ status: 500, body: { error: 'leases_lookup_failed' } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('reads an answer that carries no rows as nobody being there', async () => {

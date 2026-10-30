@@ -3,14 +3,13 @@ import {
   handleAppendKernLog,
   type AppendKernLogDeps,
 } from './appendKernLog.js';
-import type { PatchRow } from './upsertPatch.js';
+import type { AppendLog } from './appendMachineLog.js';
 import { signRequest } from '../signedRequest/sign.js';
 import { generateIdentity } from '../identity/identity.js';
 import { computeWorkstationId } from '../identity/workstation.js';
 import { KERN_LOG_OWNER, KERN_LOG_PATH, KERN_LOG_PERMISSIONS } from '../logging/kernLog.js';
 import { derivePid } from '../logging/syslog.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
-import { logRead, logRow } from '../../test/factories/logRows.js';
 
 const freshStore: NonceStore = async () => ({ fresh: true });
 
@@ -19,21 +18,14 @@ const freshStore: NonceStore = async () => ({ fresh: true });
 const STAMP = Date.UTC(2026, 5, 7, 14, 32, 1);
 
 const makeDeps = (over: Partial<AppendKernLogDeps> = {}) => {
-  const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async () => ({
-    error: null,
-  }));
-  const readKernLog = vi.fn<AppendKernLogDeps['readKernLog']>(async () => ({
-    data: [],
-    error: null,
-  }));
+  const appendLog = vi.fn<AppendLog>(async () => ({ error: null }));
   const deps: AppendKernLogDeps = {
     nonceStore: freshStore,
     now: () => STAMP,
-    readKernLog,
-    upsertPatch,
+    appendLog,
     ...over,
   };
-  return { deps, upsertPatch, readKernLog };
+  return { deps, appendLog };
 };
 
 // A miss-crash event targeting the signer's OWN workstation: su faulted in libpam.
@@ -45,34 +37,18 @@ const ownEvent = (publicKeyHex: string) => ({
 });
 
 describe('handleAppendKernLog', () => {
-  it('stamps the server UTC time + pid into the segfault line and appends to an empty kern.log', async () => {
+  it('stamps the server UTC time + pid into the segfault line and appends it to kern.log as one line', async () => {
     const id = generateIdentity();
     const envelope = signRequest(id, 'appendKernLog', ownEvent(id.publicKeyHex));
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     const result = await handleAppendKernLog(envelope, deps);
 
     expect(result).toEqual({ status: 200, body: { ok: true } });
-    const row = upsertPatch.mock.calls[0]![0];
     // Time + pid come from the server clock (STAMP), NOT any client value; the message
     // names the command and the library it faulted in, with no CVE id.
-    expect(row.content).toBe(
+    expect(appendLog.mock.calls[0]![0].text).toBe(
       `Jun  7 14:32:01 rig kernel: su[${derivePid(STAMP)}]: segfault at 0 ip 0000000000000000 sp 0000000000000000 error 4 in libpam.so\n`,
-    );
-  });
-
-  it('appends after existing content (preserves the prior log, single trailing newline)', async () => {
-    const id = generateIdentity();
-    const envelope = signRequest(id, 'appendKernLog', ownEvent(id.publicKeyHex));
-    const { deps, upsertPatch } = makeDeps({
-      readKernLog: async () => logRead('PRIOR LINE\n'),
-    });
-
-    await handleAppendKernLog(envelope, deps);
-
-    const row = upsertPatch.mock.calls[0]![0];
-    expect(row.content).toBe(
-      `PRIOR LINE\nJun  7 14:32:01 rig kernel: su[${derivePid(STAMP)}]: segfault at 0 ip 0000000000000000 sp 0000000000000000 error 4 in libpam.so\n`,
     );
   });
 
@@ -83,14 +59,14 @@ describe('handleAppendKernLog', () => {
       command: 'systemctl',
       library: 'libsystemd',
     });
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     await handleAppendKernLog(envelope, deps);
 
-    expect(upsertPatch.mock.calls[0]![0].content).toContain(
+    expect(appendLog.mock.calls[0]![0].text).toContain(
       'systemctl[',
     );
-    expect(upsertPatch.mock.calls[0]![0].content).toContain('in libsystemd.so');
+    expect(appendLog.mock.calls[0]![0].text).toContain('in libsystemd.so');
   });
 
   it('ignores a client-supplied time/pid — the timestamp is the server clock', async () => {
@@ -100,65 +76,32 @@ describe('handleAppendKernLog', () => {
       time: Date.UTC(2099, 0, 1, 0, 0, 0),
       pid: 4242,
     });
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     await handleAppendKernLog(envelope, deps);
 
-    const content = upsertPatch.mock.calls[0]![0].content ?? '';
+    const content = appendLog.mock.calls[0]![0].text ?? '';
     expect(content).toContain('Jun  7 14:32:01');
     expect(content).toContain(`su[${derivePid(STAMP)}]`);
     expect(content).not.toContain('2099');
     expect(content).not.toContain('su[4242]');
   });
 
-  it('writes the row as root at the canonical kern.log path with log perms and no is_new', async () => {
+  it('appends to the caller’s own kern.log as the caller, root-owned with the log’s mode', async () => {
     const id = generateIdentity();
     const envelope = signRequest(id, 'appendKernLog', ownEvent(id.publicKeyHex));
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     await handleAppendKernLog(envelope, deps);
 
-    const row = upsertPatch.mock.calls[0]![0];
-    expect(row.writer_key).toBe(id.publicKeyHex);
-    expect(row.machine_id).toBe(computeWorkstationId('skylab', id.publicKeyHex));
-    expect(row.path).toBe(KERN_LOG_PATH);
-    expect(row.owner).toBe(KERN_LOG_OWNER);
-    expect(row.permissions).toEqual(KERN_LOG_PERMISSIONS);
-    expect(row.node_type).toBe('file');
-    // A base-FS file overwrite must NOT stamp is_new (it would flip the row to a
-    // player-created, deletable node).
-    expect(Object.keys(row)).not.toContain('is_new');
-  });
-
-  it('reads every writer’s copy of kern.log on the caller’s machine', async () => {
-    const id = generateIdentity();
-    const envelope = signRequest(id, 'appendKernLog', ownEvent(id.publicKeyHex));
-    const { deps, readKernLog } = makeDeps();
-
-    await handleAppendKernLog(envelope, deps);
-
-    expect(readKernLog).toHaveBeenCalledWith({
+    expect(appendLog).toHaveBeenCalledWith({
+      writer_key: id.publicKeyHex,
       machine_id: computeWorkstationId('skylab', id.publicKeyHex),
       path: KERN_LOG_PATH,
+      owner: KERN_LOG_OWNER,
+      permissions: KERN_LOG_PERMISSIONS,
+      text: expect.stringContaining('segfault'),
     });
-  });
-
-  it('builds on an intruder’s root wipe of kern.log, so the wiped lines stay gone', async () => {
-    const id = generateIdentity();
-    const envelope = signRequest(id, 'appendKernLog', ownEvent(id.publicKeyHex));
-    const ownCopy = logRow({ content: 'PRIOR LINE\n' });
-    const wipe = logRow({
-      content: '',
-      updated_at: '2026-06-07T10:00:00.000000+00:00',
-      writer_key: 'an-intruder',
-    });
-    const { deps, upsertPatch } = makeDeps({
-      readKernLog: async () => ({ data: [wipe, ownCopy], error: null }),
-    });
-
-    await handleAppendKernLog(envelope, deps);
-
-    expect(upsertPatch.mock.calls[0]![0].content).not.toContain('PRIOR LINE');
   });
 
   it('rejects an append to a machine that is not the caller’s workstation with 403 and never writes', async () => {
@@ -169,12 +112,12 @@ describe('handleAppendKernLog', () => {
       library: 'libpam',
       hostname: 'rig',
     });
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     const result = await handleAppendKernLog(envelope, deps);
 
     expect(result).toEqual({ status: 403, body: { error: 'no_session' } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('rejects a client-supplied player_key with 400 and never writes', async () => {
@@ -183,12 +126,12 @@ describe('handleAppendKernLog', () => {
       ...ownEvent(id.publicKeyHex),
       player_key: 'forged-key',
     });
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     const result = await handleAppendKernLog(envelope, deps);
 
     expect(result).toEqual({ status: 400, body: { error: 'payload_invalid' } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('rejects a client-supplied writer_key (forged provenance) with 400 and never writes', async () => {
@@ -197,12 +140,12 @@ describe('handleAppendKernLog', () => {
       ...ownEvent(id.publicKeyHex),
       writer_key: 'forged-provenance',
     });
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     const result = await handleAppendKernLog(envelope, deps);
 
     expect(result).toEqual({ status: 400, body: { error: 'payload_invalid' } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('rejects a missing command with 400 payload_invalid', async () => {
@@ -212,46 +155,32 @@ describe('handleAppendKernLog', () => {
       library: 'libpam',
       hostname: 'rig',
     });
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     const result = await handleAppendKernLog(envelope, deps);
 
     expect(result).toEqual({ status: 400, body: { error: 'payload_invalid' } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
-  it('rejects a tampered signature with 401 and never reads or writes', async () => {
+  it('rejects a tampered signature with 401 and never writes', async () => {
     const id = generateIdentity();
     const envelope = signRequest(id, 'appendKernLog', ownEvent(id.publicKeyHex));
-    const { deps, upsertPatch, readKernLog } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     const result = await handleAppendKernLog({ ...envelope, payload: `${envelope.payload} ` }, deps);
 
     expect(result).toEqual({ status: 401, body: { error: 'signature_invalid' } });
-    expect(readKernLog).not.toHaveBeenCalled();
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
-  it('returns 500 when the content read fails and never writes', async () => {
+  it('returns 500 when the append fails, since the player asked for that line', async () => {
     const id = generateIdentity();
     const envelope = signRequest(id, 'appendKernLog', ownEvent(id.publicKeyHex));
-    const { deps, upsertPatch } = makeDeps({
-      readKernLog: async () => ({ data: null, error: { message: 'db down' } }),
-    });
+    const { deps } = makeDeps({ appendLog: async () => ({ error: { message: 'db down' } }) });
 
     const result = await handleAppendKernLog(envelope, deps);
 
-    expect(result).toEqual({ status: 500, body: { error: 'read_failed' } });
-    expect(upsertPatch).not.toHaveBeenCalled();
-  });
-
-  it('returns 500 when the upsert fails', async () => {
-    const id = generateIdentity();
-    const envelope = signRequest(id, 'appendKernLog', ownEvent(id.publicKeyHex));
-    const { deps } = makeDeps({ upsertPatch: async () => ({ error: { message: 'db down' } }) });
-
-    const result = await handleAppendKernLog(envelope, deps);
-
-    expect(result).toEqual({ status: 500, body: { error: 'upsert_failed' } });
+    expect(result).toEqual({ status: 500, body: { error: 'append_failed' } });
   });
 });

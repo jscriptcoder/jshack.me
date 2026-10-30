@@ -15,7 +15,7 @@ import { formatSnmpdState } from '../snmp/rwCommunity.js';
 import { md5 } from '../generation/md5.js';
 import { asAbsPath } from '../types.js';
 import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
+import type { AppendLog } from '../patches/appendMachineLog.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 
@@ -127,15 +127,13 @@ const makeDeps = (over: Partial<SnmpSetDeps> = {}, homeEssid: string = 'BEAN-THE
   const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async () => ({
     error: null,
   }));
-  const readSnmpdLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(
-    async () => ({ data: null, error: null }),
-  );
+  const appendLog = vi.fn<AppendLog>(async () => ({ error: null }));
   const deps: SnmpSetDeps = {
     nonceStore: freshStore,
     now: () => FIXED_NOW,
     findPatches,
-    readSnmpdLog,
     upsertPatch,
+    appendLog,
     findNetworkByPublicIp: async () => ({ data: null, error: null }),
     listOccupantsByEssid: async () => ({ data: [], error: null }),
     listLeasesByEssid: async () => ({ data: [], error: null }),
@@ -148,7 +146,7 @@ const makeDeps = (over: Partial<SnmpSetDeps> = {}, homeEssid: string = 'BEAN-THE
     ...homeOn(homeEssid),
     ...over,
   };
-  return { deps, findPatches, readSnmpdLog, upsertPatch };
+  return { deps, findPatches, upsertPatch, appendLog };
 };
 
 const signedSet = (
@@ -186,6 +184,8 @@ const writtenTo = (
   upsertPatch: ReturnType<typeof makeDeps>['upsertPatch'],
   path: string,
 ): PatchRow | undefined => upsertPatch.mock.calls.map((call) => call[0]).find((row) => row.path === path);
+const appendedTo = (appendLog: ReturnType<typeof makeDeps>['appendLog'], path: string) =>
+  appendLog.mock.calls.map(([append]) => append).find((append) => append.path === path);
 
 describe('opening a port on a router', () => {
   it('writes the forward the player asked for and echoes it back', async () => {
@@ -544,7 +544,7 @@ describe('what an agent answers before the community is accepted', () => {
     // The guess is still on the record, and recorded as the FAILURE it was. A verdict
     // line reading "succeeded" behind a refused string would tell a defender their
     // community is out when it is not — and hide the wall of guessing that says it is.
-    const logged = writtenTo(refused.upsertPatch, SNMPD_LOG_PATH)?.content ?? '';
+    const logged = appendedTo(refused.appendLog, SNMPD_LOG_PATH)?.text ?? '';
     expect(logged).toContain('Authentication failure (incorrect community name)');
     expect(logged).not.toContain('SET ');
   });
@@ -583,7 +583,7 @@ describe('what a set leaves on the device', () => {
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
     const workstation = onSegment(essid, 10);
-    const { deps, upsertPatch } = makeDeps(
+    const { deps, appendLog } = makeDeps(
       answering(patchRow(RULES_V4_PATH, `forward 2222 to ${onSegment(essid, 9)}:22\n`)),
     essid);
 
@@ -599,7 +599,7 @@ describe('what a set leaves on the device', () => {
     // One append, three lines: somebody arrived, the community was accepted, and this
     // is what they changed. Separate appends would be separate read-modify-writes
     // racing over one file.
-    const logged = writtenTo(upsertPatch, SNMPD_LOG_PATH)?.content ?? '';
+    const logged = appendedTo(appendLog, SNMPD_LOG_PATH)?.text ?? '';
     expect(logged).toContain(`Connection from UDP: [${HOME_IP}]`);
     expect(logged).toContain(`Authentication succeeded from UDP: [${HOME_IP}]`);
     expect(logged).toContain(
@@ -612,14 +612,14 @@ describe('what a set leaves on the device', () => {
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps, upsertPatch } = makeDeps(answering(), essid);
+    const { deps, appendLog } = makeDeps(answering(), essid);
 
     await handleSnmpSet(
       await signedSet(identity, { essid, target_ip: gateway.ip, assignment: 'forward.9999=none' }),
       deps,
     );
 
-    expect(writtenTo(upsertPatch, SNMPD_LOG_PATH)?.content).toContain(
+    expect(appendedTo(appendLog, SNMPD_LOG_PATH)?.text).toContain(
       `SET forward.9999 = none -> none from UDP: [${HOME_IP}]`,
     );
   });
@@ -628,7 +628,7 @@ describe('what a set leaves on the device', () => {
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps, upsertPatch } = makeDeps(answering(), essid);
+    const { deps, appendLog } = makeDeps(answering(), essid);
 
     await handleSnmpSet(
       await signedSet(identity, {
@@ -641,7 +641,7 @@ describe('what a set leaves on the device', () => {
 
     // The arrival and the verdict still land — somebody reached the agent and named a
     // string that worked. Nothing changed, so nothing claims to have.
-    const logged = writtenTo(upsertPatch, SNMPD_LOG_PATH)?.content ?? '';
+    const logged = appendedTo(appendLog, SNMPD_LOG_PATH)?.text ?? '';
     expect(logged).toContain('Authentication succeeded');
     // EXACTLY the arrival and the verdict. Asserting only the absence of a SET line
     // would let any other line through, and a device's log is read as a record of what
@@ -653,7 +653,7 @@ describe('what a set leaves on the device', () => {
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps, upsertPatch } = makeDeps(
+    const { deps, appendLog } = makeDeps(
       answering(
         patchRow(
           RULES_V4_PATH,
@@ -676,7 +676,7 @@ forward 2222 to ${onSegment(essid, 9)}:22
     // A device with more than one forward is the ordinary case, and `old` has to come
     // from the port being set. Reading whichever rule sat first would tell a defender a
     // port changed that nobody touched.
-    expect(writtenTo(upsertPatch, SNMPD_LOG_PATH)?.content).toContain(
+    expect(appendedTo(appendLog, SNMPD_LOG_PATH)?.text).toContain(
       `SET forward.2222 = ${onSegment(essid, 9)}:22 -> ${onSegment(essid, 10)}:22`,
     );
   });
@@ -684,7 +684,7 @@ forward 2222 to ${onSegment(essid, 9)}:22
   it('reads the old value off the file that device actually keeps', async () => {
     const identity = generateIdentity();
     const { essid, host } = switchRunningAgent();
-    const { deps, upsertPatch } = makeDeps(answering(), essid);
+    const { deps, appendLog } = makeDeps(answering(), essid);
 
     await handleSnmpSet(
       await signedSet(identity, { essid, target_ip: host.ip, assignment: 'aclPort.8080=permit' }),
@@ -694,7 +694,7 @@ forward 2222 to ${onSegment(essid, 9)}:22
     // The seeded switch ships one active `deny 8080`. Read from a router's NAT table
     // instead, the old value would come back `none` — a line saying a port was opened
     // that had never been shut.
-    expect(writtenTo(upsertPatch, SNMPD_LOG_PATH)?.content).toContain(
+    expect(appendedTo(appendLog, SNMPD_LOG_PATH)?.text).toContain(
       'SET aclPort.8080 = deny -> permit',
     );
   });
@@ -703,7 +703,7 @@ forward 2222 to ${onSegment(essid, 9)}:22
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps, upsertPatch } = makeDeps({ ...answering(), ...homeOn(essid, null) }, essid);
+    const { deps, appendLog } = makeDeps({ ...answering(), ...homeOn(essid, null) }, essid);
 
     await handleSnmpSet(
       await signRequest(identity, 'snmpSet', {
@@ -718,7 +718,7 @@ forward 2222 to ${onSegment(essid, 9)}:22
     // The caller occupies the network but holds no lease, so the server can place them
     // on it but not at an address. A blank or invented one would be worse than an honest
     // gap: a defender's log is evidence, and a false address in it is worse than none.
-    expect(writtenTo(upsertPatch, SNMPD_LOG_PATH)?.content).toContain('from UDP: [unknown]');
+    expect(appendedTo(appendLog, SNMPD_LOG_PATH)?.text).toContain('from UDP: [unknown]');
   });
 
   it('refuses a request that names its own player, however well it is signed', async () => {
@@ -778,7 +778,7 @@ forward 2222 to ${onSegment(essid, 9)}:22
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps, upsertPatch } = makeDeps(answering(), essid);
+    const { deps, upsertPatch, appendLog } = makeDeps(answering(), essid);
 
     await handleSnmpSet(
       await signedSet(identity, {
@@ -789,12 +789,9 @@ forward 2222 to ${onSegment(essid, 9)}:22
       deps,
     );
 
-    // Two rows, and they are the whole footprint of a set: the file it changed, and the
-    // record that it changed it.
-    expect(upsertPatch).toHaveBeenCalledTimes(2);
-    expect(upsertPatch.mock.calls.map((call) => call[0].path).sort()).toEqual(
-      [RULES_V4_PATH, SNMPD_LOG_PATH].sort(),
-    );
+    // The whole footprint of a set: the file it changed, and the record that it changed it.
+    expect(upsertPatch.mock.calls.map((call) => call[0].path)).toEqual([RULES_V4_PATH]);
+    expect(appendLog.mock.calls.map((call) => call[0].path)).toEqual([SNMPD_LOG_PATH]);
   });
 
   it('does not claim a set that the journal refused to store', async () => {
@@ -804,7 +801,7 @@ forward 2222 to ${onSegment(essid, 9)}:22
     const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async (row) => ({
       error: row.path === RULES_V4_PATH ? new Error('journal down') : null,
     }));
-    const { deps } = makeDeps({ ...answering(), upsertPatch }, essid);
+    const { appendLog, deps } = makeDeps({ ...answering(), upsertPatch }, essid);
 
     const response = await handleSnmpSet(
       await signedSet(identity, {
@@ -822,7 +819,7 @@ forward 2222 to ${onSegment(essid, 9)}:22
     // EXACTLY the arrival and the verdict. Asserting only the absence of a SET line
     // would let any other line through, and a device's log is read as a record of what
     // happened rather than as a list of things that did not.
-    const logged = writtenTo(upsertPatch, SNMPD_LOG_PATH)?.content ?? '';
+    const logged = appendedTo(appendLog, SNMPD_LOG_PATH)?.text ?? '';
     expect(logged).toContain('Authentication succeeded');
     expect(logged.split('\n').filter(Boolean)).toHaveLength(2);
   });
@@ -835,7 +832,7 @@ forward 2222 to ${onSegment(essid, 9)}:22
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps, upsertPatch } = makeDeps({ ...answering(), ...homeOn(essid, null) }, essid);
+    const { deps, appendLog } = makeDeps({ ...answering(), ...homeOn(essid, null) }, essid);
 
     const response = await handleSnmpSet(
       await signedSetWithoutSource(identity, {
@@ -847,7 +844,7 @@ forward 2222 to ${onSegment(essid, 9)}:22
     );
 
     expect(response.status).toBe(200);
-    const logged = writtenTo(upsertPatch, SNMPD_LOG_PATH)?.content ?? '';
+    const logged = appendedTo(appendLog, SNMPD_LOG_PATH)?.text ?? '';
     expect(logged).toContain('Connection from UDP: [unknown]');
     expect(logged).toContain('from UDP: [unknown]');
     expect(logged).not.toContain('[]');
@@ -911,7 +908,7 @@ describe('closing a port on the box that answers', () => {
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps, upsertPatch } = makeDeps(
+    const { appendLog, deps, upsertPatch } = makeDeps(
       answering(patchRow(RULES_V4_PATH, '# my rules\ndeny 6379\n')),
     essid);
 
@@ -928,7 +925,7 @@ describe('closing a port on the box that answers', () => {
     expect(writtenTo(upsertPatch, RULES_V4_PATH)?.content).not.toContain('deny 6379');
     // Read from the wrong chain of the same file, the old value would come back
     // `permit` — a line saying a port was opened that had never been shut.
-    expect(writtenTo(upsertPatch, SNMPD_LOG_PATH)?.content).toContain(
+    expect(appendedTo(appendLog, SNMPD_LOG_PATH)?.text).toContain(
       'SET inputPort.6379 = deny -> permit',
     );
   });
@@ -1029,7 +1026,7 @@ describe("re-opening a port on a neighbour's own box", () => {
     const neighbour = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const ownerOctet = freeOctet(essid);
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, upsertPatch, appendLog } = makeDeps({
       listOccupantsByEssid: async () => ({
         data: [
           occupantRow(owner.publicKeyHex, 'nebuchadnezzar'),
@@ -1055,6 +1052,7 @@ describe("re-opening a port on a neighbour's own box", () => {
     return {
       deps,
       upsertPatch,
+      appendLog,
       neighbour,
       essid,
       ownerKey: owner.publicKeyHex,
@@ -1120,7 +1118,7 @@ describe("re-opening a port on a neighbour's own box", () => {
     // key instead, every visitor would get a row of their own and the newest would be all
     // a defender could see — a log that erased the previous attacker each time somebody
     // new arrived would not be a log at all.
-    const { deps, upsertPatch, neighbour, essid, ownerIp, ownerKey, community } = attack({
+    const { deps, appendLog, neighbour, essid, ownerIp, ownerKey, community } = attack({
       rules: '# mine' + String.fromCharCode(10) + 'deny 6379' + String.fromCharCode(10),
     });
 
@@ -1134,18 +1132,18 @@ describe("re-opening a port on a neighbour's own box", () => {
       deps,
     );
 
-    expect(writtenTo(upsertPatch, SNMPD_LOG_PATH)).toMatchObject({
+    expect(appendedTo(appendLog, SNMPD_LOG_PATH)).toMatchObject({
       path: SNMPD_LOG_PATH,
       writer_key: ownerKey,
     });
-    expect(writtenTo(upsertPatch, SNMPD_LOG_PATH)?.writer_key).not.toBe(neighbour.publicKeyHex);
+    expect(appendedTo(appendLog, SNMPD_LOG_PATH)?.writer_key).not.toBe(neighbour.publicKeyHex);
   });
 
   it('records the address the visitor actually arrived from, not the one they claimed', async () => {
     // The defender's only evidence, so it may not be anything the caller controls. B signs
     // a source address of their own choosing; the box logs the LEASE the server issued
     // them, because that is the address A's machine would really have seen on the WiFi.
-    const { deps, upsertPatch, neighbour, essid, ownerIp, neighbourIp, community } = attack({
+    const { deps, appendLog, neighbour, essid, ownerIp, neighbourIp, community } = attack({
       rules: '# mine' + String.fromCharCode(10) + 'deny 6379' + String.fromCharCode(10),
     });
 
@@ -1159,7 +1157,7 @@ describe("re-opening a port on a neighbour's own box", () => {
       deps,
     );
 
-    const logged = writtenTo(upsertPatch, SNMPD_LOG_PATH)?.content ?? '';
+    const logged = appendedTo(appendLog, SNMPD_LOG_PATH)?.text ?? '';
     expect(logged).toContain(neighbourIp);
     expect(logged).not.toContain(CLIENT_IP);
   });
@@ -1168,7 +1166,7 @@ describe("re-opening a port on a neighbour's own box", () => {
     // The attempt a defender most wants to see. A door that logged only what succeeded
     // would leave somebody sweeping their box invisible right up until the moment they
     // got in.
-    const { deps, upsertPatch, neighbour, essid, ownerIp, ownerKey } = attack({
+    const { deps, appendLog, neighbour, essid, ownerIp, ownerKey } = attack({
       rules: '# mine' + String.fromCharCode(10) + 'deny 6379' + String.fromCharCode(10),
     });
 
@@ -1182,7 +1180,7 @@ describe("re-opening a port on a neighbour's own box", () => {
       deps,
     );
 
-    expect(writtenTo(upsertPatch, SNMPD_LOG_PATH)).toMatchObject({ writer_key: ownerKey });
+    expect(appendedTo(appendLog, SNMPD_LOG_PATH)).toMatchObject({ writer_key: ownerKey });
   });
 });
 

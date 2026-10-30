@@ -304,12 +304,11 @@ const main = async () => {
   // The first thread is the latest active; the rest go newest first, which also puts the
   // later of the two that share a second ahead of the earlier.
   const expected = [idOf(0), ...ids.slice(1).reverse(), 1];
-  // One after another: each look appends to talkit's access.log by reading it and writing
-  // it back, so looks in parallel can drop each other's line, which check 7 reads.
-  const pages: string[] = [];
-  for (const path of ['/threads', '/threads?page=2', '/threads?page=3']) {
-    pages.push(contentOf((await fetchPath(path)).body));
-  }
+  const pages = await Promise.all(
+    ['/threads', '/threads?page=2', '/threads?page=3'].map(async (path) =>
+      contentOf((await fetchPath(path)).body),
+    ),
+  );
   const [page1 = '', page2 = '', page3 = ''] = pages;
   check(
     'page 1 lists the 20 latest active, with only an older link',

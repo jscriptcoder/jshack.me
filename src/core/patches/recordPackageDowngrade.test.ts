@@ -3,9 +3,8 @@ import {
   handleRecordPackageDowngrade,
   type RecordPackageDowngradeDeps,
 } from './recordPackageDowngrade.js';
-import type { PatchRow } from './upsertPatch.js';
 import type { ActiveSession, FindActiveSessionResult } from './authorizeMachineAccess.js';
-import type { MachineLogReadQuery, MachineLogReadResult } from './appendMachineLog.js';
+import type { AppendLog } from './appendMachineLog.js';
 import type { FindOccupantWorkstationByMachineId } from './remoteWritePermission.js';
 import type { FindPublicIpByEssid } from '../logging/crossPlayerSourceIp.js';
 import type { FindHomeVantage, FindWorkstationLease } from '../sessions/callerVantage.js';
@@ -16,7 +15,6 @@ import { generateIdentity } from '../identity/identity.js';
 import { computeWorkstationId } from '../identity/workstation.js';
 import { DPKG_LOG_OWNER, DPKG_LOG_PATH, DPKG_LOG_PERMISSIONS } from '../logging/dpkgLog.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
-import { logRead } from '../../test/factories/logRows.js';
 
 /**
  * The record a box keeps of being rolled BACKWARDS. Pinning a package to an older
@@ -69,11 +67,7 @@ const PIVOT_PUBLIC_IP = '203.0.113.199';
 const PIVOT_MACHINE = 'workstation-p1v0t000';
 
 const makeDeps = (over: Partial<RecordPackageDowngradeDeps> = {}) => {
-  const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async () => ({
-    error: null,
-  }));
-  const readLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(async () => ({
-    data: null,
+  const appendLog = vi.fn<AppendLog>(async () => ({
     error: null,
   }));
   const findActiveSession = vi.fn<() => Promise<FindActiveSessionResult>>(async () => ({
@@ -105,8 +99,7 @@ const makeDeps = (over: Partial<RecordPackageDowngradeDeps> = {}) => {
     nonceStore: freshStore,
     now: () => STAMP,
     findActiveSession,
-    readLog,
-    upsertPatch,
+    appendLog,
     findOccupantWorkstationByMachineId,
     findHomeVantage,
     findWorkstationLease,
@@ -115,8 +108,7 @@ const makeDeps = (over: Partial<RecordPackageDowngradeDeps> = {}) => {
   };
   return {
     deps,
-    upsertPatch,
-    readLog,
+    appendLog,
     findActiveSession,
     findOccupantWorkstationByMachineId,
     findHomeVantage,
@@ -137,23 +129,22 @@ describe('handleRecordPackageDowngrade', () => {
   it('records the rollback in the target box own dpkg.log', async () => {
     const id = generateIdentity();
     const envelope = signRequest(id, 'recordPackageDowngrade', downgrade);
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     const result = await handleRecordPackageDowngrade(envelope, deps);
 
     expect(result).toEqual({ status: 200, body: { ok: true } });
     // The whole row is asserted, not just the content: an entry written at the wrong
     // owner or permissions is invisible to the very reader it exists for.
-    expect(upsertPatch.mock.calls[0]![0]).toEqual({
+    expect(appendLog.mock.calls[0]![0]).toEqual({
       // The network's own key, off the session row: nobody owns a generated box, and
       // every visitor to its network reaches the identical one.
       writer_key: apGatewayLogWriterKey(activeSession().essid),
       machine_id: THEIR_BOX,
       path: DPKG_LOG_PATH,
-      content: '2026-08-14 13:56:02 downgrade redis 7.9.7 7.2.5 Client "198.51.100.22"\n',
+      text: '2026-08-14 13:56:02 downgrade redis 7.9.7 7.2.5 Client "198.51.100.22"\n',
       owner: DPKG_LOG_OWNER,
       permissions: DPKG_LOG_PERMISSIONS,
-      node_type: 'file',
     });
   });
 
@@ -165,13 +156,13 @@ describe('handleRecordPackageDowngrade', () => {
       from_version: '3.0.5',
       to_version: '3.0.3',
     });
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     await handleRecordPackageDowngrade(envelope, deps);
 
     // Reversed, the same two numbers describe an upgrade and the record means the
     // opposite of what happened to the box.
-    expect(upsertPatch.mock.calls[0]![0].content).toContain('downgrade vsftpd 3.0.5 3.0.3');
+    expect(appendLog.mock.calls[0]![0].text).toContain('downgrade vsftpd 3.0.5 3.0.3');
   });
 
   it('stamps its own clock, ignoring any time the caller sends', async () => {
@@ -180,36 +171,19 @@ describe('handleRecordPackageDowngrade', () => {
       ...downgrade,
       time: Date.UTC(1999, 0, 1),
     });
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     await handleRecordPackageDowngrade(envelope, deps);
 
     // A visitor who picks the timestamp can file their visit outside the window the
     // owner is looking at.
-    expect(upsertPatch.mock.calls[0]![0].content).toMatch(/^2026-08-14 13:56:02 /);
-  });
-
-  it('appends after what the log already holds, so the history accumulates', async () => {
-    const id = generateIdentity();
-    const envelope = signRequest(id, 'recordPackageDowngrade', downgrade);
-    const existing = '2026-08-01 09:00:00 downgrade nginx 1.25.3 1.24.0 Client "10.0.0.5"\n';
-    const { deps, upsertPatch } = makeDeps({
-      readLog: async () => logRead(existing),
-    });
-
-    await handleRecordPackageDowngrade(envelope, deps);
-
-    // A package history that only ever holds the newest entry hides every rollback but
-    // the last one.
-    expect(upsertPatch.mock.calls[0]![0].content).toBe(
-      `${existing}2026-08-14 13:56:02 downgrade redis 7.9.7 7.2.5 Client "198.51.100.22"\n`,
-    );
+    expect(appendLog.mock.calls[0]![0].text).toMatch(/^2026-08-14 13:56:02 /);
   });
 
   it('refuses a caller holding no session on that box, and writes nothing', async () => {
     const id = generateIdentity();
     const envelope = signRequest(id, 'recordPackageDowngrade', downgrade);
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       findActiveSession: async () => ({ data: null, error: null }),
     });
 
@@ -218,7 +192,7 @@ describe('handleRecordPackageDowngrade', () => {
     // Without this, anyone could write rollbacks into any stranger's package history —
     // inventing exposure on a box they never reached.
     expect(result).toEqual({ status: 403, body: { error: 'no_session' } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('records a downgrade the caller ran on their OWN workstation', async () => {
@@ -228,7 +202,7 @@ describe('handleRecordPackageDowngrade', () => {
       ...downgrade,
       machine_id: ownBox,
     });
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       findOccupantWorkstationByMachineId: async () => ({
         data: { ...theirWorkstation, owner_key: id.publicKeyHex },
         error: null,
@@ -242,8 +216,8 @@ describe('handleRecordPackageDowngrade', () => {
     // names no account, so the bypass costs it nothing — and rolling your own box back
     // is a real entry in its history. The address is the one the caller OWNS.
     expect(result).toEqual({ status: 200, body: { ok: true } });
-    expect(upsertPatch.mock.calls[0]![0].writer_key).toBe(id.publicKeyHex);
-    expect(upsertPatch.mock.calls[0]![0].content).toContain(`Client "${ACTOR_HOME_IP}"`);
+    expect(appendLog.mock.calls[0]![0].writer_key).toBe(id.publicKeyHex);
+    expect(appendLog.mock.calls[0]![0].text).toContain(`Client "${ACTOR_HOME_IP}"`);
   });
 
   it('keeps the caller own key on their own workstation when they are on no WiFi', async () => {
@@ -255,13 +229,13 @@ describe('handleRecordPackageDowngrade', () => {
     });
     // No occupancy row, so nothing says whose box it is — but no session either, which
     // only the caller's own workstation is reached by.
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       findOccupantWorkstationByMachineId: async () => ({ data: null, error: null }),
     });
 
     await handleRecordPackageDowngrade(envelope, deps);
 
-    expect(upsertPatch.mock.calls[0]![0].writer_key).toBe(id.publicKeyHex);
+    expect(appendLog.mock.calls[0]![0].writer_key).toBe(id.publicKeyHex);
   });
 
   it('rejects a caller trying to sign either half of the identity the server stamps', async () => {
@@ -284,14 +258,14 @@ describe('handleRecordPackageDowngrade', () => {
   it('rejects a blank version rather than writing a line with a hole in it', async () => {
     const id = generateIdentity();
     const envelope = signRequest(id, 'recordPackageDowngrade', { ...downgrade, to_version: '' });
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     const result = await handleRecordPackageDowngrade(envelope, deps);
 
     // Unvalidated this renders `downgrade redis 7.9.7  Client "..."`, which reads as a
     // corrupt log rather than as the rollback it was.
     expect(result).toEqual({ status: 400, body: { error: expect.any(String) } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('reports a session lookup failure as a server error rather than a refusal', async () => {
@@ -321,7 +295,7 @@ describe('handleRecordPackageDowngrade', () => {
         data: theirWorkstation,
         error: null,
       }));
-      const { deps, upsertPatch } = makeDeps({
+      const { deps, appendLog } = makeDeps({
         findOccupantWorkstationByMachineId: findOccupant,
       });
 
@@ -330,8 +304,8 @@ describe('handleRecordPackageDowngrade', () => {
       // Under the visitor's own key the line lands in a different row from the login
       // that preceded it, and a second attacker erases the first.
       expect(findOccupant).toHaveBeenCalledWith(THEIR_BOX);
-      expect(upsertPatch.mock.calls[0]![0].writer_key).toBe(THEIR_OWNER_KEY);
-      expect(upsertPatch.mock.calls[0]![0].writer_key).not.toBe(id.publicKeyHex);
+      expect(appendLog.mock.calls[0]![0].writer_key).toBe(THEIR_OWNER_KEY);
+      expect(appendLog.mock.calls[0]![0].writer_key).not.toBe(id.publicKeyHex);
     });
 
     it.each(['package_name', 'from_version', 'to_version'] as const)(
@@ -343,11 +317,11 @@ describe('handleRecordPackageDowngrade', () => {
           ...downgrade,
           [field]: `${downgrade[field]}\n${forged}`,
         });
-        const { deps, upsertPatch } = onTheirBox();
+        const { deps, appendLog } = onTheirBox();
 
         await handleRecordPackageDowngrade(envelope, deps);
 
-        const content = upsertPatch.mock.calls[0]![0].content;
+        const content = appendLog.mock.calls[0]![0].text;
         // The break and every separator of the forged line are spelled out, so it reads as
         // part of the field and never as a line, or a column, of its own.
         expect(content).toContain(
@@ -363,15 +337,15 @@ describe('handleRecordPackageDowngrade', () => {
         ...downgrade,
         source_ip: '10.0.0.9',
       });
-      const { deps, upsertPatch, findHomeVantage } = onTheirBox();
+      const { deps, appendLog, findHomeVantage } = onTheirBox();
 
       await handleRecordPackageDowngrade(envelope, deps);
 
       // The address is the defender's only route back to who did this, so a claimed
       // one would let the attacker write somebody else's name on it.
       expect(findHomeVantage).toHaveBeenCalledWith(id.publicKeyHex);
-      expect(upsertPatch.mock.calls[0]![0].content).toContain(`Client "${ACTOR_HOME_IP}"`);
-      expect(upsertPatch.mock.calls[0]![0].content).not.toContain('10.0.0.9');
+      expect(appendLog.mock.calls[0]![0].text).toContain(`Client "${ACTOR_HOME_IP}"`);
+      expect(appendLog.mock.calls[0]![0].text).not.toContain('10.0.0.9');
     });
 
     it('traces a downgrade run from a box the visitor is STANDING on to that network', async () => {
@@ -380,7 +354,7 @@ describe('handleRecordPackageDowngrade', () => {
         ...downgrade,
         caller_machine_id: PIVOT_MACHINE,
       });
-      const { deps, upsertPatch, findPublicIpByEssid } = onTheirBox({
+      const { deps, appendLog, findPublicIpByEssid } = onTheirBox({
         findActiveSession: async ({ machine_id }) => ({
           data:
             machine_id === PIVOT_MACHINE ? activeSession({ essid: PIVOT_ESSID }) : activeSession(),
@@ -393,7 +367,7 @@ describe('handleRecordPackageDowngrade', () => {
       // The visitor's own address never touched the target; the box they launched from
       // is what it actually saw.
       expect(findPublicIpByEssid).toHaveBeenCalledWith(PIVOT_ESSID);
-      expect(upsertPatch.mock.calls[0]![0].content).toContain(`Client "${PIVOT_PUBLIC_IP}"`);
+      expect(appendLog.mock.calls[0]![0].text).toContain(`Client "${PIVOT_PUBLIC_IP}"`);
     });
 
     it('refuses a visitor claiming to stand on a box they hold no session on, and writes nothing', async () => {
@@ -402,7 +376,7 @@ describe('handleRecordPackageDowngrade', () => {
         ...downgrade,
         caller_machine_id: 'workstation-not-theirs',
       });
-      const { deps, upsertPatch } = onTheirBox({
+      const { deps, appendLog } = onTheirBox({
         findActiveSession: async ({ machine_id }) => ({
           data: machine_id === THEIR_BOX ? activeSession() : null,
           error: null,
@@ -412,13 +386,13 @@ describe('handleRecordPackageDowngrade', () => {
       const result = await handleRecordPackageDowngrade(envelope, deps);
 
       expect(result).toEqual({ status: 403, body: { error: 'no_session' } });
-      expect(upsertPatch).not.toHaveBeenCalled();
+      expect(appendLog).not.toHaveBeenCalled();
     });
 
     it('writes nothing when it cannot tell whose box this is, rather than guessing a row', async () => {
       const id = generateIdentity();
       const envelope = signRequest(id, 'recordPackageDowngrade', downgrade);
-      const { deps, upsertPatch } = makeDeps({
+      const { deps, appendLog } = makeDeps({
         findOccupantWorkstationByMachineId: async () => ({
           data: null,
           error: new Error('db down'),
@@ -430,7 +404,7 @@ describe('handleRecordPackageDowngrade', () => {
       // Guessing means the caller's key, which on a foreign box splits the owner's
       // history across two rows — worse than the line never arriving.
       expect(result).toEqual({ status: 500, body: { error: 'occupant_lookup_failed' } });
-      expect(upsertPatch).not.toHaveBeenCalled();
+      expect(appendLog).not.toHaveBeenCalled();
     });
   });
 });

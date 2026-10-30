@@ -1,8 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { handleRecordFtpTransfer, type RecordFtpTransferDeps } from './recordFtpTransfer.js';
-import type { PatchRow } from './upsertPatch.js';
 import type { ActiveSession, FindActiveSessionResult } from './authorizeMachineAccess.js';
-import type { MachineLogReadQuery, MachineLogReadResult } from './appendMachineLog.js';
+import type { AppendLog } from './appendMachineLog.js';
 import type { FindOccupantWorkstationByMachineId } from './remoteWritePermission.js';
 import type { FindPublicIpByEssid } from '../logging/crossPlayerSourceIp.js';
 import type { FindHomeVantage, FindWorkstationLease } from '../sessions/callerVantage.js';
@@ -18,7 +17,6 @@ import {
 } from '../logging/vsftpdLog.js';
 import { derivePid } from '../logging/syslog.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
-import { logRead } from '../../test/factories/logRows.js';
 
 /**
  * The download half of what makes ftp the LOUD door: a file that leaves a box is
@@ -64,11 +62,7 @@ const PIVOT_PUBLIC_IP = '203.0.113.199';
 const PIVOT_MACHINE = 'workstation-p1v0t000';
 
 const makeDeps = (over: Partial<RecordFtpTransferDeps> = {}) => {
-  const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async () => ({
-    error: null,
-  }));
-  const readLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(async () => ({
-    data: null,
+  const appendLog = vi.fn<AppendLog>(async () => ({
     error: null,
   }));
   const findActiveSession = vi.fn<() => Promise<FindActiveSessionResult>>(async () => ({
@@ -100,8 +94,7 @@ const makeDeps = (over: Partial<RecordFtpTransferDeps> = {}) => {
     nonceStore: freshStore,
     now: () => STAMP,
     findActiveSession,
-    readLog,
-    upsertPatch,
+    appendLog,
     findOccupantWorkstationByMachineId,
     findHomeVantage,
     findWorkstationLease,
@@ -110,8 +103,7 @@ const makeDeps = (over: Partial<RecordFtpTransferDeps> = {}) => {
   };
   return {
     deps,
-    upsertPatch,
-    readLog,
+    appendLog,
     findActiveSession,
     findOccupantWorkstationByMachineId,
     findHomeVantage,
@@ -132,21 +124,20 @@ describe('handleRecordFtpTransfer', () => {
   it('itemises the transfer in the target box own vsftpd.log', async () => {
     const id = generateIdentity();
     const envelope = signRequest(id, 'recordFtpTransfer', transfer);
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     const result = await handleRecordFtpTransfer(envelope, deps);
 
     expect(result).toEqual({ status: 200, body: { ok: true } });
-    expect(upsertPatch.mock.calls[0]![0]).toEqual({
+    expect(appendLog.mock.calls[0]![0]).toEqual({
       // The network's own key, off the session row: nobody owns a generated box, and
       // every visitor to its network reaches the identical one.
       writer_key: apGatewayLogWriterKey(activeSession().essid),
       machine_id: THEIR_BOX,
       path: VSFTPD_LOG_PATH,
-      content: `Fri Aug 14 13:56:02 2026 [pid ${derivePid(STAMP)}] [guest] OK DOWNLOAD: Client "198.51.100.22", "/etc/passwd", 1243 bytes\n`,
+      text: `Fri Aug 14 13:56:02 2026 [pid ${derivePid(STAMP)}] [guest] OK DOWNLOAD: Client "198.51.100.22", "/etc/passwd", 1243 bytes\n`,
       owner: VSFTPD_LOG_OWNER,
       permissions: VSFTPD_LOG_PERMISSIONS,
-      node_type: 'file',
     });
   });
 
@@ -158,14 +149,14 @@ describe('handleRecordFtpTransfer', () => {
       path: '/home/guest/backdoor.sh',
       bytes: 512,
     });
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     const result = await handleRecordFtpTransfer(envelope, deps);
 
     // The direction a defender most needs: something was LEFT on their machine.
     // One log, one shape, both halves of a visit.
     expect(result).toEqual({ status: 200, body: { ok: true } });
-    expect(upsertPatch.mock.calls[0]![0].content).toBe(
+    expect(appendLog.mock.calls[0]![0].text).toBe(
       `Fri Aug 14 13:56:02 2026 [pid ${derivePid(STAMP)}] [guest] OK UPLOAD: Client "198.51.100.22", "/home/guest/backdoor.sh", 512 bytes\n`,
     );
   });
@@ -173,14 +164,14 @@ describe('handleRecordFtpTransfer', () => {
   it('refuses a direction the daemon has no verb for, rather than inventing one', async () => {
     const id = generateIdentity();
     const envelope = signRequest(id, 'recordFtpTransfer', { ...transfer, direction: 'sideways' });
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     const result = await handleRecordFtpTransfer(envelope, deps);
 
     // Unchecked, a caller writes their own verb into someone else's evidence —
     // `OK SIDEWAYS`, or worse, a line that reads as something the daemon says.
     expect(result).toEqual({ status: 400, body: { error: expect.any(String) } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('names the account the SESSION carries, not the one the caller claims', async () => {
@@ -188,14 +179,14 @@ describe('handleRecordFtpTransfer', () => {
     // A visitor who logged in as `guest` signs a line claiming to be root — the
     // account is the server's to know, or the log names whoever the thief prefers.
     const envelope = signRequest(id, 'recordFtpTransfer', { ...transfer, user: 'root' });
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       findActiveSession: async () => ({ data: activeSession({ username: 'guest' }), error: null }),
     });
 
     await handleRecordFtpTransfer(envelope, deps);
 
-    expect(upsertPatch.mock.calls[0]![0].content).toContain('[guest] OK DOWNLOAD');
-    expect(upsertPatch.mock.calls[0]![0].content).not.toContain('[root]');
+    expect(appendLog.mock.calls[0]![0].text).toContain('[guest] OK DOWNLOAD');
+    expect(appendLog.mock.calls[0]![0].text).not.toContain('[root]');
   });
 
   it('stamps its own clock, ignoring any time the caller sends', async () => {
@@ -205,34 +196,20 @@ describe('handleRecordFtpTransfer', () => {
       time: Date.UTC(2001, 0, 1),
       pid: 1,
     });
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     await handleRecordFtpTransfer(envelope, deps);
 
-    const { content } = upsertPatch.mock.calls[0]![0];
-    expect(content).toContain('Fri Aug 14 13:56:02 2026');
-    expect(content).toContain(`[pid ${derivePid(STAMP)}]`);
-    expect(content).not.toContain('2001');
-  });
-
-  it('appends after what the log already holds, so the record accumulates', async () => {
-    const id = generateIdentity();
-    const envelope = signRequest(id, 'recordFtpTransfer', transfer);
-    const { deps, upsertPatch } = makeDeps({
-      readLog: async () => logRead('AN EARLIER LOGIN\n'),
-    });
-
-    await handleRecordFtpTransfer(envelope, deps);
-
-    expect(upsertPatch.mock.calls[0]![0].content).toBe(
-      `AN EARLIER LOGIN\nFri Aug 14 13:56:02 2026 [pid ${derivePid(STAMP)}] [guest] OK DOWNLOAD: Client "198.51.100.22", "/etc/passwd", 1243 bytes\n`,
-    );
+    const { text } = appendLog.mock.calls[0]![0];
+    expect(text).toContain('Fri Aug 14 13:56:02 2026');
+    expect(text).toContain(`[pid ${derivePid(STAMP)}]`);
+    expect(text).not.toContain('2001');
   });
 
   it('refuses a caller holding no session on that box, and writes nothing', async () => {
     const id = generateIdentity();
     const envelope = signRequest(id, 'recordFtpTransfer', transfer);
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       findActiveSession: async () => ({ data: null, error: null }),
     });
 
@@ -241,7 +218,7 @@ describe('handleRecordFtpTransfer', () => {
     // Without this, anyone could write lines into any stranger's log — inventing
     // thefts that never happened on a box they never reached.
     expect(result).toEqual({ status: 403, body: { error: 'no_session' } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('refuses a transfer claimed against the caller own workstation', async () => {
@@ -250,14 +227,14 @@ describe('handleRecordFtpTransfer', () => {
       ...transfer,
       machine_id: computeWorkstationId('skylab', id.publicKeyHex),
     });
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     const result = await handleRecordFtpTransfer(envelope, deps);
 
     // The own-box L1 bypass hands back no session row, and this line needs one to
     // name an account. A transfer on the caller's own box is `appendAuthLog`'s to write.
     expect(result).toEqual({ status: 403, body: { error: 'no_session' } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('reports a session lookup failure as a server error rather than a refusal', async () => {
@@ -279,13 +256,13 @@ describe('handleRecordFtpTransfer', () => {
     // Placed on a network whose public address cannot be read: the transfer still
     // happened, so the line is still written — the client named unknown rather than a
     // guess, and never the address the caller tried to send.
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       findPublicIpByEssid: async () => ({ data: null, error: null }),
     });
 
     await handleRecordFtpTransfer(envelope, deps);
 
-    expect(upsertPatch.mock.calls[0]![0].content).toContain('Client "unknown"');
+    expect(appendLog.mock.calls[0]![0].text).toContain('Client "unknown"');
   });
 
   it('rejects a caller trying to sign either half of the identity the server stamps', async () => {
@@ -332,15 +309,15 @@ describe('handleRecordFtpTransfer', () => {
         data: theirWorkstation,
         error: null,
       }));
-      const { deps, upsertPatch } = makeDeps({
+      const { deps, appendLog } = makeDeps({
         findOccupantWorkstationByMachineId: findOccupant,
       });
 
       await handleRecordFtpTransfer(envelope, deps);
 
       expect(findOccupant).toHaveBeenCalledWith(THEIR_BOX);
-      expect(upsertPatch.mock.calls[0]![0].writer_key).toBe(THEIR_OWNER_KEY);
-      expect(upsertPatch.mock.calls[0]![0].writer_key).not.toBe(id.publicKeyHex);
+      expect(appendLog.mock.calls[0]![0].writer_key).toBe(THEIR_OWNER_KEY);
+      expect(appendLog.mock.calls[0]![0].writer_key).not.toBe(id.publicKeyHex);
     });
 
     it('keeps a path carrying a line break on its one line, so it adds no line of its own', async () => {
@@ -350,13 +327,13 @@ describe('handleRecordFtpTransfer', () => {
         ...transfer,
         path: `/etc/passwd\n${forged}`,
       });
-      const { deps, upsertPatch } = onTheirBox();
+      const { deps, appendLog } = onTheirBox();
 
       await handleRecordFtpTransfer(envelope, deps);
 
       // The break and every separator of the forged line are spelled out, so it reads as
       // part of the path and never as a line, or a column, of its own.
-      expect(upsertPatch.mock.calls[0]![0].content).toBe(
+      expect(appendLog.mock.calls[0]![0].text).toBe(
         String.raw`Fri Aug 14 13:56:02 2026 [pid ${derivePid(STAMP)}] [guest] OK DOWNLOAD: Client "${ACTOR_HOME_IP}", "/etc/passwd\x0aFri\x20Aug\x2014\x2013:50:00\x202026\x20\x5bpid\x207\x5d\x20\x5broot\x5d\x20OK\x20LOGIN:\x20Client\x20\x2210.0.0.5\x22", 1243 bytes` +
           '\n',
       );
@@ -365,13 +342,13 @@ describe('handleRecordFtpTransfer', () => {
     it('names the address the SERVER resolves for the visitor, not the one they sent', async () => {
       const id = generateIdentity();
       const envelope = signRequest(id, 'recordFtpTransfer', { ...transfer, source_ip: '10.0.0.9' });
-      const { deps, upsertPatch, findHomeVantage } = onTheirBox();
+      const { deps, appendLog, findHomeVantage } = onTheirBox();
 
       await handleRecordFtpTransfer(envelope, deps);
 
       expect(findHomeVantage).toHaveBeenCalledWith(id.publicKeyHex);
-      expect(upsertPatch.mock.calls[0]![0].content).toContain(`Client "${ACTOR_HOME_IP}"`);
-      expect(upsertPatch.mock.calls[0]![0].content).not.toContain('10.0.0.9');
+      expect(appendLog.mock.calls[0]![0].text).toContain(`Client "${ACTOR_HOME_IP}"`);
+      expect(appendLog.mock.calls[0]![0].text).not.toContain('10.0.0.9');
     });
 
     it('traces a transfer run from a box the visitor is STANDING on to that network', async () => {
@@ -380,7 +357,7 @@ describe('handleRecordFtpTransfer', () => {
         ...transfer,
         caller_machine_id: PIVOT_MACHINE,
       });
-      const { deps, upsertPatch, findPublicIpByEssid } = onTheirBox({
+      const { deps, appendLog, findPublicIpByEssid } = onTheirBox({
         findActiveSession: async ({ machine_id }) => ({
           data:
             machine_id === PIVOT_MACHINE
@@ -395,7 +372,7 @@ describe('handleRecordFtpTransfer', () => {
       // The pivot is the only honest answer: the visitor's own address never touched
       // the target, and the box they launched from is what it actually saw.
       expect(findPublicIpByEssid).toHaveBeenCalledWith(PIVOT_ESSID);
-      expect(upsertPatch.mock.calls[0]![0].content).toContain(`Client "${PIVOT_PUBLIC_IP}"`);
+      expect(appendLog.mock.calls[0]![0].text).toContain(`Client "${PIVOT_PUBLIC_IP}"`);
     });
 
     it('uses the address the visitor OWNS when the box they name is their own workstation', async () => {
@@ -404,7 +381,7 @@ describe('handleRecordFtpTransfer', () => {
         ...transfer,
         caller_machine_id: computeWorkstationId('skylab', id.publicKeyHex),
       });
-      const { deps, upsertPatch, findPublicIpByEssid } = onTheirBox();
+      const { deps, appendLog, findPublicIpByEssid } = onTheirBox();
 
       await handleRecordFtpTransfer(envelope, deps);
 
@@ -412,7 +389,7 @@ describe('handleRecordFtpTransfer', () => {
       // own-box L1 bypass hands one back as null, placing the caller on their own home
       // network. The target is elsewhere, so it saw that network's public address.
       expect(findPublicIpByEssid).toHaveBeenCalledWith(ACTOR_HOME_ESSID);
-      expect(upsertPatch.mock.calls[0]![0].content).toContain(`Client "${ACTOR_HOME_IP}"`);
+      expect(appendLog.mock.calls[0]![0].text).toContain(`Client "${ACTOR_HOME_IP}"`);
     });
 
     it('refuses a visitor claiming to stand on a box they hold no session on, and writes nothing', async () => {
@@ -421,7 +398,7 @@ describe('handleRecordFtpTransfer', () => {
         ...transfer,
         caller_machine_id: 'workstation-not-theirs',
       });
-      const { deps, upsertPatch } = onTheirBox({
+      const { deps, appendLog } = onTheirBox({
         findActiveSession: async ({ machine_id }) => ({
           data: machine_id === THEIR_BOX ? activeSession() : null,
           error: null,
@@ -431,13 +408,13 @@ describe('handleRecordFtpTransfer', () => {
       const result = await handleRecordFtpTransfer(envelope, deps);
 
       expect(result).toEqual({ status: 403, body: { error: 'no_session' } });
-      expect(upsertPatch).not.toHaveBeenCalled();
+      expect(appendLog).not.toHaveBeenCalled();
     });
 
     it('writes nothing when it cannot tell whose box this is, rather than guessing a row', async () => {
       const id = generateIdentity();
       const envelope = signRequest(id, 'recordFtpTransfer', transfer);
-      const { deps, upsertPatch } = makeDeps({
+      const { deps, appendLog } = makeDeps({
         findOccupantWorkstationByMachineId: async () => ({ data: null, error: new Error('db down') }),
       });
 
@@ -446,19 +423,19 @@ describe('handleRecordFtpTransfer', () => {
       // Guessing means the caller's key, which on a foreign box splits the defender's
       // log across two rows — worse than the line never arriving.
       expect(result).toEqual({ status: 500, body: { error: 'occupant_lookup_failed' } });
-      expect(upsertPatch).not.toHaveBeenCalled();
+      expect(appendLog).not.toHaveBeenCalled();
     });
   });
 
   it('rejects a byte count that is not a number, rather than logging a nonsense size', async () => {
     const id = generateIdentity();
     const envelope = signRequest(id, 'recordFtpTransfer', { ...transfer, bytes: 'lots' });
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     const result = await handleRecordFtpTransfer(envelope, deps);
 
     // Unvalidated, this renders `NaN bytes` into a stranger's evidence.
     expect(result).toEqual({ status: 400, body: { error: expect.any(String) } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 });

@@ -53,21 +53,15 @@ import {
 } from '../generation/generateDnsZone.js';
 import { lanZoneName } from '../network/resolveName.js';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
-import {
-  appendMachineLog,
-  type MachineLogReadQuery,
-  type MachineLogReadResult,
-} from './appendMachineLog.js';
+import { appendMachineLog, type AppendLog } from './appendMachineLog.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
-import type { PatchRow } from './upsertPatch.js';
 
 export type RecordZoneTransferDeps = CallerVantageDeps & {
   readonly nonceStore: NonceStore;
   /** The server's wall clock, epoch-ms (UTC). Injected so the handler is pure and
    *  deterministic under test. */
   readonly now: () => number;
-  readonly readLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
-  readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
+  readonly appendLog: AppendLog;
 };
 
 export type HandlerResponse = {
@@ -158,7 +152,7 @@ export const handleRecordZoneTransfer = async (
   });
 
   await appendMachineLog(
-    { readLog: deps.readLog, upsertPatch: deps.upsertPatch },
+    { appendLog: deps.appendLog },
     {
       writerKey: apGatewayLogWriterKey(payload.essid),
       machineId,

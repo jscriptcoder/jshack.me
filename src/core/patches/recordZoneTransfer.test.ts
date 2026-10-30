@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { handleRecordZoneTransfer, type RecordZoneTransferDeps } from './recordZoneTransfer.js';
-import type { PatchRow } from './upsertPatch.js';
-import type { MachineLogReadQuery, MachineLogReadResult } from './appendMachineLog.js';
+import type { AppendLog } from './appendMachineLog.js';
 import type {
   FindActiveSession,
   FindActiveSessionResult,
@@ -79,11 +78,7 @@ const sourceFor = (essid: string, callerMachineId: string, serverIp: string): st
 };
 
 const makeDeps = (over: Partial<RecordZoneTransferDeps> = {}) => {
-  const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async () => ({
-    error: null,
-  }));
-  const readLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(async () => ({
-    data: null,
+  const appendLog = vi.fn<AppendLog>(async () => ({
     error: null,
   }));
   // A caller standing at home on GRAD by default — placed by their lease there.
@@ -99,14 +94,13 @@ const makeDeps = (over: Partial<RecordZoneTransferDeps> = {}) => {
   const deps: RecordZoneTransferDeps = {
     nonceStore: freshStore,
     now: () => STAMP,
-    readLog,
-    upsertPatch,
+    appendLog,
     findActiveSession,
     findHomeVantage,
     findWorkstationLease,
     ...over,
   };
-  return { deps, upsertPatch, readLog, findActiveSession, findHomeVantage };
+  return { deps, appendLog, findActiveSession, findHomeVantage };
 };
 
 /** A deps set whose caller holds a live session on the box they name, network `essid` —
@@ -132,7 +126,7 @@ describe('handleRecordZoneTransfer', () => {
     // A precondition the golden line rests on: this deep box hands its zone over.
     expect(allowsZoneTransfer(GRAD_ESSID, GRAD_NS_IP)).toBe(true);
     const gateway = gatewayReaching(GRAD_ESSID, GRAD_NS_IP);
-    const { deps, upsertPatch } = onHop(GRAD_ESSID);
+    const { deps, appendLog } = onHop(GRAD_ESSID);
 
     const result = await handleRecordZoneTransfer(
       fire(GRAD_ESSID, GRAD_NS_IP, { caller_machine_id: gateway }),
@@ -140,14 +134,14 @@ describe('handleRecordZoneTransfer', () => {
     );
 
     expect(result).toEqual({ status: 200, body: { ok: true } });
-    expect(upsertPatch.mock.calls[0]![0]).toEqual({
+    expect(appendLog.mock.calls[0]![0]).toEqual({
       // The network's own key, never the caller's: every occupant transfers from the
       // identical box, so a row per caller would let each transfer erase the last.
       writer_key: apGatewayLogWriterKey(GRAD_ESSID),
       // The box the log lands on is the name server dig aimed at, at any depth.
       machine_id: nameServerMachineIdAt(GRAD_ESSID, GRAD_NS_IP),
       path: NAMED_LOG_PATH,
-      content: `${formatNamedXfrLine({
+      text: `${formatNamedXfrLine({
         time: asGameTime(STAMP),
         // The box's address on the name server's own (deep) segment — not its home IP.
         sourceIp: sourceFor(GRAD_ESSID, gateway, GRAD_NS_IP),
@@ -156,27 +150,26 @@ describe('handleRecordZoneTransfer', () => {
       })}\n`,
       owner: NAMED_LOG_OWNER,
       permissions: NAMED_LOG_PERMISSIONS,
-      node_type: 'file',
     });
   });
 
   it('records a refused transfer, from home, as the denied line on the box that refused', async () => {
     // The other precondition: this Layer-1 box refuses, so the line must be the denial.
     expect(allowsZoneTransfer(OSCORP_ESSID, OSCORP_NS_IP)).toBe(false);
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       findHomeVantage: async () => ({ data: { essid: OSCORP_ESSID, octet: HOME_OCTET }, error: null }),
     });
 
     const result = await handleRecordZoneTransfer(fire(OSCORP_ESSID, OSCORP_NS_IP), deps);
 
     expect(result).toEqual({ status: 200, body: { ok: true } });
-    expect(upsertPatch.mock.calls[0]![0].machine_id).toBe(
+    expect(appendLog.mock.calls[0]![0].machine_id).toBe(
       nameServerMachineIdAt(OSCORP_ESSID, OSCORP_NS_IP),
     );
     // From home, the source is the caller's own lease on the network.
     const homeSource = leasedAddress(OSCORP_ESSID, HOME_OCTET);
     if (homeSource === null) throw new Error('expected a home lease address');
-    expect(upsertPatch.mock.calls[0]![0].content).toBe(
+    expect(appendLog.mock.calls[0]![0].text).toBe(
       `${formatNamedXfrLine({
         time: asGameTime(STAMP),
         sourceIp: homeSource,
@@ -187,30 +180,30 @@ describe('handleRecordZoneTransfer', () => {
   });
 
   it('writes nothing when no name server stands at the target — there is no daemon to log it', async () => {
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     const result = await handleRecordZoneTransfer(fire(GRAD_ESSID, GRAD_NON_NS_IP), deps);
 
     expect(result).toEqual({ status: 200, body: { ok: true } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('writes nothing for a name server the caller cannot reach from where it stands', async () => {
     // ns-116 is a real, open name server — but deep, on a layer a caller at home does not
     // reach. There is no segment the transfer could have travelled over, so no truthful
     // source and no line.
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     const result = await handleRecordZoneTransfer(fire(GRAD_ESSID, GRAD_NS_IP), deps);
 
     expect(result).toEqual({ status: 200, body: { ok: true } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('refuses a caller on a network it is not standing on (wrong_network), and writes nothing', async () => {
     // The caller holds a shell, but on OSCORP — a transfer it addresses to GRAD is a
     // network it is not on, and the own-LAN boundary refuses it.
-    const { deps, upsertPatch } = onHop(OSCORP_ESSID);
+    const { deps, appendLog } = onHop(OSCORP_ESSID);
 
     const result = await handleRecordZoneTransfer(
       fire(GRAD_ESSID, GRAD_NS_IP, { caller_machine_id: gatewayReaching(GRAD_ESSID, GRAD_NS_IP) }),
@@ -219,13 +212,13 @@ describe('handleRecordZoneTransfer', () => {
 
     expect(result.status).toBe(403);
     expect(result.body).toEqual({ error: 'wrong_network' });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('refuses a caller naming a box it holds no shell on (no_session), and writes nothing', async () => {
     // No active session on the named box — authorization fails before any network is
     // regenerated, so a box a caller merely names answers for nothing.
-    const { deps, upsertPatch } = makeDeps({ findActiveSession: async () => ({ data: null, error: null }) });
+    const { deps, appendLog } = makeDeps({ findActiveSession: async () => ({ data: null, error: null }) });
 
     const result = await handleRecordZoneTransfer(
       fire(GRAD_ESSID, GRAD_NS_IP, { caller_machine_id: 'inner-gw-unheld' }),
@@ -233,7 +226,7 @@ describe('handleRecordZoneTransfer', () => {
     );
 
     expect(result.status).toBeGreaterThanOrEqual(400);
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('places a caller who names their own workstation at home, from their lease', async () => {
@@ -242,7 +235,7 @@ describe('handleRecordZoneTransfer', () => {
     // holds a lease on — the source is that lease, not a crash on an empty reach.
     const actor = generateIdentity();
     const workstation = computeWorkstationId('rig', actor.publicKeyHex);
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       findHomeVantage: async () => ({ data: { essid: OSCORP_ESSID, octet: HOME_OCTET }, error: null }),
     });
     const envelope = signRequest(actor, 'recordZoneTransfer', {
@@ -256,21 +249,21 @@ describe('handleRecordZoneTransfer', () => {
     expect(result).toEqual({ status: 200, body: { ok: true } });
     const homeSource = leasedAddress(OSCORP_ESSID, HOME_OCTET);
     if (homeSource === null) throw new Error('expected a home lease address');
-    expect(upsertPatch.mock.calls[0]![0].content).toContain(`client ${homeSource} (`);
+    expect(appendLog.mock.calls[0]![0].text).toContain(`client ${homeSource} (`);
   });
 
   it('degrades the source to unknown rather than guessing when the caller holds no lease', async () => {
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       findHomeVantage: async () => ({ data: { essid: OSCORP_ESSID, octet: null }, error: null }),
     });
 
     await handleRecordZoneTransfer(fire(OSCORP_ESSID, OSCORP_NS_IP), deps);
 
-    expect(upsertPatch.mock.calls[0]![0].content).toContain('client unknown (');
+    expect(appendLog.mock.calls[0]![0].text).toContain('client unknown (');
   });
 
   it('refuses an unsigned request and writes nothing — the wire is the threat surface', async () => {
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     const result = await handleRecordZoneTransfer(
       { action: 'recordZoneTransfer', essid: GRAD_ESSID, server_ip: GRAD_NS_IP },
@@ -281,7 +274,7 @@ describe('handleRecordZoneTransfer', () => {
     // The refusal names why, so the caller is not left guessing whether the wire or
     // the box turned them away.
     expect(result.body).toHaveProperty('error');
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('refuses a request whose payload forges a player_key, and writes nothing', async () => {
@@ -289,7 +282,7 @@ describe('handleRecordZoneTransfer', () => {
     // else. A payload that carries an identity field is refused outright, not quietly
     // honoured: the source is the placed box, so a line a visitor could address to someone
     // else is never written — that is the whole of why the log is evidence.
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
     const forged = signRequest(generateIdentity(), 'recordZoneTransfer', {
       essid: GRAD_ESSID,
       server_ip: GRAD_NS_IP,
@@ -299,13 +292,13 @@ describe('handleRecordZoneTransfer', () => {
     const result = await handleRecordZoneTransfer(forged, deps);
 
     expect(result.status).toBeGreaterThanOrEqual(400);
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('refuses a request whose payload forges a writer_key, and writes nothing', async () => {
     // The other half of the same guard: neither the player key nor the row's writer key
     // is the caller's to assert.
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
     const forged = signRequest(generateIdentity(), 'recordZoneTransfer', {
       essid: GRAD_ESSID,
       server_ip: GRAD_NS_IP,
@@ -315,18 +308,18 @@ describe('handleRecordZoneTransfer', () => {
     const result = await handleRecordZoneTransfer(forged, deps);
 
     expect(result.status).toBeGreaterThanOrEqual(400);
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('refuses a request that names no target server, and writes nothing', async () => {
     // essid + server_ip are the whole of what the caller supplies; a request missing one
     // is malformed, not a transfer of the empty string against a box that does not exist.
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
     const envelope = signRequest(generateIdentity(), 'recordZoneTransfer', { essid: GRAD_ESSID });
 
     const result = await handleRecordZoneTransfer(envelope, deps);
 
     expect(result.status).toBeGreaterThanOrEqual(400);
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 });

@@ -52,11 +52,8 @@ import {
   type OccupantWorkstation,
 } from '../src/core/network/resolveCrossPlayerFs.js';
 import type { UserType } from '../src/core/types.js';
-import type {
-  ListPathPatchesResult,
-  PatchRow,
-  PathPatchRow,
-} from '../src/core/patches/upsertPatch.js';
+import type { ListPathPatchesResult, PathPatchRow } from '../src/core/patches/upsertPatch.js';
+import type { AppendLog } from '../src/core/patches/appendMachineLog.js';
 import type { NonceStore } from '../src/core/signedRequest/nonceStore.js';
 import { allocateLanLease, drawLanOctet } from '../src/core/network/allocateLanLease.js';
 import { assignHomeNetwork } from '../src/core/network/homeNetwork.js';
@@ -162,19 +159,23 @@ const webTargetDepsVia = ({ supabase, label }: QuerySpec): WebTargetDeps => ({
   },
 });
 
-/** The target's own access log: read as a reader sees it (every writer's row at the
- *  path), written under the TARGET OWNER's key — the same key every visitor's line lands
- *  under, or the read-modify-write would fork the file per visitor. */
-const accessLogWriterVia = ({ supabase, label }: QuerySpec) => ({
-  readLog: listPathPatchesVia({ supabase, label: `${label} access-log` }),
-  upsertPatch: async (row: PatchRow) => {
-    const { error } = await supabase
-      .from('patches')
-      .upsert(row, { onConflict: 'machine_id,path,writer_key' });
-    logFailure(`${label} access-log upsert`, error);
+/** A line the system writes onto a machine's log. The database appends it in one
+ *  step, under a lock on that log, so two lines landing at once both survive — a read
+ *  here followed by a write would let the second overwrite the first. */
+const appendLogVia =
+  ({ supabase, label }: QuerySpec): AppendLog =>
+  async (append) => {
+    const { error } = await supabase.rpc('append_machine_log', {
+      append_machine_id: append.machine_id,
+      append_path: append.path,
+      append_writer_key: append.writer_key,
+      append_owner: append.owner,
+      append_permissions: append.permissions,
+      append_text: append.text,
+    });
+    logFailure(`${label} log append`, error);
     return { error };
-  },
-});
+  };
 
 /** The REQUESTER's own home public IP — the truthful source IP, server-derived from
  *  their verified key. One player may carry rows for several APs they have joined; the
@@ -469,18 +470,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (error) console.error('[network] scan boot-state lookup error:', error);
       return { data: data as readonly OwnerPatchRow[] | null, error };
     };
-    // Story 6.1: a host-up cross-player scan leaves a kern.log trace on the TARGET
-    // router's shared record. readLog/upsertPatch are the same read-modify-write
-    // `patches` shapes the ssh/su auth.log appenders use; the line is written under
-    // the OWNER's writer_key so multi-scanner rows don't collide.
-    const readLog = listPathPatchesVia({ supabase, label: 'scan kern-log' });
-    const upsertPatch = async (row: PatchRow) => {
-      const { error } = await supabase
-        .from('patches')
-        .upsert(row, { onConflict: 'machine_id,path,writer_key' });
-      if (error) console.error('[network] scan kern-log upsert error:', error);
-      return { error };
-    };
+    // A host-up cross-player scan leaves a kern.log trace on the TARGET router's shared
+    // record, under the OWNER's writer_key so every scanner's line lands in one row.
+    const appendLog = appendLogVia({ supabase, label: 'scan kern-log' });
     // The SCANNER's own home public IP — the truthful source IP, server-derived from
     // their verified owner key (never the client `source_ip`). Read from occupancy, so
     // the address they scan from is a network they are actually ON: a player who has
@@ -532,8 +524,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       listOccupantsByEssid,
       listLeasesByEssid,
       now: () => Date.now(),
-      readLog,
-      upsertPatch,
+      appendLog,
       findHomeNetworkByOwnerKey,
       findPublicIpByEssid: derivedPublicIpByEssid,
       findActiveSession: findActiveSessionVia({ supabase, label: 'public scan' }),
@@ -553,7 +544,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       nonceStore: noopNonceStore,
       ...webTargetDepsVia({ supabase, label: 'http-fetch' }),
       now: () => Date.now(),
-      ...accessLogWriterVia({ supabase, label: 'http-fetch' }),
+      appendLog: appendLogVia({ supabase, label: 'http-fetch access-log' }),
       findHomeNetworkByOwnerKey: findHomeNetworkByOwnerKeyVia({ supabase, label: 'http-fetch' }),
       // A fetch launched from a box the caller only holds a session on is traced to THAT
       // network — the hop that was actually used, not the attacker's home.
@@ -830,7 +821,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       nonceStore: noopNonceStore,
       ...webTargetDepsVia({ supabase, label: 'http-sweep' }),
       now: () => Date.now(),
-      ...accessLogWriterVia({ supabase, label: 'http-sweep' }),
+      appendLog: appendLogVia({ supabase, label: 'http-sweep access-log' }),
       findHomeNetworkByOwnerKey: findHomeNetworkByOwnerKeyVia({ supabase, label: 'http-sweep' }),
       // A sweep launched from a box the caller only holds a session on is traced to THAT
       // network — the box that was actually used, not the attacker's home.
@@ -858,7 +849,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findPatches,
       listOccupantsByEssid,
       listLeasesByEssid,
-      ...accessLogWriterVia({ supabase, label: 'occupant-fetch' }),
+      appendLog: appendLogVia({ supabase, label: 'occupant-fetch access-log' }),
       findActiveSession: findActiveSessionVia({ supabase, label: 'occupant-fetch active-session' }),
       findHomeVantage: findHomeVantageVia({ supabase, label: 'occupant-fetch vantage' }),
       findWorkstationLease: findWorkstationLeaseVia({ supabase, label: 'occupant-fetch vantage' }),
@@ -883,7 +874,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findPatches,
       listOccupantsByEssid,
       listLeasesByEssid,
-      ...accessLogWriterVia({ supabase, label: 'occupant-sweep' }),
+      appendLog: appendLogVia({ supabase, label: 'occupant-sweep access-log' }),
       findActiveSession: findActiveSessionVia({ supabase, label: 'occupant-sweep active-session' }),
       findHomeVantage: findHomeVantageVia({ supabase, label: 'occupant-sweep vantage' }),
       findWorkstationLease: findWorkstationLeaseVia({ supabase, label: 'occupant-sweep vantage' }),

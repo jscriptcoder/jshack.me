@@ -22,8 +22,7 @@ import { asGameTime } from '../types.js';
 import type { ActiveSession } from '../patches/authorizeMachineAccess.js';
 import type { ListPathPatchesResult } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
-import type { MachineLogReadResult } from '../patches/appendMachineLog.js';
-import type { PatchRow } from '../patches/upsertPatch.js';
+import type { AppendLog, MachineLogAppend } from '../patches/appendMachineLog.js';
 import { BOARD_SERVER_NETWORK } from '../generation/fixedSites.js';
 
 /**
@@ -145,7 +144,7 @@ type SweepOverrides = {
     machine_id: string;
     path: string;
   }) => Promise<ListPathPatchesResult>;
-  upsertPatch?: (row: PatchRow) => Promise<{ error: unknown }>;
+  appendLog?: AppendLog;
   findPublicIpByEssid?: (essid: string) => Promise<{
     data: { readonly public_ip: string } | null;
     error: unknown;
@@ -164,8 +163,8 @@ const aliceServing = (...pages: readonly OwnerPatchRow[]) =>
   });
 
 const makeDeps = (over: SweepOverrides = {}) => {
-  const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(
-    over.upsertPatch ?? (async () => ({ error: null })),
+  const appendLog = vi.fn<AppendLog>(
+    over.appendLog ?? (async () => ({ error: null })),
   );
   const listPathPatches = vi.fn(
     over.listPathPatches ??
@@ -181,15 +180,14 @@ const makeDeps = (over: SweepOverrides = {}) => {
     listOccupantsByEssid: async () => ({ data: OCCUPANTS, error: null }),
     listLeasesByEssid: over.listLeasesByEssid ?? (async () => ({ data: LEASES, error: null })),
     now: () => SWEEP_TIME,
-    readLog: async (): Promise<MachineLogReadResult> => ({ data: null, error: null }),
-    upsertPatch,
+    appendLog,
     findHomeNetworkByOwnerKey: async () => ({ data: { public_ip: BOB_PUBLIC_IP }, error: null }),
     findPublicIpByEssid:
       over.findPublicIpByEssid ?? (async () => ({ data: { public_ip: PIVOT_PUBLIC_IP }, error: null })),
     findActiveSession: over.findActiveSession ?? (async () => ({ data: null, error: null })),
     listPathPatches,
   };
-  return { deps, upsertPatch, listPathPatches };
+  return { deps, appendLog, listPathPatches };
 };
 
 const envelope = (fields: Record<string, unknown> = {}) =>
@@ -201,10 +199,10 @@ const envelope = (fields: Record<string, unknown> = {}) =>
   });
 
 /** What the target was told, as one appended block of lines. */
-const appendedLines = (upsertPatch: { mock: { calls: readonly (readonly PatchRow[])[] } }) =>
-  upsertPatch.mock.calls
+const appendedLines = (appendLog: { mock: { calls: readonly (readonly MachineLogAppend[])[] } }) =>
+  appendLog.mock.calls
     .filter(([row]) => row.path === ACCESS_LOG_PATH)
-    .map(([row]) => (row.content ?? '').split('\n').filter((line) => line.length > 0));
+    .map(([row]) => row.text.split('\n').filter((line) => line.length > 0));
 
 const logLine = (path: string, status: number, size: number, sourceIp = BOB_PUBLIC_IP): string =>
   formatAccessLogLine({ time: asGameTime(SWEEP_TIME), sourceIp, path, status, size });
@@ -266,7 +264,7 @@ describe('a stranger sweeps a box for paths nobody linked', () => {
 
 describe('the box being swept records the whole run', () => {
   it('writes every path it was asked about as ONE append under one timestamp', async () => {
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       patches: aliceServing(publishedPage('/index.html', 'hello')),
       listPathPatches: async () => ({
         data: [dirlistRow(['index.html', 'admin', 'backup'])],
@@ -279,7 +277,7 @@ describe('the box being swept records the whole run', () => {
     // The wall IS the tell. One append, in the order tried, hits and misses alike —
     // a write per path would re-read and re-upsert the whole log forty times over,
     // and spread the run across forty stamps a defender cannot read as one act.
-    expect(appendedLines(upsertPatch)).toEqual([
+    expect(appendedLines(appendLog)).toEqual([
       [
         logLine('/index.html', 200, 'hello'.length),
         logLine('/admin', 404, 0),
@@ -289,7 +287,7 @@ describe('the box being swept records the whole run', () => {
   });
 
   it('records both requests a directory word costs, not only the one that answered', async () => {
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       patches: aliceServing(publishedDir('/hidden'), publishedPage('/hidden/index.html', 'notes')),
       listPathPatches: async () => ({ data: [dirlistRow(['hidden'])], error: null }),
     });
@@ -298,13 +296,13 @@ describe('the box being swept records the whole run', () => {
 
     // The bare path a real server redirects, and the form it redirects TO. The
     // attacker is shown one find; the defender is shown both requests it took.
-    expect(appendedLines(upsertPatch)).toEqual([
+    expect(appendedLines(appendLog)).toEqual([
       [logLine('/hidden', 404, 0), logLine('/hidden/', 200, 'notes'.length)],
     ]);
   });
 
   it('is not fooled by a directory with nothing in it, and records both tries', async () => {
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       patches: aliceServing(publishedDir('/empty')),
       listPathPatches: async () => ({ data: [dirlistRow(['empty'])], error: null }),
     });
@@ -320,13 +318,13 @@ describe('the box being swept records the whole run', () => {
         results: [{ path: '/empty', status: 404, size: 0 }],
       },
     });
-    expect(appendedLines(upsertPatch)).toEqual([
+    expect(appendedLines(appendLog)).toEqual([
       [logLine('/empty', 404, 0), logLine('/empty/', 404, 0)],
     ]);
   });
 
   it('records a path that climbed out of the document root exactly as asked', async () => {
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       listPathPatches: async () => ({ data: [dirlistRow(['../../etc/passwd'])], error: null }),
     });
 
@@ -340,13 +338,13 @@ describe('the box being swept records the whole run', () => {
       dirlistFound: true,
       results: [{ path: '/../../etc/passwd', status: 404, size: 0 }],
     });
-    expect(appendedLines(upsertPatch)).toEqual([[logLine('/../../etc/passwd', 404, 0)]]);
+    expect(appendedLines(appendLog)).toEqual([[logLine('/../../etc/passwd', 404, 0)]]);
   });
 
   // Every board's address lands on the one boards' server and its one log, so each probe
   // there names the address swept, or its log could not say whose board was aimed at.
   it("names the address swept on each line the boards' server records", async () => {
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       lookup: async () => ({
         data: {
           router_machine_id: computeApGatewayId(BOARD_SERVER_NETWORK),
@@ -367,11 +365,11 @@ describe('the box being swept records the whole run', () => {
       dirlistFound: true,
       results: [{ path: '/admin', status: 404, size: 0 }],
     });
-    expect(appendedLines(upsertPatch)).toEqual([[logLine('http://194.12.40.7/admin', 404, 0)]]);
+    expect(appendedLines(appendLog)).toEqual([[logLine('http://194.12.40.7/admin', 404, 0)]]);
   });
 
   it('traces a sweep launched from somebody else’s box to THAT box’s network', async () => {
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       findActiveSession: async () => ({
         data: { username: 'root', userType: 'root', essid: PIVOT_ESSID },
         error: null,
@@ -383,7 +381,7 @@ describe('the box being swept records the whole run', () => {
     // The packets came from the box that was used, and the defender's log says so.
     // A line naming the attacker's home would be a falsehood the owner acts on —
     // and taking somebody else's box would cost the attacker nothing to hide behind.
-    expect(appendedLines(upsertPatch)).toEqual([
+    expect(appendedLines(appendLog)).toEqual([
       [logLine('/index.html', 200, 'hello'.length, PIVOT_PUBLIC_IP)],
     ]);
   });
@@ -391,7 +389,7 @@ describe('the box being swept records the whole run', () => {
 
 describe('a sweep with nothing to ask, and a box that will not answer', () => {
   it('reports a missing path list instead of an empty run, and asks the target nothing', async () => {
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       listPathPatches: async () => ({ data: [], error: null }),
     });
 
@@ -401,7 +399,7 @@ describe('a sweep with nothing to ask, and a box that will not answer', () => {
       status: 200,
       body: { ok: true, dirlistFound: false, results: [] },
     });
-    expect(appendedLines(upsertPatch)).toEqual([]);
+    expect(appendedLines(appendLog)).toEqual([]);
   });
 
   it('reads the list off the box being stood on, not the player’s own', async () => {
@@ -419,7 +417,7 @@ describe('a sweep with nothing to ask, and a box that will not answer', () => {
   });
 
   it('refuses a caller who neither owns the machine they named nor holds a session on it', async () => {
-    const { deps, upsertPatch, listPathPatches } = makeDeps({
+    const { deps, appendLog, listPathPatches } = makeDeps({
       findActiveSession: async () => ({ data: null, error: null }),
     });
 
@@ -430,11 +428,11 @@ describe('a sweep with nothing to ask, and a box that will not answer', () => {
       body: { error: 'no_session' },
     });
     expect(listPathPatches).not.toHaveBeenCalled();
-    expect(appendedLines(upsertPatch)).toEqual([]);
+    expect(appendedLines(appendLog)).toEqual([]);
   });
 
   it('sweeps nothing and says nothing when the list is present but empty', async () => {
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       listPathPatches: async () => ({ data: [dirlistRow([])], error: null }),
     });
 
@@ -444,7 +442,7 @@ describe('a sweep with nothing to ask, and a box that will not answer', () => {
       status: 200,
       body: { ok: true, dirlistFound: true, results: [] },
     });
-    expect(appendedLines(upsertPatch)).toEqual([]);
+    expect(appendedLines(appendLog)).toEqual([]);
   });
 
   it('distinguishes a list it could not read from a list that is not there', async () => {
@@ -462,7 +460,7 @@ describe('a sweep with nothing to ask, and a box that will not answer', () => {
   });
 
   it("records a sweep of an access point nobody has ever joined, in the network's own row", async () => {
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       // The AP's own gateway, on an ESSID nobody has ever leased an address on: the box
       // belongs to the network, so the network's row is there to take the record.
       patches: patchesByMachine({
@@ -480,7 +478,7 @@ describe('a sweep with nothing to ask, and a box that will not answer', () => {
       dirlistFound: true,
       results: [{ path: '/index.html', status: 200, size: 'ap portal'.length }],
     });
-    expect(upsertPatch).toHaveBeenCalledWith(
+    expect(appendLog).toHaveBeenCalledWith(
       expect.objectContaining({
         writer_key: apGatewayLogWriterKey(ESSID),
         machine_id: AP_GATEWAY_ID,
@@ -510,12 +508,12 @@ describe('a sweep with nothing to ask, and a box that will not answer', () => {
       }) }),
     ];
 
-    for (const { deps, upsertPatch } of cases) {
+    for (const { deps, appendLog } of cases) {
       // One answer for every cause, so a prober learns nothing from which gate
       // stopped them — and an unreached box keeps no record, because nothing was
       // there to write one.
       expect(await handleResolveHttpSweep(envelope(), deps)).toEqual(unreachable);
-      expect(appendedLines(upsertPatch)).toEqual([]);
+      expect(appendedLines(appendLog)).toEqual([]);
     }
   });
 });

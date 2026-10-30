@@ -26,11 +26,7 @@ import { siteServer } from '../generation/siteServer.js';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
 import { asAbsPath } from '../types.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
-import type {
-  MachineLogReadQuery,
-  MachineLogReadResult,
-} from '../patches/appendMachineLog.js';
-import type { PatchRow } from '../patches/upsertPatch.js';
+import type { AppendLog } from '../patches/appendMachineLog.js';
 import { siteAddress } from '../generation/publisher.js';
 import { publicAddress } from '../generation/world.js';
 import {
@@ -65,7 +61,6 @@ import type { NewsReads } from '../valleynews/answerViews.js';
 import type { WalletBalanceDeps } from '../wallet/handleWalletBalance.js';
 import type { WalletHistoryDeps } from '../wallet/handleWalletHistory.js';
 import type { MachinePatchRow } from '../findit/webIndex.js';
-import { logRead } from '../../test/factories/logRows.js';
 import { derivedPublicIpByEssid, type FindPublicIpByEssid } from '../logging/crossPlayerSourceIp.js';
 import type { FindActiveSession } from '../patches/authorizeMachineAccess.js';
 import type { BoardDeps } from '../rideit/board.js';
@@ -221,8 +216,7 @@ type FetchOverrides = {
   patches?: (query: { machine_id: string }) => Promise<PatchesResult>;
   listOccupantsByEssid?: (essid: string) => Promise<OccupantsResult>;
   listLeasesByEssid?: (essid: string) => Promise<LeasesResult>;
-  readLog?: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
-  upsertPatch?: (row: PatchRow) => Promise<{ error: unknown }>;
+  appendLog?: AppendLog;
   findHomeNetworkByOwnerKey?: (ownerKey: string) => Promise<HomeNetworkResult>;
   findPatchesForMachines?: (machineIds: readonly string[]) => Promise<WebPatchesResult>;
   findActiveSession?: FindActiveSession;
@@ -257,11 +251,8 @@ const makeDeps = (over: FetchOverrides = {}) => {
   const listLeasesByEssid = vi.fn<(essid: string) => Promise<LeasesResult>>(
     over.listLeasesByEssid ?? (async () => ({ data: BOTH_LEASES, error: null })),
   );
-  const readLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(
-    over.readLog ?? (async () => ({ data: null, error: null })),
-  );
-  const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(
-    over.upsertPatch ?? (async () => ({ error: null })),
+  const appendLog = vi.fn<AppendLog>(
+    over.appendLog ?? (async () => ({ error: null })),
   );
   const findHomeNetworkByOwnerKey = vi.fn<(ownerKey: string) => Promise<HomeNetworkResult>>(
     over.findHomeNetworkByOwnerKey ?? (async () => ({ data: { public_ip: BOB_PUBLIC_IP }, error: null })),
@@ -345,8 +336,7 @@ const makeDeps = (over: FetchOverrides = {}) => {
     listOccupantsByEssid,
     listLeasesByEssid,
     now: () => FETCH_TIME,
-    readLog,
-    upsertPatch,
+    appendLog,
     findHomeNetworkByOwnerKey,
     findActiveSession,
     findPublicIpByEssid,
@@ -387,8 +377,7 @@ const makeDeps = (over: FetchOverrides = {}) => {
     findPatches,
     listOccupantsByEssid,
     listLeasesByEssid,
-    readLog,
-    upsertPatch,
+    appendLog,
     findHomeNetworkByOwnerKey,
     findPatchesForMachines,
     findActiveSession,
@@ -534,12 +523,12 @@ describe("an institution's website, served from a machine nobody owns", () => {
   });
 
   it("records the hit in that machine's access log, under the network's own key", async () => {
-    const { deps, upsertPatch } = makeDeps(unjoined);
+    const { deps, appendLog } = makeDeps(unjoined);
 
     await handleResolveHttpFetch(envelope(), deps);
 
-    expect(upsertPatch).toHaveBeenCalledTimes(1);
-    expect(upsertPatch.mock.calls[0]?.[0]).toMatchObject({
+    expect(appendLog).toHaveBeenCalledTimes(1);
+    expect(appendLog.mock.calls[0]?.[0]).toMatchObject({
       machine_id: serverIdentity.machineId,
       path: ACCESS_LOG_PATH,
       writer_key: apGatewayLogWriterKey(PUBLISHER),
@@ -900,7 +889,7 @@ describe('the fetched machine records the hit', () => {
     `${fields.sourceIp ?? BOB_PUBLIC_IP} - - [30/Jul/2026:13:55:36 +0000] "GET ${fields.path ?? '/'} HTTP/1.1" ${fields.status ?? 200} ${fields.size ?? 0}`;
 
   it('appends one line under the OWNER key, with the server-derived source IP and the requested path', async () => {
-    const { deps, upsertPatch, findHomeNetworkByOwnerKey } = makeDeps({ patches: aliceServing() });
+    const { deps, appendLog, findHomeNetworkByOwnerKey } = makeDeps({ patches: aliceServing() });
 
     expect(await handleResolveHttpFetch(envelope(), deps)).toEqual({
       status: 200,
@@ -909,93 +898,79 @@ describe('the fetched machine records the hit', () => {
 
     // The source IP is looked up for BOB — the verified caller — not for the target.
     expect(findHomeNetworkByOwnerKey).toHaveBeenCalledWith(BOB.publicKeyHex);
-    expect(upsertPatch).toHaveBeenCalledTimes(1);
-    expect(upsertPatch).toHaveBeenCalledWith(
+    expect(appendLog).toHaveBeenCalledTimes(1);
+    expect(appendLog).toHaveBeenCalledWith(
       expect.objectContaining({
         writer_key: ALICE.publicKeyHex,
         machine_id: ALICE_WS,
         path: ACCESS_LOG_PATH,
-        content: `${accessLine({ size: ALICE_PAGE.length })}\n`,
+        text: `${accessLine({ size: ALICE_PAGE.length })}\n`,
       }),
     );
   });
 
   it('records the path that was asked for, not the file that answered', async () => {
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       patches: aliceServing(publishedPage('<h1>status: green</h1>', 'status.html')),
     });
 
     await handleResolveHttpFetch(envelope({ path: '/status.html' }), deps);
 
-    expect(upsertPatch).toHaveBeenCalledWith(
+    expect(appendLog).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: `${accessLine({ path: '/status.html', size: '<h1>status: green</h1>'.length })}\n`,
+        text: `${accessLine({ path: '/status.html', size: '<h1>status: green</h1>'.length })}\n`,
       }),
     );
   });
 
   it('records a 404 too — a wall of them is what a directory sweep looks like', async () => {
-    const { deps, upsertPatch } = makeDeps({ patches: aliceServing() });
+    const { deps, appendLog } = makeDeps({ patches: aliceServing() });
 
     expect(await handleResolveHttpFetch(envelope({ path: '/admin.php' }), deps)).toEqual({
       status: 404,
       body: { error: 'not_found' },
     });
 
-    expect(upsertPatch).toHaveBeenCalledWith(
+    expect(appendLog).toHaveBeenCalledWith(
       expect.objectContaining({
         writer_key: ALICE.publicKeyHex,
         machine_id: ALICE_WS,
-        content: `${accessLine({ path: '/admin.php', status: 404 })}\n`,
+        text: `${accessLine({ path: '/admin.php', status: 404 })}\n`,
       }),
     );
   });
 
-  it('accretes onto the existing log rather than replacing it', async () => {
-    const previous = '203.0.113.9 - - [29/Jul/2026:09:00:00 +0000] "GET / HTTP/1.1" 200 12\n';
-    const { deps, upsertPatch } = makeDeps({
-      patches: aliceServing(),
-      readLog: async () => logRead(previous),
-    });
+  it('appends to the access log on the fetched machine', async () => {
+    const { deps, appendLog } = makeDeps({ patches: aliceServing() });
 
     await handleResolveHttpFetch(envelope(), deps);
 
-    expect(upsertPatch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        content: `${previous}${accessLine({ size: ALICE_PAGE.length })}\n`,
-      }),
+    expect(appendLog).toHaveBeenCalledWith(
+      expect.objectContaining({ machine_id: ALICE_WS, path: ACCESS_LOG_PATH }),
     );
-  });
-
-  it('reads the existing access log on the fetched machine before appending to it', async () => {
-    const { deps, readLog } = makeDeps({ patches: aliceServing() });
-
-    await handleResolveHttpFetch(envelope(), deps);
-
-    expect(readLog).toHaveBeenCalledWith({ machine_id: ALICE_WS, path: ACCESS_LOG_PATH });
   });
 
   it('ignores a client-supplied source IP — a caller cannot frame another network', async () => {
-    const { deps, upsertPatch } = makeDeps({ patches: aliceServing() });
+    const { deps, appendLog } = makeDeps({ patches: aliceServing() });
 
     await handleResolveHttpFetch(envelope({ source_ip: '10.0.0.66' }), deps);
 
-    expect(upsertPatch).toHaveBeenCalledWith(
-      expect.objectContaining({ content: `${accessLine({ size: ALICE_PAGE.length })}\n` }),
+    expect(appendLog).toHaveBeenCalledWith(
+      expect.objectContaining({ text: `${accessLine({ size: ALICE_PAGE.length })}\n` }),
     );
   });
 
   it('records an actor with no home network as `unknown` rather than dropping the line', async () => {
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       patches: aliceServing(),
       findHomeNetworkByOwnerKey: async () => ({ data: null, error: null }),
     });
 
     await handleResolveHttpFetch(envelope(), deps);
 
-    expect(upsertPatch).toHaveBeenCalledWith(
+    expect(appendLog).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: `${accessLine({ sourceIp: 'unknown', size: ALICE_PAGE.length })}\n`,
+        text: `${accessLine({ sourceIp: 'unknown', size: ALICE_PAGE.length })}\n`,
       }),
     );
   });
@@ -1005,7 +980,7 @@ describe('the fetched machine records the hit', () => {
     // THAT network's public IP — the hop the traffic actually came from — read off the
     // session row, never his own home.
     const HOP_PUBLIC_IP = '203.0.113.200';
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       patches: aliceServing(),
       findActiveSession: async () => ({
         data: { username: 'root', userType: 'root', essid: 'HOP-NET' },
@@ -1019,15 +994,15 @@ describe('the fetched machine records the hit', () => {
 
     await handleResolveHttpFetch(envelope({ caller_machine_id: 'a-hop-box' }), deps);
 
-    expect(upsertPatch).toHaveBeenCalledWith(
+    expect(appendLog).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: `${accessLine({ sourceIp: HOP_PUBLIC_IP, size: ALICE_PAGE.length })}\n`,
+        text: `${accessLine({ sourceIp: HOP_PUBLIC_IP, size: ALICE_PAGE.length })}\n`,
       }),
     );
   });
 
   it('refuses a fetch naming a box the caller does not hold, logging nothing', async () => {
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       patches: aliceServing(),
       findActiveSession: async () => ({ data: null, error: null }),
     });
@@ -1036,13 +1011,13 @@ describe('the fetched machine records the hit', () => {
       status: 403,
       body: { error: 'no_session' },
     });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it("logs the GATEWAY arm under the network's own key when the gateway serves its own page", async () => {
     // The AP has no owner, so its log accretes under the network's own stable key — the
     // same one the ssh gate uses, so both logs land in one row.
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       patches: patchesByMachine({
         [AP_GATEWAY_ID]: [webServerUp(), publishedPage('<h1>router</h1>')],
       }),
@@ -1053,12 +1028,12 @@ describe('the fetched machine records the hit', () => {
       body: { ok: true, content: '<h1>router</h1>', server: 'nginx' },
     });
 
-    expect(upsertPatch).toHaveBeenCalledWith(
+    expect(appendLog).toHaveBeenCalledWith(
       expect.objectContaining({
         writer_key: apGatewayLogWriterKey(ESSID),
         machine_id: AP_GATEWAY_ID,
         path: ACCESS_LOG_PATH,
-        content: `${accessLine({ size: '<h1>router</h1>'.length })}
+        text: `${accessLine({ size: '<h1>router</h1>'.length })}
 `,
       }),
     );
@@ -1077,7 +1052,7 @@ describe('the fetched machine records the hit', () => {
     ];
 
     for (const leases of leaseAnswers) {
-      const { deps, upsertPatch } = makeDeps({
+      const { deps, appendLog } = makeDeps({
         patches: gatewayOnly,
         listLeasesByEssid: async () => leases,
       });
@@ -1086,7 +1061,7 @@ describe('the fetched machine records the hit', () => {
         status: 200,
         body: { ok: true, content: '<h1>router</h1>', server: 'nginx' },
       });
-      expect(upsertPatch).toHaveBeenCalledWith(
+      expect(appendLog).toHaveBeenCalledWith(
         expect.objectContaining({ writer_key: apGatewayLogWriterKey(ESSID), machine_id: AP_GATEWAY_ID }),
       );
     }
@@ -1123,12 +1098,12 @@ describe('the fetched machine records the hit', () => {
     ];
 
     for (const [cause, overrides] of unreachable) {
-      const { deps, upsertPatch } = makeDeps(overrides);
+      const { deps, appendLog } = makeDeps(overrides);
 
       expect((await handleResolveHttpFetch(envelope(), deps)).body, cause).toEqual({
         error: 'host_unreachable',
       });
-      expect(upsertPatch, cause).not.toHaveBeenCalled();
+      expect(appendLog, cause).not.toHaveBeenCalled();
     }
   });
 
@@ -1138,7 +1113,7 @@ describe('the fetched machine records the hit', () => {
     // that would leak the defender's storage state to an anonymous stranger.
     const { deps } = makeDeps({
       patches: aliceServing(),
-      upsertPatch: async () => {
+      appendLog: async () => {
         throw new Error('journal unavailable');
       },
     });
@@ -1149,20 +1124,6 @@ describe('the fetched machine records the hit', () => {
     });
   });
 
-  it('serves the page, and writes nothing, when the existing log cannot be read', async () => {
-    // A contentless write over a log that merely failed to read would erase the very
-    // evidence this slice exists to keep.
-    const { deps, upsertPatch } = makeDeps({
-      patches: aliceServing(),
-      readLog: async () => ({ data: null, error: new Error('read failed') }),
-    });
-
-    expect(await handleResolveHttpFetch(envelope(), deps)).toEqual({
-      status: 200,
-      body: { ok: true, content: ALICE_PAGE, server: 'nginx' },
-    });
-    expect(upsertPatch).not.toHaveBeenCalled();
-  });
 });
 
 describe('a form POSTed across the network', () => {
@@ -1178,16 +1139,16 @@ describe('a form POSTed across the network', () => {
   });
 
   it('is recorded on that box as the POST it was, never with the form', async () => {
-    const { deps, upsertPatch } = makeDeps({ patches: aliceServing() });
+    const { deps, appendLog } = makeDeps({ patches: aliceServing() });
 
     await handleResolveHttpFetch(envelope({ body: FORM, path: '/index.html' }), deps);
 
-    expect(upsertPatch).toHaveBeenCalledWith(
+    expect(appendLog).toHaveBeenCalledWith(
       expect.objectContaining({
         writer_key: ALICE.publicKeyHex,
         machine_id: ALICE_WS,
         path: ACCESS_LOG_PATH,
-        content: `${BOB_PUBLIC_IP} - - [30/Jul/2026:13:55:36 +0000] "POST /index.html HTTP/1.1" 405 ${METHOD_NOT_ALLOWED_PAGE.length}\n`,
+        text: `${BOB_PUBLIC_IP} - - [30/Jul/2026:13:55:36 +0000] "POST /index.html HTTP/1.1" 405 ${METHOD_NOT_ALLOWED_PAGE.length}\n`,
       }),
     );
   });
@@ -1215,13 +1176,13 @@ describe('a form POSTed across the network', () => {
   });
 
   it('reaches nothing where a GET would reach nothing, and leaves no line', async () => {
-    const { deps, upsertPatch } = makeDeps({ lookup: async () => ({ data: null, error: null }) });
+    const { deps, appendLog } = makeDeps({ lookup: async () => ({ data: null, error: null }) });
 
     expect(await handleResolveHttpFetch(envelope({ body: FORM }), deps)).toEqual({
       status: 404,
       body: { error: 'host_unreachable' },
     });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   // A post to talkit.io may hold 4,000 characters, each up to 4 UTF-8 bytes and each byte
@@ -1295,18 +1256,18 @@ describe('emailit.io signs a reader up', () => {
   });
 
   it('records the sign-up in its log as a POST, with no trace of the form', async () => {
-    const { deps, upsertPatch } = makeDeps(onEmailit);
+    const { deps, appendLog } = makeDeps(onEmailit);
 
     const response = await handleResolveHttpFetch(request({ body: FORM }), deps);
 
-    const logged = upsertPatch.mock.calls
+    const logged = appendLog.mock.calls
       .map(([row]) => row)
       .find((row) => row.path === ACCESS_LOG_PATH);
     expect(logged?.machine_id).toBe(EMAILIT_ID);
-    expect(logged?.content).toBe(
+    expect(logged?.text).toBe(
       `${BOB_PUBLIC_IP} - - [30/Jul/2026:13:55:36 +0000] "POST /signup HTTP/1.1" 200 ${contentOf(response).length}\n`,
     );
-    expect(JSON.stringify(upsertPatch.mock.calls)).not.toContain('s3cret');
+    expect(JSON.stringify(appendLog.mock.calls)).not.toContain('s3cret');
   });
 
   it('takes a form at /signup however its query string reads', async () => {
@@ -1399,8 +1360,8 @@ describe('hireme.io takes an application', () => {
     });
   const contentOf = (response: { body: Record<string, unknown> }): string =>
     typeof response.body.content === 'string' ? response.body.content : '';
-  const accessLogOf = (upsertPatch: ReturnType<typeof makeDeps>['upsertPatch']) =>
-    upsertPatch.mock.calls.map(([row]) => row).find((row) => row.path === ACCESS_LOG_PATH);
+  const accessLogOf = (appendLog: ReturnType<typeof makeDeps>['appendLog']) =>
+    appendLog.mock.calls.map(([row]) => row).find((row) => row.path === ACCESS_LOG_PATH);
 
   it('mails the board a form at /apply asks for, and thanks the reader', async () => {
     const { deps, apply } = makeDeps(onHireme);
@@ -1430,15 +1391,15 @@ describe('hireme.io takes an application', () => {
   });
 
   it('records the application in its log as a POST, with no trace of the form', async () => {
-    const { deps, upsertPatch } = makeDeps(onHireme);
+    const { deps, appendLog } = makeDeps(onHireme);
 
     const response = await handleResolveHttpFetch(request({ body: FORM }), deps);
 
-    expect(accessLogOf(upsertPatch)?.machine_id).toBe(HIREME_ID);
-    expect(accessLogOf(upsertPatch)?.content).toBe(
+    expect(accessLogOf(appendLog)?.machine_id).toBe(HIREME_ID);
+    expect(accessLogOf(appendLog)?.text).toBe(
       `${BOB_PUBLIC_IP} - - [30/Jul/2026:13:55:36 +0000] "POST /apply HTTP/1.1" 200 ${contentOf(response).length}\n`,
     );
-    expect(JSON.stringify(upsertPatch.mock.calls)).not.toContain('neo');
+    expect(JSON.stringify(appendLog.mock.calls)).not.toContain('neo');
   });
 
   it('takes a form at /apply however its query string reads', async () => {
@@ -1530,7 +1491,7 @@ describe('hireme.io takes an application', () => {
   });
 
   it('reports a store it could not reach as a server error, and records nothing', async () => {
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       ...onHireme,
       apply: async () => ({ data: null, error: { message: 'connection refused' } }),
     });
@@ -1539,7 +1500,7 @@ describe('hireme.io takes an application', () => {
       status: 500,
       body: { error: 'apply_failed' },
     });
-    expect(accessLogOf(upsertPatch)).toBeUndefined();
+    expect(accessLogOf(appendLog)).toBeUndefined();
   });
 });
 
@@ -1576,8 +1537,8 @@ describe('rideit.io sells tickets and boards riders', () => {
     });
   const contentOf = (response: { body: Record<string, unknown> }): string =>
     typeof response.body.content === 'string' ? response.body.content : '';
-  const accessLogOf = (upsertPatch: ReturnType<typeof makeDeps>['upsertPatch']) =>
-    upsertPatch.mock.calls.map(([row]) => row).find((row) => row.path === ACCESS_LOG_PATH);
+  const accessLogOf = (appendLog: ReturnType<typeof makeDeps>['appendLog']) =>
+    appendLog.mock.calls.map(([row]) => row).find((row) => row.path === ACCESS_LOG_PATH);
   /** A move the test can read back, written every time. */
   const movingStore = () =>
     vi.fn<BoardDeps['moveLocation']>(async () => ({ moved: true, error: null }));
@@ -1609,17 +1570,17 @@ describe('rideit.io sells tickets and boards riders', () => {
   });
 
   it('records a look at the ticket page in its log', async () => {
-    const { deps, upsertPatch } = makeDeps(onRideit);
+    const { deps, appendLog } = makeDeps(onRideit);
 
     await handleResolveHttpFetch(request({ path: '/ticket' }), deps);
 
-    expect(accessLogOf(upsertPatch)?.content).toBe(
+    expect(accessLogOf(appendLog)?.text).toBe(
       `${BOB_PUBLIC_IP} - - [30/Jul/2026:13:55:36 +0000] "GET /ticket HTTP/1.1" 200 ${BOB_TICKET.length}\n`,
     );
   });
 
   it('reports a ticket page it could not read as a server error, and records nothing', async () => {
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       ...onRideit,
       findBalance: async () => ({ data: null, error: { message: 'down' } }),
     });
@@ -1628,12 +1589,12 @@ describe('rideit.io sells tickets and boards riders', () => {
       status: 500,
       body: { error: 'ticket_failed' },
     });
-    expect(accessLogOf(upsertPatch)).toBeUndefined();
+    expect(accessLogOf(appendLog)).toBeUndefined();
   });
 
   it('refuses a boarding the fare has not reached, tells the tab it stayed, and records the POST', async () => {
     const moveLocation = movingStore();
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       ...onRideit,
       findBalance: async () => ({ data: null, error: null }),
       board: { moveLocation },
@@ -1644,7 +1605,7 @@ describe('rideit.io sells tickets and boards riders', () => {
       body: { ok: true, content: unpaidPage(0), server: 'nginx', left: false },
     });
     expect(moveLocation).not.toHaveBeenCalled();
-    expect(accessLogOf(upsertPatch)?.content).toContain('"POST /board HTTP/1.1" 200');
+    expect(accessLogOf(appendLog)?.text).toContain('"POST /board HTTP/1.1" 200');
   });
 
   it('boards the verified signer for the town the form names, and tells their tab they left', async () => {
@@ -1669,18 +1630,18 @@ describe('rideit.io sells tickets and boards riders', () => {
     });
   });
 
-  const writtenTo = (upsertPatch: ReturnType<typeof makeDeps>['upsertPatch'], path: string) =>
-    upsertPatch.mock.calls.map(([row]) => row).filter((row) => row.path === path);
+  const writtenTo = (appendLog: ReturnType<typeof makeDeps>['appendLog'], path: string) =>
+    appendLog.mock.calls.map(([row]) => row).filter((row) => row.path === path);
 
   it('writes where the traveller rode, the address that paid, and where they left from, to rideit.log', async () => {
-    const { deps, upsertPatch } = makeDeps(onRideit);
+    const { deps, appendLog } = makeDeps(onRideit);
 
     await handleResolveHttpFetch(request({ body: FORM }), deps);
 
-    expect(writtenTo(upsertPatch, '/var/log/rideit.log')).toEqual([
+    expect(writtenTo(appendLog, '/var/log/rideit.log')).toEqual([
       expect.objectContaining({
         machine_id: RIDEIT_ID,
-        content: `2026-07-30 13:55:36 ride to ${TOWN} paid at ${tripAddress(BOB.publicKeyHex, 0)} from ${BOB_PUBLIC_IP}\n`,
+        text: `2026-07-30 13:55:36 ride to ${TOWN} paid at ${tripAddress(BOB.publicKeyHex, 0)} from ${BOB_PUBLIC_IP}\n`,
         owner: 'root',
         permissions: { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] },
       }),
@@ -1688,21 +1649,21 @@ describe('rideit.io sells tickets and boards riders', () => {
   });
 
   it('writes nothing to rideit.log for a boarding the fare has not reached', async () => {
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       ...onRideit,
       findBalance: async () => ({ data: null, error: null }),
     });
 
     await handleResolveHttpFetch(request({ body: FORM }), deps);
 
-    expect(writtenTo(upsertPatch, ACCESS_LOG_PATH)).toHaveLength(1);
-    expect(writtenTo(upsertPatch, '/var/log/rideit.log')).toEqual([]);
+    expect(writtenTo(appendLog, ACCESS_LOG_PATH)).toHaveLength(1);
+    expect(writtenTo(appendLog, '/var/log/rideit.log')).toEqual([]);
   });
 
   it('keeps a boarding that went through, though its line could not be written', async () => {
     const { deps } = makeDeps({
       ...onRideit,
-      upsertPatch: async (row) => {
+      appendLog: async (row) => {
         if (row.path === '/var/log/rideit.log') throw new Error('journal unavailable');
         return { error: null };
       },
@@ -1718,7 +1679,7 @@ describe('rideit.io sells tickets and boards riders', () => {
     // At home the source is the network the box is on, and boarding takes it off: an
     // address looked up after leaving would be nobody's.
     let onNetwork = true;
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       ...onRideit,
       findHomeNetworkByOwnerKey: async () => ({
         data: onNetwork ? { public_ip: BOB_PUBLIC_IP } : null,
@@ -1735,11 +1696,11 @@ describe('rideit.io sells tickets and boards riders', () => {
     const response = await handleResolveHttpFetch(request({ body: FORM }), deps);
 
     expect(onNetwork).toBe(false);
-    expect(accessLogOf(upsertPatch)?.machine_id).toBe(RIDEIT_ID);
-    expect(accessLogOf(upsertPatch)?.content).toBe(
+    expect(accessLogOf(appendLog)?.machine_id).toBe(RIDEIT_ID);
+    expect(accessLogOf(appendLog)?.text).toBe(
       `${BOB_PUBLIC_IP} - - [30/Jul/2026:13:55:36 +0000] "POST /board HTTP/1.1" 200 ${contentOf(response).length}\n`,
     );
-    expect(accessLogOf(upsertPatch)?.content).not.toContain(TOWN);
+    expect(accessLogOf(appendLog)?.text).not.toContain(TOWN);
   });
 
   it('boards from a form at /board however its query string reads', async () => {
@@ -1824,7 +1785,7 @@ describe('rideit.io sells tickets and boards riders', () => {
   });
 
   it('reports a store it could not reach as a server error, and records nothing', async () => {
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       ...onRideit,
       board: { moveLocation: async () => ({ moved: false, error: { message: 'down' } }) },
     });
@@ -1833,7 +1794,7 @@ describe('rideit.io sells tickets and boards riders', () => {
       status: 500,
       body: { error: 'board_failed' },
     });
-    expect(accessLogOf(upsertPatch)).toBeUndefined();
+    expect(accessLogOf(appendLog)).toBeUndefined();
   });
 });
 
@@ -1866,8 +1827,8 @@ describe("a contractor board answers at its address", () => {
     });
   const contentOf = (response: { body: Record<string, unknown> }): string =>
     typeof response.body.content === 'string' ? response.body.content : '';
-  const accessLogOf = (upsertPatch: ReturnType<typeof makeDeps>['upsertPatch']) =>
-    upsertPatch.mock.calls.map(([row]) => row).find((row) => row.path === ACCESS_LOG_PATH);
+  const accessLogOf = (appendLog: ReturnType<typeof makeDeps>['appendLog']) =>
+    appendLog.mock.calls.map(([row]) => row).find((row) => row.path === ACCESS_LOG_PATH);
 
   it('answers the board of the handle that holds the address asked', async () => {
     const { deps, findBoardHandle } = makeDeps(onBoards);
@@ -1898,30 +1859,30 @@ describe("a contractor board answers at its address", () => {
   // Every board's address lands on the one box and its one log, so the line names the
   // address asked, or a root reading it could not tell whose board was read.
   it('records the read with the address it asked, under the boards server', async () => {
-    const { deps, upsertPatch } = makeDeps(onBoards);
+    const { deps, appendLog } = makeDeps(onBoards);
 
     const response = await handleResolveHttpFetch(request({}), deps);
 
-    expect(accessLogOf(upsertPatch)?.machine_id).toBe(BOARDS_ID);
-    expect(accessLogOf(upsertPatch)?.content).toBe(
+    expect(accessLogOf(appendLog)?.machine_id).toBe(BOARDS_ID);
+    expect(accessLogOf(appendLog)?.text).toBe(
       `${BOB_PUBLIC_IP} - - [30/Jul/2026:13:55:36 +0000] "GET http://${NEO_BOARD}/ HTTP/1.1" 200 ${contentOf(response).length}\n`,
     );
   });
 
   it('serves any other path from its disk, which publishes nothing, and records the miss', async () => {
-    const { deps, upsertPatch, findBoardHandle } = makeDeps(onBoards);
+    const { deps, appendLog, findBoardHandle } = makeDeps(onBoards);
 
     const response = await handleResolveHttpFetch(request({ path: '/index.html' }), deps);
 
     expect(response).toEqual({ status: 404, body: { error: 'not_found' } });
-    expect(accessLogOf(upsertPatch)?.content).toBe(
+    expect(accessLogOf(appendLog)?.text).toBe(
       `${BOB_PUBLIC_IP} - - [30/Jul/2026:13:55:36 +0000] "GET http://${NEO_BOARD}/index.html HTTP/1.1" 404 0\n`,
     );
     expect(findBoardHandle).not.toHaveBeenCalled();
   });
 
   it('refuses a form, as every server but the ones that take one does', async () => {
-    const { deps, upsertPatch, findBoardHandle } = makeDeps(onBoards);
+    const { deps, appendLog, findBoardHandle } = makeDeps(onBoards);
 
     const response = await handleResolveHttpFetch(request({ body: 'contract=1' }), deps);
 
@@ -1929,7 +1890,7 @@ describe("a contractor board answers at its address", () => {
       status: 405,
       body: { error: 'method_not_allowed', server: 'nginx' },
     });
-    expect(accessLogOf(upsertPatch)?.content).toBe(
+    expect(accessLogOf(appendLog)?.text).toBe(
       `${BOB_PUBLIC_IP} - - [30/Jul/2026:13:55:36 +0000] "POST http://${NEO_BOARD}/ HTTP/1.1" 405 ${METHOD_NOT_ALLOWED_PAGE.length}\n`,
     );
     expect(findBoardHandle).not.toHaveBeenCalled();
@@ -1966,7 +1927,7 @@ describe("a contractor board answers at its address", () => {
   });
 
   it('answers as nothing when the board is gone by the time it is read, and records nothing', async () => {
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       ...onBoards,
       findBoardHandle: async () => ({ data: null, error: null }),
     });
@@ -1975,11 +1936,11 @@ describe("a contractor board answers at its address", () => {
       status: 404,
       body: { error: 'host_unreachable' },
     });
-    expect(accessLogOf(upsertPatch)).toBeUndefined();
+    expect(accessLogOf(appendLog)).toBeUndefined();
   });
 
   it('reports a board it could not read as a server error, and records nothing', async () => {
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       ...onBoards,
       findBoardHandle: async () => ({ data: null, error: { message: 'connection refused' } }),
     });
@@ -1988,7 +1949,7 @@ describe("a contractor board answers at its address", () => {
       status: 500,
       body: { error: 'board_lookup_failed' },
     });
-    expect(accessLogOf(upsertPatch)).toBeUndefined();
+    expect(accessLogOf(appendLog)).toBeUndefined();
   });
 
   it('reads no board for a fetch of any other site', async () => {
@@ -2089,15 +2050,15 @@ describe('findit.io answers a search over the public web', () => {
   });
 
   it('records who searched for what, in its own log, as every fetch is recorded', async () => {
-    const { deps, upsertPatch } = makeDeps(onFindit);
+    const { deps, appendLog } = makeDeps(onFindit);
 
     await handleResolveHttpFetch(search('university'), deps);
 
-    const logged = upsertPatch.mock.calls
+    const logged = appendLog.mock.calls
       .map(([row]) => row)
       .find((row) => row.path === ACCESS_LOG_PATH);
     expect(logged?.machine_id).toBe(computeApGatewayId(FINDIT_NETWORK));
-    expect(logged?.content).toContain('/?q=university');
+    expect(logged?.text).toContain('/?q=university');
   });
 
   it('leaves an ordinary site to serve its own files, query and all', async () => {
@@ -2160,8 +2121,8 @@ describe('chainit.io answers a lookup from the ledger', () => {
   const lookUp = (typed: string) => fetchPath(`/address?a=${encodeURIComponent(typed)}`);
   const contentOf = (response: { body: Record<string, unknown> }): string =>
     typeof response.body.content === 'string' ? response.body.content : '';
-  const accessLogOf = (upsertPatch: ReturnType<typeof makeDeps>['upsertPatch']) =>
-    upsertPatch.mock.calls.map(([row]) => row).find((row) => row.path === ACCESS_LOG_PATH);
+  const accessLogOf = (appendLog: ReturnType<typeof makeDeps>['appendLog']) =>
+    appendLog.mock.calls.map(([row]) => row).find((row) => row.path === ACCESS_LOG_PATH);
 
   it('shows what an address holds and its latest transfers, as `wallet` prints them', async () => {
     const { deps, findBalance, findTransfers } = makeDeps({ ...onChainit, ...fundedLedger });
@@ -2226,15 +2187,15 @@ describe('chainit.io answers a lookup from the ledger', () => {
   });
 
   it('records every lookup in its own log, address and all, traced to the visitor', async () => {
-    const { deps, upsertPatch } = makeDeps({ ...onChainit, ...fundedLedger });
+    const { deps, appendLog } = makeDeps({ ...onChainit, ...fundedLedger });
 
     await handleResolveHttpFetch(lookUp(OURS), deps);
 
-    const logged = accessLogOf(upsertPatch);
+    const logged = accessLogOf(appendLog);
     expect(logged?.machine_id).toBe(CHAINIT_ID);
-    expect(logged?.content).toContain(`${BOB_PUBLIC_IP} `);
-    expect(logged?.content).toContain(`/address?a=${OURS}`);
-    expect(logged?.content).toContain(' 200 ');
+    expect(logged?.text).toContain(`${BOB_PUBLIC_IP} `);
+    expect(logged?.text).toContain(`/address?a=${OURS}`);
+    expect(logged?.text).toContain(' 200 ');
   });
 
   it('serves its own front page, from its own disk', async () => {
@@ -2295,13 +2256,13 @@ describe('chainit.io answers a lookup from the ledger', () => {
     ['the balance', { findBalance: async () => ({ data: null, error: new Error('down') }) }],
     ['the history', { findTransfers: async () => ({ data: null, error: new Error('down') }) }],
   ])('fails the lookup, and records nothing, when %s cannot be read', async (_case, broken) => {
-    const { deps, upsertPatch } = makeDeps({ ...onChainit, ...fundedLedger, ...broken });
+    const { deps, appendLog } = makeDeps({ ...onChainit, ...fundedLedger, ...broken });
 
     const response = await handleResolveHttpFetch(lookUp(OURS), deps);
 
     // Never `0 JSC`: an address the ledger could not read is not an address that holds nothing.
     expect(response).toEqual({ status: 500, body: { error: 'ledger_lookup_failed' } });
-    expect(accessLogOf(upsertPatch)).toBeUndefined();
+    expect(accessLogOf(appendLog)).toBeUndefined();
   });
 
   it('takes no form at /address, as no server but emailit takes one', async () => {
@@ -2397,8 +2358,8 @@ describe('chainit.io lists the whole chain from the ledger', () => {
     });
   const contentOf = (response: { body: Record<string, unknown> }): string =>
     typeof response.body.content === 'string' ? response.body.content : '';
-  const accessLogOf = (upsertPatch: ReturnType<typeof makeDeps>['upsertPatch']) =>
-    upsertPatch.mock.calls.map(([row]) => row).find((row) => row.path === ACCESS_LOG_PATH);
+  const accessLogOf = (appendLog: ReturnType<typeof makeDeps>['appendLog']) =>
+    appendLog.mock.calls.map(([row]) => row).find((row) => row.path === ACCESS_LOG_PATH);
   const linked = (address: string): string => `<a href="/address?a=${address}">${address}</a>`;
 
   it('shows the latest 20 transfers on the chain, newest first, both ends on each', async () => {
@@ -2441,15 +2402,15 @@ describe('chainit.io lists the whole chain from the ledger', () => {
   it.each(['/recent', '/rich', '/recent?page=2'])(
     'records a look at %s in its own log, as asked, traced to the visitor',
     async (path) => {
-      const { deps, upsertPatch } = makeDeps({ ...onChainit, ...busyLedger });
+      const { deps, appendLog } = makeDeps({ ...onChainit, ...busyLedger });
 
       await handleResolveHttpFetch(fetchPath(path), deps);
 
-      const logged = accessLogOf(upsertPatch);
+      const logged = accessLogOf(appendLog);
       expect(logged?.machine_id).toBe(CHAINIT_ID);
-      expect(logged?.content).toContain(`${BOB_PUBLIC_IP} `);
-      expect(logged?.content).toContain(` ${path} `);
-      expect(logged?.content).toContain(' 200 ');
+      expect(logged?.text).toContain(`${BOB_PUBLIC_IP} `);
+      expect(logged?.text).toContain(` ${path} `);
+      expect(logged?.text).toContain(' 200 ');
     },
   );
 
@@ -2543,13 +2504,13 @@ describe('chainit.io lists the whole chain from the ledger', () => {
       },
     ],
   ])('fails %s, and records nothing, when the ledger %s', async (path, _case, broken) => {
-    const { deps, upsertPatch } = makeDeps({ ...onChainit, ...busyLedger, ...broken });
+    const { deps, appendLog } = makeDeps({ ...onChainit, ...busyLedger, ...broken });
 
     const response = await handleResolveHttpFetch(fetchPath(path), deps);
 
     // Never a short list: a list with a hole in it would read as a chain without the row.
     expect(response).toEqual({ status: 500, body: { error: 'ledger_lookup_failed' } });
-    expect(accessLogOf(upsertPatch)).toBeUndefined();
+    expect(accessLogOf(appendLog)).toBeUndefined();
   });
 
   it.each(['/recent', '/rich'])('takes no form at %s', async (path) => {
@@ -2654,11 +2615,11 @@ describe('talkit.io answers the forum from its table', () => {
     });
   const contentOf = (response: { body: Record<string, unknown> }): string =>
     typeof response.body.content === 'string' ? response.body.content : '';
-  const accessLogOf = (upsertPatch: ReturnType<typeof makeDeps>['upsertPatch']) =>
-    upsertPatch.mock.calls.map(([row]) => row).find((row) => row.path === ACCESS_LOG_PATH);
+  const accessLogOf = (appendLog: ReturnType<typeof makeDeps>['appendLog']) =>
+    appendLog.mock.calls.map(([row]) => row).find((row) => row.path === ACCESS_LOG_PATH);
   /** talkit's access log, a line at a time: a line's last field is the size served. */
-  const loggedLines = (upsertPatch: ReturnType<typeof makeDeps>['upsertPatch']) =>
-    (accessLogOf(upsertPatch)?.content ?? '').split('\n');
+  const loggedLines = (appendLog: ReturnType<typeof makeDeps>['appendLog']) =>
+    (accessLogOf(appendLog)?.text ?? '').split('\n');
   const threadLinks = (page: string): readonly string[] =>
     [...page.matchAll(/href="\/thread\?id=(\d+)"/g)].map((match) => match[1] ?? '');
   const pagingLinks = (page: string): readonly string[] =>
@@ -2740,14 +2701,14 @@ describe('talkit.io answers the forum from its table', () => {
   it.each(['0', 'x', '-1', '', '01', '1.5', '1000000'])(
     'answers page "%s" with no such page, and reads nothing',
     async (asked) => {
-      const { deps, findThreads, upsertPatch } = makeDeps({ ...onTalkit, ...forumOf(45) });
+      const { deps, findThreads, appendLog } = makeDeps({ ...onTalkit, ...forumOf(45) });
 
       const response = await handleResolveHttpFetch(fetchPath(`/threads?page=${asked}`), deps);
 
       expect(response.status).toBe(200);
       expect(contentOf(response)).toContain('<p>No such page.</p>');
       expect(findThreads).not.toHaveBeenCalled();
-      expect(accessLogOf(upsertPatch)?.content).toContain('HTTP/1.1" 200 ');
+      expect(accessLogOf(appendLog)?.text).toContain('HTTP/1.1" 200 ');
     },
   );
 
@@ -2814,7 +2775,7 @@ describe('talkit.io answers the forum from its table', () => {
   });
 
   it('answers a thread nobody started as a page that is not there', async () => {
-    const { deps, findThread, findComments, upsertPatch } = makeDeps({
+    const { deps, findThread, findComments, appendLog } = makeDeps({
       ...onTalkit,
       ...forumOf(1),
     });
@@ -2825,7 +2786,7 @@ describe('talkit.io answers the forum from its table', () => {
     expect(findThread).toHaveBeenCalledWith(999999);
     expect(findComments).not.toHaveBeenCalled();
     // A 404 is a served response, and the one a defender most needs to see.
-    expect(loggedLines(upsertPatch)).toContainEqual(
+    expect(loggedLines(appendLog)).toContainEqual(
       expect.stringMatching(/"GET \/thread\?id=999999 HTTP\/1\.1" 404 0$/),
     );
   });
@@ -2846,28 +2807,28 @@ describe('talkit.io answers the forum from its table', () => {
     '/thread?id=01',
     '/thread?id=1000000000000000',
   ])('answers %s as a page that is not there, and reads nothing', async (path) => {
-    const { deps, findThread, upsertPatch } = makeDeps({ ...onTalkit, ...forumOf(1) });
+    const { deps, findThread, appendLog } = makeDeps({ ...onTalkit, ...forumOf(1) });
 
     const response = await handleResolveHttpFetch(fetchPath(path), deps);
 
     expect(response).toEqual({ status: 404, body: { error: 'not_found' } });
     expect(findThread).not.toHaveBeenCalled();
     expect(
-      loggedLines(upsertPatch).some((line) => line.endsWith(`"GET ${path} HTTP/1.1" 404 0`)),
+      loggedLines(appendLog).some((line) => line.endsWith(`"GET ${path} HTTP/1.1" 404 0`)),
     ).toBe(true);
   });
 
   it.each(['/threads', '/threads?page=2', '/thread?id=1'])(
     'records a look at %s in its own log, as asked, traced to the visitor',
     async (path) => {
-      const { deps, upsertPatch } = makeDeps({ ...onTalkit, ...forumOf(45) });
+      const { deps, appendLog } = makeDeps({ ...onTalkit, ...forumOf(45) });
 
       await handleResolveHttpFetch(fetchPath(path), deps);
 
-      const logged = accessLogOf(upsertPatch);
+      const logged = accessLogOf(appendLog);
       expect(logged?.machine_id).toBe(TALKIT_ID);
-      expect(logged?.content).toContain(`${BOB_PUBLIC_IP} `);
-      expect(logged?.content).toContain(`"GET ${path} HTTP/1.1" 200 `);
+      expect(logged?.text).toContain(`${BOB_PUBLIC_IP} `);
+      expect(logged?.text).toContain(`"GET ${path} HTTP/1.1" 200 `);
     },
   );
 
@@ -2998,12 +2959,12 @@ describe('talkit.io answers the forum from its table', () => {
       { findComments: async () => ({ data: [commentRow(1, { body: null })], error: null }) },
     ],
   ])('fails %s, and records nothing, when the forum %s', async (path, _case, broken) => {
-    const { deps, upsertPatch } = makeDeps({ ...onTalkit, ...forumOf(1), ...broken });
+    const { deps, appendLog } = makeDeps({ ...onTalkit, ...forumOf(1), ...broken });
 
     const response = await handleResolveHttpFetch(fetchPath(path), deps);
 
     expect(response).toEqual({ status: 500, body: { error: 'forum_lookup_failed' } });
-    expect(accessLogOf(upsertPatch)).toBeUndefined();
+    expect(accessLogOf(appendLog)).toBeUndefined();
   });
 
   it.each(['/threads', '/thread?id=1'])('takes no form at %s yet', async (path) => {
@@ -3093,8 +3054,8 @@ describe('valleynews.io answers the paper from its table', () => {
     });
   const contentOf = (response: { body: Record<string, unknown> }): string =>
     typeof response.body.content === 'string' ? response.body.content : '';
-  const accessLogOf = (upsertPatch: ReturnType<typeof makeDeps>['upsertPatch']) =>
-    upsertPatch.mock.calls.map(([row]) => row).find((row) => row.path === ACCESS_LOG_PATH);
+  const accessLogOf = (appendLog: ReturnType<typeof makeDeps>['appendLog']) =>
+    appendLog.mock.calls.map(([row]) => row).find((row) => row.path === ACCESS_LOG_PATH);
 
   it.each([
     ['/valley', 'valley', '<h2>The valley</h2>'],
@@ -3138,39 +3099,39 @@ describe('valleynews.io answers the paper from its table', () => {
   });
 
   it('answers a story nobody posted as a page that is not there, and records it', async () => {
-    const { deps, upsertPatch } = makeDeps({ ...onValleynews, ...paper });
+    const { deps, appendLog } = makeDeps({ ...onValleynews, ...paper });
 
     const response = await handleResolveHttpFetch(fetchPath('/story?id=8'), deps);
 
     expect(response).toEqual({ status: 404, body: { error: 'not_found' } });
     // A 404 is a served response, and the one a defender most needs to see.
-    expect(accessLogOf(upsertPatch)?.content).toContain('"GET /story?id=8 HTTP/1.1" 404 0');
+    expect(accessLogOf(appendLog)?.text).toContain('"GET /story?id=8 HTTP/1.1" 404 0');
   });
 
   it.each(['/story', '/story?id=', '/story?id=abc', '/story?id=0', '/story?id=07'])(
     'answers %s as a page that is not there, and reads nothing',
     async (path) => {
-      const { deps, findStory, upsertPatch } = makeDeps({ ...onValleynews, ...paper });
+      const { deps, findStory, appendLog } = makeDeps({ ...onValleynews, ...paper });
 
       const response = await handleResolveHttpFetch(fetchPath(path), deps);
 
       expect(response).toEqual({ status: 404, body: { error: 'not_found' } });
       expect(findStory).not.toHaveBeenCalled();
-      expect(accessLogOf(upsertPatch)?.content).toContain(`"GET ${path} HTTP/1.1" 404 0`);
+      expect(accessLogOf(appendLog)?.text).toContain(`"GET ${path} HTTP/1.1" 404 0`);
     },
   );
 
   it.each(['/valley', '/dev?x=1', '/story?id=7'])(
     'records a look at %s in its own log, as asked, traced to the visitor',
     async (path) => {
-      const { deps, upsertPatch } = makeDeps({ ...onValleynews, ...paper });
+      const { deps, appendLog } = makeDeps({ ...onValleynews, ...paper });
 
       const response = await handleResolveHttpFetch(fetchPath(path), deps);
 
-      const logged = accessLogOf(upsertPatch);
+      const logged = accessLogOf(appendLog);
       expect(logged?.machine_id).toBe(NEWS_ID);
-      expect(logged?.content).toContain(`${BOB_PUBLIC_IP} `);
-      expect(logged?.content).toContain(`"GET ${path} HTTP/1.1" 200 ${contentOf(response).length}`);
+      expect(logged?.text).toContain(`${BOB_PUBLIC_IP} `);
+      expect(logged?.text).toContain(`"GET ${path} HTTP/1.1" 200 ${contentOf(response).length}`);
     },
   );
 
@@ -3273,12 +3234,12 @@ describe('valleynews.io answers the paper from its table', () => {
       { findStory: async () => ({ data: { ...STORY, section: 'sports' }, error: null }) },
     ],
   ])('fails %s, and records nothing, when the paper %s', async (path, _case, broken) => {
-    const { deps, upsertPatch } = makeDeps({ ...onValleynews, ...paper, ...broken });
+    const { deps, appendLog } = makeDeps({ ...onValleynews, ...paper, ...broken });
 
     const response = await handleResolveHttpFetch(fetchPath(path), deps);
 
     expect(response).toEqual({ status: 500, body: { error: 'news_lookup_failed' } });
-    expect(accessLogOf(upsertPatch)).toBeUndefined();
+    expect(accessLogOf(appendLog)).toBeUndefined();
   });
 
   it.each(['/valley', '/story?id=7'])('takes no form at %s', async (path) => {
@@ -3349,8 +3310,8 @@ describe('talkit.io takes a new thread', () => {
     });
   const contentOf = (response: { body: Record<string, unknown> }): string =>
     typeof response.body.content === 'string' ? response.body.content : '';
-  const writtenTo = (upsertPatch: ReturnType<typeof makeDeps>['upsertPatch'], path: string) =>
-    upsertPatch.mock.calls.map(([row]) => row).filter((row) => row.path === path);
+  const writtenTo = (appendLog: ReturnType<typeof makeDeps>['appendLog'], path: string) =>
+    appendLog.mock.calls.map(([row]) => row).filter((row) => row.path === path);
 
   it('posts the thread as the login the form carries, by the player who sent it', async () => {
     const { deps, postThread } = makeDeps(onTalkit);
@@ -3370,89 +3331,59 @@ describe('talkit.io takes a new thread', () => {
   });
 
   it('records the POST in its access log by its path, with no trace of the form or the login', async () => {
-    const { deps, upsertPatch } = makeDeps(onTalkit);
+    const { deps, appendLog } = makeDeps(onTalkit);
 
     const response = await handleResolveHttpFetch(postTo('/post'), deps);
 
-    expect(writtenTo(upsertPatch, ACCESS_LOG_PATH).map((row) => row.content)).toEqual([
+    expect(writtenTo(appendLog, ACCESS_LOG_PATH).map((row) => row.text)).toEqual([
       `${BOB_PUBLIC_IP} - - [30/Jul/2026:13:55:36 +0000] "POST /post HTTP/1.1" 200 ${contentOf(response).length}\n`,
     ]);
-    expect(JSON.stringify(upsertPatch.mock.calls)).not.toContain('s3cret');
-    expect(JSON.stringify(upsertPatch.mock.calls)).not.toContain('blinks');
+    expect(JSON.stringify(appendLog.mock.calls)).not.toContain('s3cret');
+    expect(JSON.stringify(appendLog.mock.calls)).not.toContain('blinks');
   });
 
   it('writes who posted the thread, and from where, to talkit.log', async () => {
-    const { deps, upsertPatch } = makeDeps(onTalkit);
+    const { deps, appendLog } = makeDeps(onTalkit);
 
     await handleResolveHttpFetch(postTo('/post'), deps);
 
-    expect(writtenTo(upsertPatch, '/var/log/talkit.log')).toEqual([
+    expect(writtenTo(appendLog, '/var/log/talkit.log')).toEqual([
       expect.objectContaining({
         machine_id: TALKIT_ID,
-        content: `2026-07-30 13:55:36 post #12 by neo from ${BOB_PUBLIC_IP}\n`,
+        text: `2026-07-30 13:55:36 post #12 by neo from ${BOB_PUBLIC_IP}\n`,
         owner: 'root',
         permissions: { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] },
       }),
     ]);
   });
 
-  it('adds the line under the ones talkit.log already holds', async () => {
-    const earlier = `2026-07-30 13:50:00 post #11 by trin from 203.0.113.9\n`;
-    const { deps, upsertPatch } = makeDeps({
-      ...onTalkit,
-      readLog: async ({ path }) => ({
-        data:
-          path === '/var/log/talkit.log'
-            ? [
-                {
-                  writer_key: 'a'.repeat(64),
-                  path,
-                  content: earlier,
-                  owner: 'root',
-                  permissions: { read: ['root'], write: ['root'], execute: [] },
-                  node_type: 'file',
-                  updated_at: '2026-07-30T13:50:00Z',
-                },
-              ]
-            : null,
-        error: null,
-      }),
-    });
-
-    await handleResolveHttpFetch(postTo('/post'), deps);
-
-    expect(writtenTo(upsertPatch, '/var/log/talkit.log').map((row) => row.content)).toEqual([
-      `${earlier}2026-07-30 13:55:36 post #12 by neo from ${BOB_PUBLIC_IP}\n`,
-    ]);
-  });
-
   it('spells out anything in the handle that could pass for another column of the line', async () => {
-    const { deps, upsertPatch } = makeDeps(onTalkit);
+    const { deps, appendLog } = makeDeps(onTalkit);
 
     await handleResolveHttpFetch(
       postTo('/post', { login: { handle: 'neo from 1.2.3.4', password: 'x' } }),
       deps,
     );
 
-    expect(writtenTo(upsertPatch, '/var/log/talkit.log').map((row) => row.content)).toEqual([
+    expect(writtenTo(appendLog, '/var/log/talkit.log').map((row) => row.text)).toEqual([
       `2026-07-30 13:55:36 post #12 by neo\\x20from\\x201.2.3.4 from ${BOB_PUBLIC_IP}\n`,
     ]);
   });
 
   it('answers a post with no login plainly, and records only the POST', async () => {
-    const { deps, postThread, upsertPatch } = makeDeps(onTalkit);
+    const { deps, postThread, appendLog } = makeDeps(onTalkit);
 
     const response = await handleResolveHttpFetch(postTo('/post', { login: undefined }), deps);
 
     expect(response.status).toBe(200);
     expect(contentOf(response)).toContain('Not logged in to emailit.io.');
     expect(postThread).not.toHaveBeenCalled();
-    expect(writtenTo(upsertPatch, ACCESS_LOG_PATH)).toHaveLength(1);
-    expect(writtenTo(upsertPatch, '/var/log/talkit.log')).toEqual([]);
+    expect(writtenTo(appendLog, ACCESS_LOG_PATH)).toHaveLength(1);
+    expect(writtenTo(appendLog, '/var/log/talkit.log')).toEqual([]);
   });
 
   it('writes nothing to talkit.log for a post the store refused', async () => {
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       ...onTalkit,
       postThread: async () => ({ data: { outcome: 'capped' }, error: null }),
     });
@@ -3460,13 +3391,13 @@ describe('talkit.io takes a new thread', () => {
     const response = await handleResolveHttpFetch(postTo('/post'), deps);
 
     expect(contentOf(response)).toContain('You have posted 20 times in the last hour.');
-    expect(writtenTo(upsertPatch, '/var/log/talkit.log')).toEqual([]);
+    expect(writtenTo(appendLog, '/var/log/talkit.log')).toEqual([]);
   });
 
   it('keeps a post that went up, though its line could not be written', async () => {
     const { deps } = makeDeps({
       ...onTalkit,
-      upsertPatch: async (row) => {
+      appendLog: async (row) => {
         if (row.path === '/var/log/talkit.log') throw new Error('journal unavailable');
         return { error: null };
       },
@@ -3479,7 +3410,7 @@ describe('talkit.io takes a new thread', () => {
   });
 
   it('is a server error, and records nothing, when the store cannot be asked', async () => {
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       ...onTalkit,
       postThread: async () => ({ data: null, error: { message: 'connection refused' } }),
     });
@@ -3488,7 +3419,7 @@ describe('talkit.io takes a new thread', () => {
       status: 500,
       body: { error: 'post_failed' },
     });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('takes a form at /post however its query string reads', async () => {
@@ -3577,8 +3508,8 @@ describe('talkit.io takes a comment', () => {
     });
   const contentOf = (response: { body: Record<string, unknown> }): string =>
     typeof response.body.content === 'string' ? response.body.content : '';
-  const writtenTo = (upsertPatch: ReturnType<typeof makeDeps>['upsertPatch'], path: string) =>
-    upsertPatch.mock.calls.map(([row]) => row).filter((row) => row.path === path);
+  const writtenTo = (appendLog: ReturnType<typeof makeDeps>['appendLog'], path: string) =>
+    appendLog.mock.calls.map(([row]) => row).filter((row) => row.path === path);
 
   it('posts the comment on the thread as the login the form carries, by the player who sent it', async () => {
     const { deps, postComment, postThread } = makeDeps(onTalkit);
@@ -3599,26 +3530,26 @@ describe('talkit.io takes a comment', () => {
   });
 
   it('records the POST in its access log by its path, with no trace of the form or the login', async () => {
-    const { deps, upsertPatch } = makeDeps(onTalkit);
+    const { deps, appendLog } = makeDeps(onTalkit);
 
     const response = await handleResolveHttpFetch(commentTo('/comment'), deps);
 
-    expect(writtenTo(upsertPatch, ACCESS_LOG_PATH).map((row) => row.content)).toEqual([
+    expect(writtenTo(appendLog, ACCESS_LOG_PATH).map((row) => row.text)).toEqual([
       `${BOB_PUBLIC_IP} - - [30/Jul/2026:13:55:36 +0000] "POST /comment HTTP/1.1" 200 ${contentOf(response).length}\n`,
     ]);
-    expect(JSON.stringify(upsertPatch.mock.calls)).not.toContain('s3cret');
-    expect(JSON.stringify(upsertPatch.mock.calls)).not.toContain('blinks');
+    expect(JSON.stringify(appendLog.mock.calls)).not.toContain('s3cret');
+    expect(JSON.stringify(appendLog.mock.calls)).not.toContain('blinks');
   });
 
   it('writes who commented on which thread, and from where, to talkit.log', async () => {
-    const { deps, upsertPatch } = makeDeps(onTalkit);
+    const { deps, appendLog } = makeDeps(onTalkit);
 
     await handleResolveHttpFetch(commentTo('/comment'), deps);
 
-    expect(writtenTo(upsertPatch, '/var/log/talkit.log')).toEqual([
+    expect(writtenTo(appendLog, '/var/log/talkit.log')).toEqual([
       expect.objectContaining({
         machine_id: TALKIT_ID,
-        content: `2026-07-30 13:55:36 comment #3 on #12 by neo from ${BOB_PUBLIC_IP}\n`,
+        text: `2026-07-30 13:55:36 comment #3 on #12 by neo from ${BOB_PUBLIC_IP}\n`,
         owner: 'root',
         permissions: { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] },
       }),
@@ -3626,32 +3557,32 @@ describe('talkit.io takes a comment', () => {
   });
 
   it('spells out anything in the handle that could pass for another column of the line', async () => {
-    const { deps, upsertPatch } = makeDeps(onTalkit);
+    const { deps, appendLog } = makeDeps(onTalkit);
 
     await handleResolveHttpFetch(
       commentTo('/comment', { login: { handle: 'neo on #1 by x', password: 'x' } }),
       deps,
     );
 
-    expect(writtenTo(upsertPatch, '/var/log/talkit.log').map((row) => row.content)).toEqual([
+    expect(writtenTo(appendLog, '/var/log/talkit.log').map((row) => row.text)).toEqual([
       `2026-07-30 13:55:36 comment #3 on #12 by neo\\x20on\\x20\\x231\\x20by\\x20x from ${BOB_PUBLIC_IP}\n`,
     ]);
   });
 
   it('answers a comment with no login plainly, and records only the POST', async () => {
-    const { deps, postComment, upsertPatch } = makeDeps(onTalkit);
+    const { deps, postComment, appendLog } = makeDeps(onTalkit);
 
     const response = await handleResolveHttpFetch(commentTo('/comment', { login: undefined }), deps);
 
     expect(response.status).toBe(200);
     expect(contentOf(response)).toContain('Not logged in to emailit.io.');
     expect(postComment).not.toHaveBeenCalled();
-    expect(writtenTo(upsertPatch, ACCESS_LOG_PATH)).toHaveLength(1);
-    expect(writtenTo(upsertPatch, '/var/log/talkit.log')).toEqual([]);
+    expect(writtenTo(appendLog, ACCESS_LOG_PATH)).toHaveLength(1);
+    expect(writtenTo(appendLog, '/var/log/talkit.log')).toEqual([]);
   });
 
   it('writes nothing to talkit.log for a comment the store refused', async () => {
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       ...onTalkit,
       postComment: async () => ({ data: { outcome: 'no_thread' }, error: null }),
     });
@@ -3659,14 +3590,14 @@ describe('talkit.io takes a comment', () => {
     const response = await handleResolveHttpFetch(commentTo('/comment'), deps);
 
     expect(contentOf(response)).toContain('No such thread.');
-    expect(writtenTo(upsertPatch, ACCESS_LOG_PATH)).toHaveLength(1);
-    expect(writtenTo(upsertPatch, '/var/log/talkit.log')).toEqual([]);
+    expect(writtenTo(appendLog, ACCESS_LOG_PATH)).toHaveLength(1);
+    expect(writtenTo(appendLog, '/var/log/talkit.log')).toEqual([]);
   });
 
   it('keeps a comment that went up, though its line could not be written', async () => {
     const { deps } = makeDeps({
       ...onTalkit,
-      upsertPatch: async (row) => {
+      appendLog: async (row) => {
         if (row.path === '/var/log/talkit.log') throw new Error('journal unavailable');
         return { error: null };
       },
@@ -3679,7 +3610,7 @@ describe('talkit.io takes a comment', () => {
   });
 
   it('is a server error, and records nothing, when the store cannot be asked', async () => {
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       ...onTalkit,
       postComment: async () => ({ data: null, error: { message: 'connection refused' } }),
     });
@@ -3688,7 +3619,7 @@ describe('talkit.io takes a comment', () => {
       status: 500,
       body: { error: 'comment_failed' },
     });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('takes a form at /comment however its query string reads', async () => {
@@ -3777,15 +3708,15 @@ describe('hackademy.io serves its pages to anybody who asks', () => {
   });
 
   it('records the visit in its own access log', async () => {
-    const { deps, upsertPatch } = makeDeps(onHackademy);
+    const { deps, appendLog } = makeDeps(onHackademy);
 
     await handleResolveHttpFetch(fetchPath('/getting-around.html'), deps);
 
-    const logged = upsertPatch.mock.calls
+    const logged = appendLog.mock.calls
       .map(([row]) => row)
       .find((row) => row.path === ACCESS_LOG_PATH);
     expect(logged?.machine_id).toBe(HACKADEMY_ID);
-    expect(logged?.content).toContain('GET /getting-around.html');
+    expect(logged?.text).toContain('GET /getting-around.html');
   });
 });
 
@@ -3892,11 +3823,11 @@ describe("findit finds a player's page, and leaves no trace doing it", () => {
   });
 
   it('writes nothing on the box it listed, and only the search on its own', async () => {
-    const { deps, upsertPatch } = makeDeps(adaPublishing(webServerUp(), publishedPage(ADA_PAGE)));
+    const { deps, appendLog } = makeDeps(adaPublishing(webServerUp(), publishedPage(ADA_PAGE)));
 
     await handleResolveHttpFetch(search('gardening'), deps);
 
-    const written = upsertPatch.mock.calls.map(([row]) => row.machine_id);
+    const written = appendLog.mock.calls.map(([row]) => row.machine_id);
     expect(written).toEqual([FINDIT_GATEWAY_ID]);
   });
 });

@@ -211,7 +211,7 @@ const flashRouter = async (
     const provenance = await boxTraceProvenance(deps, target);
     if (provenance.writerKey !== null) {
       await appendMachineLog(
-        { readLog: deps.readLog, upsertPatch: deps.upsertPatch },
+        { appendLog: deps.appendLog },
         {
           writerKey: provenance.writerKey,
           machineId: target.machineId,

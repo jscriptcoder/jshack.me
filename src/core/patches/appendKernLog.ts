@@ -4,15 +4,15 @@
  * `/var/log/kern.log` with a timestamp the SERVER stamps from its own UTC clock.
  *
  * The client sends only the crash EVENT (command + library it faulted in, plus
- * the display hostname) — never a time. The server reads the current log content,
- * formats the segfault line via the shared `core/logging/kernLog` formatter using
- * `deps.now()` (UTC), appends, and upserts. Same single-source-of-truth-for-time
+ * the display hostname) — never a time. The server formats the segfault line via the
+ * shared `core/logging/kernLog` formatter using `deps.now()` (UTC) and appends it. Same
+ * single-source-of-truth-for-time
  * posture as `handleAppendAuthLog`: a crafted request cannot dictate the clock.
  *
  * Flow mirrors `handleAppendAuthLog`: verify the signed envelope → confirm the
  * target is the caller's OWN workstation → server-stamp writer_key from the
- * VERIFIED pubkey → read-modify-write the kern.log row (keyed on the owner's own
- * `(machine_id, KERN_LOG_PATH, writer_key)` in the shared journal). The payload
+ * VERIFIED pubkey → append to the log as a reader sees it, as the owner's own row in
+ * the shared journal, answering 500 when the append fails. The payload
  * schema rejects a client-supplied player_key/writer_key outright; any client
  * `time`/`pid` field is simply never read.
  */
@@ -30,22 +30,14 @@ import {
 } from '../logging/kernLog.js';
 import { derivePid } from '../logging/syslog.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
-import type { PatchRow } from './upsertPatch.js';
-import {
-  logAsReadersSeeIt,
-  type MachineLogReadQuery,
-  type MachineLogReadResult,
-} from './appendMachineLog.js';
+import type { AppendLog } from './appendMachineLog.js';
 
 export type AppendKernLogDeps = {
   readonly nonceStore: NonceStore;
   /** The server's wall clock, epoch-ms (UTC). Injected so the handler is pure
    *  and deterministic under test. */
   readonly now: () => number;
-  /** Every writer's copy of the log on the caller's machine — an intruder with root
-   *  may have wiped it, and the owner's next line must not bring the wiped lines back. */
-  readonly readKernLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
-  readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
+  readonly appendLog: AppendLog;
 };
 
 export type HandlerResponse = {
@@ -82,12 +74,6 @@ export const handleAppendKernLog = async (
     return { status: 403, body: { error: 'no_session' } };
   }
 
-  const existing = await deps.readKernLog({ machine_id: payload.machine_id, path: KERN_LOG_PATH });
-  if (existing.error) {
-    return { status: 500, body: { error: 'read_failed' } };
-  }
-  const current = logAsReadersSeeIt(existing.data);
-
   const stamp = deps.now();
   const line = formatSegfaultLine({
     command: payload.command,
@@ -97,17 +83,16 @@ export const handleAppendKernLog = async (
     pid: derivePid(stamp),
   });
 
-  const { error } = await deps.upsertPatch({
-    writer_key: publicKey,
+  const { error } = await deps.appendLog({
     machine_id: payload.machine_id,
     path: KERN_LOG_PATH,
-    content: `${current}${line}\n`,
+    writer_key: publicKey,
     owner: KERN_LOG_OWNER,
     permissions: KERN_LOG_PERMISSIONS,
-    node_type: 'file',
+    text: `${line}\n`,
   });
   if (error) {
-    return { status: 500, body: { error: 'upsert_failed' } };
+    return { status: 500, body: { error: 'append_failed' } };
   }
 
   return { status: 200, body: { ok: true } };

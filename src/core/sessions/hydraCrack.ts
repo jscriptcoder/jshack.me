@@ -49,12 +49,8 @@ import { resolveCallerVantageOn, type CallerVantageDeps } from './callerVantage.
 import { WORDLIST_PATH } from '../wordlist/defaultWordlist.js';
 import { serviceByName } from '../services/serviceCatalog.js';
 import { sweepAccounts, wordlistOn } from '../wordlist/passwordSweep.js';
-import {
-  appendMachineLogLines,
-  type MachineLogReadQuery,
-  type MachineLogReadResult,
-} from '../patches/appendMachineLog.js';
-import type { ListPathPatchesResult, PatchRow } from '../patches/upsertPatch.js';
+import { appendMachineLogLines, type AppendLog } from '../patches/appendMachineLog.js';
+import type { ListPathPatchesResult } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 export type HydraCrackDeps = ServiceHostLookup &
@@ -71,11 +67,7 @@ export type HydraCrackDeps = ServiceHostLookup &
       readonly machine_id: string;
       readonly path: string;
     }) => Promise<ListPathPatchesResult>;
-    /** The TARGET's current service log — the read half of the appended trace, so a
-     *  sweep adds to the box's history instead of replacing it. */
-    readonly readAuthLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
-    /** Write a patch (here: the whole sweep, appended to the target's log). */
-    readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
+    readonly appendLog: AppendLog;
   };
 
 export type { HandlerResponse };
@@ -194,7 +186,7 @@ export const handleHydraCrack = async (
   if (trace.length > 0) {
     try {
       await appendMachineLogLines(
-        { readLog: deps.readAuthLog, upsertPatch: deps.upsertPatch },
+        { appendLog: deps.appendLog },
         {
           // The box's own writer key, resolved by the reach: the TARGET owner's on a
           // player's box, the network's own stable key on a box nobody owns — the same

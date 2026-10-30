@@ -120,7 +120,12 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
     make the world feel alive and give missions a channel. The third built on the shipped
     wallet and is done (2026-10-16), the forum is done (2026-10-20), and news remains.
 
-- **Two system log lines landing together can lose one.** `appendMachineLog`
+- **RESOLVED 2026-10-30 (v0.437.1) — two system log lines landing together could lose one.**
+  System lines now land through the `append_machine_log` database function, which locks the log's
+  path and appends in one transaction, and the journal stamps `updated_at` with
+  `clock_timestamp()`. `scripts/testLogAppend.ts` lands 20 parallel looks in one `access.log`
+  (12 to 16 landed before), and `scripts/testTalkit.ts` fetches in parallel again. The original
+  note: `appendMachineLog`
   (`patches/appendMachineLog.ts`) reads the log as a reader sees it, appends the line and writes
   the file back, so two appends to one log at the same moment can each build on the same read,
   and the second write drops the first one's line. Found in the talkit epic (2026-10-19), when
@@ -136,6 +141,20 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   built on; the slice has to change that stamp (`clock_timestamp()`) for every write. And every
   handler's
   `readLog`/`upsertPatch` deps (about 30 files and their test fakes) move onto it.
+
+- **Three log writes still read then write, accepted.** The lock covers system lines only, so
+  each of these can still race a system line on the same file and drop one of the two:
+  - **A player's own write to a log.** Root's `> auth.log` or `rm` goes through the ordinary
+    write path. A wipe landing between an append's read and its write loses to the append, and
+    the wiped lines come back; the root wipes again. Moving `handleUpsertPatch` onto a locked
+    function would rewrite the path every command writes through.
+  - **The client's own-box daemon logs.** `mysqlOwnBox`, `redisOwnBox` and `snmpOwnBox` write
+    the player's own `mysql.log`, `redis.log` and snmpd log through the ordinary write path, so a
+    visitor's line on the same file can be dropped. They are the player's own writes; moving them
+    onto the lock needs a signed own-box append endpoint and a client change.
+  - **The guardian's `auth.log` lines.** `scripts/guardian.ts` appends its `passwd` lines from
+    the journal it already read. A round racing a live login is rare, and the line lost is the
+    operator's own.
 
 - **`resolveOccupantSweep.test.ts`'s bad-signature test fails in some full runs, and never
   alone.** "rejects an envelope whose signature does not verify" failed in 3 of 6 full runs on
@@ -1211,7 +1230,9 @@ decision, not a gap.
     right, not a transfer-slice detail. Do NOT approximate it with stepped 25/50/75% lines —
     that appends where the real tool overwrites, and reads *less* like scp, not more.
 
-- **`api/patches.ts` holds four hand-copied `readLog` closures.** Every log appender needs the
+- **RESOLVED 2026-10-30 (v0.437.1) — `api/patches.ts` held four hand-copied `readLog`
+  closures.** They went with the reads: every appender now takes the one `appendLog` dep. The
+  original note: Every log appender needs the
   same "one writer's row at one path on one machine" read, and each `if (action === …)` block
   declares its own. A fifth was NOT added for `recordFtpDownload` — it uses a shared
   `readMachineLog` beside `upsertPatch`/`findActiveSession` — but the other four are still

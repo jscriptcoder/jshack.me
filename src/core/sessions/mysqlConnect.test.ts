@@ -31,12 +31,10 @@ import {
 } from '../logging/mysqlLog.js';
 import { derivePid } from '../logging/syslog.js';
 import { asAbsPath, asGameTime } from '../types.js';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
+import type { AppendLog } from '../patches/appendMachineLog.js';
 import type { Directory } from '../filesystem/types.js';
 import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
-import type { PatchRow } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
-import { logRead } from '../../test/factories/logRows.js';
 import { ALL_GENERATED_PASSWORDS } from '../../test/passwords.js';
 
 /**
@@ -168,18 +166,14 @@ const makeDeps = (over: Partial<MysqlConnectDeps> = {}) => {
     data: [],
     error: null,
   }));
-  const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async () => ({
+  const appendLog = vi.fn<AppendLog>(async () => ({
     error: null,
   }));
-  const readMysqlLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(
-    async () => ({ data: null, error: null }),
-  );
   const deps: MysqlConnectDeps = {
     nonceStore: freshStore,
     now: () => FIXED_NOW,
     findPatches,
-    readMysqlLog,
-    upsertPatch,
+    appendLog,
     // No access point bears an address by default: these tests are the caller's OWN
     // world, and a public address nobody registered reaches nothing.
     findNetworkByPublicIp: async () => ({ data: null, error: null }),
@@ -194,7 +188,7 @@ const makeDeps = (over: Partial<MysqlConnectDeps> = {}) => {
     ...homeVantage(ESSID),
     ...over,
   };
-  return { deps, findPatches, readMysqlLog, upsertPatch };
+  return { deps, findPatches, appendLog };
 };
 
 const signedConnect = (
@@ -502,21 +496,20 @@ describe('handleMysqlConnect', () => {
     const host = mysqlHostOn(ESSID);
     const { machineId } = resolveLanHostIdentity(host, ESSID);
     const { username, password } = knownDatabaseCredential(host);
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     await handleMysqlConnect(
       await signedConnect(identity, { target_ip: host.ip, username, password }),
       deps,
     );
 
-    expect(upsertPatch).toHaveBeenCalledWith({
+    expect(appendLog).toHaveBeenCalledWith({
       writer_key: apGatewayLogWriterKey(ESSID),
       machine_id: machineId,
       path: MYSQL_LOG_PATH,
-      content: `${logLine('success', username, host, databaseOn(host).name)}\n`,
+      text: `${logLine('success', username, host, databaseOn(host).name)}\n`,
       owner: MYSQL_LOG_OWNER,
       permissions: MYSQL_LOG_PERMISSIONS,
-      node_type: 'file',
     });
   });
 
@@ -535,14 +528,14 @@ describe('handleMysqlConnect', () => {
     const host = mysqlHostOn(ESSID);
     const { machineId } = resolveLanHostIdentity(host, ESSID);
     const { username, password } = knownDatabaseCredential(host);
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     await handleMysqlConnect(
       await signedConnect(identity, { target_ip: host.ip, username, password }),
       deps,
     );
 
-    expect(upsertPatch).toHaveBeenCalledWith(
+    expect(appendLog).toHaveBeenCalledWith(
       expect.objectContaining({
         machine_id: machineId,
         path: MYSQL_LOG_PATH,
@@ -554,7 +547,7 @@ describe('handleMysqlConnect', () => {
   it('records a refused connection, which has no database to name', async () => {
     const identity = generateIdentity();
     const host = mysqlHostOn(ESSID);
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     await handleMysqlConnect(
       await signedConnect(identity, {
@@ -568,37 +561,17 @@ describe('handleMysqlConnect', () => {
     // A client that never authenticated was never told which database it would have
     // reached — and a wall of these followed by one accepted line is the defender's
     // most useful signal.
-    expect(upsertPatch).toHaveBeenCalledWith(
+    expect(appendLog).toHaveBeenCalledWith(
       expect.objectContaining({
         path: MYSQL_LOG_PATH,
-        content: `${logLine('failure', 'nobody-by-that-name', host)}\n`,
-      }),
-    );
-  });
-
-  it('appends to the log the box already has rather than replacing it', async () => {
-    const identity = generateIdentity();
-    const host = mysqlHostOn(ESSID);
-    const { username, password } = knownDatabaseCredential(host);
-    const { deps, upsertPatch } = makeDeps({
-      readMysqlLog: async () => logRead('an earlier visit\n'),
-    });
-
-    await handleMysqlConnect(
-      await signedConnect(identity, { target_ip: host.ip, username, password }),
-      deps,
-    );
-
-    expect(upsertPatch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        content: `an earlier visit\n${logLine('success', username, host, databaseOn(host).name)}\n`,
+        text: `${logLine('failure', 'nobody-by-that-name', host)}\n`,
       }),
     );
   });
 
   it('refuses an address that is no host on this LAN, writing nothing', async () => {
     const identity = generateIdentity();
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     const response = await handleMysqlConnect(
       await signedConnect(identity, {
@@ -612,13 +585,13 @@ describe('handleMysqlConnect', () => {
     expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
     // There is no machine, so there is nothing to log on — and a log that grew would
     // make a nonexistent box probeable through its own trace.
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('refuses a host running no database, writing nothing', async () => {
     const identity = generateIdentity();
     const host = databaselessHostOn(ESSID);
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     const response = await handleMysqlConnect(
       await signedConnect(identity, {
@@ -630,14 +603,14 @@ describe('handleMysqlConnect', () => {
     );
 
     expect(response).toEqual({ status: 404, body: { error: 'service_not_running' } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('refuses a bricked host, exactly as every other door does', async () => {
     const identity = generateIdentity();
     const host = mysqlHostOn(ESSID);
     const { username, password } = knownDatabaseCredential(host);
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       findPatches: async () => ({ data: [patchRow('/boot/vmlinuz', null)], error: null }),
     });
 
@@ -649,7 +622,7 @@ describe('handleMysqlConnect', () => {
     // A box with its kernel removed is dark to every tool. Its database daemon is
     // not running because nothing on it is.
     expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('reports a journal the store could not read as a failure, not as an empty box', async () => {
@@ -711,7 +684,7 @@ describe('handleMysqlConnect', () => {
 
     it("records the attempt on the defender's own box, under the defender's key", async () => {
       const identity = generateIdentity();
-      const { deps, upsertPatch } = crossPlayerDeps();
+      const { deps, appendLog } = crossPlayerDeps();
 
       await handleMysqlConnect(
         await signedConnect(identity, {
@@ -726,11 +699,11 @@ describe('handleMysqlConnect', () => {
 
       // The system owns its logs: every attacker's lines accrete into ONE row on the
       // defender's box rather than one row each, where the newest would erase the rest.
-      expect(upsertPatch).toHaveBeenCalledWith({
+      expect(appendLog).toHaveBeenCalledWith({
         writer_key: DEFENDER.publicKeyHex,
         machine_id: DEFENDER_WS,
         path: MYSQL_LOG_PATH,
-        content: `${formatMysqlAttemptLine({
+        text: `${formatMysqlAttemptLine({
           outcome: 'success',
           user: DEFENDER_DB_ACCOUNT.username,
           fromIp: ATTACKER_PUBLIC_IP,
@@ -741,13 +714,12 @@ describe('handleMysqlConnect', () => {
         })}\n`,
         owner: MYSQL_LOG_OWNER,
         permissions: MYSQL_LOG_PERMISSIONS,
-        node_type: 'file',
       });
     });
 
     it('writes the address the SERVER derived, never the one the client typed', async () => {
       const identity = generateIdentity();
-      const { deps, upsertPatch } = crossPlayerDeps();
+      const { deps, appendLog } = crossPlayerDeps();
 
       await handleMysqlConnect(
         await signedConnect(identity, {
@@ -761,14 +733,14 @@ describe('handleMysqlConnect', () => {
         deps,
       );
 
-      const [written] = upsertPatch.mock.calls[0] ?? [];
-      expect(written?.content).toContain(`@${ATTACKER_PUBLIC_IP}`);
-      expect(written?.content).not.toContain('10.0.0.1');
+      const [written] = appendLog.mock.calls[0] ?? [];
+      expect(written?.text).toContain(`@${ATTACKER_PUBLIC_IP}`);
+      expect(written?.text).not.toContain('10.0.0.1');
     });
 
     it('refuses a database its owner never forwarded, before any password check', async () => {
       const identity = generateIdentity();
-      const { deps, upsertPatch } = crossPlayerDeps({
+      const { deps, appendLog } = crossPlayerDeps({
         findPatches: journals({ [DEFENDER_WS]: [defenderMysqld, defenderDatadir] }),
       });
 
@@ -786,12 +758,12 @@ describe('handleMysqlConnect', () => {
       // The opt-in is the whole mechanism: a box behind NAT is dark until its owner
       // opens a door, and running a database is not the same as publishing one.
       expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
-      expect(upsertPatch).not.toHaveBeenCalled();
+      expect(appendLog).not.toHaveBeenCalled();
     });
 
     it('refuses once the defender has stopped the daemon, writing nothing', async () => {
       const identity = generateIdentity();
-      const { deps, upsertPatch } = crossPlayerDeps({
+      const { deps, appendLog } = crossPlayerDeps({
         findPatches: journals({
           [AP_GATEWAY_ID]: [publicForward()],
           [DEFENDER_WS]: [defenderDatadir],
@@ -819,12 +791,12 @@ describe('handleMysqlConnect', () => {
       // told them apart would be telling an outsider which services a box behind the
       // NAT has stopped. `ssh` answers the same way on the same address.
       expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
-      expect(upsertPatch).not.toHaveBeenCalled();
+      expect(appendLog).not.toHaveBeenCalled();
     });
 
     it('refuses once the defender has DENIED the port in their own filter, writing nothing', async () => {
       const identity = generateIdentity();
-      const { deps, upsertPatch } = crossPlayerDeps({
+      const { deps, appendLog } = crossPlayerDeps({
         findPatches: journals({
           [AP_GATEWAY_ID]: [publicForward()],
           [DEFENDER_WS]: [
@@ -856,7 +828,7 @@ describe('handleMysqlConnect', () => {
       // its own would tell an outsider that something IS there and is being defended,
       // which is the one thing a filter must not announce.
       expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
-      expect(upsertPatch).not.toHaveBeenCalled();
+      expect(appendLog).not.toHaveBeenCalled();
     });
 
     it('refuses a forward that reaches the box on a port no database holds', async () => {
@@ -996,7 +968,7 @@ describe('handleMysqlConnect', () => {
     it('records the attempt at the address NAT showed the box, not the one the client claimed', async () => {
       const identity = generateIdentity();
       const { username, password } = knownDatabaseCredentialIn(DEEP.database, DEEP.layer.host.hostname);
-      const { deps, upsertPatch } = makeDeps({
+      const { deps, appendLog } = makeDeps({
         ...homeVantage(DEEP.essid),
         findPatches: throughForward(),
       });
@@ -1016,10 +988,10 @@ describe('handleMysqlConnect', () => {
       // The route decides the address, not where the player stands. A deep box behind
       // NAT never sees a 192.168.x address, so echoing the client's claim would write
       // a line no daemon could have produced.
-      const [written] = upsertPatch.mock.calls[0] ?? [];
+      const [written] = appendLog.mock.calls[0] ?? [];
       expect(written?.machine_id).toBe(DEEP.machineId);
-      expect(written?.content).toContain(`@${DEEP.natIp}`);
-      expect(written?.content).not.toContain('192.168.1.50');
+      expect(written?.text).toContain(`@${DEEP.natIp}`);
+      expect(written?.text).not.toContain('192.168.1.50');
     });
 
     it('opens for an account added to the deep datadir by hand', async () => {
@@ -1080,7 +1052,7 @@ describe('handleMysqlConnect', () => {
 
     it("records the attempt on the defender's box at the address the LEASE says", async () => {
       const identity = generateIdentity();
-      const { deps, upsertPatch } = sameLanDeps(identity.publicKeyHex);
+      const { deps, appendLog } = sameLanDeps(identity.publicKeyHex);
 
       await handleMysqlConnect(
         await signedConnect(identity, {
@@ -1096,11 +1068,11 @@ describe('handleMysqlConnect', () => {
       // server issued the attacker, never the one the attacker's client typed. On this
       // vantage that is a LEASE rather than a NAT address: the box really did see the
       // attacker's own address, because there is nothing in between to rewrite it.
-      expect(upsertPatch).toHaveBeenCalledWith({
+      expect(appendLog).toHaveBeenCalledWith({
         writer_key: DEFENDER.publicKeyHex,
         machine_id: DEFENDER_WS,
         path: MYSQL_LOG_PATH,
-        content: `${formatMysqlAttemptLine({
+        text: `${formatMysqlAttemptLine({
           outcome: 'success',
           user: DEFENDER_DB_ACCOUNT.username,
           fromIp: ATTACKER_LAN_IP,
@@ -1111,7 +1083,6 @@ describe('handleMysqlConnect', () => {
         })}\n`,
         owner: MYSQL_LOG_OWNER,
         permissions: MYSQL_LOG_PERMISSIONS,
-        node_type: 'file',
       });
     });
 
@@ -1157,7 +1128,7 @@ describe('handleMysqlConnect', () => {
 
     it('reaches nothing on a WiFi the caller is not on', async () => {
       const identity = generateIdentity();
-      const { deps, upsertPatch } = sameLanDeps(identity.publicKeyHex, {
+      const { deps, appendLog } = sameLanDeps(identity.publicKeyHex, {
         occupants: [defenderOccupant],
       });
 
@@ -1173,7 +1144,7 @@ describe('handleMysqlConnect', () => {
       // The LAN boundary: you reach a box on a WiFi by being on that WiFi. A caller who
       // holds no occupancy row sees only the generated world, which has no host here.
       expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
-      expect(upsertPatch).not.toHaveBeenCalled();
+      expect(appendLog).not.toHaveBeenCalled();
     });
 
     it('loses the box when its owner leaves the WiFi, lease or no lease', async () => {
@@ -1399,7 +1370,7 @@ describe('handleMysqlConnect — from a hop', () => {
     // target records as the source.
     const hop = databaselessHostOn(ESSID);
     const hopMachineId = resolveLanHostIdentity(hop, ESSID).machineId;
-    const { deps, upsertPatch } = makeDeps(shellOn(ESSID));
+    const { deps, appendLog } = makeDeps(shellOn(ESSID));
 
     const response = await handleMysqlConnect(
       await signHop(identity, {
@@ -1413,7 +1384,7 @@ describe('handleMysqlConnect — from a hop', () => {
     );
 
     expect(response.status).toBe(200);
-    expect(upsertPatch.mock.calls[0]![0].content).toContain(`${username}@${hop.ip} `);
+    expect(appendLog.mock.calls[0]![0].text).toContain(`${username}@${hop.ip} `);
   });
 
   it('resolves localhost to the hop box itself, logged over loopback', async () => {
@@ -1421,7 +1392,7 @@ describe('handleMysqlConnect — from a hop', () => {
     const host = mysqlHostOn(ESSID);
     const { username, password } = knownDatabaseCredential(host);
     const hopMachineId = resolveLanHostIdentity(host, ESSID).machineId;
-    const { deps, upsertPatch } = makeDeps(shellOn(ESSID));
+    const { deps, appendLog } = makeDeps(shellOn(ESSID));
 
     const response = await handleMysqlConnect(
       await signHop(identity, {
@@ -1435,14 +1406,14 @@ describe('handleMysqlConnect — from a hop', () => {
     );
 
     expect(response.status).toBe(200);
-    expect(upsertPatch.mock.calls[0]![0].content).toContain(`${username}@127.0.0.1 `);
+    expect(appendLog.mock.calls[0]![0].text).toContain(`${username}@127.0.0.1 `);
   });
 
   it('refuses a login naming a network the caller is not standing on', async () => {
     const identity = generateIdentity();
     const host = mysqlHostOn(ESSID);
     const { username, password } = knownDatabaseCredential(host);
-    const { deps, upsertPatch } = makeDeps(shellOn('SOME-OTHER-WIFI'));
+    const { deps, appendLog } = makeDeps(shellOn('SOME-OTHER-WIFI'));
 
     const response = await handleMysqlConnect(
       await signHop(identity, {
@@ -1456,14 +1427,14 @@ describe('handleMysqlConnect — from a hop', () => {
     );
 
     expect(response).toEqual({ status: 403, body: { error: 'wrong_network' } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('refuses a login from a box the caller holds no shell on', async () => {
     const identity = generateIdentity();
     const host = mysqlHostOn(ESSID);
     const { username, password } = knownDatabaseCredential(host);
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       findActiveSession: async () => ({ data: null, error: null }),
       findHomeVantage: async () => ({ data: null, error: null }),
     });
@@ -1480,6 +1451,6 @@ describe('handleMysqlConnect — from a hop', () => {
     );
 
     expect(response).toEqual({ status: 403, body: { error: 'no_session' } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 });

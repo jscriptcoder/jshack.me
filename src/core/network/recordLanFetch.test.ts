@@ -14,10 +14,8 @@ import { createFsView } from '../filesystem/fsView.js';
 import { METHOD_NOT_ALLOWED_PAGE, resolveWebPath } from './http.js';
 import { ACCESS_LOG_PATH, formatAccessLogLine } from '../logging/accessLog.js';
 import { asGameTime } from '../types.js';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
-import type { PatchRow } from '../patches/upsertPatch.js';
+import type { AppendLog, MachineLogAppend } from '../patches/appendMachineLog.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
-import { logRead } from '../../test/factories/logRows.js';
 
 /**
  * `handleRecordLanFetch` is the server-side action behind an own-LAN `curl`: it
@@ -42,11 +40,7 @@ type PatchesResult = { data: readonly OwnerPatchRow[] | null; error: unknown };
 type LeasesResult = { data: readonly LanLeaseRow[] | null; error: unknown };
 
 const makeDeps = (over: Partial<RecordLanFetchDeps> = {}) => {
-  const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async () => ({
-    error: null,
-  }));
-  const readLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(async () => ({
-    data: null,
+  const appendLog = vi.fn<AppendLog>(async () => ({
     error: null,
   }));
   // Default: nobody is a registered occupant and nobody holds a lease — the NPC path
@@ -66,8 +60,7 @@ const makeDeps = (over: Partial<RecordLanFetchDeps> = {}) => {
   const deps: RecordLanFetchDeps = {
     nonceStore: freshStore,
     now: () => FIXED_NOW,
-    readLog,
-    upsertPatch,
+    appendLog,
     listOccupantsByEssid,
     listLeasesByEssid,
     findPatches,
@@ -79,7 +72,7 @@ const makeDeps = (over: Partial<RecordLanFetchDeps> = {}) => {
     findWorkstationLease: async () => ({ data: null, error: null }),
     ...over,
   };
-  return { deps, upsertPatch, readLog, listOccupantsByEssid, listLeasesByEssid, findPatches };
+  return { deps, appendLog, listOccupantsByEssid, listLeasesByEssid, findPatches };
 };
 
 // The octet the caller holds at home, and the address a line it leaves records — the
@@ -214,16 +207,16 @@ const envelope = (
     ...over,
   });
 
-/** The one patch row the handler should have written, whatever else it did. */
-const writtenLog = (upsertPatch: ReturnType<typeof makeDeps>['upsertPatch']): PatchRow => {
-  const calls = upsertPatch.mock.calls.filter(([row]) => row.path === ACCESS_LOG_PATH);
+/** The one access.log append the handler asked for, whatever else it did. */
+const writtenLog = (appendLog: ReturnType<typeof makeDeps>['appendLog']): MachineLogAppend => {
+  const calls = appendLog.mock.calls.filter(([row]) => row.path === ACCESS_LOG_PATH);
   if (calls.length !== 1) throw new Error(`expected one access.log write, saw ${calls.length}`);
   return calls[0]![0];
 };
 
 describe('handleRecordLanFetch', () => {
   it('refuses a request whose envelope does not verify, and writes nothing', async () => {
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
     const host = servingHost();
 
     const result = await handleRecordLanFetch(
@@ -232,7 +225,7 @@ describe('handleRecordLanFetch', () => {
     );
 
     expect(result).toEqual({ status: 400, body: { error: 'envelope_invalid' } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('refuses a caller who names their own player key rather than proving it', async () => {
@@ -241,7 +234,7 @@ describe('handleRecordLanFetch', () => {
     // outright rather than quietly ignoring the field.
     const caller = generateIdentity();
     const host = servingHost();
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     const result = await handleRecordLanFetch(
       await envelope(
@@ -253,7 +246,7 @@ describe('handleRecordLanFetch', () => {
     );
 
     expect(result.status).not.toBe(200);
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('refuses a properly signed request that names no path', async () => {
@@ -265,7 +258,7 @@ describe('handleRecordLanFetch', () => {
     const host = servingHost();
 
     for (const missing of [{}, { paths: [] }]) {
-      const { deps, upsertPatch } = makeDeps();
+      const { deps, appendLog } = makeDeps();
 
       const result = await handleRecordLanFetch(
         await signRequest(caller, 'recordLanFetch', {
@@ -278,7 +271,7 @@ describe('handleRecordLanFetch', () => {
       );
 
       expect(result).toEqual({ status: 400, body: { error: 'payload_invalid' } });
-      expect(upsertPatch).not.toHaveBeenCalled();
+      expect(appendLog).not.toHaveBeenCalled();
     }
   });
 
@@ -288,7 +281,7 @@ describe('handleRecordLanFetch', () => {
     // line for one visit, or a line for a visit that never happened.
     const caller = generateIdentity();
     const host = servingHost();
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     const result = await handleRecordLanFetch(
       await envelope(caller, { target: host.ip, port: httpPortOf(host)!, paths: ['/'] }),
@@ -296,7 +289,7 @@ describe('handleRecordLanFetch', () => {
     );
 
     expect(result).toEqual({ status: 200, body: { ok: true } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('records a self-fetch on the caller own workstation, where they can read it at once', async () => {
@@ -306,7 +299,7 @@ describe('handleRecordLanFetch', () => {
     const occupant = ownOccupant(caller);
     const started = nginxUp(caller);
     const ownIp = lanAddressFor(ESSID, octet);
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       // A fellow occupant listed FIRST: the caller has to be picked out of the LAN's
       // occupancy by key, or a two-player network files the line on the wrong box.
       listOccupantsByEssid: async () => ({
@@ -338,10 +331,10 @@ describe('handleRecordLanFetch', () => {
 
     const own = materializeWorkstationFs(occupant, [started]);
     const page = createFsView(own, { userType: 'root' }).read(resolveWebPath('/')!);
-    const row = writtenLog(upsertPatch);
+    const row = writtenLog(appendLog);
     expect(row.machine_id).toBe(OWN_WS);
     expect(row.writer_key).toBe(caller.publicKeyHex);
-    expect(row.content).toBe(
+    expect(row.text).toBe(
       `${formatAccessLogLine({
         time: asGameTime(FIXED_NOW),
         sourceIp: ownIp,
@@ -354,17 +347,17 @@ describe('handleRecordLanFetch', () => {
 
   it('records a loopback fetch at home on the caller own workstation, as a local visit', async () => {
     const caller = generateIdentity();
-    const { deps, upsertPatch } = selfServingDeps(caller, SOURCE_OCTET);
+    const { deps, appendLog } = selfServingDeps(caller, SOURCE_OCTET);
 
     await handleRecordLanFetch(
       await envelope(caller, { target: '127.0.0.1', port: 80, paths: ['/'] }),
       deps,
     );
 
-    const row = writtenLog(upsertPatch);
+    const row = writtenLog(appendLog);
     expect(row.machine_id).toBe(OWN_WS);
     expect(row.writer_key).toBe(caller.publicKeyHex);
-    expect(row.content).toMatch(/^127\.0\.0\.1 - - \[/);
+    expect(row.text).toMatch(/^127\.0\.0\.1 - - \[/);
   });
 
   it('records a loopback fetch on the caller own workstation when they name it as where they stand', async () => {
@@ -372,7 +365,7 @@ describe('handleRecordLanFetch', () => {
     // A player's box is the one kind the network does not generate, so naming it finds
     // nothing to rebuild and the lease they hold is what places it.
     const ownId = computeWorkstationId('nebuchadnezzar', caller.publicKeyHex);
-    const { deps, upsertPatch } = selfServingDeps(caller, SOURCE_OCTET, {
+    const { deps, appendLog } = selfServingDeps(caller, SOURCE_OCTET, {
       listOccupantsByEssid: async () => ({
         data: [{ ...ownOccupant(caller), workstation_machine_id: ownId }],
         error: null,
@@ -388,10 +381,10 @@ describe('handleRecordLanFetch', () => {
       deps,
     );
 
-    const row = writtenLog(upsertPatch);
+    const row = writtenLog(appendLog);
     expect(row.machine_id).toBe(ownId);
     expect(row.writer_key).toBe(caller.publicKeyHex);
-    expect(row.content).toMatch(/^127\.0\.0\.1 - - \[/);
+    expect(row.text).toMatch(/^127\.0\.0\.1 - - \[/);
   });
 
   it('reads the caller own journal by machine id, not whatever the store hands back', async () => {
@@ -425,7 +418,7 @@ describe('handleRecordLanFetch', () => {
     // rather than one round-trip per word — a forty-word list would otherwise be forty
     // signed requests each re-reading and re-writing the whole log.
     const caller = generateIdentity();
-    const { deps, upsertPatch } = servingOwnDeps(caller);
+    const { deps, appendLog } = servingOwnDeps(caller);
 
     await handleRecordLanFetch(
       await envelope(caller, { target: OWN_IP, port: 80, paths: ['/admin', '/', '/backup'] }),
@@ -435,7 +428,7 @@ describe('handleRecordLanFetch', () => {
     const line = (path: string, status: number, size: number) =>
       formatAccessLogLine({ time: asGameTime(FIXED_NOW), sourceIp: OWN_IP, path, status, size });
     // `writtenLog` throws unless there was exactly ONE access.log write.
-    expect(writtenLog(upsertPatch).content).toBe(
+    expect(writtenLog(appendLog).text).toBe(
       [line('/admin', 404, 0), line('/', 200, OWN_PAGE.length), line('/backup', 404, 0), ''].join(
         '\n',
       ),
@@ -447,7 +440,7 @@ describe('handleRecordLanFetch', () => {
     // line would spread one arrival across a span the server never observed.
     const caller = generateIdentity();
     let readings = 0;
-    const { deps, upsertPatch } = servingOwnDeps(caller, {
+    const { deps, appendLog } = servingOwnDeps(caller, {
       now: () => FIXED_NOW + 60_000 * readings++,
     });
 
@@ -456,7 +449,7 @@ describe('handleRecordLanFetch', () => {
       deps,
     );
 
-    const stamps = (writtenLog(upsertPatch).content ?? '')
+    const stamps = (writtenLog(appendLog).text ?? '')
       .trimEnd()
       .split('\n')
       .map((line) => line.slice(line.indexOf('['), line.indexOf(']') + 1));
@@ -465,14 +458,14 @@ describe('handleRecordLanFetch', () => {
 
   it('records a miss as a 404 with an empty body — the line a directory sweep leaves', async () => {
     const caller = generateIdentity();
-    const { deps, upsertPatch } = servingOwnDeps(caller);
+    const { deps, appendLog } = servingOwnDeps(caller);
 
     await handleRecordLanFetch(
       await envelope(caller, { target: OWN_IP, port: 80, paths: ['/wp-admin/setup-config.php'] }),
       deps,
     );
 
-    expect(writtenLog(upsertPatch).content).toBe(
+    expect(writtenLog(appendLog).text).toBe(
       `${formatAccessLogLine({
         time: asGameTime(FIXED_NOW),
         sourceIp: OWN_IP,
@@ -487,21 +480,21 @@ describe('handleRecordLanFetch', () => {
     // The resolved path would say nothing happened. What the defender needs to see is
     // what the caller actually typed.
     const caller = generateIdentity();
-    const { deps, upsertPatch } = servingOwnDeps(caller);
+    const { deps, appendLog } = servingOwnDeps(caller);
 
     await handleRecordLanFetch(
       await envelope(caller, { target: OWN_IP, port: 80, paths: ['/../../etc/passwd'] }),
       deps,
     );
 
-    expect(writtenLog(upsertPatch).content).toContain('"GET /../../etc/passwd HTTP/1.1" 404 0');
+    expect(writtenLog(appendLog).text).toContain('"GET /../../etc/passwd HTTP/1.1" 404 0');
   });
 
   it('records a POST as the 405 the box answered it with, whatever the path holds', async () => {
     // No box on a LAN takes a form. The box still answered, with its 405 page, and the
     // line says what was tried: a page that exists is refused exactly as a miss is.
     const caller = generateIdentity();
-    const { deps, upsertPatch } = servingOwnDeps(caller);
+    const { deps, appendLog } = servingOwnDeps(caller);
 
     await handleRecordLanFetch(
       await envelope(
@@ -512,7 +505,7 @@ describe('handleRecordLanFetch', () => {
       deps,
     );
 
-    expect(writtenLog(upsertPatch).content).toBe(
+    expect(writtenLog(appendLog).text).toBe(
       ['/', '/nothing']
         .map(
           (path) =>
@@ -533,7 +526,7 @@ describe('handleRecordLanFetch', () => {
     // Reaching a listening daemon is not reaching a web server. The port matches
     // exactly; the SERVICE behind it is what refuses.
     const caller = generateIdentity();
-    const { deps, upsertPatch } = servingOwnDeps(caller, {}, [sshdUp(caller)]);
+    const { deps, appendLog } = servingOwnDeps(caller, {}, [sshdUp(caller)]);
 
     await handleRecordLanFetch(
       await envelope(caller, {
@@ -544,18 +537,18 @@ describe('handleRecordLanFetch', () => {
       deps,
     );
 
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('records the fetch on a box that runs ssh AND a web server', async () => {
     // The web service has to be picked OUT of the open-port list, not required to be
     // the only thing on it — most real boxes run more than one daemon.
     const caller = generateIdentity();
-    const { deps, upsertPatch } = servingOwnDeps(caller, {}, [sshdUp(caller), nginxUp(caller)]);
+    const { deps, appendLog } = servingOwnDeps(caller, {}, [sshdUp(caller), nginxUp(caller)]);
 
     await handleRecordLanFetch(await envelope(caller, { target: OWN_IP, port: 80, paths: ['/'] }), deps);
 
-    expect(writtenLog(upsertPatch).machine_id).toBe(OWN_WS);
+    expect(writtenLog(appendLog).machine_id).toBe(OWN_WS);
   });
 
   it('leaves no line when a read failed, even though it came back holding rows', async () => {
@@ -584,14 +577,14 @@ describe('handleRecordLanFetch', () => {
     ];
 
     for (const failing of failingReads) {
-      const { deps, upsertPatch } = selfServingDeps(caller, octet, failing);
+      const { deps, appendLog } = selfServingDeps(caller, octet, failing);
 
       await handleRecordLanFetch(
         await envelope(caller, { target: ownIp, port: 80, paths: ['/'] }),
         deps,
       );
 
-      expect(upsertPatch).not.toHaveBeenCalled();
+      expect(appendLog).not.toHaveBeenCalled();
     }
   });
 
@@ -606,7 +599,7 @@ describe('handleRecordLanFetch', () => {
       async () => ({ data: null, error: null }),
       async () => ({ data: [], error: null }),
     ]) {
-      const { deps, upsertPatch } = selfServingDeps(caller, octet, {
+      const { deps, appendLog } = selfServingDeps(caller, octet, {
         listOccupantsByEssid: empty,
       });
 
@@ -615,14 +608,14 @@ describe('handleRecordLanFetch', () => {
         deps,
       );
 
-      expect(upsertPatch).not.toHaveBeenCalled();
+      expect(appendLog).not.toHaveBeenCalled();
     }
   });
 
   it('leaves no line on the caller own box while their web server is not running', async () => {
     const caller = generateIdentity();
     const octet = freeOctet();
-    const { deps, upsertPatch } = selfServingDeps(caller, octet, {
+    const { deps, appendLog } = selfServingDeps(caller, octet, {
       // A fresh box: nothing has ever been started on it.
       findPatches: async () => ({ data: [], error: null }),
     });
@@ -632,7 +625,7 @@ describe('handleRecordLanFetch', () => {
       deps,
     );
 
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('leaves no line when the lease store holds nothing at all', async () => {
@@ -646,14 +639,14 @@ describe('handleRecordLanFetch', () => {
       async () => ({ data: null, error: null }),
       async () => ({ data: [], error: null }),
     ]) {
-      const { deps, upsertPatch } = selfServingDeps(caller, octet, { listLeasesByEssid: empty });
+      const { deps, appendLog } = selfServingDeps(caller, octet, { listLeasesByEssid: empty });
 
       await handleRecordLanFetch(
         await envelope(caller, { target: lanAddressFor(ESSID, octet), port: 80, paths: ['/'] }),
         deps,
       );
 
-      expect(upsertPatch).not.toHaveBeenCalled();
+      expect(appendLog).not.toHaveBeenCalled();
     }
   });
 
@@ -689,7 +682,7 @@ describe('handleRecordLanFetch', () => {
         writer_key: caller.publicKeyHex,
       },
     ];
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       listOccupantsByEssid: async () => ({ data: [occupant], error: null }),
       listLeasesByEssid: async () => ({
         data: [{ owner_key: caller.publicKeyHex, octet }],
@@ -703,12 +696,12 @@ describe('handleRecordLanFetch', () => {
       deps,
     );
 
-    expect(writtenLog(upsertPatch).content).toContain('"GET / HTTP/1.1" 200 17');
+    expect(writtenLog(appendLog).text).toContain('"GET / HTTP/1.1" 200 17');
   });
 
   it('leaves no line on a serving box asked for a port it is not listening on', async () => {
     const caller = generateIdentity();
-    const { deps, upsertPatch } = servingOwnDeps(caller);
+    const { deps, appendLog } = servingOwnDeps(caller);
 
     const result = await handleRecordLanFetch(
       await envelope(caller, { target: OWN_IP, port: 81, paths: ['/'] }),
@@ -717,12 +710,12 @@ describe('handleRecordLanFetch', () => {
 
     // Nothing answered, which is not a failure of the report: the caller is told it landed.
     expect(result).toEqual({ status: 200, body: { ok: true } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('leaves no line for an address no host on the LAN holds', async () => {
     const caller = generateIdentity();
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     const result = await handleRecordLanFetch(
       await envelope(caller, {
@@ -734,29 +727,7 @@ describe('handleRecordLanFetch', () => {
     );
 
     expect(result).toEqual({ status: 200, body: { ok: true } });
-    expect(upsertPatch).not.toHaveBeenCalled();
-  });
-
-  it('accretes: a second fetch appends below the first rather than replacing it', async () => {
-    const caller = generateIdentity();
-    const earlier = '10.0.0.9 - - [29/Jul/2026:11:00:00 +0000] "GET / HTTP/1.1" 200 12';
-    const { deps, upsertPatch } = servingOwnDeps(caller, {
-      readLog: async () => logRead(`${earlier}\n`),
-    });
-
-    await handleRecordLanFetch(
-      await envelope(caller, { target: OWN_IP, port: 80, paths: ['/'] }),
-      deps,
-    );
-
-    const added = formatAccessLogLine({
-      time: asGameTime(FIXED_NOW),
-      sourceIp: OWN_IP,
-      path: '/',
-      status: 200,
-      size: OWN_PAGE.length,
-    });
-    expect(writtenLog(upsertPatch).content).toBe(`${earlier}\n${added}\n`);
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('records a caller it cannot place at an address as `unknown` rather than blank', async () => {
@@ -764,7 +735,7 @@ describe('handleRecordLanFetch', () => {
     // line is still written — the visit happened — with the source left as `unknown`,
     // never blank.
     const caller = generateIdentity();
-    const { deps, upsertPatch } = servingOwnDeps(caller, {
+    const { deps, appendLog } = servingOwnDeps(caller, {
       findHomeVantage: async () => ({ data: { essid: ESSID, octet: null }, error: null }),
     });
 
@@ -773,12 +744,12 @@ describe('handleRecordLanFetch', () => {
       deps,
     );
 
-    expect(writtenLog(upsertPatch).content).toContain('unknown - - [');
+    expect(writtenLog(appendLog).text).toContain('unknown - - [');
   });
 
   it('ignores a client-supplied machine id: the server decides where the line lands', async () => {
     const caller = generateIdentity();
-    const { deps, upsertPatch } = servingOwnDeps(caller);
+    const { deps, appendLog } = servingOwnDeps(caller);
 
     await handleRecordLanFetch(
       await envelope(
@@ -789,12 +760,12 @@ describe('handleRecordLanFetch', () => {
       deps,
     );
 
-    expect(writtenLog(upsertPatch).machine_id).toBe(OWN_WS);
+    expect(writtenLog(appendLog).machine_id).toBe(OWN_WS);
   });
 
   it('ignores a client-supplied status and size: the server reads the page itself', async () => {
     const caller = generateIdentity();
-    const { deps, upsertPatch } = servingOwnDeps(caller);
+    const { deps, appendLog } = servingOwnDeps(caller);
 
     await handleRecordLanFetch(
       await envelope(
@@ -805,13 +776,13 @@ describe('handleRecordLanFetch', () => {
       deps,
     );
 
-    expect(writtenLog(upsertPatch).content).toContain(`"GET / HTTP/1.1" 200 ${OWN_PAGE.length}`);
+    expect(writtenLog(appendLog).text).toContain(`"GET / HTTP/1.1" 200 ${OWN_PAGE.length}`);
   });
 
   it('answers the caller even when the log write fails — recording is best-effort', async () => {
     const caller = generateIdentity();
     const { deps } = servingOwnDeps(caller, {
-      upsertPatch: async () => ({ error: new Error('write refused') }),
+      appendLog: async () => ({ error: new Error('write refused') }),
     });
 
     const result = await handleRecordLanFetch(
@@ -853,7 +824,7 @@ describe('handleRecordLanFetch — a caller standing on a hop', () => {
     const caller = generateIdentity();
     const host = servingHost();
     const port = httpPortOf(host)!;
-    const { deps, upsertPatch } = makeDeps(shellOn('SOME-OTHER-WIFI'));
+    const { deps, appendLog } = makeDeps(shellOn('SOME-OTHER-WIFI'));
 
     const result = await handleRecordLanFetch(
       hopEnvelope(caller, ESSID, { target: host.ip, port, paths: ['/'] }, 'a-box-on-another-net'),
@@ -861,14 +832,14 @@ describe('handleRecordLanFetch — a caller standing on a hop', () => {
     );
 
     expect(result).toEqual({ status: 403, body: { error: 'wrong_network' } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('refuses a caller who holds no shell on the box they name, and writes nothing', async () => {
     const caller = generateIdentity();
     const host = servingHost();
     const port = httpPortOf(host)!;
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       findActiveSession: async () => ({ data: null, error: null }),
       findHomeVantage: async () => ({ data: null, error: null }),
     });
@@ -879,7 +850,7 @@ describe('handleRecordLanFetch — a caller standing on a hop', () => {
     );
 
     expect(result).toEqual({ status: 403, body: { error: 'no_session' } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('leaves no line for a fetch in a shell on a box the network generates', async () => {
@@ -888,7 +859,7 @@ describe('handleRecordLanFetch — a caller standing on a hop', () => {
     const caller = generateIdentity();
     const host = servingHost();
     const hopMachineId = machineIdForLanHost(host, ESSID);
-    const { deps, upsertPatch } = makeDeps(shellOn(ESSID));
+    const { deps, appendLog } = makeDeps(shellOn(ESSID));
 
     for (const target of ['127.0.0.1', host.ip]) {
       await handleRecordLanFetch(
@@ -897,7 +868,7 @@ describe('handleRecordLanFetch — a caller standing on a hop', () => {
       );
     }
 
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
 });
@@ -977,14 +948,14 @@ describe('handleRecordLanFetch — a caller in a shell on another player’s wor
   ])('leaves no line for a fetch of that workstation by %s', async (_named, target) => {
     const owner = generateIdentity();
     const visitor = generateIdentity();
-    const { deps, upsertPatch } = shellOnOwnerBox(owner, [
+    const { deps, appendLog } = shellOnOwnerBox(owner, [
       resident(visitor, 'the-visitors-own-workstation', VISITOR_OCTET),
     ]);
 
     const result = await handleRecordLanFetch(await fromOwnerBox(visitor, target), deps);
 
     expect(result).toEqual({ status: 200, body: { ok: true } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('leaves no line on a third player’s workstation, which the shell does not stand on', async () => {
@@ -993,7 +964,7 @@ describe('handleRecordLanFetch — a caller in a shell on another player’s wor
     const owner = generateIdentity();
     const visitor = generateIdentity();
     const bystander = generateIdentity();
-    const { deps, upsertPatch } = shellOnOwnerBox(owner, [
+    const { deps, appendLog } = shellOnOwnerBox(owner, [
       resident(bystander, 'the-bystanders-workstation', BYSTANDER_OCTET),
     ]);
 
@@ -1003,7 +974,7 @@ describe('handleRecordLanFetch — a caller in a shell on another player’s wor
     );
 
     expect(result).toEqual({ status: 200, body: { ok: true } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 });
 

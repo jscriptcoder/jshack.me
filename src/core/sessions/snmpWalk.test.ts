@@ -18,8 +18,7 @@ import { lanAddressFor } from '../network/lanAddress.js';
 import { md5 } from '../generation/md5.js';
 import { asAbsPath, asGameTime } from '../types.js';
 import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
-import type { PatchRow } from '../patches/upsertPatch.js';
+import type { AppendLog } from '../patches/appendMachineLog.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /**
@@ -117,18 +116,14 @@ const patchRow = (path: string, content: string | null): OwnerPatchRow =>
 
 const makeDeps = (over: Partial<SnmpWalkDeps> = {}, homeEssid: string = CANDIDATE_ESSIDS[0]!) => {
   const findPatches = vi.fn<SnmpWalkDeps['findPatches']>(async () => ({ data: [], error: null }));
-  const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async () => ({
+  const appendLog = vi.fn<AppendLog>(async () => ({
     error: null,
   }));
-  const readSnmpdLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(
-    async () => ({ data: null, error: null }),
-  );
   const deps: SnmpWalkDeps = {
     nonceStore: freshStore,
     now: () => FIXED_NOW,
     findPatches,
-    readSnmpdLog,
-    upsertPatch,
+    appendLog,
     findPublicIpByEssid: async () => ({ data: { public_ip: PUBLIC_IP }, error: null }),
     findNetworkByPublicIp: async () => ({ data: null, error: null }),
     listOccupantsByEssid: async () => ({ data: [], error: null }),
@@ -139,7 +134,7 @@ const makeDeps = (over: Partial<SnmpWalkDeps> = {}, homeEssid: string = CANDIDAT
     ...homeOn(homeEssid),
     ...over,
   };
-  return { deps, findPatches, readSnmpdLog, upsertPatch };
+  return { deps, findPatches, appendLog };
 };
 
 const signedWalk = (
@@ -240,16 +235,16 @@ describe('walking a device with the community it answers to', () => {
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps, upsertPatch } = makeDeps({}, essid);
+    const { deps, appendLog } = makeDeps({}, essid);
 
     await handleSnmpWalk(await signedWalk(identity, { essid, target_ip: gateway.ip }), deps);
 
     // ONE append carrying both lines: they are one event to the box, and two appends
     // would be two read-modify-writes racing over the same file.
-    expect(upsertPatch).toHaveBeenCalledTimes(1);
-    expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
+    expect(appendLog).toHaveBeenCalledTimes(1);
+    expect(appendLog.mock.calls[0]![0]).toMatchObject({
       path: SNMPD_LOG_PATH,
-      content: loggedLines('success', gateway.hostname, homeSourceOn(essid)),
+      text: loggedLines('success', gateway.hostname, homeSourceOn(essid)),
     });
   });
 
@@ -261,7 +256,7 @@ describe('walking a device with the community it answers to', () => {
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps, upsertPatch } = makeDeps(homeOn(essid, null), essid);
+    const { deps, appendLog } = makeDeps(homeOn(essid, null), essid);
 
     await handleSnmpWalk(
       await signRequest(identity, 'snmpWalk', {
@@ -272,7 +267,7 @@ describe('walking a device with the community it answers to', () => {
       deps,
     );
 
-    expect(upsertPatch.mock.calls[0]![0].content).toContain('[unknown]');
+    expect(appendLog.mock.calls[0]![0].text).toContain('[unknown]');
   });
 });
 
@@ -396,12 +391,12 @@ describe('walking a device with its read-write community', () => {
 
   it('mints no session, because the tier that can write is still nobody logging in', async () => {
     // The hazard D6 found: `authorizeMachineAccess` never inspects session kind, so a
-    // row minted here would hand `listPatches` and `upsertPatch` to whoever reached
+    // row minted here would hand `listPatches` and `appendLog` to whoever reached
     // port 161 — at the tier that rewrites the NAT table.
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps, upsertPatch } = makeDeps(answering('corpnet'), essid);
+    const { deps, appendLog } = makeDeps(answering('corpnet'), essid);
 
     await handleSnmpWalk(
       await signedWalk(identity, { essid, target_ip: gateway.ip, community: 'corpnet' }),
@@ -409,8 +404,8 @@ describe('walking a device with its read-write community', () => {
     );
 
     // The log line is the only row a walk writes, at either tier.
-    expect(upsertPatch).toHaveBeenCalledTimes(1);
-    expect(upsertPatch.mock.calls[0]![0]).toMatchObject({ path: SNMPD_LOG_PATH });
+    expect(appendLog).toHaveBeenCalledTimes(1);
+    expect(appendLog.mock.calls[0]![0]).toMatchObject({ path: SNMPD_LOG_PATH });
   });
 });
 
@@ -441,7 +436,7 @@ describe('walking a device with a community it does not answer to', () => {
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps, upsertPatch } = makeDeps({}, essid);
+    const { deps, appendLog } = makeDeps({}, essid);
 
     await handleSnmpWalk(
       await signedWalk(identity, { essid, target_ip: gateway.ip, community: 'private' }),
@@ -450,8 +445,8 @@ describe('walking a device with a community it does not answer to', () => {
 
     // A refusal that left nothing behind would make a sweep free, and this log is the
     // only tell the owner of a device ever gets.
-    expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
-      content: loggedLines('failure', gateway.hostname, homeSourceOn(essid)),
+    expect(appendLog.mock.calls[0]![0]).toMatchObject({
+      text: loggedLines('failure', gateway.hostname, homeSourceOn(essid)),
     });
   });
 });
@@ -577,7 +572,7 @@ describe('walking a device whose agent is not running', () => {
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       findPatches: async () => ({
         data: [patchRow(pidfilePath(SERVICE_CATALOG.snmp), null)],
         error: null,
@@ -592,7 +587,7 @@ describe('walking a device whose agent is not running', () => {
     // `systemctl stop snmpd` is a real defence: the device stops answering, and a
     // stranger's guesses stop accreting on a log its owner has to read.
     expect(response.status).toBe(404);
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 });
 
@@ -658,7 +653,7 @@ describe('a device that filters the port its agent answers on', () => {
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps, upsertPatch } = makeDeps(
+    const { deps, appendLog } = makeDeps(
       answeringWith('corpnet', `deny ${SERVICE_CATALOG.snmp.defaultPort}\n`),
     essid);
 
@@ -667,7 +662,7 @@ describe('a device that filters the port its agent answers on', () => {
       deps,
     );
 
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('still answers on every port it did not close', async () => {
@@ -716,11 +711,11 @@ describe("whose row a gateway's own log accretes under", () => {
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps, upsertPatch } = makeDeps({}, essid);
+    const { deps, appendLog } = makeDeps({}, essid);
 
     await handleSnmpWalk(await signedWalk(identity, { essid, target_ip: gateway.ip }), deps);
 
-    expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
+    expect(appendLog.mock.calls[0]![0]).toMatchObject({
       path: SNMPD_LOG_PATH,
       writer_key: apGatewayLogWriterKey(essid),
     });
@@ -735,12 +730,12 @@ describe("whose row a gateway's own log accretes under", () => {
     // before is simply gone.
     const identity = generateIdentity();
     const { essid, host } = deviceOfKind('switch');
-    const { deps, upsertPatch } = makeDeps({}, essid);
+    const { deps, appendLog } = makeDeps({}, essid);
 
     await handleSnmpWalk(await signedWalk(identity, { essid, target_ip: host.ip }), deps);
 
     // The network's own key rather than the caller's.
-    expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
+    expect(appendLog.mock.calls[0]![0]).toMatchObject({
       path: SNMPD_LOG_PATH,
       writer_key: apGatewayLogWriterKey(essid),
     });
@@ -880,7 +875,7 @@ describe('walking from a hop', () => {
     // walked device records as the source.
     const hop = deviceOfKind('switch').essid === essid ? deviceOfKind('switch').host : gateway;
     const hopMachineId = resolveLanHostIdentity(hop, essid).machineId;
-    const { deps, upsertPatch } = makeDeps(
+    const { deps, appendLog } = makeDeps(
       { ...shellOn(essid), findHomeVantage: async () => ({ data: null, error: null }) },
       essid,
     );
@@ -890,14 +885,14 @@ describe('walking from a hop', () => {
       deps,
     );
 
-    expect(upsertPatch.mock.calls[0]![0].content).toContain(`[${hop.ip}]`);
+    expect(appendLog.mock.calls[0]![0].text).toContain(`[${hop.ip}]`);
   });
 
   it('refuses a walk naming a network the caller is not standing on', async () => {
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps, upsertPatch } = makeDeps(shellOn('SOME-OTHER-WIFI'), essid);
+    const { deps, appendLog } = makeDeps(shellOn('SOME-OTHER-WIFI'), essid);
 
     const response = await handleSnmpWalk(
       await signRequestHop(identity, essid, gateway.ip, 'a-box-on-another-net'),
@@ -905,14 +900,14 @@ describe('walking from a hop', () => {
     );
 
     expect(response).toEqual({ status: 403, body: { error: 'wrong_network' } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('refuses a walk from a box the caller holds no shell on', async () => {
     const identity = generateIdentity();
     const essid = CANDIDATE_ESSIDS[0]!;
     const gateway = apGatewayOn(essid);
-    const { deps, upsertPatch } = makeDeps(
+    const { deps, appendLog } = makeDeps(
       { findActiveSession: async () => ({ data: null, error: null }), findHomeVantage: async () => ({ data: null, error: null }) },
       essid,
     );
@@ -923,7 +918,7 @@ describe('walking from a hop', () => {
     );
 
     expect(response).toEqual({ status: 403, body: { error: 'no_session' } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 });
 

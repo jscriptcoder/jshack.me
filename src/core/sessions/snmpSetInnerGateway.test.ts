@@ -17,7 +17,7 @@ import { RULES_V4_PATH } from '../network/iptablesRules.js';
 import { asAbsPath } from '../types.js';
 import type { Directory } from '../filesystem/types.js';
 import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
+import type { AppendLog } from '../patches/appendMachineLog.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import { plaintextFor } from '../../test/passwords.js';
@@ -129,9 +129,7 @@ const makeDeps = (
   const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async () => ({
     error: null,
   }));
-  const readSnmpdLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(
-    async () => ({ data: null, error: null }),
-  );
+  const appendLog = vi.fn<AppendLog>(async () => ({ error: null }));
   const deps: SnmpSetDeps = {
     nonceStore: freshStore,
     now: () => FIXED_NOW,
@@ -139,8 +137,8 @@ const makeDeps = (
       data: [...(patchesByMachine[machine_id] ?? [])],
       error: null,
     }),
-    readSnmpdLog,
     upsertPatch,
+    appendLog,
     findNetworkByPublicIp: async () => ({ data: null, error: null }),
     listOccupantsByEssid: async () => ({ data: [], error: null }),
     listLeasesByEssid: async () => ({ data: [], error: null }),
@@ -153,7 +151,7 @@ const makeDeps = (
     findHomeVantage: async () => ({ data: { essid: homeEssid, octet: 50 }, error: null }),
     findWorkstationLease: async () => ({ data: null, error: null }),
   };
-  return { deps, upsertPatch };
+  return { deps, upsertPatch, appendLog };
 };
 
 const signedSet = (request: {

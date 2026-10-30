@@ -19,7 +19,7 @@ import {
 } from '../logging/authLog.js';
 import { derivePid } from '../logging/syslog.js';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
+import type { AppendLog } from '../patches/appendMachineLog.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import type { FindActiveSession, StandingSession } from '../patches/authorizeMachineAccess.js';
@@ -80,8 +80,8 @@ type Overrides = {
   findActiveSession?: FindActiveSession<StandingSession>;
   findPatches?: () => Promise<JournalResult>;
   now?: () => number;
-  readAuthLog?: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
   upsertPatch?: (row: PatchRow) => Promise<{ error: unknown }>;
+  appendLog?: AppendLog;
 };
 
 const makeDeps = (
@@ -90,12 +90,10 @@ const makeDeps = (
 ) => {
   const findOccupantWorkstationByMachineId =
     vi.fn<(machineId: string) => Promise<LookupResult>>(lookup);
-  const readAuthLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(
-    over.readAuthLog ?? (async () => ({ data: null, error: null })),
-  );
   const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(
     over.upsertPatch ?? (async () => ({ error: null })),
   );
+  const appendLog = vi.fn<AppendLog>(over.appendLog ?? (async () => ({ error: null })));
   const findActiveSession = vi.fn<FindActiveSession<StandingSession>>(
     over.findActiveSession ?? rootShell,
   );
@@ -108,10 +106,10 @@ const makeDeps = (
     findActiveSession,
     findPatches,
     now: over.now ?? (() => FIXED_NOW),
-    readAuthLog,
     upsertPatch,
+    appendLog,
   };
-  return { deps, findOccupantWorkstationByMachineId, readAuthLog, upsertPatch };
+  return { deps, findOccupantWorkstationByMachineId, upsertPatch, appendLog };
 };
 
 const envelope = (id: ReturnType<typeof generateIdentity>, fields: Record<string, unknown>) =>
@@ -134,7 +132,7 @@ const WS_PASSWD_NODE = createFsView(WS_TREE, { userType: 'root' }).stat(asAbsPat
 describe('handlePasswdChange', () => {
   it("rewrites an account's hash on another player's workstation under the caller's key", async () => {
     const attacker = generateIdentity();
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, upsertPatch, appendLog } = makeDeps();
 
     const result = await handlePasswdChange(
       envelope(attacker, { username: 'root', new_hash: NEW_HASH }),
@@ -154,22 +152,21 @@ describe('handlePasswdChange', () => {
       node_type: 'file',
     });
     // Then the trace, under the OWNER's key (the system owns its logs), never the attacker's.
-    expect(upsertPatch.mock.calls[1]![0]).toEqual({
+    expect(appendLog.mock.calls[0]![0]).toEqual({
       writer_key: OCCUPANT.owner_key,
       machine_id: MACHINE,
       path: AUTH_LOG_PATH,
-      content: `${expectedPasswdLine('root', OCCUPANT.workstation_machine_name)}\n`,
+      text: `${expectedPasswdLine('root', OCCUPANT.workstation_machine_name)}\n`,
       owner: AUTH_LOG_OWNER,
       permissions: AUTH_LOG_PERMISSIONS,
-      node_type: 'file',
     });
-    expect(upsertPatch.mock.calls[1]![0].writer_key).not.toBe(attacker.publicKeyHex);
+    expect(appendLog.mock.calls[0]![0].writer_key).not.toBe(attacker.publicKeyHex);
   });
 
   it('files a generated machine’s trace under the network’s key, in the box’s own name', async () => {
     // Every generated LAN host has a root account; that is the one we rewrite.
     const account = 'root';
-    const { deps, upsertPatch } = makeDeps(nobodysWorkstation);
+    const { deps, upsertPatch, appendLog } = makeDeps(nobodysWorkstation);
 
     const result = await handlePasswdChange(
       envelope(generateIdentity(), { machine_id: NPC_MACHINE, username: account, new_hash: NEW_HASH }),
@@ -178,15 +175,15 @@ describe('handlePasswdChange', () => {
 
     expect(result).toEqual({ status: 200, body: { ok: true } });
     expect(upsertPatch.mock.calls[0]![0]).toMatchObject({ machine_id: NPC_MACHINE, path: asAbsPath('/etc/passwd') });
-    expect(upsertPatch.mock.calls[1]![0]).toMatchObject({
+    expect(appendLog.mock.calls[0]![0]).toMatchObject({
       writer_key: apGatewayLogWriterKey(ESSID),
       path: AUTH_LOG_PATH,
-      content: `${expectedPasswdLine(account, NPC_HOST.hostname)}\n`,
+      text: `${expectedPasswdLine(account, NPC_HOST.hostname)}\n`,
     });
   });
 
   it('refuses a non-root shell (L2) without reading or writing the box', async () => {
-    const { deps, upsertPatch, findOccupantWorkstationByMachineId } = makeDeps(undefined, {
+    const { appendLog, deps, upsertPatch, findOccupantWorkstationByMachineId } = makeDeps(undefined, {
       findActiveSession: standingAs('neo', 'user'),
     });
 
@@ -199,10 +196,11 @@ describe('handlePasswdChange', () => {
     expect(findOccupantWorkstationByMachineId).not.toHaveBeenCalled();
     expect(deps.findPatches).not.toHaveBeenCalled();
     expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('refuses a caller who holds no session on the box', async () => {
-    const { deps, upsertPatch, findOccupantWorkstationByMachineId } = makeDeps(undefined, {
+    const { appendLog, deps, upsertPatch, findOccupantWorkstationByMachineId } = makeDeps(undefined, {
       findActiveSession: async () => ({ data: null, error: null }),
     });
 
@@ -214,10 +212,11 @@ describe('handlePasswdChange', () => {
     expect(result).toEqual({ status: 403, body: { error: 'no_session' } });
     expect(findOccupantWorkstationByMachineId).not.toHaveBeenCalled();
     expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('reports a server error when the session lookup fails', async () => {
-    const { deps, upsertPatch } = makeDeps(undefined, {
+    const { appendLog, deps, upsertPatch } = makeDeps(undefined, {
       findActiveSession: async () => ({ data: null, error: new Error('db down') }),
     });
 
@@ -228,10 +227,11 @@ describe('handlePasswdChange', () => {
 
     expect(result).toEqual({ status: 500, body: { error: 'session_lookup_failed' } });
     expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('reports host_unreachable when the box is on no network', async () => {
-    const { deps, upsertPatch } = makeDeps(nobodysWorkstation);
+    const { appendLog, deps, upsertPatch } = makeDeps(nobodysWorkstation);
 
     const result = await handlePasswdChange(
       envelope(generateIdentity(), { username: 'root', new_hash: NEW_HASH }),
@@ -240,10 +240,11 @@ describe('handlePasswdChange', () => {
 
     expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
     expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('reports user_not_found when the box has no such account, writing nothing', async () => {
-    const { deps, upsertPatch } = makeDeps();
+    const { appendLog, deps, upsertPatch } = makeDeps();
 
     const result = await handlePasswdChange(
       envelope(generateIdentity(), { username: 'ghost', new_hash: NEW_HASH }),
@@ -252,10 +253,11 @@ describe('handlePasswdChange', () => {
 
     expect(result).toEqual({ status: 404, body: { error: 'user_not_found' } });
     expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('reports a server error when the journal cannot be read', async () => {
-    const { deps, upsertPatch } = makeDeps(undefined, {
+    const { appendLog, deps, upsertPatch } = makeDeps(undefined, {
       findPatches: async () => ({ data: null, error: new Error('db down') }),
     });
 
@@ -266,12 +268,12 @@ describe('handlePasswdChange', () => {
 
     expect(result).toEqual({ status: 500, body: { error: 'patches_lookup_failed' } });
     expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('reports upsert_failed when the /etc/passwd write errors', async () => {
     const { deps } = makeDeps(undefined, {
-      upsertPatch: async (row) =>
-        row.path === AUTH_LOG_PATH ? { error: null } : { error: new Error('write boom') },
+      upsertPatch: async () => ({ error: new Error('write boom') }),
     });
 
     const result = await handlePasswdChange(
@@ -284,9 +286,8 @@ describe('handlePasswdChange', () => {
 
   it('still returns ok when the auth.log append throws (best-effort logging)', async () => {
     const { deps } = makeDeps(undefined, {
-      upsertPatch: async (row) => {
-        if (row.path === AUTH_LOG_PATH) throw new Error('log write blew up');
-        return { error: null };
+      appendLog: async () => {
+        throw new Error('log write blew up');
       },
     });
 
@@ -298,24 +299,8 @@ describe('handlePasswdChange', () => {
     expect(result).toEqual({ status: 200, body: { ok: true } });
   });
 
-  it('writes the row and still returns ok when the auth.log read fails (RMW bails)', async () => {
-    const { deps, upsertPatch } = makeDeps(undefined, {
-      readAuthLog: async () => ({ data: null, error: new Error('log read down') }),
-    });
-
-    const result = await handlePasswdChange(
-      envelope(generateIdentity(), { username: 'root', new_hash: NEW_HASH }),
-      deps,
-    );
-
-    expect(result).toEqual({ status: 200, body: { ok: true } });
-    // The passwd row landed; only the trace was dropped.
-    expect(upsertPatch).toHaveBeenCalledTimes(1);
-    expect(upsertPatch.mock.calls[0]![0]).toMatchObject({ path: asAbsPath('/etc/passwd') });
-  });
-
   it('rejects an envelope that smuggles a client-supplied player_key, writing nothing', async () => {
-    const { deps, upsertPatch, findOccupantWorkstationByMachineId } = makeDeps();
+    const { appendLog, deps, upsertPatch, findOccupantWorkstationByMachineId } = makeDeps();
 
     const result = await handlePasswdChange(
       envelope(generateIdentity(), { username: 'root', new_hash: NEW_HASH, player_key: 'attacker' }),
@@ -325,12 +310,13 @@ describe('handlePasswdChange', () => {
     expect(result.status).toBe(400);
     expect(findOccupantWorkstationByMachineId).not.toHaveBeenCalled();
     expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('rejects an envelope that smuggles a client-supplied writer_key, writing nothing', async () => {
     // writer_key is the row's provenance, which the server stamps from the verified
     // pubkey; a client-claimed one is forged provenance and rejected like player_key.
-    const { deps, upsertPatch, findOccupantWorkstationByMachineId } = makeDeps();
+    const { appendLog, deps, upsertPatch, findOccupantWorkstationByMachineId } = makeDeps();
 
     const result = await handlePasswdChange(
       envelope(generateIdentity(), { username: 'root', new_hash: NEW_HASH, writer_key: 'attacker' }),
@@ -340,11 +326,12 @@ describe('handlePasswdChange', () => {
     expect(result.status).toBe(400);
     expect(findOccupantWorkstationByMachineId).not.toHaveBeenCalled();
     expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('rejects a tampered envelope without writing', async () => {
     const attacker = generateIdentity();
-    const { deps, upsertPatch } = makeDeps();
+    const { appendLog, deps, upsertPatch } = makeDeps();
     const signed = envelope(attacker, { username: 'root', new_hash: NEW_HASH });
     const tampered = { ...signed, payload: `${signed.payload} ` };
 
@@ -352,5 +339,6 @@ describe('handlePasswdChange', () => {
 
     expect(result).toEqual({ status: 401, body: { error: 'signature_invalid' } });
     expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 });

@@ -46,13 +46,9 @@ import {
   type FindHomeNetworkByOwnerKey,
   type FindPublicIpByEssid,
 } from '../logging/crossPlayerSourceIp.js';
-import {
-  appendMachineLogLines,
-  type MachineLogReadQuery,
-  type MachineLogReadResult,
-} from '../patches/appendMachineLog.js';
+import { appendMachineLogLines, type AppendLog } from '../patches/appendMachineLog.js';
 import { asGameTime } from '../types.js';
-import type { ListPathPatchesResult, PatchRow } from '../patches/upsertPatch.js';
+import type { ListPathPatchesResult } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 export type ResolveHttpSweepDeps = WebTargetDeps & {
@@ -61,8 +57,7 @@ export type ResolveHttpSweepDeps = WebTargetDeps & {
    *  one request, and stamping per line would spread a sweep across a span nothing
    *  observed. */
   readonly now: () => number;
-  readonly readLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
-  readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
+  readonly appendLog: AppendLog;
   /** The attacker's own home public IP — the truthful origin of a sweep launched from
    *  their own workstation. */
   readonly findHomeNetworkByOwnerKey: FindHomeNetworkByOwnerKey;
@@ -97,7 +92,7 @@ const resolveHttpSweepSchema = z
  *  stranger. Nothing asked, nothing said. Shared with the sweep of a fellow occupant, so
  *  a box hears a run the same way wherever it came from. */
 export const recordSweep = async (
-  deps: Pick<ResolveHttpSweepDeps, 'now' | 'readLog' | 'upsertPatch'>,
+  deps: Pick<ResolveHttpSweepDeps, 'now' | 'appendLog'>,
   target: { readonly machineId: string; readonly logWriterKey: string },
   sourceIp: string,
   asked: readonly ProbedPath[],
@@ -111,7 +106,7 @@ export const recordSweep = async (
   );
   try {
     await appendMachineLogLines(
-      { readLog: deps.readLog, upsertPatch: deps.upsertPatch },
+      { appendLog: deps.appendLog },
       {
         // The log is the OWNER's, never the requester's — a stranger who could write
         // their own row would fork the file per visitor, and could then rewrite the

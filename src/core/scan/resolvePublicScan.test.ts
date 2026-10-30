@@ -23,8 +23,7 @@ import {
   PIDFILE_PERMISSIONS,
 } from '../services/pidfile.js';
 import type { OwnerPatchRow } from '../network/materializeWorkstationFs.js';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
-import type { PatchRow } from '../patches/upsertPatch.js';
+import type { AppendLog } from '../patches/appendMachineLog.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /**
@@ -155,8 +154,7 @@ type ScanOverrides = {
   patches?: (query: { machine_id: string }) => Promise<PatchesResult>;
   listOccupantsByEssid?: (essid: string) => Promise<OccupantsResult>;
   listLeasesByEssid?: (essid: string) => Promise<LeasesResult>;
-  readLog?: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
-  upsertPatch?: (row: PatchRow) => Promise<{ error: unknown }>;
+  appendLog?: AppendLog;
   findHomeNetworkByOwnerKey?: (ownerKey: string) => Promise<OwnerKeyResult>;
   findActiveSession?: ResolvePublicScanDeps['findActiveSession'];
   findPublicIpByEssid?: ResolvePublicScanDeps['findPublicIpByEssid'];
@@ -178,11 +176,8 @@ const makeDeps = (over: ScanOverrides = {}) => {
   const listLeasesByEssid = vi.fn<(essid: string) => Promise<LeasesResult>>(
     over.listLeasesByEssid ?? (async () => ({ data: BOTH_LEASES, error: null })),
   );
-  const readLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(
-    over.readLog ?? (async () => ({ data: null, error: null })),
-  );
-  const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(
-    over.upsertPatch ?? (async () => ({ error: null })),
+  const appendLog = vi.fn<AppendLog>(
+    over.appendLog ?? (async () => ({ error: null })),
   );
   const findHomeNetworkByOwnerKey = vi.fn<(ownerKey: string) => Promise<OwnerKeyResult>>(
     over.findHomeNetworkByOwnerKey ??
@@ -195,8 +190,7 @@ const makeDeps = (over: ScanOverrides = {}) => {
     listOccupantsByEssid,
     listLeasesByEssid,
     now: () => FIXED_NOW,
-    readLog,
-    upsertPatch,
+    appendLog,
     findHomeNetworkByOwnerKey,
     // Default: the scanner holds no shell anywhere.
     findActiveSession: over.findActiveSession ?? (async () => ({ data: null, error: null })),
@@ -210,8 +204,7 @@ const makeDeps = (over: ScanOverrides = {}) => {
     findPatches,
     listOccupantsByEssid,
     listLeasesByEssid,
-    readLog,
-    upsertPatch,
+    appendLog,
     findHomeNetworkByOwnerKey,
   };
 };
@@ -751,7 +744,7 @@ describe('handleResolvePublicScan', () => {
   describe('cross-player scan trace', () => {
     it('appends ONE kern.log line on the GATEWAY record for a host-up scan', async () => {
       const scanner = generateIdentity();
-      const { deps, upsertPatch } = makeDeps();
+      const { deps, appendLog } = makeDeps();
 
       const result = await handleResolvePublicScan(envelope(scanner, TARGET), deps);
 
@@ -760,23 +753,22 @@ describe('handleResolvePublicScan', () => {
         status: 200,
         body: { ok: true, found: true, ports: OWN_DOORS },
       });
-      expect(upsertPatch).toHaveBeenCalledTimes(1);
-      expect(upsertPatch.mock.calls[0]![0]).toEqual({
+      expect(appendLog).toHaveBeenCalledTimes(1);
+      expect(appendLog.mock.calls[0]![0]).toEqual({
         writer_key: apGatewayLogWriterKey(ESSID),
         machine_id: AP_GATEWAY_ID,
         path: '/var/log/kern.log',
-        content: `${expectedKernLine(SCANNER_PUBLIC_IP, [22, 161])}\n`,
+        text: `${expectedKernLine(SCANNER_PUBLIC_IP, [22, 161])}\n`,
         owner: KERN_LOG_OWNER,
         permissions: KERN_LOG_PERMISSIONS,
-        node_type: 'file',
       });
       // The provenance is never the scanner — the keystone.
-      expect(upsertPatch.mock.calls[0]![0].writer_key).not.toBe(scanner.publicKeyHex);
+      expect(appendLog.mock.calls[0]![0].writer_key).not.toBe(scanner.publicKeyHex);
     });
 
     it('lists every port the scanner actually saw, including live NAT forwards', async () => {
       const scanner = generateIdentity();
-      const { deps, upsertPatch } = makeDeps({
+      const { deps, appendLog } = makeDeps({
         patches: patchesByMachine({
           [AP_GATEWAY_ID]: [bothForwards],
           [ALICE_WS]: [sshdUp],
@@ -786,34 +778,34 @@ describe('handleResolvePublicScan', () => {
 
       await handleResolvePublicScan(envelope(scanner, TARGET), deps);
 
-      expect(upsertPatch.mock.calls[0]![0].content).toBe(
+      expect(appendLog.mock.calls[0]![0].text).toBe(
         `${expectedKernLine(SCANNER_PUBLIC_IP, [22, 161, 2222, 3333])}\n`,
       );
     });
 
     it("uses the scanner's OCCUPANT public IP as the source, ignoring a client-supplied source_ip", async () => {
       const scanner = generateIdentity();
-      const { deps, upsertPatch, findHomeNetworkByOwnerKey } = makeDeps();
+      const { deps, appendLog, findHomeNetworkByOwnerKey } = makeDeps();
 
       await handleResolvePublicScan(envelope(scanner, TARGET, { source_ip: '10.0.0.66' }), deps);
 
       // The lookup is keyed by the SCANNER's verified key, not any occupant.
       expect(findHomeNetworkByOwnerKey).toHaveBeenCalledWith(scanner.publicKeyHex);
-      const content = upsertPatch.mock.calls[0]![0].content;
+      const content = appendLog.mock.calls[0]![0].text;
       expect(content).toContain(`from ${SCANNER_PUBLIC_IP}`);
       expect(content).not.toContain('10.0.0.66');
     });
 
     it("falls back to 'unknown' source when the scanner has no home network, still logging and succeeding", async () => {
       const scanner = generateIdentity();
-      const { deps, upsertPatch } = makeDeps({
+      const { deps, appendLog } = makeDeps({
         findHomeNetworkByOwnerKey: async () => ({ data: null, error: null }),
       });
 
       const result = await handleResolvePublicScan(envelope(scanner, TARGET), deps);
 
       expect(result.body.found).toBe(true);
-      expect(upsertPatch.mock.calls[0]![0].content).toBe(`${expectedKernLine('unknown', [22, 161])}\n`);
+      expect(appendLog.mock.calls[0]![0].text).toBe(`${expectedKernLine('unknown', [22, 161])}\n`);
     });
 
     it("names the hop's network, not the scanner's home, when the scan runs from a shell", async () => {
@@ -821,7 +813,7 @@ describe('handleResolvePublicScan', () => {
       const findPublicIpByEssid = vi.fn<ResolvePublicScanDeps['findPublicIpByEssid']>(
         async () => ({ data: { public_ip: HOP_PUBLIC_IP }, error: null }),
       );
-      const { deps, upsertPatch } = makeDeps({
+      const { deps, appendLog } = makeDeps({
         findActiveSession: async () => ({
           data: { username: 'root', userType: 'root', essid: 'RIDGEMONT-OFFICE' },
           error: null,
@@ -835,14 +827,14 @@ describe('handleResolvePublicScan', () => {
       );
 
       expect(findPublicIpByEssid).toHaveBeenCalledWith('RIDGEMONT-OFFICE');
-      expect(upsertPatch.mock.calls[0]![0].content).toBe(
+      expect(appendLog.mock.calls[0]![0].text).toBe(
         `${expectedKernLine(HOP_PUBLIC_IP, [22, 161])}\n`,
       );
     });
 
     it('refuses a scan from a box the scanner holds no shell on, looking nothing up', async () => {
       const scanner = generateIdentity();
-      const { deps, findNetworkByPublicIp, upsertPatch } = makeDeps();
+      const { deps, findNetworkByPublicIp, appendLog } = makeDeps();
 
       const result = await handleResolvePublicScan(
         envelope(scanner, TARGET, { caller_machine_id: 'a-box-at-ridgemont' }),
@@ -851,12 +843,12 @@ describe('handleResolvePublicScan', () => {
 
       expect(result).toEqual({ status: 403, body: { error: 'no_session' } });
       expect(findNetworkByPublicIp).not.toHaveBeenCalled();
-      expect(upsertPatch).not.toHaveBeenCalled();
+      expect(appendLog).not.toHaveBeenCalled();
     });
 
     it("keeps the trace on an AP nobody has ever leased an address on, in the network's own row", async () => {
       const scanner = generateIdentity();
-      const { deps, upsertPatch } = makeDeps({
+      const { deps, appendLog } = makeDeps({
         listLeasesByEssid: async () => ({ data: [], error: null }),
       });
 
@@ -866,8 +858,8 @@ describe('handleResolvePublicScan', () => {
       // lands in the network's own row from the very first scan — and stays there as
       // players come and go, rather than splitting across rows that erase each other.
       expect(result.body).toMatchObject({ found: true, ports: OWN_DOORS });
-      expect(upsertPatch).toHaveBeenCalledTimes(1);
-      expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
+      expect(appendLog).toHaveBeenCalledTimes(1);
+      expect(appendLog.mock.calls[0]![0]).toMatchObject({
         writer_key: apGatewayLogWriterKey(ESSID),
         machine_id: AP_GATEWAY_ID,
         path: '/var/log/kern.log',
@@ -876,45 +868,30 @@ describe('handleResolvePublicScan', () => {
 
     it('writes nothing for an unregistered public IP (found:false)', async () => {
       const scanner = generateIdentity();
-      const { deps, upsertPatch } = makeDeps({ lookup: async () => ({ data: null, error: null }) });
+      const { deps, appendLog } = makeDeps({ lookup: async () => ({ data: null, error: null }) });
 
       const result = await handleResolvePublicScan(envelope(scanner, '203.0.113.99'), deps);
 
       expect(result.body.found).toBe(false);
-      expect(upsertPatch).not.toHaveBeenCalled();
+      expect(appendLog).not.toHaveBeenCalled();
     });
 
     it('writes nothing for a bricked gateway (found:false)', async () => {
       const scanner = generateIdentity();
-      const { deps, upsertPatch } = makeDeps({
+      const { deps, appendLog } = makeDeps({
         patches: async () => ({ data: [bootTombstone], error: null }),
       });
 
       const result = await handleResolvePublicScan(envelope(scanner, TARGET), deps);
 
       expect(result.body.found).toBe(false);
-      expect(upsertPatch).not.toHaveBeenCalled();
-    });
-
-    it('skips the write when the log read fails (RMW bails), and still returns the scan', async () => {
-      const scanner = generateIdentity();
-      const { deps, upsertPatch } = makeDeps({
-        readLog: async () => ({ data: null, error: new Error('log read down') }),
-      });
-
-      const result = await handleResolvePublicScan(envelope(scanner, TARGET), deps);
-
-      expect(result).toEqual({
-        status: 200,
-        body: { ok: true, found: true, ports: OWN_DOORS },
-      });
-      expect(upsertPatch).not.toHaveBeenCalled();
+      expect(appendLog).not.toHaveBeenCalled();
     });
 
     it('returns the scan even when the log write throws (best-effort logging)', async () => {
       const scanner = generateIdentity();
       const { deps } = makeDeps({
-        upsertPatch: async () => {
+        appendLog: async () => {
           throw new Error('write blew up');
         },
       });
@@ -971,7 +948,7 @@ describe('handleResolvePublicScan', () => {
 
     it("records what the scanner SAW in the defender's own kern.log, not what the box runs", async () => {
       const scanner = generateIdentity();
-      const { deps, upsertPatch } = makeDeps({
+      const { deps, appendLog } = makeDeps({
         patches: patchesByMachine({ [AP_GATEWAY_ID]: [denies(161)] }),
       });
 
@@ -981,7 +958,7 @@ describe('handleResolvePublicScan', () => {
       // the box's inventory. An owner who knows their agent is running and reads a sweep
       // that did not find it is being shown their filter holding — the one place the game
       // tells a defender their defence worked.
-      expect(upsertPatch.mock.calls[0]![0].content).toBe(
+      expect(appendLog.mock.calls[0]![0].text).toBe(
         `${expectedKernLine(SCANNER_PUBLIC_IP, [22])}\n`,
       );
     });

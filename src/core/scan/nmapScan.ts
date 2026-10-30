@@ -56,13 +56,8 @@ import {
   KERN_LOG_PATH,
   KERN_LOG_PERMISSIONS,
 } from '../logging/kernLog.js';
-import {
-  appendMachineLog,
-  type MachineLogReadQuery,
-  type MachineLogReadResult,
-} from '../patches/appendMachineLog.js';
+import { appendMachineLog, type AppendLog } from '../patches/appendMachineLog.js';
 import { asGameTime } from '../types.js';
-import type { PatchRow } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import { resolveCallerVantageOn, type CallerVantageDeps } from '../sessions/callerVantage.js';
 
@@ -83,11 +78,7 @@ export type NmapScanDeps = CallerVantageDeps & {
   readonly nonceStore: NonceStore;
   /** The server's wall clock, epoch-ms (UTC) — stamps the kern.log line. */
   readonly now: () => number;
-  /** Read the current content of a log file on this machine's shared journal,
-   *  keyed `(machine_id, path, writer_key)`. */
-  readonly readLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
-  /** Write a patch (here: the appended kern.log line on the scanned host). */
-  readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
+  readonly appendLog: AppendLog;
   /** Every occupant of the ESSID (auth fields included — server-internal): the trace
    *  reads it for each fellow occupant whose LAN IP the scan touches. */
   readonly listOccupantsByEssid: (
@@ -155,7 +146,7 @@ const logHostScan = async (
   });
   try {
     await appendMachineLog(
-      { readLog: deps.readLog, upsertPatch: deps.upsertPatch },
+      { appendLog: deps.appendLog },
       {
         writerKey: context.writerKey,
         machineId,
@@ -195,7 +186,7 @@ const traceOneOccupant = async (
   });
   try {
     await appendMachineLog(
-      { readLog: deps.readLog, upsertPatch: deps.upsertPatch },
+      { appendLog: deps.appendLog },
       {
         writerKey: occupant.owner_key,
         machineId: occupant.workstation_machine_id,
@@ -264,7 +255,7 @@ const logDeepHostScan = async (
   });
   try {
     await appendMachineLog(
-      { readLog: deps.readLog, upsertPatch: deps.upsertPatch },
+      { appendLog: deps.appendLog },
       {
         writerKey: context.writerKey,
         machineId: entry.machineId,

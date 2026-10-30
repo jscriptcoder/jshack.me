@@ -42,13 +42,8 @@ import {
   type FindHomeNetworkByOwnerKey,
   type FindPublicIpByEssid,
 } from '../logging/crossPlayerSourceIp.js';
-import {
-  appendMachineLogLines,
-  type MachineLogReadQuery,
-  type MachineLogReadResult,
-} from '../patches/appendMachineLog.js';
+import { appendMachineLogLines, type AppendLog } from '../patches/appendMachineLog.js';
 import { asGameTime } from '../types.js';
-import type { PatchRow } from '../patches/upsertPatch.js';
 import {
   DOOR_KINDS,
   reachDoor,
@@ -62,11 +57,7 @@ export type AuthCreateSessionPublicDeps = ResolvePublicTargetDeps & {
   readonly insertSession: (row: AuthSessionRow) => Promise<{ readonly error: unknown }>;
   /** The server's wall clock, epoch-ms (UTC) — stamps the auth.log trace line. */
   readonly now: () => number;
-  /** Read the current content of the target machine's auth.log on the shared journal,
-   *  keyed `(machine_id, path, writer_key)` — the read half of the appended line. */
-  readonly readAuthLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
-  /** Write a patch (here: the appended auth.log line on the target machine). */
-  readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
+  readonly appendLog: AppendLog;
   /** Resolve the ATTACKER's (caller's) own home public IP from their verified owner
    *  key — the truthful source IP of the login, server-derived so a client cannot
    *  forge it or frame another network. `null` (no home network) → source unknown. */
@@ -141,7 +132,7 @@ const logCrossPlayerAuth = async (
   ].filter((entry) => entry !== undefined);
   try {
     await appendMachineLogLines(
-      { readLog: deps.readAuthLog, upsertPatch: deps.upsertPatch },
+      { appendLog: deps.appendLog },
       {
         writerKey,
         machineId: target.machineId,
