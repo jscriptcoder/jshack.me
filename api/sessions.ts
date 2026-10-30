@@ -70,6 +70,7 @@ import type {
   PathPatchRow,
   PatchRow,
 } from '../src/core/patches/upsertPatch.js';
+import type { AppendLog } from '../src/core/patches/appendMachineLog.js';
 import type { NonceStore } from '../src/core/signedRequest/nonceStore.js';
 
 // Vercel adapter for POST /api/sessions.
@@ -171,8 +172,8 @@ const findPatchesVia =
     return { data: data as readonly OwnerPatchRow[] | null, error };
   };
 
-/** The write half of a system-written log append. The conflict target is named
- *  explicitly rather than left to PostgREST's primary-key default: `patches` is keyed on exactly
+/** A file a door writes onto a box. The conflict target is named explicitly rather than
+ *  left to PostgREST's primary-key default: `patches` is keyed on exactly
  *  `(machine_id, path, writer_key)`, so spelling it out documents the dependency instead
  *  of relying on it silently. */
 const upsertPatchVia =
@@ -181,6 +182,24 @@ const upsertPatchVia =
     const { error } = await supabase
       .from('patches')
       .upsert(row, { onConflict: 'machine_id,path,writer_key' });
+    logFailure(label, error);
+    return { error };
+  };
+
+/** A line the system writes onto a machine's log. The database appends it in one step,
+ *  under a lock on that log, so two lines landing at once both survive — a read here
+ *  followed by a write would let the second overwrite the first. */
+const appendLogVia =
+  ({ supabase, label }: QuerySpec): AppendLog =>
+  async (append) => {
+    const { error } = await supabase.rpc('append_machine_log', {
+      append_machine_id: append.machine_id,
+      append_path: append.path,
+      append_writer_key: append.writer_key,
+      append_owner: append.owner,
+      append_permissions: append.permissions,
+      append_text: append.text,
+    });
     logFailure(label, error);
     return { error };
   };
@@ -550,8 +569,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         supabase,
         occupancyLabel: 'reboot trace occupancy',
       }),
-      readLog: listPathPatchesVia({ supabase, label: 'reboot kern-log read' }),
-      upsertPatch: upsertPatchVia({ supabase, label: 'reboot kern-log upsert' }),
+      appendLog: appendLogVia({ supabase, label: 'reboot kern-log append' }),
       // Unguessable on purpose: a caller able to predict the next id could keep a
       // session alive across the reboot meant to end it.
       newBootId: () => randomUUID(),
@@ -569,8 +587,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       now: () => Date.now(),
       insertSession: insertSessionVia({ supabase, label: 'auth insert' }),
       findPatches: findPatchesVia({ supabase, label: 'own-lan boot-state lookup' }),
-      readAuthLog: listPathPatchesVia({ supabase, label: 'ssh auth-log read' }),
-      upsertPatch: upsertPatchVia({ supabase, label: 'ssh auth-log upsert' }),
+      appendLog: appendLogVia({ supabase, label: 'ssh auth-log append' }),
       // Where the caller stands — read off the hop they hold, or their own occupancy —
       // so the server names the network and the source address rather than trusting them.
       findActiveSession: findActiveSessionVia({ supabase, label: 'ssh vantage active-session' }),
@@ -595,8 +612,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       now: () => Date.now(),
       insertSession: insertSessionVia({ supabase, label: 'exploit insert' }),
       findPatches: findPatchesVia({ supabase, label: 'exploit boot-state lookup' }),
-      readLog: listPathPatchesVia({ supabase, label: 'exploit trace read' }),
-      upsertPatch: upsertPatchVia({ supabase, label: 'exploit trace upsert' }),
+      appendLog: appendLogVia({ supabase, label: 'exploit trace append' }),
+      upsertPatch: upsertPatchVia({ supabase, label: 'exploit effect upsert' }),
       listLeasesByEssid: listLeasesByEssidVia({ supabase, label: 'exploit lan-lease list' }),
       findNetworkByPublicIp: networkByPublicIpVia({ supabase, label: 'board lookup' }),
       findPublicIpByEssid: derivedPublicIpByEssid,
@@ -647,8 +664,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findActiveSession: findActiveSessionVia({ supabase, label: 'local-exploit active-session' }),
       findPatches: findPatchesVia({ supabase, label: 'local-exploit boot-state lookup' }),
       insertSession: insertSessionVia({ supabase, label: 'local-exploit insert' }),
-      readLog: listPathPatchesVia({ supabase, label: 'local-exploit trace read' }),
-      upsertPatch: upsertPatchVia({ supabase, label: 'local-exploit trace upsert' }),
+      appendLog: appendLogVia({ supabase, label: 'local-exploit trace append' }),
+      upsertPatch: upsertPatchVia({ supabase, label: 'local-exploit effect upsert' }),
     });
     res.status(status).json(body);
     return;
@@ -674,8 +691,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }),
       listLeasesByEssid: listLeasesByEssidVia({ supabase, label: 'public auth lan-lease list' }),
       insertSession: insertSessionVia({ supabase, label: 'public auth insert' }),
-      readAuthLog: listPathPatchesVia({ supabase, label: 'public auth-log read' }),
-      upsertPatch: upsertPatchVia({ supabase, label: 'public auth-log upsert' }),
+      appendLog: appendLogVia({ supabase, label: 'public auth-log append' }),
       findHomeNetworkByOwnerKey: findHomeNetworkByOwnerKeyVia({
         supabase,
         occupancyLabel: 'public auth source-ip occupancy',
@@ -709,8 +725,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       listLeasesByEssid: listLeasesByEssidVia({ supabase, label: 'same-lan lan-lease list' }),
       findPatches: findPatchesVia({ supabase, label: 'same-lan boot-state lookup' }),
       insertSession: insertSessionVia({ supabase, label: 'same-lan auth insert' }),
-      readAuthLog: listPathPatchesVia({ supabase, label: 'same-lan auth-log read' }),
-      upsertPatch: upsertPatchVia({ supabase, label: 'same-lan auth-log upsert' }),
+      appendLog: appendLogVia({ supabase, label: 'same-lan auth-log append' }),
     });
     res.status(status).json(body);
     return;
@@ -734,8 +749,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         supabase,
         label: 'inner-gateway auth insert',
       }),
-      readAuthLog: listPathPatchesVia({ supabase, label: 'inner-gateway auth-log read' }),
-      upsertPatch: upsertPatchVia({ supabase, label: 'inner-gateway auth-log upsert' }),
+      appendLog: appendLogVia({ supabase, label: 'inner-gateway auth-log append' }),
     });
     res.status(status).json(body);
     return;
@@ -757,8 +771,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
       findPatches: findPatchesVia({ supabase, label: 'mysql target journal lookup' }),
-      readMysqlLog: listPathPatchesVia({ supabase, label: 'mysql log read' }),
-      upsertPatch: upsertPatchVia({ supabase, label: 'mysql log upsert' }),
+      appendLog: appendLogVia({ supabase, label: 'mysql log append' }),
       findNetworkByPublicIp: networkByPublicIpVia({ supabase, label: 'board lookup' }),
       findPublicIpByEssid: derivedPublicIpByEssid,
       listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
@@ -794,8 +807,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
       findPatches: findPatchesVia({ supabase, label: 'mysql statement journal lookup' }),
-      readMysqlLog: listPathPatchesVia({ supabase, label: 'mysql statement log read' }),
-      upsertPatch: upsertPatchVia({ supabase, label: 'mysql datadir + log upsert' }),
+      appendLog: appendLogVia({ supabase, label: 'mysql statement log append' }),
+      upsertPatch: upsertPatchVia({ supabase, label: 'mysql datadir upsert' }),
       findNetworkByPublicIp: networkByPublicIpVia({ supabase, label: 'board lookup' }),
       findPublicIpByEssid: derivedPublicIpByEssid,
       listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
@@ -832,8 +845,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
       findPatches: findPatchesVia({ supabase, label: 'redis target journal lookup' }),
-      readRedisLog: listPathPatchesVia({ supabase, label: 'redis log read' }),
-      upsertPatch: upsertPatchVia({ supabase, label: 'redis log upsert' }),
+      appendLog: appendLogVia({ supabase, label: 'redis log append' }),
       findNetworkByPublicIp: networkByPublicIpVia({ supabase, label: 'board lookup' }),
       findPublicIpByEssid: derivedPublicIpByEssid,
       listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
@@ -872,8 +884,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
       findPatches: findPatchesVia({ supabase, label: 'snmp target journal lookup' }),
-      readSnmpdLog: listPathPatchesVia({ supabase, label: 'snmpd log read' }),
-      upsertPatch: upsertPatchVia({ supabase, label: 'snmpd log upsert' }),
+      appendLog: appendLogVia({ supabase, label: 'snmpd log append' }),
       findPublicIpByEssid: derivedPublicIpByEssid,
       findNetworkByPublicIp: networkByPublicIpVia({ supabase, label: 'board lookup' }),
       listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
@@ -916,7 +927,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
       findPatches: findPatchesVia({ supabase, label: 'snmp set target journal lookup' }),
-      readSnmpdLog: listPathPatchesVia({ supabase, label: 'snmpd set log read' }),
+      appendLog: appendLogVia({ supabase, label: 'snmpd set log append' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'snmpd set upsert' }),
       findNetworkByPublicIp: networkByPublicIpVia({ supabase, label: 'board lookup' }),
       findPublicIpByEssid: derivedPublicIpByEssid,
@@ -953,8 +964,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
       findPatches: findPatchesVia({ supabase, label: 'redis statement journal lookup' }),
-      readRedisLog: listPathPatchesVia({ supabase, label: 'redis statement log read' }),
-      upsertPatch: upsertPatchVia({ supabase, label: 'redis statement upsert' }),
+      appendLog: appendLogVia({ supabase, label: 'redis statement log append' }),
+      upsertPatch: upsertPatchVia({ supabase, label: 'redis datadir upsert' }),
       findNetworkByPublicIp: networkByPublicIpVia({ supabase, label: 'board lookup' }),
       findPublicIpByEssid: derivedPublicIpByEssid,
       listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
@@ -992,8 +1003,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       now: () => Date.now(),
       findPatches: findPatchesVia({ supabase, label: 'hydra target journal lookup' }),
       listPathPatches: listPathPatchesVia({ supabase, label: 'hydra wordlist read' }),
-      readAuthLog: listPathPatchesVia({ supabase, label: 'hydra auth-log read' }),
-      upsertPatch: upsertPatchVia({ supabase, label: 'hydra auth-log upsert' }),
+      appendLog: appendLogVia({ supabase, label: 'hydra auth-log append' }),
       findNetworkByPublicIp: networkByPublicIpVia({ supabase, label: 'board lookup' }),
       findPublicIpByEssid: derivedPublicIpByEssid,
       listOccupantsByEssid: listOccupantsByEssidVia<NatOccupantRow>({
@@ -1046,8 +1056,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findActiveSession: findActiveSessionVia({ supabase, label: 'su-elevate active-session' }),
       findPatches: findPatchesVia({ supabase, label: 'su-elevate journal lookup' }),
       insertSession: insertSessionVia({ supabase, label: 'su-elevate insert' }),
-      readAuthLog: listPathPatchesVia({ supabase, label: 'su auth-log read' }),
-      upsertPatch: upsertPatchVia({ supabase, label: 'su auth-log upsert' }),
+      appendLog: appendLogVia({ supabase, label: 'su auth-log append' }),
     });
     res.status(status).json(body);
     return;
@@ -1079,8 +1088,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findOccupantWorkstationByMachineId,
       findActiveSession: findActiveSessionVia({ supabase, label: 'passwd-change active-session' }),
       findPatches: findPatchesVia({ supabase, label: 'passwd-change journal lookup' }),
-      readAuthLog: listPathPatchesVia({ supabase, label: 'passwd auth-log read' }),
-      upsertPatch: upsertPatchVia({ supabase, label: 'passwd write + auth-log upsert' }),
+      appendLog: appendLogVia({ supabase, label: 'passwd auth-log append' }),
+      upsertPatch: upsertPatchVia({ supabase, label: 'passwd write upsert' }),
     });
     res.status(status).json(body);
     return;

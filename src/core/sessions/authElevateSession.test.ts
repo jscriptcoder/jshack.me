@@ -28,8 +28,7 @@ import {
 } from '../logging/authLog.js';
 import { derivePid } from '../logging/syslog.js';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
-import type { PatchRow } from '../patches/upsertPatch.js';
+import type { AppendLog } from '../patches/appendMachineLog.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import type { FindActiveSession, StandingSession } from '../patches/authorizeMachineAccess.js';
 import { ALL_GENERATED_PASSWORDS, plaintextFor } from '../../test/passwords.js';
@@ -133,8 +132,7 @@ type LogOverrides = {
   findActiveSession?: FindActiveSession<StandingSession>;
   findPatches?: () => Promise<JournalResult>;
   now?: () => number;
-  readAuthLog?: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
-  upsertPatch?: (row: PatchRow) => Promise<{ error: unknown }>;
+  appendLog?: AppendLog;
 };
 
 const makeDeps = (
@@ -145,12 +143,7 @@ const makeDeps = (
   const findOccupantWorkstationByMachineId =
     vi.fn<(machineId: string) => Promise<LookupResult>>(lookup);
   const insertSession = vi.fn<(row: SuSessionRow) => Promise<{ error: unknown }>>(insert);
-  const readAuthLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(
-    over.readAuthLog ?? (async () => ({ data: null, error: null })),
-  );
-  const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(
-    over.upsertPatch ?? (async () => ({ error: null })),
-  );
+  const appendLog = vi.fn<AppendLog>(over.appendLog ?? (async () => ({ error: null })));
   const findActiveSession = vi.fn<FindActiveSession<StandingSession>>(
     over.findActiveSession ?? sshedInAsGuest,
   );
@@ -164,15 +157,13 @@ const makeDeps = (
     findPatches,
     insertSession,
     now: over.now ?? (() => FIXED_NOW),
-    readAuthLog,
-    upsertPatch,
+    appendLog,
   };
   return {
     deps,
     findOccupantWorkstationByMachineId,
     insertSession,
-    readAuthLog,
-    upsertPatch,
+    appendLog,
   };
 };
 
@@ -309,7 +300,7 @@ describe('handleAuthElevateSession', () => {
     );
 
     it('reports a server error when the journal cannot be read, rather than judging without it', async () => {
-      const { deps, insertSession, upsertPatch } = makeDeps(undefined, undefined, {
+      const { deps, insertSession, appendLog } = makeDeps(undefined, undefined, {
         findPatches: async () => ({ data: null, error: new Error('db down') }),
       });
 
@@ -320,7 +311,7 @@ describe('handleAuthElevateSession', () => {
 
       expect(result).toEqual({ status: 500, body: { error: 'patches_lookup_failed' } });
       expect(insertSession).not.toHaveBeenCalled();
-      expect(upsertPatch).not.toHaveBeenCalled();
+      expect(appendLog).not.toHaveBeenCalled();
     });
   });
 
@@ -385,7 +376,7 @@ describe('handleAuthElevateSession', () => {
 
   it('refuses a caller who holds no session on the box, whatever password they know', async () => {
     const stranger = generateIdentity();
-    const { deps, insertSession, upsertPatch, findOccupantWorkstationByMachineId } = makeDeps(
+    const { deps, insertSession, appendLog, findOccupantWorkstationByMachineId } = makeDeps(
       undefined,
       undefined,
       { findActiveSession: async () => ({ data: null, error: null }) },
@@ -401,7 +392,7 @@ describe('handleAuthElevateSession', () => {
     // Nothing about the box is read or written for somebody who is not on it.
     expect(findOccupantWorkstationByMachineId).not.toHaveBeenCalled();
     expect(deps.findPatches).not.toHaveBeenCalled();
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('reports a server error when the session lookup fails, rather than a refusal', async () => {
@@ -670,7 +661,7 @@ describe('handleAuthElevateSession', () => {
   describe('su trace', () => {
     it("appends ONE 'Successful su' line on the WORKSTATION record under the OWNER's writer_key", async () => {
       const attacker = generateIdentity();
-      const { deps, upsertPatch } = makeDeps();
+      const { deps, appendLog } = makeDeps();
 
       const result = await handleAuthElevateSession(
         envelope(attacker, { username: 'root', password: 'matrix1999' }),
@@ -678,23 +669,22 @@ describe('handleAuthElevateSession', () => {
       );
 
       expect(result.status).toBe(200);
-      expect(upsertPatch).toHaveBeenCalledTimes(1);
-      expect(upsertPatch.mock.calls[0]![0]).toEqual({
+      expect(appendLog).toHaveBeenCalledTimes(1);
+      expect(appendLog.mock.calls[0]![0]).toEqual({
         writer_key: OCCUPANT.owner_key,
         machine_id: MACHINE,
         path: AUTH_LOG_PATH,
-        content: `${expectedSuLine('success', 'root', 'guest')}\n`,
+        text: `${expectedSuLine('success', 'root', 'guest')}\n`,
         owner: AUTH_LOG_OWNER,
         permissions: AUTH_LOG_PERMISSIONS,
-        node_type: 'file',
       });
       // The provenance is the OWNER, never the attacker — the keystone.
-      expect(upsertPatch.mock.calls[0]![0].writer_key).not.toBe(attacker.publicKeyHex);
+      expect(appendLog.mock.calls[0]![0].writer_key).not.toBe(attacker.publicKeyHex);
     });
 
     it('appends a "FAILED su" line on a wrong password and still returns 401 without inserting', async () => {
       const attacker = generateIdentity();
-      const { deps, upsertPatch, insertSession } = makeDeps();
+      const { deps, appendLog, insertSession } = makeDeps();
 
       const result = await handleAuthElevateSession(
         envelope(attacker, { username: 'root', password: 'not-the-root-pw' }),
@@ -703,13 +693,13 @@ describe('handleAuthElevateSession', () => {
 
       expect(result).toEqual({ status: 401, body: { error: 'invalid_credentials' } });
       expect(insertSession).not.toHaveBeenCalled();
-      expect(upsertPatch.mock.calls[0]![0].content).toBe(
+      expect(appendLog.mock.calls[0]![0].text).toBe(
         `${expectedSuLine('failure', 'root', 'guest')}\n`,
       );
     });
 
     it('names the account the session row holds, not one the request claims', async () => {
-      const { deps, upsertPatch } = makeDeps(undefined, undefined, {
+      const { deps, appendLog } = makeDeps(undefined, undefined, {
         findActiveSession: standingAs('trinity', 'user'),
       });
 
@@ -722,7 +712,7 @@ describe('handleAuthElevateSession', () => {
         deps,
       );
 
-      expect(upsertPatch.mock.calls.map(([row]) => row.content)).toEqual([
+      expect(appendLog.mock.calls.map(([row]) => row.text)).toEqual([
         `${expectedSuLine('success', 'root', 'trinity')}
 `,
       ]);
@@ -730,30 +720,28 @@ describe('handleAuthElevateSession', () => {
 
     it("files a generated machine's line under the network's key, in the box's own name", async () => {
       const visitor = generateIdentity();
-      const { deps, upsertPatch } = makeDeps(nobodysWorkstation);
+      const { deps, appendLog } = makeDeps(nobodysWorkstation);
 
       await handleAuthElevateSession(
         envelope(visitor, { machine_id: NPC_MACHINE, username: 'root', password: 'wrong' }),
         deps,
       );
 
-      expect(upsertPatch.mock.calls.map(([row]) => row)).toEqual([
+      expect(appendLog.mock.calls.map(([append]) => append)).toEqual([
         {
           writer_key: apGatewayLogWriterKey(ESSID),
           machine_id: NPC_MACHINE,
           path: AUTH_LOG_PATH,
-          content: `${expectedSuLine('failure', 'root', 'guest', NPC_HOST.hostname)}
-`,
+          text: `${expectedSuLine('failure', 'root', 'guest', NPC_HOST.hostname)}\n`,
           owner: AUTH_LOG_OWNER,
           permissions: AUTH_LOG_PERMISSIONS,
-          node_type: 'file',
         },
       ]);
     });
 
     it('writes no auth.log line for an unregistered machine id (404, nothing to log on)', async () => {
       const attacker = generateIdentity();
-      const { deps, upsertPatch } = makeDeps(async () => ({ data: null, error: null }));
+      const { deps, appendLog } = makeDeps(async () => ({ data: null, error: null }));
 
       const result = await handleAuthElevateSession(
         envelope(attacker, { username: 'root', password: 'matrix1999' }),
@@ -761,28 +749,13 @@ describe('handleAuthElevateSession', () => {
       );
 
       expect(result.status).toBe(404);
-      expect(upsertPatch).not.toHaveBeenCalled();
-    });
-
-    it('skips the write when the auth.log read fails (RMW bails), and still elevates', async () => {
-      const attacker = generateIdentity();
-      const { deps, upsertPatch } = makeDeps(undefined, undefined, {
-        readAuthLog: async () => ({ data: null, error: new Error('log read down') }),
-      });
-
-      const result = await handleAuthElevateSession(
-        envelope(attacker, { username: 'root', password: 'matrix1999' }),
-        deps,
-      );
-
-      expect(result.status).toBe(200);
-      expect(upsertPatch).not.toHaveBeenCalled();
+      expect(appendLog).not.toHaveBeenCalled();
     });
 
     it('returns the auth result even when the log write throws (best-effort logging)', async () => {
       const attacker = generateIdentity();
       const { deps, insertSession } = makeDeps(undefined, undefined, {
-        upsertPatch: async () => {
+        appendLog: async () => {
           throw new Error('write blew up');
         },
       });

@@ -8,6 +8,7 @@ import {
   type PatchRow,
   type PathPatchRow,
 } from '../src/core/patches/upsertPatch.js';
+import type { AppendLog } from '../src/core/patches/appendMachineLog.js';
 import { handleListPatches, type ListPatchesQuery } from '../src/core/patches/listPatches.js';
 import { handleRemovePatch, type PatchTreeQuery } from '../src/core/patches/removePatch.js';
 import { handleAppendAuthLog } from '../src/core/patches/appendAuthLog.js';
@@ -108,11 +109,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   };
 
   // Every writer's rows at one path on one machine. A save that names the content it
-  // was written against is checked against what the machine now holds, and every log
-  // appender builds on it, so the append is a read-modify-write the SERVER performs
-  // on the log a reader sees. Path-scoped: the machine-wide L2 read below is skipped
-  // entirely for an own-workstation write. The sort keys come back with the rows —
-  // the handler picks the row a reader materializes.
+  // was written against is checked against what the machine now holds. Path-scoped: the
+  // machine-wide L2 read below is skipped entirely for an own-workstation write. The
+  // sort keys come back with the rows — the handler picks the row a reader materializes.
   const listPathPatches = async ({
     machine_id,
     path,
@@ -127,6 +126,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .eq('path', path);
     if (error) console.error('[patches] path-rows lookup error:', error);
     return { data: data as readonly PathPatchRow[] | null, error };
+  };
+
+  // A line the system writes onto a machine's log. The database appends it in one step,
+  // under a lock on that log, so two lines landing at once both survive — a read here
+  // followed by a write would let the second overwrite the first.
+  const appendLog: AppendLog = async (append) => {
+    const { error } = await supabase.rpc('append_machine_log', {
+      append_machine_id: append.machine_id,
+      append_path: append.path,
+      append_writer_key: append.writer_key,
+      append_owner: append.owner,
+      append_permissions: append.permissions,
+      append_text: append.text,
+    });
+    if (error) console.error('[patches] log append error:', error);
+    return { error };
   };
 
   // L1 lookup shared by every handler here: the caller's ACTIVE session on the target
@@ -328,29 +343,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (actionOf(req.body) === 'appendAuthLog') {
-    // The server reads the current auth.log as a reader sees it (every writer's row,
-    // so an intruder's root wipe stays wiped) and appends: a read-modify-write the
-    // SERVER performs — the client never supplies content or time.
+    // The server stamps the line and appends it — the client never supplies content or
+    // time.
     const { status, body } = await handleAppendAuthLog(req.body, {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
-      readAuthLog: listPathPatches,
-      upsertPatch,
+      appendLog,
     });
     res.status(status).json(body);
     return;
   }
 
   if (actionOf(req.body) === 'appendKernLog') {
-    // The server reads the current kern.log as a reader sees it (every writer's row)
-    // and appends: a read-modify-write the SERVER performs — the client never supplies
-    // content or time. Same shape as the auth.log appender above, pointed at the box's
+    // The server stamps the line and appends it — the client never supplies content or
+    // time. Same shape as the auth.log appender above, pointed at the box's
     // `/var/log/kern.log` for a `--local` miss crash.
     const { status, body } = await handleAppendKernLog(req.body, {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
-      readKernLog: listPathPatches,
-      upsertPatch,
+      appendLog,
     });
     res.status(status).json(body);
     return;
@@ -358,7 +369,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (actionOf(req.body) === 'recordFtpTransfer') {
     // A file crossing a box in either direction is itemised in THAT box's vsftpd.log,
-    // the same read-modify-write appendAuthLog performs, pointed at someone else's
+    // the same append appendAuthLog performs, pointed at someone else's
     // machine and gated on the session that got the player in there.
     // Whose box it is decides which row the line lands in; the address it names is placed
     // from where the caller stands, the same two lookups the own-LAN doors draw on — a
@@ -368,8 +379,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
       findActiveSession,
-      readLog: listPathPatches,
-      upsertPatch,
+      appendLog,
       findOccupantWorkstationByMachineId,
       findHomeVantage,
       findWorkstationLease,
@@ -383,11 +393,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // A package rolled BACKWARDS is recorded in THAT box's dpkg.log. Pinning is the one
     // apt verb that leaves a machine more exposed than it found it, and after an ssh hop
     // it is run by somebody who does not own the box — so its owner's only way to learn
-    // it happened is this line. Same read-modify-write as the transfer above, and the
+    // it happened is this line. Same append as the transfer above, and the
     // same provenance rule: a generated host keeps the caller's own row and the address
     // they reported, while a box somebody owns owns its log too, and is told where the
     // visitor really came from.
-    // Same read-modify-write as the transfer above, and the same provenance rule: a
+    // Same append as the transfer above, and the same provenance rule: a
     // generated host keeps the network's row, a box somebody owns owns its log too, and
     // either way the visitor is placed from where they stand rather than what they
     // reported — the LAN lease a neighbour was seen at, the public address a visitor from
@@ -396,8 +406,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
       findActiveSession,
-      readLog: listPathPatches,
-      upsertPatch,
+      appendLog,
       findOccupantWorkstationByMachineId,
       findHomeVantage,
       findWorkstationLease,
@@ -447,8 +456,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { status, body } = await handleRecordLanFetch(req.body, {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
-      readLog: listPathPatches,
-      upsertPatch,
+      appendLog,
       listOccupantsByEssid,
       listLeasesByEssid,
       findPatches,
@@ -463,8 +471,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (actionOf(req.body) === 'nmapScan') {
     // A scan records ONE iptables kern.log line per scanned host, server-internal
     // (the handler resolves the hosts + stamps time/ports; the client never names
-    // a path or content). Same read-modify-write `patches`-table shapes as the su
-    // and ssh auth.log appenders above.
+    // a path or content). Same append as the su and ssh auth.log appenders above.
     // Story 7: a same-LAN scan also traces REAL fellow occupants. The occupancy read
     // (auth fields included — server-internal) is the LAN-boundary gate + the per-occupant
     // trace target; the journal read (full OwnerPatchRow shape, server order) materializes
@@ -502,8 +509,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { status, body } = await handleNmapScan(req.body, {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
-      readLog: listPathPatches,
-      upsertPatch,
+      appendLog,
       listOccupantsByEssid,
       listLeasesByEssid,
       findPatches,
@@ -518,15 +524,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (actionOf(req.body) === 'recordZoneTransfer') {
     // A zone transfer runs client-side, so the name server is told about it here: the
     // server recomputes the verdict from generation and writes the box's named.log
-    // itself, under the network's key, via the same machine-log read-modify-write. The
+    // itself, under the network's key, via the same machine-log append. The
     // source IP is the address the server places the caller's box at on the name
     // server's own segment — derived from where they stand (their own network, or a
     // shell they hold), never a client claim.
     const { status, body } = await handleRecordZoneTransfer(req.body, {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
-      readLog: listPathPatches,
-      upsertPatch,
+      appendLog,
       findActiveSession,
       findHomeVantage,
       findWorkstationLease,
@@ -605,7 +610,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     writeBootId,
     now: () => Date.now(),
     findHomeNetworkByOwnerKey,
-    readLog: listPathPatches,
+    appendLog,
     // Unguessable on purpose: a caller able to predict the next id could keep a session
     // alive across the reboot meant to end it.
     newBootId: () => randomUUID(),

@@ -26,7 +26,7 @@ import type {
 } from '../network/resolvePublicTarget.js';
 import type { LanLeaseRow } from '../network/lanAddress.js';
 import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
+import type { AppendLog } from '../patches/appendMachineLog.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import type { Identity } from '../commands/types.js';
@@ -160,14 +160,7 @@ const makeDeps = (
     stored.set(rowKey(row), { ...row, updated_at: String(writes).padStart(6, '0') });
     return { error: null };
   });
-  const readSnmpdLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(
-    async (query) => ({
-      data: [...stored.values()].filter(
-        (row) => row.machine_id === query.machine_id && row.path === query.path,
-      ),
-      error: null,
-    }),
-  );
+  const appendLog = vi.fn<AppendLog>(async () => ({ error: null }));
   const deps: SnmpSetDeps = {
     nonceStore: freshStore,
     now: () => FIXED_NOW,
@@ -175,8 +168,8 @@ const makeDeps = (
       data: [...(patchesByMachine[machine_id] ?? [])],
       error: null,
     }),
-    readSnmpdLog,
     upsertPatch,
+    appendLog,
     findNetworkByPublicIp: async () => ({ data: AP_NETWORK, error: null }),
     listOccupantsByEssid: async () => ({ data: [defenderOccupant], error: null }),
     listLeasesByEssid: async () => ({ data: DEFENDER_LEASES, error: null }),
@@ -193,7 +186,7 @@ const makeDeps = (
     findWorkstationLease: async () => ({ data: null, error: null }),
     ...over,
   };
-  return { deps, upsertPatch };
+  return { deps, upsertPatch, appendLog };
 };
 
 /** A set sent from across the world: the attacker's OWN ESSID travels with it, because
@@ -224,6 +217,8 @@ const setAcrossTheWorld = async (
 
 const writtenTo = (upsertPatch: ReturnType<typeof makeDeps>['upsertPatch'], path: string) =>
   upsertPatch.mock.calls.map(([row]) => row).find((row) => row.path === path);
+const appendedTo = (appendLog: ReturnType<typeof makeDeps>['appendLog'], path: string) =>
+  appendLog.mock.calls.map(([append]) => append).find((append) => append.path === path);
 
 describe("opening a port into another player's LAN, from the other side of the world", () => {
   it('writes a forward into the network the reached device fronts, not the one the caller named', async () => {
@@ -319,14 +314,14 @@ describe("opening a port into another player's LAN, from the other side of the w
 describe("the record a stranger's visit leaves on the gateway they rewrote", () => {
   it("files the visit under the access point's own row, never the visitor's", async () => {
     const attacker = generateIdentity();
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     await setAcrossTheWorld(deps, {
       attacker,
       assignment: `forward.${PUBLISHED_PORT}=${DEFENDER_LAN_IP}:22`,
     });
 
-    const log = writtenTo(upsertPatch, SNMPD_LOG_PATH);
+    const log = appendedTo(appendLog, SNMPD_LOG_PATH);
     expect(log?.machine_id).toBe(AP_GATEWAY_ID);
     // The network's own key: stable, because it does not move when players join or
     // leave. The visitor's own key would not be.
@@ -337,7 +332,7 @@ describe("the record a stranger's visit leaves on the gateway they rewrote", () 
     // this is what they changed — each carrying the address the server resolved for
     // them. Asserted as the WHOLE file, because a log is read as a record of what
     // happened and an extra line is as wrong as a missing one.
-    expect((log?.content ?? '').split('\n').filter(Boolean)).toEqual([
+    expect((log?.text ?? '').split('\n').filter(Boolean)).toEqual([
       expect.stringContaining(`Connection from UDP: [${ATTACKER_PUBLIC_IP}]`),
       expect.stringContaining(`Authentication succeeded from UDP: [${ATTACKER_PUBLIC_IP}]`),
       expect.stringContaining(
@@ -348,7 +343,7 @@ describe("the record a stranger's visit leaves on the gateway they rewrote", () 
   });
 
   it('records the address the server resolved for the attacker, not the one they claimed', async () => {
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     await setAcrossTheWorld(deps, {
       assignment: `forward.${PUBLISHED_PORT}=${DEFENDER_LAN_IP}:22`,
@@ -357,15 +352,15 @@ describe("the record a stranger's visit leaves on the gateway they rewrote", () 
       sourceIp: '10.0.0.1',
     });
 
-    const logged = writtenTo(upsertPatch, SNMPD_LOG_PATH)?.content ?? '';
+    const logged = appendedTo(appendLog, SNMPD_LOG_PATH)?.text ?? '';
     expect(logged).toContain(`from UDP: [${ATTACKER_PUBLIC_IP}]`);
     expect(logged).not.toContain('10.0.0.1');
   });
 
-  it('accretes a second stranger onto the same row instead of erasing the first', async () => {
+  it('files a second stranger under the same row instead of one of their own', async () => {
     const first = generateIdentity();
     const second = generateIdentity();
-    const { deps, upsertPatch } = makeDeps(
+    const { deps, appendLog } = makeDeps(
       {},
       {
         findHomeNetworkByOwnerKey: async (ownerKey) => ({
@@ -387,26 +382,23 @@ describe("the record a stranger's visit leaves on the gateway they rewrote", () 
       assignment: `forward.3333=${DEFENDER_LAN_IP}:22`,
     });
 
-    const logRows = upsertPatch.mock.calls
-      .map(([row]) => row)
-      .filter((row) => row.path === SNMPD_LOG_PATH);
+    const appends = appendLog.mock.calls
+      .map(([append]) => append)
+      .filter((append) => append.path === SNMPD_LOG_PATH);
     // ONE row. Two would each hold half the story, and only one of them would survive.
-    expect(new Set(logRows.map((row) => row.writer_key))).toEqual(
+    expect(new Set(appends.map((append) => append.writer_key))).toEqual(
       new Set([apGatewayLogWriterKey(TARGET_ESSID)]),
     );
-
-    const final = logRows.at(-1)?.content ?? '';
-    expect(final).toContain(
-      `SET forward.${PUBLISHED_PORT} = none -> ${DEFENDER_LAN_IP}:22 ` +
-        `from UDP: [${ATTACKER_PUBLIC_IP}]`,
-    );
-    expect(final).toContain(
-      `SET forward.3333 = none -> ${DEFENDER_LAN_IP}:22 ` +
-        `from UDP: [${SECOND_ATTACKER_PUBLIC_IP}]`,
-    );
-    // Three lines each, both visits whole: the second did not overwrite, truncate, or
-    // re-read somebody else's row.
-    expect(final.split('\n').filter(Boolean)).toHaveLength(6);
+    expect(appends.map((append) => append.text)).toEqual([
+      expect.stringContaining(
+        `SET forward.${PUBLISHED_PORT} = none -> ${DEFENDER_LAN_IP}:22 ` +
+          `from UDP: [${ATTACKER_PUBLIC_IP}]`,
+      ),
+      expect.stringContaining(
+        `SET forward.3333 = none -> ${DEFENDER_LAN_IP}:22 ` +
+          `from UDP: [${SECOND_ATTACKER_PUBLIC_IP}]`,
+      ),
+    ]);
   });
 });
 

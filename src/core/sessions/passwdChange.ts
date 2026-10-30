@@ -42,11 +42,7 @@ import {
   formatPasswdLine,
 } from '../logging/authLog.js';
 import { derivePid } from '../logging/syslog.js';
-import {
-  appendMachineLog,
-  type MachineLogReadQuery,
-  type MachineLogReadResult,
-} from '../patches/appendMachineLog.js';
+import { appendMachineLog, type AppendLog } from '../patches/appendMachineLog.js';
 import { asGameTime } from '../types.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
 import type { HandlerResponse } from './authCreateSession.js';
@@ -68,8 +64,7 @@ export type PasswdChangeDeps = {
   }) => Promise<{ readonly data: readonly OwnerPatchRow[] | null; readonly error: unknown }>;
   /** The server's wall clock, epoch-ms (UTC) — stamps the auth.log trace line. */
   readonly now: () => number;
-  /** Read the box's current auth.log on the shared journal — the read half of the append. */
-  readonly readAuthLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
+  readonly appendLog: AppendLog;
   /** Write a patch: the rewritten `/etc/passwd` row, then the appended auth.log line. */
   readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
 };
@@ -108,7 +103,7 @@ const logPasswd = async (
   });
   try {
     await appendMachineLog(
-      { readLog: deps.readAuthLog, upsertPatch: deps.upsertPatch },
+      { appendLog: deps.appendLog },
       {
         writerKey: box.logWriterKey,
         machineId: box.machineId,

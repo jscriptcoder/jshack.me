@@ -1434,6 +1434,16 @@ state costs you more than one wrong attempt.
   that reads as that column. Detail in
   [`cross-player-architecture.md`](./cross-player-architecture.md) (the trace-append bullet).
 
+- **A system log line goes through `append_machine_log`; the journal stamps with
+  `clock_timestamp()`.** The database function locks the log's path, builds on the latest row a
+  reader would see and writes the appended row in one transaction, so lines landing together all
+  survive. A handler takes the one `appendLog` dep and never reads a log to write it back. The
+  `patches` trigger and default stamp `clock_timestamp()` rather than `NOW()`: `NOW()` is the
+  transaction's start, so an append that waited on the lock would rank below the row it built on.
+  The function stays `VOLATILE`; marked `STABLE` it would read with the snapshot from before the
+  wait and drop the line it waited for. `supabase db query` refuses a multi-statement probe; run
+  one through `psql` in the `supabase_db_jshack-me` container instead.
+
 - **Spend realism where the player READS; spend legibility where the player AUTHORS.** The rule
   that settled the long-running "is `rules.v4` too simple, or is SNMP too complex" question at
   v0.195.0 — the two are not on one axis, and neither had to move toward the other. A player
@@ -1959,8 +1969,7 @@ state costs you more than one wrong attempt.
   *is* the attempt, so an arrival there would be an invention). It hangs off `ServiceSpec`, so
   a login, a hydra sweep and a cross-network break-in against one service cannot disagree about
   which file the defender reads. Two rules travel with it. **Arrival and attempt land in ONE
-  append** — they are one event to the box, and two appends are two read-modify-writes racing
-  over the same file. And **the name stays**: it carries logins as well as sweeps, but nothing
+  append** — they are one event to the box, so they land under one stamp, side by side. And **the name stays**: it carries logins as well as sweeps, but nothing
   a *transfer* writes goes through it (that is `formatVsftpdTransferLine` on its own endpoint),
   so the rename considered at slices 4 and 5 was closed rather than deferred a third time.
 - **A parallel sub-shell is a restricted command MAP, not a screen, and not a hop.** `ftp` set

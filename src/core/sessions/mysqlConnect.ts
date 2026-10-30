@@ -42,8 +42,7 @@ import { derivePid } from '../logging/syslog.js';
 import { appendMachineLog } from '../patches/appendMachineLog.js';
 import { asGameTime } from '../types.js';
 import type { Directory } from '../filesystem/types.js';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
-import type { PatchRow } from '../patches/upsertPatch.js';
+import type { AppendLog } from '../patches/appendMachineLog.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 export type MysqlConnectDeps = ServiceHostLookup &
@@ -51,11 +50,7 @@ export type MysqlConnectDeps = ServiceHostLookup &
   readonly nonceStore: NonceStore;
   /** The server's wall clock, epoch-ms (UTC) — stamps the mysql.log line. */
   readonly now: () => number;
-  /** The TARGET's current `/var/log/mysql.log` — the read half of the trace, so a
-   *  connection appends to the box's history instead of replacing it. */
-  readonly readMysqlLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
-  /** Write a patch (here: the one line this attempt leaves on the target). */
-  readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
+  readonly appendLog: AppendLog;
 };
 
 export type { HandlerResponse };
@@ -111,7 +106,7 @@ const recordAttempt = async (
   });
   try {
     await appendMachineLog(
-      { readLog: deps.readMysqlLog, upsertPatch: deps.upsertPatch },
+      { appendLog: deps.appendLog },
       {
         writerKey: attempt.writerKey,
         machineId: attempt.machineId,

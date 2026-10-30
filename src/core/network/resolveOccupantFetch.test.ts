@@ -21,9 +21,7 @@ import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import { HTTP_DEFAULT_PORT, METHOD_NOT_ALLOWED_PAGE } from './http.js';
 import { ACCESS_LOG_PATH } from '../logging/accessLog.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
-import type { PatchRow } from '../patches/upsertPatch.js';
-import { logRead } from '../../test/factories/logRows.js';
+import type { AppendLog } from '../patches/appendMachineLog.js';
 import { chainGatewayBaseFs, resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
 import { readOpenPorts } from '../services/pidfile.js';
 import { createFsView } from '../filesystem/fsView.js';
@@ -181,12 +179,7 @@ const makeDeps = ({ aliceJournal = aliceServing(), ...over }: Overrides = {}) =>
   const listLeasesByEssid = vi.fn<ResolveOccupantFetchDeps['listLeasesByEssid']>(
     over.listLeasesByEssid ?? (async () => ({ data: BOTH_LEASES, error: null })),
   );
-  const readLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(
-    over.readLog ?? (async () => ({ data: null, error: null })),
-  );
-  const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(
-    over.upsertPatch ?? (async () => ({ error: null })),
-  );
+  const appendLog = vi.fn<AppendLog>(over.appendLog ?? (async () => ({ error: null })));
   const deps: ResolveOccupantFetchDeps = {
     nonceStore: freshStore,
     now: () => FETCH_TIME,
@@ -200,10 +193,9 @@ const makeDeps = ({ aliceJournal = aliceServing(), ...over }: Overrides = {}) =>
     findPatches,
     listOccupantsByEssid,
     listLeasesByEssid,
-    readLog,
-    upsertPatch,
+    appendLog,
   };
-  return { deps, findPatches, listOccupantsByEssid, listLeasesByEssid, readLog, upsertPatch };
+  return { deps, findPatches, listOccupantsByEssid, listLeasesByEssid, appendLog };
 };
 
 type Asked = {
@@ -303,7 +295,7 @@ describe('what a fetch of a neighbour can never read', () => {
 
 describe('an address nothing answers at', () => {
   it('is unreachable when nobody holds the address', async () => {
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     expect(
       await handleResolveOccupantFetch(
@@ -311,7 +303,7 @@ describe('an address nothing answers at', () => {
         deps,
       ),
     ).toEqual(UNREACHABLE);
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -337,19 +329,19 @@ describe('an address nothing answers at', () => {
   });
 
   it('is unreachable when the box cannot boot, whatever its document root still holds', async () => {
-    const { deps, upsertPatch } = makeDeps({ aliceJournal: aliceServing(bootTombstone) });
+    const { deps, appendLog } = makeDeps({ aliceJournal: aliceServing(bootTombstone) });
 
     expect(await handleResolveOccupantFetch(await envelope(), deps)).toEqual(UNREACHABLE);
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 });
 
 describe('a box that is there and does not serve the web', () => {
   it('refuses the connection when no web server is running', async () => {
-    const { deps, upsertPatch } = makeDeps({ aliceJournal: [publishedPage(ALICE_PAGE)] });
+    const { deps, appendLog } = makeDeps({ aliceJournal: [publishedPage(ALICE_PAGE)] });
 
     expect(await handleResolveOccupantFetch(await envelope(), deps)).toEqual(REFUSED);
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('refuses a port that something other than a web server holds', async () => {
@@ -364,12 +356,12 @@ describe('a box that is there and does not serve the web', () => {
   });
 
   it('refuses a web port the owner closed to the network, as a scan shows it shut', async () => {
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       aliceJournal: aliceServing(filtering(HTTP_DEFAULT_PORT)),
     });
 
     expect(await handleResolveOccupantFetch(await envelope(), deps)).toEqual(REFUSED);
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('refuses a web port the owner closed while leaving another open', async () => {
@@ -391,62 +383,48 @@ describe('a box that is there and does not serve the web', () => {
 
 describe('the visit is recorded on the box that answered', () => {
   it('appends one line to the OWNER’s log, from the address the caller holds on the LAN', async () => {
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     await handleResolveOccupantFetch(await envelope(), deps);
 
-    expect(upsertPatch).toHaveBeenCalledTimes(1);
-    expect(upsertPatch).toHaveBeenCalledWith(
+    expect(appendLog).toHaveBeenCalledTimes(1);
+    expect(appendLog).toHaveBeenCalledWith(
       expect.objectContaining({
         writer_key: ALICE.publicKeyHex,
         machine_id: ALICE_WS,
         path: ACCESS_LOG_PATH,
-        content: `${accessLine({ size: ALICE_PAGE.length })}\n`,
+        text: `${accessLine({ size: ALICE_PAGE.length })}\n`,
       }),
     );
   });
 
   it('records the path that was asked for, and a miss as readily as a hit', async () => {
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     await handleResolveOccupantFetch(await envelope({ path: '/admin.php' }), deps);
 
-    expect(upsertPatch).toHaveBeenCalledWith(
+    expect(appendLog).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: `${accessLine({ path: '/admin.php', status: 404 })}\n`,
+        text: `${accessLine({ path: '/admin.php', status: 404 })}\n`,
       }),
     );
   });
 
   it('records a traversal as it was written, not as it resolved', async () => {
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     await handleResolveOccupantFetch(await envelope({ path: '/../../etc/passwd' }), deps);
 
-    expect(upsertPatch).toHaveBeenCalledWith(
+    expect(appendLog).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: `${accessLine({ path: '/../../etc/passwd', status: 404 })}\n`,
-      }),
-    );
-  });
-
-  it('accretes onto the log the box already holds', async () => {
-    const previous = '203.0.113.9 - - [29/Jul/2026:09:00:00 +0000] "GET / HTTP/1.1" 200 12\n';
-    const { deps, upsertPatch, readLog } = makeDeps({ readLog: async () => logRead(previous) });
-
-    await handleResolveOccupantFetch(await envelope(), deps);
-
-    expect(readLog).toHaveBeenCalledWith({ machine_id: ALICE_WS, path: ACCESS_LOG_PATH });
-    expect(upsertPatch).toHaveBeenCalledWith(
-      expect.objectContaining({
-        content: `${previous}${accessLine({ size: ALICE_PAGE.length })}\n`,
+        text: `${accessLine({ path: '/../../etc/passwd', status: 404 })}\n`,
       }),
     );
   });
 
   it('records a caller the LAN cannot place as unknown, never as an address they sent', async () => {
     // On the network, holding no lease: there is no address to derive.
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       findHomeVantage: async () => ({ data: { essid: ESSID, octet: null }, error: null }),
     });
 
@@ -461,16 +439,16 @@ describe('the visit is recorded on the box that answered', () => {
       deps,
     );
 
-    expect(upsertPatch).toHaveBeenCalledWith(
+    expect(appendLog).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: `${accessLine({ sourceIp: 'unknown', size: ALICE_PAGE.length })}\n`,
+        text: `${accessLine({ sourceIp: 'unknown', size: ALICE_PAGE.length })}\n`,
       }),
     );
   });
 
   it('serves the page even when the line cannot be written', async () => {
     const { deps } = makeDeps({
-      upsertPatch: async () => {
+      appendLog: async () => {
         throw new Error('storage down');
       },
     });
@@ -497,13 +475,13 @@ describe('a form POSTed to a neighbour', () => {
   });
 
   it('is refused even at a page the box publishes, and recorded as the POST it was', async () => {
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     await handleResolveOccupantFetch(await envelope({ body: 'handle=neo&password=s3cret' }), deps);
 
-    expect(upsertPatch).toHaveBeenCalledWith(
+    expect(appendLog).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: `${accessLine({ method: 'POST', status: 405, size: METHOD_NOT_ALLOWED_PAGE.length })}\n`,
+        text: `${accessLine({ method: 'POST', status: 405, size: METHOD_NOT_ALLOWED_PAGE.length })}\n`,
       }),
     );
   });
@@ -524,12 +502,12 @@ describe('a form POSTed to a neighbour', () => {
   });
 
   it('still reaches nothing where nothing serves the web, and leaves no line', async () => {
-    const { deps, upsertPatch } = makeDeps({ aliceJournal: [] });
+    const { deps, appendLog } = makeDeps({ aliceJournal: [] });
 
     expect(await handleResolveOccupantFetch(await envelope({ body: 'a=b' }), deps)).toEqual(
       REFUSED,
     );
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 });
 
@@ -551,16 +529,16 @@ describe('a caller in a shell on the box they fetch', () => {
     });
 
   it('is served the box’s own page at the box’s own address, logged from that address', async () => {
-    const { deps, upsertPatch } = shellOnAliceBox();
+    const { deps, appendLog } = shellOnAliceBox();
 
     expect(
       await handleResolveOccupantFetch(await envelope({ caller_machine_id: ALICE_WS }), deps),
     ).toEqual({ status: 200, body: { ok: true, content: ALICE_PAGE, server: 'nginx' } });
-    expect(upsertPatch).toHaveBeenCalledWith(
+    expect(appendLog).toHaveBeenCalledWith(
       expect.objectContaining({
         writer_key: ALICE.publicKeyHex,
         machine_id: ALICE_WS,
-        content: `${accessLine({ sourceIp: ALICE_LAN_IP, size: ALICE_PAGE.length })}\n`,
+        text: `${accessLine({ sourceIp: ALICE_LAN_IP, size: ALICE_PAGE.length })}\n`,
       }),
     );
   });
@@ -579,7 +557,7 @@ describe('a caller in a shell on the box they fetch', () => {
   // `localhost` typed in that shell. The box is the one the shell stands on, found by
   // what it is: a visitor holds no address to name it by.
   it('is served the box’s own page over loopback, logged as a local visit', async () => {
-    const { deps, upsertPatch } = shellOnAliceBox();
+    const { deps, appendLog } = shellOnAliceBox();
 
     expect(
       await handleResolveOccupantFetch(
@@ -587,12 +565,12 @@ describe('a caller in a shell on the box they fetch', () => {
         deps,
       ),
     ).toEqual({ status: 200, body: { ok: true, content: ALICE_PAGE, server: 'nginx' } });
-    expect(upsertPatch).toHaveBeenCalledTimes(1);
-    expect(upsertPatch).toHaveBeenCalledWith(
+    expect(appendLog).toHaveBeenCalledTimes(1);
+    expect(appendLog).toHaveBeenCalledWith(
       expect.objectContaining({
         writer_key: ALICE.publicKeyHex,
         machine_id: ALICE_WS,
-        content: `${accessLine({ sourceIp: LOOPBACK_IPV4, size: ALICE_PAGE.length })}\n`,
+        text: `${accessLine({ sourceIp: LOOPBACK_IPV4, size: ALICE_PAGE.length })}\n`,
       }),
     );
   });
@@ -613,7 +591,7 @@ describe('a caller in a shell on the box they fetch', () => {
   });
 
   it('is refused over loopback when the box runs no web server', async () => {
-    const { deps, upsertPatch } = shellOnAliceBox({ aliceJournal: [sshdUp] });
+    const { deps, appendLog } = shellOnAliceBox({ aliceJournal: [sshdUp] });
 
     expect(
       await handleResolveOccupantFetch(
@@ -621,7 +599,7 @@ describe('a caller in a shell on the box they fetch', () => {
         deps,
       ),
     ).toEqual(REFUSED);
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 });
 
@@ -629,13 +607,13 @@ describe('loopback from a caller who stands on no neighbour’s box', () => {
   it('names nobody’s box, so nothing answers and nothing is logged', async () => {
     // Bob at home, where his own client serves `localhost` off his own tree. Loopback
     // must never fall through to whoever else is on the WiFi.
-    const { deps, findPatches, upsertPatch } = makeDeps();
+    const { deps, findPatches, appendLog } = makeDeps();
 
     expect(
       await handleResolveOccupantFetch(await envelope({ target: LOOPBACK_IPV4 }), deps),
     ).toEqual(UNREACHABLE);
     expect(findPatches).not.toHaveBeenCalled();
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('names nobody’s box from a shell on a workstation whose owner has left the WiFi', async () => {
@@ -663,7 +641,7 @@ describe('loopback from a caller who stands on no neighbour’s box', () => {
 
 describe('the LAN boundary', () => {
   it('refuses a caller standing on another network, before anything is read', async () => {
-    const { deps, listOccupantsByEssid, listLeasesByEssid, upsertPatch } = makeDeps({
+    const { deps, listOccupantsByEssid, listLeasesByEssid, appendLog } = makeDeps({
       findHomeVantage: async () => ({
         data: { essid: 'SOMEWHERE-ELSE', octet: BOB_OCTET },
         error: null,
@@ -676,7 +654,7 @@ describe('the LAN boundary', () => {
     });
     expect(listOccupantsByEssid).not.toHaveBeenCalled();
     expect(listLeasesByEssid).not.toHaveBeenCalled();
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('refuses a caller on no network at all', async () => {
@@ -869,10 +847,10 @@ describe('a box the network generates on the caller’s LAN', () => {
   });
 
   it('is unreachable once bricked, and nothing is logged', async () => {
-    const { deps, upsertPatch } = withJournal([bootTombstone]);
+    const { deps, appendLog } = withJournal([bootTombstone]);
 
     expect(await handleResolveOccupantFetch(await askGenerated(), deps)).toEqual(UNREACHABLE);
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('refuses every web port a router or switch on the LAN does not run, as nmap shows them shut', async () => {
@@ -899,16 +877,16 @@ describe('a box the network generates on the caller’s LAN', () => {
   });
 
   it('records the visit in its own log under the network’s key, with what was served', async () => {
-    const { deps, upsertPatch } = withJournal([generatedBoxRow(INDEX, DEFACED)]);
+    const { deps, appendLog } = withJournal([generatedBoxRow(INDEX, DEFACED)]);
 
     await handleResolveOccupantFetch(await askGenerated(), deps);
 
-    expect(upsertPatch).toHaveBeenCalledWith(
+    expect(appendLog).toHaveBeenCalledWith(
       expect.objectContaining({
         writer_key: apGatewayLogWriterKey(ESSID),
         machine_id: generatedWebHost.machineId,
         path: ACCESS_LOG_PATH,
-        content: `${accessLine({ size: DEFACED.length })}\n`,
+        text: `${accessLine({ size: DEFACED.length })}\n`,
       }),
     );
   });
@@ -930,7 +908,7 @@ describe('a box the network generates on the caller’s LAN', () => {
       askGenerated({ target: LOOPBACK_IPV4, caller_machine_id: generatedWebHost.machineId });
 
     it('serves loopback the page its journal holds, past its own filter, as a local visit', async () => {
-      const { deps, upsertPatch } = shellOnGeneratedBox([
+      const { deps, appendLog } = shellOnGeneratedBox([
         generatedBoxRow(INDEX, DEFACED),
         generatedBoxRow('/etc/iptables/rules.v4', `deny ${generatedWebHost.port}`),
       ]);
@@ -939,11 +917,11 @@ describe('a box the network generates on the caller’s LAN', () => {
         status: 200,
         body: { ok: true, content: DEFACED, server: 'nginx' },
       });
-      expect(upsertPatch).toHaveBeenCalledWith(
+      expect(appendLog).toHaveBeenCalledWith(
         expect.objectContaining({
           writer_key: apGatewayLogWriterKey(ESSID),
           machine_id: generatedWebHost.machineId,
-          content: `${accessLine({ sourceIp: LOOPBACK_IPV4, size: DEFACED.length })}\n`,
+          text: `${accessLine({ sourceIp: LOOPBACK_IPV4, size: DEFACED.length })}\n`,
         }),
       );
     });
@@ -1015,7 +993,7 @@ describe('a box on a deep layer the caller’s shell reaches', () => {
     });
 
   it('serves the page its journal holds, logged from the gateway in front of it', async () => {
-    const { deps, upsertPatch } = shellOnGateway([
+    const { deps, appendLog } = shellOnGateway([
       generatedBoxRow('/var/www/html/index.html', DEFACED),
     ]);
 
@@ -1023,11 +1001,11 @@ describe('a box on a deep layer the caller’s shell reaches', () => {
       status: 200,
       body: { ok: true, content: DEFACED, server: expect.any(String) },
     });
-    expect(upsertPatch).toHaveBeenCalledWith(
+    expect(appendLog).toHaveBeenCalledWith(
       expect.objectContaining({
         writer_key: apGatewayLogWriterKey(deep.essid),
         machine_id: deep.machineId,
-        content: `${accessLine({ sourceIp: `${deep.subnet}.1`, size: DEFACED.length })}\n`,
+        text: `${accessLine({ sourceIp: `${deep.subnet}.1`, size: DEFACED.length })}\n`,
       }),
     );
   });
@@ -1120,7 +1098,7 @@ describe('a box on a deep layer behind a switch', () => {
       behind.theSwitch,
       chainGatewayBaseFs(behind.essid, behind.theSwitch),
     ).hosts.find((entry) => entry.host.ip === behind.host.ip)!.machineId;
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       findActiveSession: async ({ machine_id }) => ({
         data:
           machine_id === hostId
@@ -1156,7 +1134,7 @@ describe('a box on a deep layer behind a switch', () => {
     );
 
     expect(response.status).toBe(200);
-    expect(upsertPatch).toHaveBeenCalledWith(
+    expect(appendLog).toHaveBeenCalledWith(
       expect.objectContaining({ machine_id: hostId, path: ACCESS_LOG_PATH }),
     );
   });

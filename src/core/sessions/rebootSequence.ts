@@ -17,13 +17,8 @@
  */
 
 import type { StandingSession } from '../patches/authorizeMachineAccess.js';
-import {
-  appendMachineLog,
-  type MachineLogReadQuery,
-  type MachineLogReadResult,
-} from '../patches/appendMachineLog.js';
+import { appendMachineLog, type AppendLog } from '../patches/appendMachineLog.js';
 import type { FindOccupantWorkstationByMachineId } from '../patches/remoteWritePermission.js';
-import type { PatchRow } from '../patches/upsertPatch.js';
 import {
   formatRebootLine,
   KERN_LOG_OWNER,
@@ -74,8 +69,7 @@ export type RebootSequenceDeps = {
   /** The address the actor OWNS, from their verified key — never a value they
    *  send. Asked only when the owner reboots their own box, which no login reached. */
   readonly findHomeNetworkByOwnerKey: FindHomeNetworkByOwnerKey;
-  readonly readLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
-  readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
+  readonly appendLog: AppendLog;
   /** A fresh, unguessable id for this boot. Injected so tests can name it — and
    *  unguessable in production because a caller able to predict the next id could
    *  keep a session alive across the reboot that was meant to end it. */
@@ -176,7 +170,7 @@ export const rebootBox = async (
   const provenance = await boxTraceProvenance(deps, target);
   if (provenance.writerKey !== null) {
     await appendMachineLog(
-      { readLog: deps.readLog, upsertPatch: deps.upsertPatch },
+      { appendLog: deps.appendLog },
       {
         writerKey: provenance.writerKey,
         machineId: target.machineId,

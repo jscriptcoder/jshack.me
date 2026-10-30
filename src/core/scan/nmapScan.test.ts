@@ -26,10 +26,8 @@ import { formatNmapScanAggregate, KERN_LOG_OWNER, KERN_LOG_PERMISSIONS } from '.
 import { asGameTime, asPlayerKeyHex } from '../types.js';
 import type { ScanOccupant } from './nmapScan.js';
 import type { LanLeaseRow } from '../network/lanAddress.js';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
-import type { PatchRow } from '../patches/upsertPatch.js';
+import type { AppendLog, MachineLogAppend } from '../patches/appendMachineLog.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
-import { logRead } from '../../test/factories/logRows.js';
 
 /**
  * `handleNmapScan` is the server-side scan action: it verifies the signed
@@ -61,15 +59,9 @@ type PatchesResult = { data: readonly OwnerPatchRow[] | null; error: unknown };
 type LeasesResult = { data: readonly LanLeaseRow[] | null; error: unknown };
 
 const makeDeps = (over: Partial<NmapScanDeps> = {}) => {
-  const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async () => ({
+  const appendLog = vi.fn<AppendLog>(async () => ({
     error: null,
   }));
-  const readLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(
-    async () => ({
-      data: null,
-      error: null,
-    }),
-  );
   // Default: no fellow occupants and an empty journal — the own-LAN NPC scan is
   // unaffected (every existing test keeps passing); occupant tests override these.
   const listOccupantsByEssid = vi.fn<(essid: string) => Promise<OccupantsResult>>(async () => ({
@@ -88,8 +80,7 @@ const makeDeps = (over: Partial<NmapScanDeps> = {}) => {
   const deps: NmapScanDeps = {
     nonceStore: freshStore,
     now: () => FIXED_NOW,
-    readLog,
-    upsertPatch,
+    appendLog,
     listOccupantsByEssid,
     listLeasesByEssid,
     findPatches,
@@ -99,7 +90,7 @@ const makeDeps = (over: Partial<NmapScanDeps> = {}) => {
     findWorkstationLease: async () => ({ data: null, error: null }),
     ...over,
   };
-  return { deps, upsertPatch, readLog, listOccupantsByEssid, listLeasesByEssid, findPatches };
+  return { deps, appendLog, listOccupantsByEssid, listLeasesByEssid, findPatches };
 };
 
 const subnetOf = (): string => generateHomeLan(ESSID).subnet;
@@ -207,13 +198,13 @@ describe('whose row an own-LAN scan trace accretes under', () => {
     // `ssh` reach file into their own logs on this very machine id under the ESSID's key,
     // and a scan that kept the caller's would be the one writer out of step.
     const id = identityOffTheGeneratedLan();
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
     const logged = loggedHostsOf(id.publicKeyHex);
 
     await handleNmapScan(envelope(id, `${subnetOf()}.1-254`), deps);
 
-    expect(upsertPatch).toHaveBeenCalledTimes(logged.length);
-    for (const [row] of upsertPatch.mock.calls) {
+    expect(appendLog).toHaveBeenCalledTimes(logged.length);
+    for (const [row] of appendLog.mock.calls) {
       expect(row.writer_key).toBe(apGatewayLogWriterKey(ESSID));
     }
   });
@@ -226,25 +217,24 @@ describe('handleNmapScan', () => {
     // never dropped, and the count assertion below fails on the coincidence rather
     // than on the behaviour it describes.
     const id = identityOffTheGeneratedLan();
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
     const logged = loggedHostsOf(id.publicKeyHex);
 
     const result = await handleNmapScan(envelope(id, `${subnetOf()}.1-254`), deps);
 
     expect(result).toEqual({ status: 200, body: { ok: true, hostsLogged: logged.length } });
-    expect(upsertPatch).toHaveBeenCalledTimes(logged.length);
+    expect(appendLog).toHaveBeenCalledTimes(logged.length);
     logged.forEach((host, index) => {
       // Each host logs on the id the shared resolver picks: the edge router, an
       // inner gateway, or a generic NPC sibling's coordinate id.
       const expectedMachineId = resolveLanHostIdentity(host, ESSID).machineId;
-      expect(upsertPatch.mock.calls[index]![0]).toEqual({
+      expect(appendLog.mock.calls[index]![0]).toEqual({
         writer_key: apGatewayLogWriterKey(ESSID),
         machine_id: expectedMachineId,
         path: '/var/log/kern.log',
-        content: `${expectedKernLine(host)}\n`,
+        text: `${expectedKernLine(host)}\n`,
         owner: KERN_LOG_OWNER,
         permissions: KERN_LOG_PERMISSIONS,
-        node_type: 'file',
       });
     });
   });
@@ -256,11 +246,11 @@ describe('handleNmapScan', () => {
     // hostnames. The scanner's key stays an input here — it is the verified signer —
     // so this stays a real claim about two viewers rather than a tautology.
     const sweep = async (id: ReturnType<typeof generateIdentity>) => {
-      const { deps, upsertPatch } = makeDeps();
+      const { deps, appendLog } = makeDeps();
       await handleNmapScan(envelope(id, `${subnetOf()}.1-254`), deps);
-      return upsertPatch.mock.calls.map(([row]) => ({
+      return appendLog.mock.calls.map(([row]) => ({
         machine_id: row.machine_id,
-        content: row.content,
+        content: row.text,
       }));
     };
 
@@ -270,29 +260,15 @@ describe('handleNmapScan', () => {
   it('logs exactly one line when scanning a single real host', async () => {
     const id = generateIdentity();
     const host = firstSiblingOf(id.publicKeyHex);
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     const result = await handleNmapScan(envelope(id, host.ip), deps);
 
     expect(result.body).toEqual({ ok: true, hostsLogged: 1 });
-    expect(upsertPatch).toHaveBeenCalledTimes(1);
-    expect(upsertPatch.mock.calls[0]![0].machine_id).toBe(hostMachineId(host, ESSID));
-    expect(upsertPatch.mock.calls[0]![0].content).toBe(
+    expect(appendLog).toHaveBeenCalledTimes(1);
+    expect(appendLog.mock.calls[0]![0].machine_id).toBe(hostMachineId(host, ESSID));
+    expect(appendLog.mock.calls[0]![0].text).toBe(
       `${expectedKernLine(host)}\n`,
-    );
-  });
-
-  it('appends after the existing log content rather than clobbering it', async () => {
-    const id = generateIdentity();
-    const host = loggedHostsOf(id.publicKeyHex)[0]!;
-    const { deps, upsertPatch } = makeDeps({
-      readLog: vi.fn(async () => logRead('PRIOR LINE\n')),
-    });
-
-    await handleNmapScan(envelope(id, host.ip), deps);
-
-    expect(upsertPatch.mock.calls[0]![0].content).toBe(
-      `PRIOR LINE\n${expectedKernLine(host)}\n`,
     );
   });
 
@@ -303,38 +279,38 @@ describe('handleNmapScan', () => {
     const freeOctet = Array.from({ length: 253 }, (_, index) => index + 2).find(
       (octet) => !taken.has(`${subnet}.${octet}`),
     )!;
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     const result = await handleNmapScan(envelope(id, `${subnet}.${freeOctet}`), deps);
 
     expect(result.body).toEqual({ ok: true, hostsLogged: 0 });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('skips the player own workstation (it is keyed by a different machine_id)', async () => {
     const id = identityOffTheGeneratedLan();
     const selfIp = selfIpOf(id.publicKeyHex);
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     const result = await handleNmapScan(envelope(id, selfIp), deps);
 
     expect(result.body).toEqual({ ok: true, hostsLogged: 0 });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('refuses a target on a network the scanner does not reach, writing nothing', async () => {
     const id = generateIdentity();
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     const result = await handleNmapScan(envelope(id, '10.0.0.1-254'), deps);
 
     expect(result).toEqual({ status: 403, body: { error: 'wrong_network' } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('rejects a tampered envelope (payload changed after signing) without writing', async () => {
     const id = generateIdentity();
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
     const signed = envelope(id, `${subnetOf()}.1-254`);
     // Mutate the signed payload so the signature no longer matches it: the
     // structure stays valid (so it reaches the signature check) but verification
@@ -344,12 +320,12 @@ describe('handleNmapScan', () => {
     const result = await handleNmapScan(tampered, deps);
 
     expect(result).toEqual({ status: 401, body: { error: 'signature_invalid' } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('rejects an envelope that smuggles a client-supplied player_key', async () => {
     const id = generateIdentity();
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     const result = await handleNmapScan(
       envelope(id, `${subnetOf()}.1-254`, { player_key: 'attacker-key' }),
@@ -357,12 +333,12 @@ describe('handleNmapScan', () => {
     );
 
     expect(result.status).toBe(400);
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('rejects an envelope missing the target field', async () => {
     const id = generateIdentity();
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     const result = await handleNmapScan(
       signRequest(id, 'nmapScan', { essid: ESSID }),
@@ -370,7 +346,7 @@ describe('handleNmapScan', () => {
     );
 
     expect(result.status).toBe(400);
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('lists the scanned host real open ports in the logged line', async () => {
@@ -378,11 +354,11 @@ describe('handleNmapScan', () => {
     // Guards the fixture's premise: if generation ever stops giving this host a
     // service, this fails loudly instead of silently testing a 0-port line.
     expect(ports).toContainEqual(22);
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     await handleNmapScan(envelope(PORTED_IDENTITY, PORTED_HOST.ip), deps);
 
-    const content = upsertPatch.mock.calls[0]![0].content;
+    const content = appendLog.mock.calls[0]![0].text;
     expect(content).toBe(`${expectedKernLine(PORTED_HOST)}\n`);
     // The actual port numbers must reach the line (not, say, `undefined`).
     for (const port of ports) expect(content).toContain(String(port));
@@ -396,74 +372,74 @@ describe('handleNmapScan', () => {
     ['leading garbage on a single IP', `x${PORTED_SUBNET}.1`],
     ['trailing garbage on a single IP', `${PORTED_SUBNET}.1x`],
   ])('writes nothing for %s', async (_label, target) => {
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     const result = await handleNmapScan(envelope(PORTED_IDENTITY, target), deps);
 
     expect(result.body).toEqual({ ok: true, hostsLogged: 0 });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('records the source as "unknown" when the scanner holds no lease on the network', async () => {
     const id = generateIdentity();
     const host = loggedHostsOf(id.publicKeyHex)[0]!;
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       findHomeVantage: async () => ({ data: { essid: ESSID, octet: null }, error: null }),
     });
 
     const result = await handleNmapScan(envelope(id, host.ip), deps);
 
     expect(result.body).toEqual({ ok: true, hostsLogged: 1 });
-    expect(upsertPatch.mock.calls[0]![0].content).toContain('Port scan from unknown —');
+    expect(appendLog.mock.calls[0]![0].text).toContain('Port scan from unknown —');
   });
 
   it('records the address the server places the scanner at, not one the client claims', async () => {
     const id = generateIdentity();
     const host = loggedHostsOf(id.publicKeyHex)[0]!;
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     await handleNmapScan(envelope(id, host.ip, { source_ip: '203.0.113.222' }), deps);
 
-    expect(upsertPatch.mock.calls[0]![0].content).toBe(`${expectedKernLine(host)}\n`);
+    expect(appendLog.mock.calls[0]![0].text).toBe(`${expectedKernLine(host)}\n`);
   });
 
   it('logs nothing for a network the scanner is not standing on', async () => {
     const id = generateIdentity();
     const host = loggedHostsOf(id.publicKeyHex)[0]!;
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       findHomeVantage: async () => ({ data: { essid: 'SOME-OTHER-WIFI', octet: 40 }, error: null }),
     });
 
     const result = await handleNmapScan(envelope(id, host.ip), deps);
 
     expect(result).toEqual({ status: 403, body: { error: 'wrong_network' } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('logs nothing for a scanner who is on no network at all', async () => {
     const id = generateIdentity();
     const host = loggedHostsOf(id.publicKeyHex)[0]!;
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       findHomeVantage: async () => ({ data: null, error: null }),
     });
 
     const result = await handleNmapScan(envelope(id, host.ip), deps);
 
     expect(result).toEqual({ status: 403, body: { error: 'caller_not_on_network' } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('returns 500 rather than a trace it could not place', async () => {
     const id = generateIdentity();
     const host = loggedHostsOf(id.publicKeyHex)[0]!;
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       findHomeVantage: async () => ({ data: null, error: new Error('db down') }),
     });
 
     const result = await handleNmapScan(envelope(id, host.ip), deps);
 
     expect(result).toEqual({ status: 500, body: { error: 'vantage_lookup_failed' } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 });
 
@@ -487,7 +463,7 @@ describe('handleNmapScan — own-LAN .1 scan → real router record', () => {
   it('logs the .1 gateway scan on computeApGatewayId(ESSID), not the dead-end hostMachineId', async () => {
     const id = generateIdentity();
     const gateway = gatewayOf();
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     await handleNmapScan(envelope(id, gateway.ip), deps);
 
@@ -496,26 +472,26 @@ describe('handleNmapScan — own-LAN .1 scan → real router record', () => {
     // the line moved OFF the dead-end coordinate record ONTO the one `ssh root@.1`
     // resolves to.
     expect(routerId).not.toBe(hostMachineId(gateway, ESSID));
-    expect(upsertPatch).toHaveBeenCalledTimes(1);
-    expect(upsertPatch.mock.calls[0]![0].machine_id).toBe(routerId);
+    expect(appendLog).toHaveBeenCalledTimes(1);
+    expect(appendLog.mock.calls[0]![0].machine_id).toBe(routerId);
   });
 
   it('still logs a generic NPC sibling on its coordinate hostMachineId', async () => {
     const id = generateIdentity();
     const sibling = firstSiblingOf(id.publicKeyHex);
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     await handleNmapScan(envelope(id, sibling.ip), deps);
 
-    expect(upsertPatch).toHaveBeenCalledTimes(1);
-    expect(upsertPatch.mock.calls[0]![0].machine_id).toBe(hostMachineId(sibling, ESSID));
+    expect(appendLog).toHaveBeenCalledTimes(1);
+    expect(appendLog.mock.calls[0]![0].machine_id).toBe(hostMachineId(sibling, ESSID));
   });
 
   it('logs the inner gateway scan on computeInnerGatewayId(caller), distinct from the edge router id', async () => {
     const id = generateIdentity();
     const inner = innerGatewayOf();
     const octet = Number(inner.ip.split('.')[3]);
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     await handleNmapScan(envelope(id, inner.ip), deps);
 
@@ -524,9 +500,9 @@ describe('handleNmapScan — own-LAN .1 scan → real router record', () => {
     // (would alias) nor its dead-end coordinate record — listing its own sshd:22.
     expect(innerId).not.toBe(computeApGatewayId(ESSID));
     expect(innerId).not.toBe(hostMachineId(inner, ESSID));
-    expect(upsertPatch).toHaveBeenCalledTimes(1);
-    expect(upsertPatch.mock.calls[0]![0].machine_id).toBe(innerId);
-    expect(upsertPatch.mock.calls[0]![0].content).toBe(`${expectedKernLine(inner)}\n`);
+    expect(appendLog).toHaveBeenCalledTimes(1);
+    expect(appendLog.mock.calls[0]![0].machine_id).toBe(innerId);
+    expect(appendLog.mock.calls[0]![0].text).toBe(`${expectedKernLine(inner)}\n`);
   });
 
   it('logs the router scan with the router real ports (sshd:22), not the dead generic host FS', async () => {
@@ -541,11 +517,11 @@ describe('handleNmapScan — own-LAN .1 scan → real router record', () => {
     // two sources rather than passing by coincidence.
     expect(realPorts).toContain(22);
     expect(realPorts).not.toEqual(genericPorts);
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     await handleNmapScan(envelope(id, gateway.ip), deps);
 
-    expect(upsertPatch.mock.calls[0]![0].content).toBe(`${expectedKernLine(gateway)}\n`);
+    expect(appendLog.mock.calls[0]![0].text).toBe(`${expectedKernLine(gateway)}\n`);
   });
 
   it('does not log the player own workstation on the router record (self still skipped)', async () => {
@@ -555,12 +531,12 @@ describe('handleNmapScan — own-LAN .1 scan → real router record', () => {
     // self-exclusion rather than as the collision it is.
     const id = identityOffTheGeneratedLan();
     const selfIp = selfIpOf(id.publicKeyHex);
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     const result = await handleNmapScan(envelope(id, selfIp), deps);
 
     expect(result.body).toEqual({ ok: true, hostsLogged: 0 });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 });
 
@@ -625,13 +601,13 @@ const expectedOccupantLine = (
     probedPorts: readOpenPorts(materializeWorkstationFs(occ, patches)).map((port) => port.port),
   });
 
-/** Find the upsert call that wrote a trace on the given machine_id (occupant traces
+/** Find the append that left a trace on the given machine_id (occupant traces
  *  may sit alongside the caller's own NPC traces, so we locate by target, not order). */
 const traceOn = (
-  upsertPatch: ReturnType<typeof makeDeps>['upsertPatch'],
+  appendLog: ReturnType<typeof makeDeps>['appendLog'],
   machineId: string,
-): PatchRow | undefined =>
-  upsertPatch.mock.calls.map((call) => call[0]).find((row) => row.machine_id === machineId);
+): MachineLogAppend | undefined =>
+  appendLog.mock.calls.map((call) => call[0]).find((row) => row.machine_id === machineId);
 
 describe('handleNmapScan — same-LAN scan traces a fellow occupant', () => {
   const setup = (
@@ -699,7 +675,7 @@ describe('handleNmapScan — same-LAN scan traces a fellow occupant', () => {
           : null,
       error: null,
     });
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       findHomeVantage,
       listOccupantsByEssid:
         over.listOccupantsByEssid ??
@@ -719,7 +695,7 @@ describe('handleNmapScan — same-LAN scan traces a fellow occupant', () => {
     const subnet = subnetOf();
     return {
       deps,
-      upsertPatch,
+      appendLog,
       listLeasesByEssid,
       alice,
       bob,
@@ -739,14 +715,13 @@ describe('handleNmapScan — same-LAN scan traces a fellow occupant', () => {
 
     await handleNmapScan(envelope(ctx.bob, ctx.aLan), ctx.deps);
 
-    expect(traceOn(ctx.upsertPatch, ctx.aWs)).toEqual({
+    expect(traceOn(ctx.appendLog, ctx.aWs)).toEqual({
       writer_key: ctx.alice.publicKeyHex,
       machine_id: ctx.aWs,
       path: '/var/log/kern.log',
-      content: `${expectedOccupantLine(ctx.occAlice, ctx.aPatches, ctx.bLan)}\n`,
+      text: `${expectedOccupantLine(ctx.occAlice, ctx.aPatches, ctx.bLan)}\n`,
       owner: KERN_LOG_OWNER,
       permissions: KERN_LOG_PERMISSIONS,
-      node_type: 'file',
     });
   });
 
@@ -755,7 +730,7 @@ describe('handleNmapScan — same-LAN scan traces a fellow occupant', () => {
 
     await handleNmapScan(envelope(ctx.bob, ctx.aLan), ctx.deps);
 
-    const content = traceOn(ctx.upsertPatch, ctx.aWs)!.content as string;
+    const content = traceOn(ctx.appendLog, ctx.aWs)!.text as string;
     expect(content).toContain('probed ports 22');
   });
 
@@ -765,7 +740,7 @@ describe('handleNmapScan — same-LAN scan traces a fellow occupant', () => {
 
     await handleNmapScan(envelope(ctx.bob, `${subnet}.1-254`), ctx.deps);
 
-    expect(traceOn(ctx.upsertPatch, ctx.aWs)?.content).toContain(`Port scan from ${ctx.bLan}`);
+    expect(traceOn(ctx.appendLog, ctx.aWs)?.text).toContain(`Port scan from ${ctx.bLan}`);
   });
 
   it("uses the caller's SERVER-DERIVED LAN IP, never the client-supplied source_ip", async () => {
@@ -773,7 +748,7 @@ describe('handleNmapScan — same-LAN scan traces a fellow occupant', () => {
 
     await handleNmapScan(envelope(ctx.bob, ctx.aLan, { source_ip: '203.0.113.222' }), ctx.deps);
 
-    const content = traceOn(ctx.upsertPatch, ctx.aWs)!.content as string;
+    const content = traceOn(ctx.appendLog, ctx.aWs)!.text as string;
     expect(content).toContain(ctx.bLan);
     expect(content).not.toContain('203.0.113.222');
   });
@@ -784,7 +759,7 @@ describe('handleNmapScan — same-LAN scan traces a fellow occupant', () => {
     const result = await handleNmapScan(envelope(ctx.caller, ctx.aLan), ctx.deps);
 
     expect(result).toEqual({ status: 403, body: { error: 'caller_not_on_network' } });
-    expect(ctx.upsertPatch).not.toHaveBeenCalled();
+    expect(ctx.appendLog).not.toHaveBeenCalled();
   });
 
   it("excludes the caller's own occupancy row (self is the own-LAN path, not an occupant trace)", async () => {
@@ -792,7 +767,7 @@ describe('handleNmapScan — same-LAN scan traces a fellow occupant', () => {
 
     await handleNmapScan(envelope(ctx.bob, ctx.bLan), ctx.deps);
 
-    expect(traceOn(ctx.upsertPatch, ctx.bWs)).toBeUndefined();
+    expect(traceOn(ctx.appendLog, ctx.bWs)).toBeUndefined();
   });
 
   it('does not trace a bricked (dark) occupant, even with sshd up', async () => {
@@ -800,7 +775,7 @@ describe('handleNmapScan — same-LAN scan traces a fellow occupant', () => {
 
     await handleNmapScan(envelope(ctx.bob, ctx.aLan), ctx.deps);
 
-    expect(traceOn(ctx.upsertPatch, ctx.aWs)).toBeUndefined();
+    expect(traceOn(ctx.appendLog, ctx.aWs)).toBeUndefined();
   });
 
   it('does not trace an occupant whose LAN IP the single target does not cover', async () => {
@@ -813,7 +788,7 @@ describe('handleNmapScan — same-LAN scan traces a fellow occupant', () => {
       ctx.deps,
     );
 
-    expect(traceOn(ctx.upsertPatch, ctx.aWs)).toBeUndefined();
+    expect(traceOn(ctx.appendLog, ctx.aWs)).toBeUndefined();
   });
 
   it('traces nobody — and does not throw — when the scan target is on a foreign subnet', async () => {
@@ -822,7 +797,7 @@ describe('handleNmapScan — same-LAN scan traces a fellow occupant', () => {
     const result = await handleNmapScan(envelope(ctx.bob, '10.0.0.5'), ctx.deps);
 
     expect(result.status).toBe(403);
-    expect(traceOn(ctx.upsertPatch, ctx.aWs)).toBeUndefined();
+    expect(traceOn(ctx.appendLog, ctx.aWs)).toBeUndefined();
   });
 
   it('skips occupant tracing without failing the scan when the occupancy lookup errors', async () => {
@@ -832,7 +807,7 @@ describe('handleNmapScan — same-LAN scan traces a fellow occupant', () => {
     const result = await handleNmapScan(envelope(ctx.bob, ctx.aLan), ctx.deps);
 
     expect(result.status).toBe(200);
-    expect(traceOn(ctx.upsertPatch, ctx.aWs)).toBeUndefined();
+    expect(traceOn(ctx.appendLog, ctx.aWs)).toBeUndefined();
   });
 
   it('skips an occupant whose journal lookup errors, without failing the scan', async () => {
@@ -841,7 +816,7 @@ describe('handleNmapScan — same-LAN scan traces a fellow occupant', () => {
     const result = await handleNmapScan(envelope(ctx.bob, ctx.aLan), ctx.deps);
 
     expect(result.status).toBe(200);
-    expect(traceOn(ctx.upsertPatch, ctx.aWs)).toBeUndefined();
+    expect(traceOn(ctx.appendLog, ctx.aWs)).toBeUndefined();
   });
 
   /** Alice and Bob both on REDRAWN octets — the state after the allocator found the
@@ -855,7 +830,7 @@ describe('handleNmapScan — same-LAN scan traces a fellow occupant', () => {
 
     await handleNmapScan(envelope(ctx.bob, `${subnetOf()}.7`), ctx.deps);
 
-    expect(traceOn(ctx.upsertPatch, ctx.aWs)).toBeDefined();
+    expect(traceOn(ctx.appendLog, ctx.aWs)).toBeDefined();
   });
 
   it("does not trace an occupant at its DERIVED octet once its lease moved elsewhere", async () => {
@@ -864,7 +839,7 @@ describe('handleNmapScan — same-LAN scan traces a fellow occupant', () => {
 
     await handleNmapScan(envelope(ctx.bob, derivedAliceIp), ctx.deps);
 
-    expect(traceOn(ctx.upsertPatch, ctx.aWs)).toBeUndefined();
+    expect(traceOn(ctx.appendLog, ctx.aWs)).toBeUndefined();
   });
 
   it("stamps the caller's LEASED address as the trace source, not its derived one", async () => {
@@ -872,7 +847,7 @@ describe('handleNmapScan — same-LAN scan traces a fellow occupant', () => {
 
     await handleNmapScan(envelope(ctx.bob, `${subnetOf()}.7`), ctx.deps);
 
-    expect(traceOn(ctx.upsertPatch, ctx.aWs)?.content).toBe(
+    expect(traceOn(ctx.appendLog, ctx.aWs)?.text).toBe(
       `${expectedOccupantLine(ctx.occAlice, ctx.aPatches, `${subnetOf()}.8`)}\n`,
     );
   });
@@ -886,7 +861,7 @@ describe('handleNmapScan — same-LAN scan traces a fellow occupant', () => {
 
     await handleNmapScan(envelope(ctx.bob, `${subnetOf()}.1-254`), ctx.deps);
 
-    expect(traceOn(ctx.upsertPatch, ctx.aWs)).toBeUndefined();
+    expect(traceOn(ctx.appendLog, ctx.aWs)).toBeUndefined();
   });
 
   it('traces nobody when the SCANNER holds no lease — there is no source address to stamp', async () => {
@@ -899,7 +874,7 @@ describe('handleNmapScan — same-LAN scan traces a fellow occupant', () => {
 
     await handleNmapScan(envelope(ctx.bob, `${subnetOf()}.1-254`), ctx.deps);
 
-    expect(traceOn(ctx.upsertPatch, ctx.aWs)).toBeUndefined();
+    expect(traceOn(ctx.appendLog, ctx.aWs)).toBeUndefined();
   });
 
   it('traces nobody when the scanner left the LAN, even though its lease survives the disconnect', async () => {
@@ -910,7 +885,7 @@ describe('handleNmapScan — same-LAN scan traces a fellow occupant', () => {
     const result = await handleNmapScan(envelope(ctx.bob, ctx.aLan), ctx.deps);
 
     expect(result).toEqual({ status: 403, body: { error: 'caller_not_on_network' } });
-    expect(ctx.upsertPatch).not.toHaveBeenCalled();
+    expect(ctx.appendLog).not.toHaveBeenCalled();
   });
 
   it('skips occupant tracing without failing the scan when the lease lookup errors', async () => {
@@ -920,7 +895,7 @@ describe('handleNmapScan — same-LAN scan traces a fellow occupant', () => {
     const result = await handleNmapScan(envelope(ctx.bob, ctx.aLan), ctx.deps);
 
     expect(result.status).toBe(200);
-    expect(traceOn(ctx.upsertPatch, ctx.aWs)).toBeUndefined();
+    expect(traceOn(ctx.appendLog, ctx.aWs)).toBeUndefined();
   });
 });
 
@@ -950,14 +925,14 @@ describe('handleNmapScan — from a shell held on a box', () => {
 
   it("names the hop's own LAN address on every host the sweep touches", async () => {
     const { hop, shellOn, hopEnvelope } = hopFixture();
-    const { deps, upsertPatch } = makeDeps(shellOn(ESSID));
+    const { deps, appendLog } = makeDeps(shellOn(ESSID));
 
     const result = await handleNmapScan(hopEnvelope(`${subnetOf()}.1-254`), deps);
 
     expect(result.status).toBe(200);
-    expect(upsertPatch).toHaveBeenCalled();
-    for (const [row] of upsertPatch.mock.calls) {
-      expect(row.content).toContain(`Port scan from ${hop.ip} —`);
+    expect(appendLog).toHaveBeenCalled();
+    for (const [row] of appendLog.mock.calls) {
+      expect(row.text).toContain(`Port scan from ${hop.ip} —`);
     }
   });
 
@@ -968,7 +943,7 @@ describe('handleNmapScan — from a shell held on a box', () => {
     const occAlice = occupantRow(alice, aWs, 'skylab');
     const aOctet = hop.ip.endsWith('.200') ? 201 : 200;
     const aLan = `${subnetOf()}.${aOctet}`;
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       ...shellOn(ESSID),
       listOccupantsByEssid: async () => ({ data: [occAlice], error: null }),
       listLeasesByEssid: async () => ({
@@ -980,31 +955,31 @@ describe('handleNmapScan — from a shell held on a box', () => {
 
     await handleNmapScan(hopEnvelope(aLan), deps);
 
-    expect(traceOn(upsertPatch, aWs)?.content).toBe(
+    expect(traceOn(appendLog, aWs)?.text).toBe(
       `${expectedOccupantLine(occAlice, [wsSshdUp], hop.ip)}\n`,
     );
   });
 
   it('refuses a sweep of a network other than the one the hop stands on', async () => {
     const { shellOn, hopEnvelope } = hopFixture();
-    const { deps, upsertPatch } = makeDeps(shellOn('RIDGEMONT-OFFICE'));
+    const { deps, appendLog } = makeDeps(shellOn('RIDGEMONT-OFFICE'));
 
     const result = await handleNmapScan(hopEnvelope(`${subnetOf()}.1-254`), deps);
 
     expect(result).toEqual({ status: 403, body: { error: 'wrong_network' } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('refuses a caller naming a box they hold no shell on', async () => {
     const { hopEnvelope } = hopFixture();
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       findHomeVantage: async () => ({ data: null, error: null }),
     });
 
     const result = await handleNmapScan(hopEnvelope(`${subnetOf()}.1-254`), deps);
 
     expect(result).toEqual({ status: 403, body: { error: 'no_session' } });
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 });
 
@@ -1085,7 +1060,7 @@ describe('handleNmapScan — on a deep layer', () => {
   it('logs every host on the layer an inner gateway fronts, from that layer’s .1', async () => {
     const layer = layerOf(inner);
     const hosts = hostsOnLayerOf(inner);
-    const { deps, upsertPatch } = makeDeps(shellOn());
+    const { deps, appendLog } = makeDeps(shellOn());
 
     const result = await handleNmapScan(
       scanFrom(inner?.machineId, `${layer.subnet}.1-254`),
@@ -1093,16 +1068,15 @@ describe('handleNmapScan — on a deep layer', () => {
     );
 
     expect(result).toEqual({ status: 200, body: { ok: true, hostsLogged: hosts.length } });
-    expect(upsertPatch).toHaveBeenCalledTimes(hosts.length);
+    expect(appendLog).toHaveBeenCalledTimes(hosts.length);
     for (const entry of hosts) {
-      expect(traceOn(upsertPatch, entry.machineId)).toEqual({
+      expect(traceOn(appendLog, entry.machineId)).toEqual({
         writer_key: apGatewayLogWriterKey(ESSID),
         machine_id: entry.machineId,
         path: '/var/log/kern.log',
-        content: deepLine(`${layer.subnet}.1`, entry),
+        text: deepLine(`${layer.subnet}.1`, entry),
         owner: KERN_LOG_OWNER,
         permissions: KERN_LOG_PERMISSIONS,
-        node_type: 'file',
       });
     }
   });
@@ -1110,84 +1084,69 @@ describe('handleNmapScan — on a deep layer', () => {
   it('logs a sweep from a deep host under its own address on its layer', async () => {
     const layer = layerOf(inner);
     const hosts = hostsOnLayerOf(inner);
-    const { deps, upsertPatch } = makeDeps(shellOn());
+    const { deps, appendLog } = makeDeps(shellOn());
 
     await handleNmapScan(
       scanFrom(hostMachineId(layer.host, ESSID), `${layer.subnet}.1-254`),
       deps,
     );
 
-    expect(upsertPatch).toHaveBeenCalledTimes(hosts.length);
+    expect(appendLog).toHaveBeenCalledTimes(hosts.length);
     for (const entry of hosts) {
-      expect(traceOn(upsertPatch, entry.machineId)?.content).toBe(deepLine(layer.host.ip, entry));
+      expect(traceOn(appendLog, entry.machineId)?.text).toBe(deepLine(layer.host.ip, entry));
     }
   });
 
   it('logs a deep gateway’s sweep of the layer it sits on under its own address there', async () => {
     const npc = npcOn(inner);
-    const { deps, upsertPatch } = makeDeps(shellOn());
+    const { deps, appendLog } = makeDeps(shellOn());
 
     await handleNmapScan(scanFrom(middle?.machineId, npc.host.ip), deps);
 
-    expect(upsertPatch).toHaveBeenCalledTimes(1);
-    expect(upsertPatch.mock.calls[0]?.[0].content).toBe(deepLine(middle?.host.ip ?? '', npc));
+    expect(appendLog).toHaveBeenCalledTimes(1);
+    expect(appendLog.mock.calls[0]?.[0].text).toBe(deepLine(middle?.host.ip ?? '', npc));
   });
 
   it('logs a deep gateway’s sweep of the layer it fronts from that layer’s .1', async () => {
     const layer = layerOf(middle);
     const npc = npcOn(middle);
-    const { deps, upsertPatch } = makeDeps(shellOn());
+    const { deps, appendLog } = makeDeps(shellOn());
 
     await handleNmapScan(scanFrom(middle?.machineId, npc.host.ip), deps);
 
-    expect(upsertPatch.mock.calls[0]?.[0].content).toBe(deepLine(`${layer.subnet}.1`, npc));
+    expect(appendLog.mock.calls[0]?.[0].text).toBe(deepLine(`${layer.subnet}.1`, npc));
   });
 
   it('logs a sweep of a layer above under the gateway the scan left through', async () => {
     const below = layerOf(middle);
     const npc = npcOn(inner);
-    const { deps, upsertPatch } = makeDeps(shellOn());
+    const { deps, appendLog } = makeDeps(shellOn());
 
     await handleNmapScan(scanFrom(hostMachineId(below.host, ESSID), npc.host.ip), deps);
 
-    expect(upsertPatch.mock.calls[0]?.[0].content).toBe(deepLine(middle?.host.ip ?? '', npc));
+    expect(appendLog.mock.calls[0]?.[0].text).toBe(deepLine(middle?.host.ip ?? '', npc));
   });
 
   it('logs a deep host’s sweep of the LAN under the inner gateway’s LAN address', async () => {
     const layer = layerOf(inner);
-    const { deps, upsertPatch } = makeDeps(shellOn());
+    const { deps, appendLog } = makeDeps(shellOn());
 
     await handleNmapScan(
       scanFrom(hostMachineId(layer.host, ESSID), `${subnetOf()}.1-254`),
       deps,
     );
 
-    expect(upsertPatch).toHaveBeenCalled();
-    for (const [row] of upsertPatch.mock.calls) {
-      expect(row.content).toContain(`Port scan from ${inner?.host.ip} —`);
+    expect(appendLog).toHaveBeenCalled();
+    for (const [row] of appendLog.mock.calls) {
+      expect(row.text).toContain(`Port scan from ${inner?.host.ip} —`);
     }
-  });
-
-  it('appends to what the host’s log already holds', async () => {
-    const layer = layerOf(inner);
-    const npc = npcOn(inner);
-    const { deps, upsertPatch } = makeDeps({
-      ...shellOn(),
-      readLog: vi.fn(async () => logRead('PRIOR LINE\n')),
-    });
-
-    await handleNmapScan(scanFrom(inner?.machineId, npc.host.ip), deps);
-
-    expect(upsertPatch.mock.calls[0]?.[0].content).toBe(
-      `PRIOR LINE\n${deepLine(`${layer.subnet}.1`, npc)}`,
-    );
   });
 
   it('still answers when a log write fails', async () => {
     const layer = layerOf(inner);
     const { deps } = makeDeps({
       ...shellOn(),
-      upsertPatch: vi.fn(async () => {
+      appendLog: vi.fn(async () => {
         throw new Error('db down');
       }),
     });
@@ -1212,12 +1171,12 @@ describe('handleNmapScan — on a deep layer', () => {
     const child = hostsOnLayerOf(door, essid).find((entry) => entry.host.kind === 'switch');
     if (child === undefined) throw new Error('the door fronts no switch');
     expect(child.machineId).not.toBe(hostMachineId(child.host, essid));
-    const { deps, upsertPatch } = makeDeps(shellOn(essid));
+    const { deps, appendLog } = makeDeps(shellOn(essid));
 
     await handleNmapScan(scanFrom(door?.machineId, child.host.ip, essid), deps);
 
-    expect(upsertPatch).toHaveBeenCalledTimes(1);
-    expect(upsertPatch.mock.calls[0]?.[0].machine_id).toBe(child.machineId);
+    expect(appendLog).toHaveBeenCalledTimes(1);
+    expect(appendLog.mock.calls[0]?.[0].machine_id).toBe(child.machineId);
   });
 
   describe('a switch’s port denies', () => {
@@ -1240,7 +1199,7 @@ describe('handleNmapScan — on a deep layer', () => {
         findPatches: vi.fn(async () => ({ data: [aclPatch('deny 22')], error: null })),
       });
       await handleNmapScan(scanFrom(innerSwitch?.machineId, npc.host.ip), denied.deps);
-      expect(traceOn(denied.upsertPatch, npc.machineId)?.content).not.toContain(
+      expect(traceOn(denied.appendLog, npc.machineId)?.text).not.toContain(
         'probed ports 22',
       );
 
@@ -1249,19 +1208,19 @@ describe('handleNmapScan — on a deep layer', () => {
         findPatches: vi.fn(async () => ({ data: [aclPatch('deny 9999')], error: null })),
       });
       await handleNmapScan(scanFrom(innerSwitch?.machineId, npc.host.ip), opened.deps);
-      expect(traceOn(opened.upsertPatch, npc.machineId)?.content).toContain('probed ports 22');
+      expect(traceOn(opened.appendLog, npc.machineId)?.text).toContain('probed ports 22');
     });
 
     it('surface a 500 when the switch’s journal cannot be read', async () => {
       const npc = npcOn(innerSwitch);
       const findPatches = vi.fn(async () => ({ data: null, error: new Error('db down') }));
-      const { deps, upsertPatch } = makeDeps({ ...shellOn(), findPatches });
+      const { deps, appendLog } = makeDeps({ ...shellOn(), findPatches });
 
       const result = await handleNmapScan(scanFrom(innerSwitch?.machineId, npc.host.ip), deps);
 
       expect(result).toEqual({ status: 500, body: { error: 'patches_lookup_failed' } });
       expect(findPatches).toHaveBeenCalledWith({ machine_id: innerSwitch?.machineId });
-      expect(upsertPatch).not.toHaveBeenCalled();
+      expect(appendLog).not.toHaveBeenCalled();
     });
 
     it('are not read for a router, which filters nothing', async () => {
@@ -1282,7 +1241,7 @@ describe('handleNmapScan — on a deep layer', () => {
   describe('who may ask', () => {
     it('refuses a gateway the caller holds no shell on, logging nothing', async () => {
       const layer = layerOf(inner);
-      const { deps, upsertPatch } = makeDeps({
+      const { deps, appendLog } = makeDeps({
         findHomeVantage: async () => ({ data: null, error: null }),
       });
 
@@ -1292,12 +1251,12 @@ describe('handleNmapScan — on a deep layer', () => {
       );
 
       expect(result).toEqual({ status: 403, body: { error: 'no_session' } });
-      expect(upsertPatch).not.toHaveBeenCalled();
+      expect(appendLog).not.toHaveBeenCalled();
     });
 
     it('refuses a layer further down than the one the box fronts', async () => {
       const below = layerOf(middle);
-      const { deps, upsertPatch } = makeDeps(shellOn());
+      const { deps, appendLog } = makeDeps(shellOn());
 
       const result = await handleNmapScan(
         scanFrom(inner?.machineId, `${below.subnet}.1-254`),
@@ -1305,12 +1264,12 @@ describe('handleNmapScan — on a deep layer', () => {
       );
 
       expect(result).toEqual({ status: 403, body: { error: 'wrong_network' } });
-      expect(upsertPatch).not.toHaveBeenCalled();
+      expect(appendLog).not.toHaveBeenCalled();
     });
 
     it('refuses a deep layer to a caller at home on their own box', async () => {
       const layer = layerOf(inner);
-      const { deps, upsertPatch } = makeDeps();
+      const { deps, appendLog } = makeDeps();
 
       const result = await handleNmapScan(
         envelope(generateIdentity(), `${layer.subnet}.1-254`),
@@ -1318,7 +1277,7 @@ describe('handleNmapScan — on a deep layer', () => {
       );
 
       expect(result).toEqual({ status: 403, body: { error: 'wrong_network' } });
-      expect(upsertPatch).not.toHaveBeenCalled();
+      expect(appendLog).not.toHaveBeenCalled();
     });
   });
 });

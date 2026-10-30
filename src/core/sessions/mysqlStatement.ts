@@ -43,7 +43,7 @@ import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import { credentialIn, databaseIn, DATADIR_OWNER, DATADIR_PATH } from '../mysql/datadir.js';
 import { runStatement } from '../mysql/statements.js';
 import { DATADIR_FILE } from '../generation/baseFs.js';
-import { appendMachineLog, type MachineLogReadQuery, type MachineLogReadResult } from '../patches/appendMachineLog.js';
+import { appendMachineLog, type AppendLog } from '../patches/appendMachineLog.js';
 import {
   formatMysqlStatementLine,
   MYSQL_LOG_OWNER,
@@ -65,10 +65,7 @@ export type MysqlStatementDeps = ServiceHostLookup &
   readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
   /** The server's wall clock, epoch-ms (UTC) — stamps the mysql.log line. */
   readonly now: () => number;
-  /** The TARGET's current `/var/log/mysql.log`. The read half of an append: without
-   *  it the daemon would replace the box's history with one line every time it had
-   *  something to say. */
-  readonly readMysqlLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
+  readonly appendLog: AppendLog;
 };
 
 export type { HandlerResponse };
@@ -185,7 +182,7 @@ export const handleMysqlStatement = async (
     const stamp = deps.now();
     try {
       await appendMachineLog(
-        { readLog: deps.readMysqlLog, upsertPatch: deps.upsertPatch },
+        { appendLog: deps.appendLog },
         {
           writerKey: targetWriterKey,
           machineId,

@@ -33,8 +33,7 @@ import {
 } from '../logging/vsftpdLog.js';
 import { derivePid } from '../logging/syslog.js';
 import type { FindActiveSession } from '../patches/authorizeMachineAccess.js';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
-import type { PatchRow } from '../patches/upsertPatch.js';
+import type { AppendLog } from '../patches/appendMachineLog.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import { plaintextFor } from '../../test/passwords.js';
 
@@ -199,8 +198,7 @@ type AuthOverrides = {
   listLeasesByEssid?: (essid: string) => Promise<LeasesResult>;
   insert?: (row: AuthSessionRow) => Promise<{ error: unknown }>;
   now?: () => number;
-  readAuthLog?: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
-  upsertPatch?: (row: PatchRow) => Promise<{ error: unknown }>;
+  appendLog?: AppendLog;
   findHomeNetworkByOwnerKey?: (ownerKey: string) => Promise<OwnerKeyResult>;
   findActiveSession?: FindActiveSession;
   findPublicIpByEssid?: (essid: string) => Promise<EssidResult>;
@@ -222,11 +220,8 @@ const makeDeps = (over: AuthOverrides = {}) => {
   const insertSession = vi.fn<(row: AuthSessionRow) => Promise<{ error: unknown }>>(
     over.insert ?? (async () => ({ error: null })),
   );
-  const readAuthLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(
-    over.readAuthLog ?? (async () => ({ data: null, error: null })),
-  );
-  const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(
-    over.upsertPatch ?? (async () => ({ error: null })),
+  const appendLog = vi.fn<AppendLog>(
+    over.appendLog ?? (async () => ({ error: null })),
   );
   const findHomeNetworkByOwnerKey = vi.fn<(ownerKey: string) => Promise<OwnerKeyResult>>(
     over.findHomeNetworkByOwnerKey ??
@@ -248,8 +243,7 @@ const makeDeps = (over: AuthOverrides = {}) => {
     listLeasesByEssid,
     insertSession,
     now: over.now ?? (() => FIXED_NOW),
-    readAuthLog,
-    upsertPatch,
+    appendLog,
     findHomeNetworkByOwnerKey,
     findActiveSession,
     findPublicIpByEssid,
@@ -261,8 +255,7 @@ const makeDeps = (over: AuthOverrides = {}) => {
     listOccupantsByEssid,
     listLeasesByEssid,
     insertSession,
-    readAuthLog,
-    upsertPatch,
+    appendLog,
     findHomeNetworkByOwnerKey,
     findActiveSession,
     findPublicIpByEssid,
@@ -748,7 +741,7 @@ describe('handleAuthCreateSessionPublic', () => {
   describe('cross-player connection trace', () => {
     it("appends ONE auth.log 'Accepted' line on the GATEWAY record for a :22 login", async () => {
       const attacker = generateIdentity();
-      const { deps, upsertPatch } = makeDeps();
+      const { deps, appendLog } = makeDeps();
 
       const result = await handleAuthCreateSessionPublic(
         envelope(attacker, { username: 'root', password: ADMIN_PW }),
@@ -756,23 +749,22 @@ describe('handleAuthCreateSessionPublic', () => {
       );
 
       expect(result.status).toBe(200);
-      expect(upsertPatch).toHaveBeenCalledTimes(1);
-      expect(upsertPatch.mock.calls[0]![0]).toEqual({
+      expect(appendLog).toHaveBeenCalledTimes(1);
+      expect(appendLog.mock.calls[0]![0]).toEqual({
         writer_key: apGatewayLogWriterKey(ESSID),
         machine_id: AP_GATEWAY_ID,
         path: AUTH_LOG_PATH,
-        content: `${expectedSshdLine(seedApGatewayHostname(ESSID), 'success', 'root')}\n`,
+        text: `${expectedSshdLine(seedApGatewayHostname(ESSID), 'success', 'root')}\n`,
         owner: AUTH_LOG_OWNER,
         permissions: AUTH_LOG_PERMISSIONS,
-        node_type: 'file',
       });
       // The provenance is never the attacker — the keystone.
-      expect(upsertPatch.mock.calls[0]![0].writer_key).not.toBe(attacker.publicKeyHex);
+      expect(appendLog.mock.calls[0]![0].writer_key).not.toBe(attacker.publicKeyHex);
     });
 
     it("logs a forwarded login on the record of the box it REACHED, under that occupant's key", async () => {
       const attacker = generateIdentity();
-      const { deps, upsertPatch } = makeDeps({
+      const { deps, appendLog } = makeDeps({
         patches: patchesByMachine({ [AP_GATEWAY_ID]: [bobForward], [BOB_WS]: [sshdUp] }),
       });
 
@@ -782,18 +774,18 @@ describe('handleAuthCreateSessionPublic', () => {
       );
 
       expect(result.status).toBe(200);
-      expect(upsertPatch).toHaveBeenCalledTimes(1);
-      expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
+      expect(appendLog).toHaveBeenCalledTimes(1);
+      expect(appendLog.mock.calls[0]![0]).toMatchObject({
         writer_key: BOB.publicKeyHex,
         machine_id: BOB_WS,
         path: AUTH_LOG_PATH,
-        content: `${expectedSshdLine(bobOccupant.workstation_machine_name, 'success', 'guest')}\n`,
+        text: `${expectedSshdLine(bobOccupant.workstation_machine_name, 'success', 'guest')}\n`,
       });
     });
 
     it('appends a "Failed password" line on a wrong password and still returns 401 without inserting', async () => {
       const attacker = generateIdentity();
-      const { deps, upsertPatch, insertSession } = makeDeps();
+      const { deps, appendLog, insertSession } = makeDeps();
 
       const result = await handleAuthCreateSessionPublic(
         envelope(attacker, { username: 'root', password: 'definitely-not-the-pw' }),
@@ -802,14 +794,14 @@ describe('handleAuthCreateSessionPublic', () => {
 
       expect(result).toEqual({ status: 401, body: { error: 'invalid_credentials' } });
       expect(insertSession).not.toHaveBeenCalled();
-      expect(upsertPatch.mock.calls[0]![0].content).toBe(
+      expect(appendLog.mock.calls[0]![0].text).toBe(
         `${expectedSshdLine(seedApGatewayHostname(ESSID), 'failure', 'root')}\n`,
       );
     });
 
     it("uses the attacker's OCCUPANT public IP as the source, ignoring the client source_ip", async () => {
       const attacker = generateIdentity();
-      const { deps, upsertPatch, findHomeNetworkByOwnerKey } = makeDeps();
+      const { deps, appendLog, findHomeNetworkByOwnerKey } = makeDeps();
 
       await handleAuthCreateSessionPublic(
         envelope(attacker, { username: 'root', password: ADMIN_PW, source_ip: '10.0.0.66' }),
@@ -818,14 +810,14 @@ describe('handleAuthCreateSessionPublic', () => {
 
       // The lookup is keyed by the ATTACKER's verified key, not any occupant.
       expect(findHomeNetworkByOwnerKey).toHaveBeenCalledWith(attacker.publicKeyHex);
-      const content = upsertPatch.mock.calls[0]![0].content;
+      const content = appendLog.mock.calls[0]![0].text;
       expect(content).toContain(`from ${ATTACKER_PUBLIC_IP}`);
       expect(content).not.toContain('10.0.0.66');
     });
 
     it("falls back to 'unknown' source when the attacker has no home network, still logging and authenticating", async () => {
       const attacker = generateIdentity();
-      const { deps, upsertPatch } = makeDeps({
+      const { deps, appendLog } = makeDeps({
         findHomeNetworkByOwnerKey: async () => ({ data: null, error: null }),
       });
 
@@ -835,14 +827,14 @@ describe('handleAuthCreateSessionPublic', () => {
       );
 
       expect(result.status).toBe(200);
-      expect(upsertPatch.mock.calls[0]![0].content).toBe(
+      expect(appendLog.mock.calls[0]![0].text).toBe(
         `${expectedSshdLine(seedApGatewayHostname(ESSID), 'success', 'root', 'unknown')}\n`,
       );
     });
 
     it("keeps the trace on an AP nobody has ever leased an address on, in the network's own row", async () => {
       const attacker = generateIdentity();
-      const { deps, upsertPatch } = makeDeps({
+      const { deps, appendLog } = makeDeps({
         listLeasesByEssid: async () => ({ data: [], error: null }),
       });
 
@@ -852,8 +844,8 @@ describe('handleAuthCreateSessionPublic', () => {
       );
 
       expect(result.status).toBe(200);
-      expect(upsertPatch).toHaveBeenCalledTimes(1);
-      expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
+      expect(appendLog).toHaveBeenCalledTimes(1);
+      expect(appendLog.mock.calls[0]![0]).toMatchObject({
         writer_key: apGatewayLogWriterKey(ESSID),
         machine_id: AP_GATEWAY_ID,
         path: AUTH_LOG_PATH,
@@ -862,7 +854,7 @@ describe('handleAuthCreateSessionPublic', () => {
 
     it('writes no auth.log line for an unregistered public IP (404, nothing to log on)', async () => {
       const attacker = generateIdentity();
-      const { deps, upsertPatch } = makeDeps({ lookup: async () => ({ data: null, error: null }) });
+      const { deps, appendLog } = makeDeps({ lookup: async () => ({ data: null, error: null }) });
 
       const result = await handleAuthCreateSessionPublic(
         envelope(attacker, { username: 'root', password: ADMIN_PW }),
@@ -870,12 +862,12 @@ describe('handleAuthCreateSessionPublic', () => {
       );
 
       expect(result.status).toBe(404);
-      expect(upsertPatch).not.toHaveBeenCalled();
+      expect(appendLog).not.toHaveBeenCalled();
     });
 
     it('writes no auth.log line for a bricked gateway (whole public IP dark)', async () => {
       const attacker = generateIdentity();
-      const { deps, upsertPatch } = makeDeps({
+      const { deps, appendLog } = makeDeps({
         patches: async () => ({ data: [bootTombstone], error: null }),
       });
 
@@ -885,12 +877,12 @@ describe('handleAuthCreateSessionPublic', () => {
       );
 
       expect(result.status).toBe(404);
-      expect(upsertPatch).not.toHaveBeenCalled();
+      expect(appendLog).not.toHaveBeenCalled();
     });
 
     it('writes no auth.log line for an unforwarded destination port (404 before any log)', async () => {
       const attacker = generateIdentity();
-      const { deps, upsertPatch } = makeDeps();
+      const { deps, appendLog } = makeDeps();
 
       // -p 2222 with the opt-in default (no forward): the gateway serves no such port.
       const result = await handleAuthCreateSessionPublic(
@@ -899,27 +891,12 @@ describe('handleAuthCreateSessionPublic', () => {
       );
 
       expect(result.status).toBe(404);
-      expect(upsertPatch).not.toHaveBeenCalled();
-    });
-
-    it('skips the write when the auth.log read fails (RMW bails), and still authenticates', async () => {
-      const attacker = generateIdentity();
-      const { deps, upsertPatch } = makeDeps({
-        readAuthLog: async () => ({ data: null, error: new Error('log read down') }),
-      });
-
-      const result = await handleAuthCreateSessionPublic(
-        envelope(attacker, { username: 'root', password: ADMIN_PW }),
-        deps,
-      );
-
-      expect(result.status).toBe(200);
-      expect(upsertPatch).not.toHaveBeenCalled();
+      expect(appendLog).not.toHaveBeenCalled();
     });
 
     it('stamps the network the attacker is STANDING on, not the one they own', async () => {
       const attacker = generateIdentity();
-      const { deps, upsertPatch, findActiveSession, findPublicIpByEssid } = makeDeps({
+      const { deps, appendLog, findActiveSession, findPublicIpByEssid } = makeDeps({
         findActiveSession: async () => ({
           data: { username: 'root', userType: 'root', essid: PIVOT_ESSID },
           error: null,
@@ -943,7 +920,7 @@ describe('handleAuthCreateSessionPublic', () => {
         machine_id: PIVOT_MACHINE,
       });
       expect(findPublicIpByEssid).toHaveBeenCalledWith(PIVOT_ESSID);
-      expect(upsertPatch.mock.calls[0]![0].content).toContain(`from ${PIVOT_PUBLIC_IP}`);
+      expect(appendLog.mock.calls[0]![0].text).toContain(`from ${PIVOT_PUBLIC_IP}`);
     });
 
     it('stores the hop address the line names on the session it opens', async () => {
@@ -969,7 +946,7 @@ describe('handleAuthCreateSessionPublic', () => {
 
     it('uses the address the caller OWNS when the box they name is their own workstation', async () => {
       const attacker = generateIdentity();
-      const { deps, upsertPatch, findPublicIpByEssid } = makeDeps();
+      const { deps, appendLog, findPublicIpByEssid } = makeDeps();
 
       await handleAuthCreateSessionPublic(
         envelope(attacker, {
@@ -984,12 +961,12 @@ describe('handleAuthCreateSessionPublic', () => {
       // own-box L1 bypass hands one back as null. There is no network to stand on, so
       // the vantage is the one they own.
       expect(findPublicIpByEssid).not.toHaveBeenCalled();
-      expect(upsertPatch.mock.calls[0]![0].content).toContain(`from ${ATTACKER_PUBLIC_IP}`);
+      expect(appendLog.mock.calls[0]![0].text).toContain(`from ${ATTACKER_PUBLIC_IP}`);
     });
 
     it('refuses a caller claiming to stand on a box they hold no session on', async () => {
       const attacker = generateIdentity();
-      const { deps, upsertPatch, insertSession } = makeDeps();
+      const { deps, appendLog, insertSession } = makeDeps();
 
       const result = await handleAuthCreateSessionPublic(
         envelope(attacker, {
@@ -1004,13 +981,13 @@ describe('handleAuthCreateSessionPublic', () => {
       // the exact frame-somebody-else the server-derived address exists to prevent.
       expect(result).toEqual({ status: 403, body: { error: 'no_session' } });
       expect(insertSession).not.toHaveBeenCalled();
-      expect(upsertPatch).not.toHaveBeenCalled();
+      expect(appendLog).not.toHaveBeenCalled();
     });
 
     it('returns the auth result even when the log write throws (best-effort logging)', async () => {
       const attacker = generateIdentity();
       const { deps, insertSession } = makeDeps({
-        upsertPatch: async () => {
+        appendLog: async () => {
           throw new Error('write blew up');
         },
       });
@@ -1063,7 +1040,7 @@ describe('handleAuthCreateSessionPublic', () => {
 
     it("writes the arrival and the login into the box's OWN vsftpd.log, under its owner key", async () => {
       const attacker = generateIdentity();
-      const { deps, upsertPatch } = makeDeps({
+      const { deps, appendLog } = makeDeps({
         patches: patchesByMachine({ [AP_GATEWAY_ID]: [aliceFtpForward], [ALICE_WS]: [vsftpdUp] }),
       });
 
@@ -1080,20 +1057,19 @@ describe('handleAuthCreateSessionPublic', () => {
         time: asGameTime(FIXED_NOW),
         pid: derivePid(FIXED_NOW),
       };
-      expect(upsertPatch.mock.calls[0]![0]).toEqual({
+      expect(appendLog.mock.calls[0]![0]).toEqual({
         writer_key: ALICE.publicKeyHex,
         machine_id: ALICE_WS,
         path: VSFTPD_LOG_PATH,
-        content: `${formatVsftpdConnectLine(record)}\n${formatVsftpdLoginLine({ ...record, outcome: 'success', user: 'guest' })}\n`,
+        text: `${formatVsftpdConnectLine(record)}\n${formatVsftpdLoginLine({ ...record, outcome: 'success', user: 'guest' })}\n`,
         owner: VSFTPD_LOG_OWNER,
         permissions: VSFTPD_LOG_PERMISSIONS,
-        node_type: 'file',
       });
     });
 
     it('records a refused ftp login as FAIL in the same file, and inserts nothing', async () => {
       const attacker = generateIdentity();
-      const { deps, upsertPatch, insertSession } = makeDeps({
+      const { deps, appendLog, insertSession } = makeDeps({
         patches: patchesByMachine({ [AP_GATEWAY_ID]: [aliceFtpForward], [ALICE_WS]: [vsftpdUp] }),
       });
 
@@ -1104,12 +1080,12 @@ describe('handleAuthCreateSessionPublic', () => {
 
       expect(result).toEqual({ status: 401, body: { error: 'invalid_credentials' } });
       expect(insertSession).not.toHaveBeenCalled();
-      expect(upsertPatch.mock.calls[0]![0].content).toContain('FAIL LOGIN');
+      expect(appendLog.mock.calls[0]![0].text).toContain('FAIL LOGIN');
     });
 
     it('refuses an ftp login on a forward whose far side is sshd, and records nothing', async () => {
       const attacker = generateIdentity();
-      const { deps, upsertPatch, insertSession } = makeDeps({
+      const { deps, appendLog, insertSession } = makeDeps({
         patches: patchesByMachine({ [AP_GATEWAY_ID]: [aliceForward], [ALICE_WS]: [sshdUp] }),
       });
 
@@ -1122,12 +1098,12 @@ describe('handleAuthCreateSessionPublic', () => {
 
       expect(result).toEqual({ status: 404, body: { error: 'service_not_running' } });
       expect(insertSession).not.toHaveBeenCalled();
-      expect(upsertPatch).not.toHaveBeenCalled();
+      expect(appendLog).not.toHaveBeenCalled();
     });
 
     it('refuses an ftp login on a forward that reaches the box sshd, even though the box also runs vsftpd', async () => {
       const attacker = generateIdentity();
-      const { deps, insertSession, upsertPatch } = makeDeps({
+      const { deps, insertSession, appendLog } = makeDeps({
         // Both daemons up, and the forward names :22. The door is decided by the port
         // the request REACHED, not by what the box happens to be running.
         patches: patchesByMachine({
@@ -1143,7 +1119,7 @@ describe('handleAuthCreateSessionPublic', () => {
 
       expect(result).toEqual({ status: 404, body: { error: 'service_not_running' } });
       expect(insertSession).not.toHaveBeenCalled();
-      expect(upsertPatch).not.toHaveBeenCalled();
+      expect(appendLog).not.toHaveBeenCalled();
     });
 
     it('refuses an ssh login on a forward whose far side is vsftpd', async () => {
@@ -1253,7 +1229,7 @@ describe('a backdoor reached across the network', () => {
   });
 
   it('writes no line on the box it just let a stranger into', async () => {
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       patches: patchesByMachine({
         [AP_GATEWAY_ID]: [backdoorForward],
         [ALICE_WS]: [plantedByMallory],
@@ -1262,7 +1238,7 @@ describe('a backdoor reached across the network', () => {
 
     await handleAuthCreateSessionPublic(knock(), deps);
 
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   // Nothing is logged on the way in, but the session still came from somewhere: a

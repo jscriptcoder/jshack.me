@@ -45,8 +45,7 @@ import { md5 } from '../generation/md5.js';
 import { asGameTime, type AbsPath } from '../types.js';
 import type { SnmpDeviceKind, SnmpPortTable } from '../snmp/walk.js';
 import type { Directory, FilePermissions } from '../filesystem/types.js';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
-import type { PatchRow } from '../patches/upsertPatch.js';
+import type { AppendLog } from '../patches/appendMachineLog.js';
 
 /** What a community buys. The read-only one is public knowledge and names the device;
  *  the read-write one had to be cracked and controls what the device DOES. */
@@ -119,10 +118,7 @@ export const portTablesOf = (hostFs: Directory, kind: SnmpDeviceKind): readonly 
 export type SnmpTraceDeps = {
   /** The server's wall clock, epoch-ms (UTC) — stamps the snmpd.log lines. */
   readonly now: () => number;
-  /** The TARGET's current `/var/log/snmpd.log`, so a visit appends to the device's
-   *  history instead of replacing it. */
-  readonly readSnmpdLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
-  readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
+  readonly appendLog: AppendLog;
 };
 
 /** A moment on the device's clock, in the shape every snmpd.log line is stamped from. */
@@ -148,7 +144,7 @@ export const appendSnmpdLog = async (
   const { sweepLog } = SERVICE_CATALOG.snmp;
   try {
     await appendMachineLogLines(
-      { readLog: deps.readSnmpdLog, upsertPatch: deps.upsertPatch },
+      { appendLog: deps.appendLog },
       {
         writerKey: target.writerKey,
         machineId: target.machineId,

@@ -42,7 +42,9 @@ identity) plus a **journal** of patch rows replayed over it.
 - **Chronological replay:** reads sort rows by **server `updated_at` asc, tiebreak
   `writer_key`** (`core/patches/orderPatchesForReplay.ts`) before folding them. `updated_at`
   is bumped server-side on every write (a `BEFORE UPDATE` trigger), so a client cannot forge
-  its write to win ordering. `applyPatches` (`core/filesystem/applyPatches.ts`) folds the
+  its write to win ordering. It is stamped with `clock_timestamp()`, the moment of the write,
+  not `NOW()`, the transaction's start: a log append that waited on another's lock must rank
+  above the row it built on. `applyPatches` (`core/filesystem/applyPatches.ts`) folds the
   ordered list left-to-right — **last write per path wins**.
 - **`applyPatches` semantics:** `nodeType:'directory'` → create empty dir, **no-op if the
   path already exists** (so a `mkdir` never clobbers files added under it later);
@@ -370,10 +372,16 @@ shipped attack loop into an attacker/defender loop.
   `writer_key`. This is the one place a cross-player write is keyed to the owner rather than the
   acting player.
 - **One shared primitive** — `appendMachineLog(deps, target, line)`
-  (`core/patches/appendMachineLog.ts`): best-effort read-modify-write — read the current content at
-  `(machine_id, path, writer_key)`, append `${line}\n`, upsert `node_type:'file'`. A failed READ bails
-  without writing (never clobbers). **Best-effort throughout**: a logging read/write failure never
-  breaks — or fabricates — the underlying scan / auth (each handler wraps the call in try/catch).
+  (`core/patches/appendMachineLog.ts`): a best-effort append. Core sends `${line}\n` to the
+  `append_machine_log` database function
+  (`supabase/migrations/20261030000000_append_machine_log.sql`), which, in one transaction, locks
+  the log's `(machine_id, path)`, reads the latest row at the path the way a reader orders them
+  (every writer's, so a root wipe sticks and a tombstone restarts the log) and writes that content
+  plus the line into the writer's row. Two lines landing on one log at once both survive: a read in
+  the handler followed by a write would let the second drop the first. **Best-effort throughout**:
+  a failed append never breaks — or fabricates — the underlying scan / auth (each handler wraps the
+  call in try/catch). Only system lines take the lock; a player's own write to a log (root's
+  `> auth.log`, `rm`) goes through the ordinary write path.
   **A line is held to one line here**: most of it is what the caller sent (a path, an account, a
   package name), so a line break inside it is written out as `\n` / `\r` rather than left to start a
   line the caller wrote whole. A trace of several lines goes through `appendMachineLogLines` with

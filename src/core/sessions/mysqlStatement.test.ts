@@ -26,8 +26,8 @@ import { parseMysqlDatabase } from '../mysql/types.js';
 import { MYSQL_LOG_PATH } from '../logging/mysqlLog.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
 import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
+import type { AppendLog, MachineLogAppend } from '../patches/appendMachineLog.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
-import { logRead } from '../../test/factories/logRows.js';
 
 /**
  * `handleMysqlStatement` answers one statement against a box's real database.
@@ -95,19 +95,18 @@ const STAMPED_AT = Date.UTC(2026, 7, 21, 9, 14, 2);
 const makeDeps = (
   patches: readonly OwnerPatchRow[] = [],
   upsertResult: { readonly error: unknown } = { error: null },
-  existingLog: string | null = null,
 ) => {
   const findPatches = vi.fn<MysqlStatementDeps['findPatches']>(async () => ({
     data: patches,
     error: null,
   }));
   const upsertPatch = vi.fn<MysqlStatementDeps['upsertPatch']>(async () => upsertResult);
-  const readMysqlLog = vi.fn<MysqlStatementDeps['readMysqlLog']>(async () => logRead(existingLog));
+  const appendLog = vi.fn<AppendLog>(async () => ({ error: null }));
   const deps: MysqlStatementDeps = {
     nonceStore: freshStore,
     findPatches,
     upsertPatch,
-    readMysqlLog,
+    appendLog,
     now: () => STAMPED_AT,
     // No access point bears an address here: these tests are the caller's OWN world,
     // and a public address they have not registered reaches nothing, which is exactly
@@ -121,15 +120,17 @@ const makeDeps = (
     findPublicIpByEssid: derivedPublicIpByEssid,
     ...homeVantage(ESSID),
   };
-  return { deps, findPatches, upsertPatch, readMysqlLog };
+  return { deps, findPatches, upsertPatch, appendLog };
 };
 
-/** Every row the door wrote to the mysql log, in the order it wrote them. */
-const loggedLines = (upsertPatch: { readonly mock: { readonly calls: readonly (readonly [PatchRow])[] } }) =>
-  upsertPatch.mock.calls
-    .map(([row]) => row)
-    .filter((row) => row.path === MYSQL_LOG_PATH)
-    .flatMap((row) => (row.content ?? '').split('\n').filter((line) => line.trim() !== ''));
+/** Every line the door appended to the mysql log, in the order it wrote them. */
+const loggedLines = (appendLog: {
+  readonly mock: { readonly calls: readonly (readonly [MachineLogAppend])[] };
+}) =>
+  appendLog.mock.calls
+    .map(([append]) => append)
+    .filter((append) => append.path === MYSQL_LOG_PATH)
+    .flatMap((append) => append.text.split('\n').filter((line) => line.trim() !== ''));
 
 const signedStatement = (
   identity: ReturnType<typeof generateIdentity>,
@@ -268,6 +269,7 @@ const crossPlayerDeps = (
     [DEFENDER_WS]: rows.defender ?? [defenderMysqld, defenderLaddered()],
   };
   const upsertPatch = vi.fn<MysqlStatementDeps['upsertPatch']>(async () => ({ error: null }));
+  const appendLog = vi.fn<AppendLog>(async () => ({ error: null }));
   const deps: MysqlStatementDeps = {
     nonceStore: freshStore,
     findPatches: vi.fn<MysqlStatementDeps['findPatches']>(async ({ machine_id }) => ({
@@ -275,7 +277,7 @@ const crossPlayerDeps = (
       error: null,
     })),
     upsertPatch,
-    readMysqlLog: vi.fn<MysqlStatementDeps['readMysqlLog']>(async () => logRead(null)),
+    appendLog,
     now: () => STAMPED_AT,
     findNetworkByPublicIp: async () => ({
       data: { router_machine_id: AP_GATEWAY_ID, essid: TARGET_ESSID },
@@ -293,7 +295,7 @@ const crossPlayerDeps = (
     }),
     findPublicIpByEssid: derivedPublicIpByEssid,
   };
-  return { deps, upsertPatch };
+  return { deps, upsertPatch, appendLog };
 };
 
 const acrossTheWorld = async (
@@ -341,6 +343,7 @@ const deepDeps = (deepPatches: readonly OwnerPatchRow[] = []) => {
     [DEEP.machineId]: deepPatches,
   };
   const upsertPatch = vi.fn<MysqlStatementDeps['upsertPatch']>(async () => ({ error: null }));
+  const appendLog = vi.fn<AppendLog>(async () => ({ error: null }));
   const deps: MysqlStatementDeps = {
     nonceStore: freshStore,
     findPatches: vi.fn<MysqlStatementDeps['findPatches']>(async ({ machine_id }) => ({
@@ -348,7 +351,7 @@ const deepDeps = (deepPatches: readonly OwnerPatchRow[] = []) => {
       error: null,
     })),
     upsertPatch,
-    readMysqlLog: vi.fn<MysqlStatementDeps['readMysqlLog']>(async () => logRead(null)),
+    appendLog,
     now: () => STAMPED_AT,
     findNetworkByPublicIp: async () => ({ data: null, error: null }),
     listOccupantsByEssid: async () => ({ data: [], error: null }),
@@ -358,7 +361,7 @@ const deepDeps = (deepPatches: readonly OwnerPatchRow[] = []) => {
     // At home on the network whose gateway forwards the port.
     ...homeVantage(DEEP.essid),
   };
-  return { deps, upsertPatch };
+  return { deps, upsertPatch, appendLog };
 };
 
 /** The three rungs on the DEEP box's datadir, planted for the same reason they are
@@ -449,7 +452,7 @@ describe("a statement on another player's database, across the world", () => {
   });
 
   it('drops the player on the next statement when the defender pulls the forward', async () => {
-    const { deps, upsertPatch } = crossPlayerDeps({ gateway: [] });
+    const { appendLog, deps, upsertPatch } = crossPlayerDeps({ gateway: [] });
 
     const response = await acrossTheWorld('app_rw', APP_PASSWORD, 'SHOW TABLES', deps);
 
@@ -457,10 +460,11 @@ describe("a statement on another player's database, across the world", () => {
     // next one rather than at some next login the intruder never has to make.
     expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
     expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('drops the player on the next statement when the defender stops the daemon', async () => {
-    const { deps, upsertPatch } = crossPlayerDeps({ defender: [defenderLaddered()] });
+    const { appendLog, deps, upsertPatch } = crossPlayerDeps({ defender: [defenderLaddered()] });
 
     const response = await acrossTheWorld('app_rw', APP_PASSWORD, 'SHOW TABLES', deps);
 
@@ -468,6 +472,7 @@ describe("a statement on another player's database, across the world", () => {
     // onto a stopped daemon and a forward that was never opened are the same silence.
     expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
     expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 });
 
@@ -499,6 +504,7 @@ const sameLanDeps = (
     [DEFENDER_WS]: rows.defender ?? [defenderMysqld, defenderLaddered()],
   };
   const upsertPatch = vi.fn<MysqlStatementDeps['upsertPatch']>(async () => ({ error: null }));
+  const appendLog = vi.fn<AppendLog>(async () => ({ error: null }));
   const deps: MysqlStatementDeps = {
     nonceStore: freshStore,
     findPatches: vi.fn<MysqlStatementDeps['findPatches']>(async ({ machine_id }) => ({
@@ -506,7 +512,7 @@ const sameLanDeps = (
       error: null,
     })),
     upsertPatch,
-    readMysqlLog: vi.fn<MysqlStatementDeps['readMysqlLog']>(async () => logRead(null)),
+    appendLog,
     now: () => STAMPED_AT,
     findNetworkByPublicIp: async () => ({ data: null, error: null }),
     listOccupantsByEssid: async () => ({
@@ -526,7 +532,7 @@ const sameLanDeps = (
     // the address the defender's box really saw, derived here, never a claim.
     ...homeVantage(ESSID, ATTACKER_OCTET),
   };
-  return { deps, upsertPatch };
+  return { deps, upsertPatch, appendLog };
 };
 
 const acrossTheRoom = async (
@@ -580,7 +586,7 @@ describe("a statement on a fellow occupant's database, across the WiFi", () => {
   });
 
   it('drops the intruder on the next statement when the defender leaves the WiFi', async () => {
-    const { deps, upsertPatch } = sameLanDeps({ occupants: [attackerOccupant] });
+    const { appendLog, deps, upsertPatch } = sameLanDeps({ occupants: [attackerOccupant] });
 
     const response = await acrossTheRoom('app_rw', APP_PASSWORD, 'SHOW TABLES', deps);
 
@@ -588,10 +594,11 @@ describe("a statement on a fellow occupant's database, across the WiFi", () => {
     // next statement because the reach is re-read for every one.
     expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
     expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('drops the intruder on the next statement when the defender stops the daemon', async () => {
-    const { deps, upsertPatch } = sameLanDeps({ defender: [defenderLaddered()] });
+    const { appendLog, deps, upsertPatch } = sameLanDeps({ defender: [defenderLaddered()] });
 
     const response = await acrossTheRoom('app_rw', APP_PASSWORD, 'SHOW TABLES', deps);
 
@@ -600,6 +607,7 @@ describe("a statement on a fellow occupant's database, across the WiFi", () => {
     // same LAN is plainly there with its door shut.
     expect(response).toEqual({ status: 404, body: { error: 'service_not_running' } });
     expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 });
 
@@ -674,7 +682,7 @@ describe('a statement on a database behind a forward', () => {
   });
 
   it('reaches the datadir and the daemon own log on the deep box, and nothing else', async () => {
-    const { deps, upsertPatch } = deepDeps([deepLaddered()]);
+    const { deps, upsertPatch, appendLog } = deepDeps([deepLaddered()]);
     const table = Object.keys(DEEP.database.tables)[0] ?? 'users';
 
     const response = await deepStatement('dba', ROOT_PASSWORD, `DROP TABLE ${table}`, deps);
@@ -685,12 +693,14 @@ describe('a statement on a database behind a forward', () => {
     expect(response.status).toBe(200);
     expect(upsertPatch.mock.calls.map(([row]) => [row.machine_id, row.path])).toEqual([
       [DEEP.machineId, asAbsPath('/var/lib/mysql/data.json')],
+    ]);
+    expect(appendLog.mock.calls.map(([append]) => [append.machine_id, append.path])).toEqual([
       [DEEP.machineId, MYSQL_LOG_PATH],
     ]);
   });
 
   it('names the address NAT showed the box in the line it leaves behind', async () => {
-    const { deps, upsertPatch } = deepDeps([deepLaddered()]);
+    const { deps, appendLog } = deepDeps([deepLaddered()]);
     const table = Object.keys(DEEP.database.tables)[0] ?? 'users';
 
     await deepStatement('readonly', GUEST_PASSWORD, `DROP TABLE ${table}`, deps);
@@ -698,7 +708,7 @@ describe('a statement on a database behind a forward', () => {
     // The refusal the player read and the evidence the defender finds have to be the
     // same address. Written from the caller's claim instead, the trace would name an
     // attacker at a 192.168.x address this daemon has never been able to see.
-    expect(loggedLines(upsertPatch)).toEqual([
+    expect(loggedLines(appendLog)).toEqual([
       `2026-08-21T09:14:02.000000Z	6000 Denied	DROP command denied to user 'readonly'@'${DEEP.natIp}' for table '${table}'`,
     ]);
   });
@@ -1048,7 +1058,7 @@ describe('where a write lands', () => {
   ) => {
     const host = mysqlHostOn(ESSID);
     const identity = generateIdentity();
-    const { deps, upsertPatch } = makeDeps([laddered(host)], upsertResult);
+    const { deps, upsertPatch, appendLog } = makeDeps([laddered(host)], upsertResult);
     const response = await handleMysqlStatement(
       await signedStatement(identity, {
         target_ip: host.ip,
@@ -1058,7 +1068,7 @@ describe('where a write lands', () => {
       }),
       deps,
     );
-    return { host, identity, response, upsertPatch };
+    return { host, identity, response, upsertPatch, appendLog };
   };
 
   const APP = { username: 'app_rw', password: APP_PASSWORD };
@@ -1073,13 +1083,18 @@ describe('where a write lands', () => {
     // The machine is half the address and the easier half to get wrong: a change filed
     // against the wrong box vanishes silently, and the player is told Query OK over
     // rows that will not have moved when they look again.
-    const { host, response, upsertPatch } = await write(APP, "UPDATE users SET role = 'auditor'");
+    const { host, response, upsertPatch, appendLog } = await write(
+      APP,
+      "UPDATE users SET role = 'auditor'",
+    );
     const machine = resolveLanHostIdentity(host, ESSID).machineId;
 
     expect(response.status).toBe(200);
     expect(upsertPatch.mock.calls.map(([row]) => [row.machine_id, row.path])).toEqual([
       [machine, DATADIR],
-      [machine, String(MYSQL_LOG_PATH)],
+    ]);
+    expect(appendLog.mock.calls.map(([append]) => [append.machine_id, append.path])).toEqual([
+      [machine, MYSQL_LOG_PATH],
     ]);
   });
 
@@ -1198,7 +1213,7 @@ describe('what a statement leaves in the log', () => {
     upsertResult: { readonly error: unknown } = { error: null },
   ) => {
     const host = mysqlHostOn(ESSID);
-    const { deps, upsertPatch, readMysqlLog } = makeDeps([laddered(host)], upsertResult);
+    const { deps, appendLog } = makeDeps([laddered(host)], upsertResult);
     const response = await handleMysqlStatement(
       await signedStatement(generateIdentity(), {
         target_ip: host.ip,
@@ -1208,7 +1223,7 @@ describe('what a statement leaves in the log', () => {
       }),
       deps,
     );
-    return { response, upsertPatch, readMysqlLog };
+    return { response, appendLog };
   };
 
   const APP = { username: 'app_rw', password: APP_PASSWORD };
@@ -1219,42 +1234,18 @@ describe('what a statement leaves in the log', () => {
     // mysql's own stamp, its own tab-delimited columns, and the statement as the
     // engine read it. A defender reading this file learns what actually changed,
     // which is what makes a compromised box recoverable rather than merely lost.
-    const { upsertPatch } = await say(APP, "UPDATE users SET role = 'auditor'");
+    const { appendLog } = await say(APP, "UPDATE users SET role = 'auditor'");
 
-    expect(loggedLines(upsertPatch)).toEqual([
+    expect(loggedLines(appendLog)).toEqual([
       "2026-08-21T09:14:02.000000Z\t6000 Query\tUPDATE users SET role = 'auditor'",
     ]);
   });
 
   it('writes one Denied line for a write the account was not allowed to run', async () => {
-    const { upsertPatch } = await say(READONLY, 'DROP TABLE users');
+    const { appendLog } = await say(READONLY, 'DROP TABLE users');
 
-    expect(loggedLines(upsertPatch)).toEqual([
+    expect(loggedLines(appendLog)).toEqual([
       `2026-08-21T09:14:02.000000Z\t6000 Denied\tDROP command denied to user 'readonly'@'${HOME_IP}' for table 'users'`,
-    ]);
-  });
-
-  it('appends to the history rather than replacing it', async () => {
-    // The read half is what makes this an append. A door that only wrote would erase
-    // every connection the box had recorded, which is the one thing a trace file
-    // cannot survive.
-    const host = mysqlHostOn(ESSID);
-    const earlier = '2026-08-21T09:00:00.000000Z\t4400 Connect\tapp_rw@10.0.0.1 on x using TCP/IP';
-    const { deps, upsertPatch } = makeDeps([laddered(host)], { error: null }, `${earlier}\n`);
-
-    await handleMysqlStatement(
-      await signedStatement(generateIdentity(), {
-        target_ip: host.ip,
-        username: APP.username,
-        password: APP.password,
-        statement: "UPDATE users SET role = 'auditor'",
-      }),
-      deps,
-    );
-
-    expect(loggedLines(upsertPatch)).toEqual([
-      earlier,
-      "2026-08-21T09:14:02.000000Z\t6000 Query\tUPDATE users SET role = 'auditor'",
     ]);
   });
 
@@ -1262,44 +1253,42 @@ describe('what a statement leaves in the log', () => {
     // Readable by any account once you are on the box — getting on the box is the
     // gate. Root-only to WRITE, because the daemon's append models a system write and
     // a visitor must never be able to edit away the record of their visit.
-    const { upsertPatch } = await say(READONLY, 'DROP TABLE users');
-    const row = upsertPatch.mock.calls.map(([entry]) => entry).find((entry) => entry.path === MYSQL_LOG_PATH);
+    const { appendLog } = await say(READONLY, 'DROP TABLE users');
+    const append = appendLog.mock.calls
+      .map(([entry]) => entry)
+      .find((entry) => entry.path === MYSQL_LOG_PATH);
 
-    expect(row).toMatchObject({
+    expect(append).toMatchObject({
       owner: 'root',
-      node_type: 'file',
       permissions: { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] },
     });
   });
 
   it('writes nothing to the log for any read, refused or not', async () => {
     for (const statement of ['SHOW TABLES', 'DESCRIBE users', 'SELECT * FROM users']) {
-      const { upsertPatch, readMysqlLog } = await say(DBA, statement);
-      expect(loggedLines(upsertPatch), statement).toEqual([]);
-      // Not even the read half: a door that read the log on every SELECT would cost a
-      // round trip per statement to decide it had nothing to say.
-      expect(readMysqlLog, statement).not.toHaveBeenCalled();
+      const { appendLog } = await say(DBA, statement);
+      expect(loggedLines(appendLog), statement).toEqual([]);
     }
     const refusedRead = await say(READONLY, 'SELECT * FROM credentials');
-    expect(loggedLines(refusedRead.upsertPatch)).toEqual([]);
+    expect(loggedLines(refusedRead.appendLog)).toEqual([]);
   });
 
   it('writes nothing to the log for a write that never became one', async () => {
     for (const statement of ['UPDATE users SET', "UPDATE ghosts SET id = '1'"]) {
-      const { upsertPatch } = await say(DBA, statement);
-      expect(loggedLines(upsertPatch), statement).toEqual([]);
+      const { appendLog } = await say(DBA, statement);
+      expect(loggedLines(appendLog), statement).toEqual([]);
     }
   });
 
   it('records no change it could not persist', async () => {
     // The line says a change happened. If the datadir write failed, none did — and a
     // log claiming otherwise would send a defender looking for an edit nobody made.
-    const { response, upsertPatch } = await say(APP, "UPDATE users SET role = 'auditor'", {
+    const { response, appendLog } = await say(APP, "UPDATE users SET role = 'auditor'", {
       error: new Error('journal unreachable'),
     });
 
     expect(response.status).toBe(500);
-    expect(loggedLines(upsertPatch)).toEqual([]);
+    expect(loggedLines(appendLog)).toEqual([]);
   });
 });
 
@@ -1339,8 +1328,8 @@ describe('a statement from a hop', () => {
     });
 
   const hopDeps = (over: Partial<MysqlStatementDeps>) => {
-    const { deps, findPatches, upsertPatch, readMysqlLog } = makeDeps();
-    return { deps: { ...deps, ...over }, findPatches, upsertPatch, readMysqlLog };
+    const { deps, findPatches, upsertPatch, appendLog } = makeDeps();
+    return { deps: { ...deps, ...over }, findPatches, upsertPatch, appendLog };
   };
 
   it('runs a statement from the box the shell stands on', async () => {

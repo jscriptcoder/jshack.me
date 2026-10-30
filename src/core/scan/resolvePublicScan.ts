@@ -41,13 +41,8 @@ import {
   type FindHomeNetworkByOwnerKey,
   type FindPublicIpByEssid,
 } from '../logging/crossPlayerSourceIp.js';
-import {
-  appendMachineLog,
-  type MachineLogReadQuery,
-  type MachineLogReadResult,
-} from '../patches/appendMachineLog.js';
+import { appendMachineLog, type AppendLog } from '../patches/appendMachineLog.js';
 import { asGameTime } from '../types.js';
-import type { PatchRow } from '../patches/upsertPatch.js';
 import type { Directory } from '../filesystem/types.js';
 import type { OpenPort } from '../services/pidfile.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
@@ -99,11 +94,7 @@ export type ResolvePublicScanDeps = {
   ) => Promise<{ readonly data: readonly LanLeaseRow[] | null; readonly error: unknown }>;
   /** The server's wall clock, epoch-ms (UTC) — stamps the kern.log trace line. */
   readonly now: () => number;
-  /** Read the current content of the gateway's kern.log on the shared journal, keyed
-   *  `(machine_id, path, writer_key)` — the read half of the appended line. */
-  readonly readLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
-  /** Write a patch (here: the appended kern.log line on the scanned gateway). */
-  readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
+  readonly appendLog: AppendLog;
   /** Resolve the SCANNER's (caller's) own home public IP from their verified owner
    *  key — the truthful source IP of the scan, server-derived so a client cannot
    *  forge it or frame another network. `null` (no home network) → source unknown. */
@@ -230,7 +221,7 @@ const logCrossPlayerScan = async (
   });
   try {
     await appendMachineLog(
-      { readLog: deps.readLog, upsertPatch: deps.upsertPatch },
+      { appendLog: deps.appendLog },
       {
         writerKey,
         machineId: network.router_machine_id,

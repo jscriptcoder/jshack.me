@@ -35,12 +35,10 @@ import { chainLinks, machineIdForLanHost, type ChainLink } from '../generation/l
 import { generateDeepLayer } from '../generation/generateDeepLayer.js';
 import { buildDeepHostFs } from '../generation/deepHostFs.js';
 import { resolveDeepGatewayIdentity } from '../generation/lanHostIdentity.js';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
+import type { AppendLog } from '../patches/appendMachineLog.js';
 import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
-import type { PatchRow } from '../patches/upsertPatch.js';
 import type { Directory } from '../filesystem/types.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
-import { logRead } from '../../test/factories/logRows.js';
 import { ALL_GENERATED_PASSWORDS, plaintextFor } from '../../test/passwords.js';
 
 /**
@@ -70,12 +68,9 @@ const makeDeps = (over: Partial<AuthCreateSessionDeps> = {}) => {
   const insertSession = vi.fn<(row: AuthSessionRow) => Promise<{ error: unknown }>>(async () => ({
     error: null,
   }));
-  const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async () => ({
+  const appendLog = vi.fn<AppendLog>(async () => ({
     error: null,
   }));
-  const readAuthLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(
-    async () => ({ data: null, error: null }),
-  );
   // An empty journal is a healthy box: nothing has been written, so nothing is
   // tombstoned and `canBoot` holds. Every pre-existing test therefore keeps its
   // behaviour without naming the dep.
@@ -99,15 +94,14 @@ const makeDeps = (over: Partial<AuthCreateSessionDeps> = {}) => {
     nonceStore: freshStore,
     now: () => FIXED_NOW,
     insertSession,
-    readAuthLog,
-    upsertPatch,
+    appendLog,
     findPatches,
     findActiveSession,
     findHomeVantage,
     findWorkstationLease: async () => ({ data: null, error: null }),
     ...over,
   };
-  return { deps, insertSession, upsertPatch, readAuthLog, findPatches, findActiveSession, findHomeVantage };
+  return { deps, insertSession, appendLog, findPatches, findActiveSession, findHomeVantage };
 };
 
 /** The sshd auth.log line the server is expected to stamp for an attempt at
@@ -437,7 +431,7 @@ describe('handleAuthCreateSession', () => {
   it('persists the kind it was asked for, and traces the login to THAT service’s log', async () => {
     const id = generateIdentity();
     const host = hostServing('ftp', true);
-    const { deps, insertSession, upsertPatch } = makeDeps();
+    const { deps, insertSession, appendLog } = makeDeps();
 
     const result = await handleAuthCreateSession(
       validEnvelope(id, host, 'root', { kind: 'ftp', session_id: 'ftp-1700000000000' }),
@@ -448,18 +442,18 @@ describe('handleAuthCreateSession', () => {
     expect(insertSession.mock.calls[0]![0].kind).toBe('ftp');
     // vsftpd writes its OWN file. A login through the ftp door that showed up in
     // auth.log would tell the defender the wrong story about how they were entered.
-    expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
+    expect(appendLog.mock.calls[0]![0]).toMatchObject({
       machine_id: hostMachineId(host, ESSID),
       path: VSFTPD_LOG_PATH,
       // vsftpd records reaching the door and getting through it separately.
-      content: `${expectedConnectLine()}\n${expectedVsftpdLine('success', 'root')}\n`,
+      text: `${expectedConnectLine()}\n${expectedVsftpdLine('success', 'root')}\n`,
     });
   });
 
   it('stores an scp session under its own kind while logging it as an ordinary ssh login', async () => {
     const id = generateIdentity();
     const host = hostServing('ssh', true);
-    const { deps, insertSession, upsertPatch } = makeDeps();
+    const { deps, insertSession, appendLog } = makeDeps();
 
     const result = await handleAuthCreateSession(
       validEnvelope(id, host, 'root', { kind: 'scp', session_id: 'scp-1700000000000' }),
@@ -471,31 +465,31 @@ describe('handleAuthCreateSession', () => {
     // logged in. Provenance and evidence are different questions, and scp is the
     // door where they part company.
     expect(insertSession.mock.calls[0]![0].kind).toBe('scp');
-    expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
+    expect(appendLog.mock.calls[0]![0]).toMatchObject({
       machine_id: hostMachineId(host, ESSID),
       path: AUTH_LOG_PATH,
-      content: `${expectedSshdLine(host, 'success', 'root')}\n`,
+      text: `${expectedSshdLine(host, 'success', 'root')}\n`,
     });
   });
 
   it('leaves no line naming a file when a transfer logs in', async () => {
     const id = generateIdentity();
     const host = hostServing('ssh', true);
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     await handleAuthCreateSession(validEnvelope(id, host, 'root', { kind: 'scp' }), deps);
 
     // The whole of scp's specialisation: ftp itemises every byte in vsftpd.log,
     // scp says only that a credential was accepted. A defender comparing the two
     // logs learns what was taken from one and nothing from the other.
-    expect(upsertPatch.mock.calls[0]![0].path).not.toBe(VSFTPD_LOG_PATH);
-    expect(upsertPatch.mock.calls[0]![0].content).not.toContain('passwords.txt');
+    expect(appendLog.mock.calls[0]![0].path).not.toBe(VSFTPD_LOG_PATH);
+    expect(appendLog.mock.calls[0]![0].text).not.toContain('passwords.txt');
   });
 
   it('refuses an scp login on a host whose sshd is not running', async () => {
     const id = generateIdentity();
     const host = hostServing('ssh', false);
-    const { deps, insertSession, upsertPatch } = makeDeps();
+    const { deps, insertSession, appendLog } = makeDeps();
 
     const result = await handleAuthCreateSession(
       validEnvelope(id, host, 'root', { kind: 'scp' }),
@@ -507,13 +501,13 @@ describe('handleAuthCreateSession', () => {
     // the same question of the same daemon, which is what makes them one rule.
     expect(result).toEqual({ status: 404, body: { error: 'service_not_running' } });
     expect(insertSession).not.toHaveBeenCalled();
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('refuses an ssh login on a host whose sshd is not running', async () => {
     const id = generateIdentity();
     const host = hostServing('ssh', false);
-    const { deps, insertSession, upsertPatch } = makeDeps();
+    const { deps, insertSession, appendLog } = makeDeps();
 
     const result = await handleAuthCreateSession(validEnvelope(id, host, 'root'), deps);
 
@@ -523,7 +517,7 @@ describe('handleAuthCreateSession', () => {
     // through. `ssh` now obeys the rule `ftp` and `scp` always did.
     expect(result).toEqual({ status: 404, body: { error: 'service_not_running' } });
     expect(insertSession).not.toHaveBeenCalled();
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('traces a refused ftp login to vsftpd.log and inserts nothing', async () => {
@@ -534,7 +528,7 @@ describe('handleAuthCreateSession', () => {
       'authCreateSession',
       basePayload({ target_ip: host.ip, username: 'root', password: 'not-the-password', kind: 'ftp' }),
     );
-    const { deps, upsertPatch, insertSession } = makeDeps();
+    const { deps, appendLog, insertSession } = makeDeps();
 
     const result = await handleAuthCreateSession(envelope, deps);
 
@@ -542,7 +536,7 @@ describe('handleAuthCreateSession', () => {
     expect(insertSession).not.toHaveBeenCalled();
     // The knock is recorded even though the login failed — that pair is what turns a
     // sweep into a visible wall rather than a silence.
-    expect(upsertPatch.mock.calls[0]![0].content).toBe(
+    expect(appendLog.mock.calls[0]![0].text).toBe(
       `${expectedConnectLine()}\n${expectedVsftpdLine('failure', 'root')}\n`,
     );
   });
@@ -550,7 +544,7 @@ describe('handleAuthCreateSession', () => {
   it('refuses an ftp login on a host running no ftp daemon, logging nothing', async () => {
     const id = generateIdentity();
     const host = hostServing('ftp', false);
-    const { deps, insertSession, upsertPatch } = makeDeps();
+    const { deps, insertSession, appendLog } = makeDeps();
 
     const result = await handleAuthCreateSession(
       validEnvelope(id, host, 'root', { kind: 'ftp' }),
@@ -561,13 +555,13 @@ describe('handleAuthCreateSession', () => {
     // keeps no record of a knock it never heard.
     expect(result).toEqual({ status: 404, body: { error: 'service_not_running' } });
     expect(insertSession).not.toHaveBeenCalled();
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('lands an sshd "Accepted password" line on the REMOTE host\'s auth.log on success', async () => {
     const id = generateIdentity();
     const host = targetHostFor();
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     await handleAuthCreateSession(validEnvelope(id, host, 'root'), deps);
 
@@ -575,14 +569,13 @@ describe('handleAuthCreateSession', () => {
     // the NETWORK's own key + the remote machine_id, under /var/log/auth.log
     // with root-owner/root-write perms. Every occupant of the WiFi reaches this
     // same box, so a row per caller would let each login erase the last.
-    expect(upsertPatch.mock.calls[0]![0]).toEqual({
+    expect(appendLog.mock.calls[0]![0]).toEqual({
       writer_key: apGatewayLogWriterKey(ESSID),
       machine_id: hostMachineId(host, ESSID),
       path: AUTH_LOG_PATH,
-      content: `${expectedSshdLine(host, 'success', 'root')}\n`,
+      text: `${expectedSshdLine(host, 'success', 'root')}\n`,
       owner: 'root',
       permissions: { read: ['root', 'user', 'guest'], write: ['root'], execute: ['root'] },
-      node_type: 'file',
     });
   });
 
@@ -594,11 +587,11 @@ describe('handleAuthCreateSession', () => {
       'authCreateSession',
       basePayload({ target_ip: host.ip, username: 'root', password: 'not-the-password' }),
     );
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     await handleAuthCreateSession(envelope, deps);
 
-    expect(upsertPatch.mock.calls[0]![0].writer_key).toBe(apGatewayLogWriterKey(ESSID));
+    expect(appendLog.mock.calls[0]![0].writer_key).toBe(apGatewayLogWriterKey(ESSID));
   });
 
   it('files an own-router login under the key a login from outside the network uses', async () => {
@@ -613,11 +606,11 @@ describe('handleAuthCreateSession', () => {
         password: plaintextFor(seedApGatewayAdminHash(ESSID)),
       }),
     );
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     await handleAuthCreateSession(envelope, deps);
 
-    expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
+    expect(appendLog.mock.calls[0]![0]).toMatchObject({
       writer_key: apGatewayLogWriterKey(ESSID),
       machine_id: computeApGatewayId(ESSID),
     });
@@ -631,39 +624,25 @@ describe('handleAuthCreateSession', () => {
       'authCreateSession',
       basePayload({ target_ip: host.ip, username: 'root', password: 'not-the-password' }),
     );
-    const { deps, upsertPatch, insertSession } = makeDeps();
+    const { deps, appendLog, insertSession } = makeDeps();
 
     const result = await handleAuthCreateSession(envelope, deps);
 
     expect(result.status).toBe(401);
     expect(insertSession).not.toHaveBeenCalled();
-    expect(upsertPatch.mock.calls[0]![0].content).toBe(
+    expect(appendLog.mock.calls[0]![0].text).toBe(
       `${expectedSshdLine(host, 'failure', 'root')}\n`,
     );
   });
 
-  it('appends the line after the existing auth.log content (read-modify-write)', async () => {
+  it('writes the auth.log on the remote machine, not the attacker workstation', async () => {
     const id = generateIdentity();
     const host = targetHostFor();
-    const { deps, upsertPatch } = makeDeps({
-      readAuthLog: async () => logRead('PRIOR LINE\n'),
-    });
+    const { deps, appendLog } = makeDeps();
 
     await handleAuthCreateSession(validEnvelope(id, host, 'root'), deps);
 
-    expect(upsertPatch.mock.calls[0]![0].content).toBe(
-      `PRIOR LINE\n${expectedSshdLine(host, 'success', 'root')}\n`,
-    );
-  });
-
-  it('reads and writes the auth.log on the remote machine, not the attacker workstation', async () => {
-    const id = generateIdentity();
-    const host = targetHostFor();
-    const { deps, readAuthLog } = makeDeps();
-
-    await handleAuthCreateSession(validEnvelope(id, host, 'root'), deps);
-
-    expect(readAuthLog.mock.calls[0]![0]).toEqual({
+    expect(appendLog.mock.calls[0]![0]).toMatchObject({
       machine_id: hostMachineId(host, ESSID),
       path: AUTH_LOG_PATH,
     });
@@ -672,13 +651,13 @@ describe('handleAuthCreateSession', () => {
   it('stamps the server-derived address into the auth.log line, ignoring a client claim', async () => {
     const id = generateIdentity();
     const host = targetHostFor();
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     // The client claims some other address; a defender's log must name the one the box
     // actually saw, which is the server's to derive.
     await handleAuthCreateSession(validEnvelope(id, host, 'root', { source_ip: '10.9.8.7' }), deps);
 
-    const line = upsertPatch.mock.calls[0]![0].content;
+    const line = appendLog.mock.calls[0]![0].text;
     expect(line).toContain(`from ${DERIVED_IP}`);
     expect(line).not.toContain('10.9.8.7');
   });
@@ -686,13 +665,13 @@ describe('handleAuthCreateSession', () => {
   it('logs "from unknown" when the LAN cannot place the caller (no lease)', async () => {
     const id = generateIdentity();
     const host = targetHostFor();
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       findHomeVantage: async () => ({ data: { essid: ESSID, octet: null }, error: null }),
     });
 
     await handleAuthCreateSession(validEnvelope(id, host, 'root'), deps);
 
-    expect(upsertPatch.mock.calls[0]![0].content).toContain('from unknown');
+    expect(appendLog.mock.calls[0]![0].text).toContain('from unknown');
   });
 
   describe('the network the login reaches is the one the caller stands on', () => {
@@ -709,7 +688,7 @@ describe('handleAuthCreateSession', () => {
       // The caller stands at home (ESSID) but names someone else's network as the target's.
       const id = generateIdentity();
       const host = targetHostFor();
-      const { deps, insertSession, upsertPatch } = makeDeps();
+      const { deps, insertSession, appendLog } = makeDeps();
 
       const result = await handleAuthCreateSession(
         validEnvelope(id, host, 'root', { essid: 'SOMEONE-ELSES-WIFI' }),
@@ -718,7 +697,7 @@ describe('handleAuthCreateSession', () => {
 
       expect(result).toEqual({ status: 403, body: { error: 'wrong_network' } });
       expect(insertSession).not.toHaveBeenCalled();
-      expect(upsertPatch).not.toHaveBeenCalled();
+      expect(appendLog).not.toHaveBeenCalled();
     });
 
     it('derives the source from the HOP the caller holds, not from their home lease', async () => {
@@ -736,7 +715,7 @@ describe('handleAuthCreateSession', () => {
       );
       if (target === undefined) throw new Error('no second ssh host on the hop LAN');
       const callerMachineId = machineIdForLanHost(hop, HOP_ESSID);
-      const { deps, insertSession, upsertPatch } = makeDeps({
+      const { deps, insertSession, appendLog } = makeDeps({
         findActiveSession: async () => ({
           data: { username: 'root', userType: 'root', essid: HOP_ESSID },
           error: null,
@@ -760,7 +739,7 @@ describe('handleAuthCreateSession', () => {
 
       expect(result.status).toBe(200);
       expect(insertSession.mock.calls[0]![0].source_ip).toBe(hop.ip);
-      expect(upsertPatch.mock.calls[0]![0].content).toContain(`from ${hop.ip}`);
+      expect(appendLog.mock.calls[0]![0].text).toContain(`from ${hop.ip}`);
     });
 
     it('resolves localhost to the hop itself, the login logged as arriving over loopback', async () => {
@@ -776,7 +755,7 @@ describe('handleAuthCreateSession', () => {
       if (hop === undefined) throw new Error('no ssh host on the hop LAN');
       const id = generateIdentity();
       const callerMachineId = machineIdForLanHost(hop, HOP_ESSID);
-      const { deps, insertSession, upsertPatch } = makeDeps({
+      const { deps, insertSession, appendLog } = makeDeps({
         findActiveSession: async () => ({
           data: { username: 'root', userType: 'root', essid: HOP_ESSID },
           error: null,
@@ -803,9 +782,9 @@ describe('handleAuthCreateSession', () => {
         machine_id: callerMachineId,
         source_ip: '127.0.0.1',
       });
-      expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
+      expect(appendLog.mock.calls[0]![0]).toMatchObject({
         machine_id: callerMachineId,
-        content: `${expectedSshdLine(hop, 'success', 'root', '127.0.0.1')}\n`,
+        text: `${expectedSshdLine(hop, 'success', 'root', '127.0.0.1')}\n`,
       });
     });
 
@@ -838,21 +817,6 @@ describe('handleAuthCreateSession', () => {
     });
   });
 
-  it('does not append a line when the auth.log read fails (read-modify-write bails)', async () => {
-    const id = generateIdentity();
-    const host = targetHostFor();
-    const { deps, upsertPatch } = makeDeps({
-      readAuthLog: async () => ({ data: null, error: { message: 'read failed' } }),
-    });
-
-    const result = await handleAuthCreateSession(validEnvelope(id, host, 'root'), deps);
-
-    // The auth itself still succeeds — logging is best-effort — but the broken
-    // read must not let the append clobber the log with a contentless write.
-    expect(result.status).toBe(200);
-    expect(upsertPatch).not.toHaveBeenCalled();
-  });
-
   it('writes no auth.log line when the target host is unreachable (nothing to log on)', async () => {
     const id = generateIdentity();
     const envelope = signRequest(
@@ -860,18 +824,18 @@ describe('handleAuthCreateSession', () => {
       'authCreateSession',
       basePayload({ target_ip: '10.255.255.254', username: 'root', password: 'x' }),
     );
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     await handleAuthCreateSession(envelope, deps);
 
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('does not let a logging failure break (or fabricate) a successful auth', async () => {
     const id = generateIdentity();
     const host = targetHostFor();
     const { deps, insertSession } = makeDeps({
-      upsertPatch: async () => {
+      appendLog: async () => {
         throw new Error('log write exploded');
       },
     });
@@ -1131,13 +1095,13 @@ describe('handleAuthCreateSession — a bricked own-LAN host is dark from inside
   it('leaves no auth.log line on a bricked host — a dark box records nothing', async () => {
     const id = generateIdentity();
     const host = targetHostFor();
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       findPatches: async () => ({ data: [bootTombstone(id.publicKeyHex)], error: null }),
     });
 
     await handleAuthCreateSession(validEnvelope(id, host, 'root'), deps);
 
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('still logs in when the journal carries writes that are NOT a boot tombstone', async () => {
@@ -1399,13 +1363,13 @@ describe('a door with no credential behind it', () => {
   it('records nothing anywhere — there is no daemon behind a backdoor to write a line', async () => {
     const id = generateIdentity();
     const host = targetHostFor();
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       findPatches: async () => ({ data: [planted(id.publicKeyHex, listener())], error: null }),
     });
 
     await handleAuthCreateSession(knock(id, host), deps);
 
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('hands back who came in, so the client never has to guess the name', async () => {
@@ -1639,7 +1603,7 @@ describe('handleAuthCreateSession — a box on a deep layer the caller reaches',
   ).baseFs;
 
   it('lands on a host on the layer a gateway fronts, logged from that layer’s .1', async () => {
-    const { deps, insertSession, upsertPatch } = makeDeps(shellHeld());
+    const { deps, insertSession, appendLog } = makeDeps(shellHeld());
 
     const result = await handleAuthCreateSession(
       loginTo(INNER_LAYER.host, npcFs(INNER_LAYER), inner.machineId),
@@ -1652,11 +1616,11 @@ describe('handleAuthCreateSession — a box on a deep layer the caller reaches',
       source_ip: LAYER_DOT_ONE,
       essid: ESSID,
     });
-    expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
+    expect(appendLog.mock.calls[0]![0]).toMatchObject({
       machine_id: INNER_LAYER_HOST_ID,
       path: AUTH_LOG_PATH,
       writer_key: apGatewayLogWriterKey(ESSID),
-      content: `${expectedSshdLine(INNER_LAYER.host, 'success', 'root', LAYER_DOT_ONE)}\n`,
+      text: `${expectedSshdLine(INNER_LAYER.host, 'success', 'root', LAYER_DOT_ONE)}\n`,
     });
   });
 
@@ -1674,7 +1638,7 @@ describe('handleAuthCreateSession — a box on a deep layer the caller reaches',
     );
 
   it('resolves localhost to the deep box itself, not the gateway it reaches the LAN through', async () => {
-    const { deps, insertSession, upsertPatch } = makeDeps(shellHeld());
+    const { deps, insertSession, appendLog } = makeDeps(shellHeld());
 
     const result = await handleAuthCreateSession(
       loopbackFrom(INNER_LAYER_HOST_ID, npcFs(INNER_LAYER)),
@@ -1686,14 +1650,14 @@ describe('handleAuthCreateSession — a box on a deep layer the caller reaches',
       machine_id: INNER_LAYER_HOST_ID,
       source_ip: '127.0.0.1',
     });
-    expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
+    expect(appendLog.mock.calls[0]![0]).toMatchObject({
       machine_id: INNER_LAYER_HOST_ID,
-      content: `${expectedSshdLine(INNER_LAYER.host, 'success', 'root', '127.0.0.1')}\n`,
+      text: `${expectedSshdLine(INNER_LAYER.host, 'success', 'root', '127.0.0.1')}\n`,
     });
   });
 
   it('lands on the gateway beside a deep host, logged from the host’s own address', async () => {
-    const { deps, insertSession, upsertPatch } = makeDeps(shellHeld());
+    const { deps, insertSession, appendLog } = makeDeps(shellHeld());
 
     const result = await handleAuthCreateSession(
       loginTo(middle.host, middleFs, INNER_LAYER_HOST_ID),
@@ -1705,11 +1669,11 @@ describe('handleAuthCreateSession — a box on a deep layer the caller reaches',
       machine_id: middle.machineId,
       source_ip: INNER_LAYER.host.ip,
     });
-    expect(upsertPatch.mock.calls[0]![0].content).toContain(`from ${INNER_LAYER.host.ip}`);
+    expect(appendLog.mock.calls[0]![0].text).toContain(`from ${INNER_LAYER.host.ip}`);
   });
 
   it('reaches the layer above from a box two layers down, logged as the gateway between', async () => {
-    const { deps, insertSession, upsertPatch } = makeDeps(shellHeld());
+    const { deps, insertSession, appendLog } = makeDeps(shellHeld());
 
     const result = await handleAuthCreateSession(
       loginTo(INNER_LAYER.host, npcFs(INNER_LAYER), MIDDLE_LAYER_HOST_ID),
@@ -1718,11 +1682,11 @@ describe('handleAuthCreateSession — a box on a deep layer the caller reaches',
 
     expect(result.status).toBe(200);
     expect(insertSession.mock.calls[0]![0].machine_id).toBe(INNER_LAYER_HOST_ID);
-    expect(upsertPatch.mock.calls[0]![0].content).toContain(`from ${middle.host.ip}`);
+    expect(appendLog.mock.calls[0]![0].text).toContain(`from ${middle.host.ip}`);
   });
 
   it('logs a refused password on the layer host and opens no session', async () => {
-    const { deps, insertSession, upsertPatch } = makeDeps(shellHeld());
+    const { deps, insertSession, appendLog } = makeDeps(shellHeld());
 
     const result = await handleAuthCreateSession(
       loginTo(INNER_LAYER.host, npcFs(INNER_LAYER), inner.machineId, 'not-the-password'),
@@ -1731,7 +1695,7 @@ describe('handleAuthCreateSession — a box on a deep layer the caller reaches',
 
     expect(result).toEqual({ status: 401, body: { error: 'invalid_credentials' } });
     expect(insertSession).not.toHaveBeenCalled();
-    expect(upsertPatch.mock.calls[0]![0].content).toBe(
+    expect(appendLog.mock.calls[0]![0].text).toBe(
       `${expectedSshdLine(INNER_LAYER.host, 'failure', 'root', LAYER_DOT_ONE)}\n`,
     );
   });
@@ -1746,7 +1710,7 @@ describe('handleAuthCreateSession — a box on a deep layer the caller reaches',
       updated_at: '2026-07-26T00:00:00.000Z',
       writer_key: apGatewayLogWriterKey(ESSID),
     };
-    const { deps, insertSession, upsertPatch } = makeDeps({
+    const { deps, insertSession, appendLog } = makeDeps({
       ...shellHeld(),
       findPatches: async ({ machine_id }) => ({
         data: machine_id === INNER_LAYER_HOST_ID ? [tombstone] : [],
@@ -1761,7 +1725,7 @@ describe('handleAuthCreateSession — a box on a deep layer the caller reaches',
 
     expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
     expect(insertSession).not.toHaveBeenCalled();
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('reads only the target’s journal on a layer a router fronts — a router filters nothing', async () => {
@@ -1823,7 +1787,7 @@ describe('handleAuthCreateSession — a box on a deep layer the caller reaches',
       );
 
       expect(refused).toEqual({ status: 404, body: { error: 'service_not_running' } });
-      expect(denied.upsertPatch).not.toHaveBeenCalled();
+      expect(denied.appendLog).not.toHaveBeenCalled();
       expect(admitted.status).toBe(200);
     });
 
@@ -1868,14 +1832,14 @@ describe('handleAuthCreateSession — a box on a deep layer the caller reaches',
       callerMachineId: string | undefined,
       over: Partial<AuthCreateSessionDeps> = shellHeld(),
     ) => {
-      const { deps, insertSession, upsertPatch, findPatches } = makeDeps(over);
+      const { deps, insertSession, appendLog, findPatches } = makeDeps(over);
       const result = await handleAuthCreateSession(
         loginTo(target, targetFs, callerMachineId),
         deps,
       );
       expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
       expect(insertSession).not.toHaveBeenCalled();
-      expect(upsertPatch).not.toHaveBeenCalled();
+      expect(appendLog).not.toHaveBeenCalled();
       expect(findPatches).not.toHaveBeenCalled();
     };
 

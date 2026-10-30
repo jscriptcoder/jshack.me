@@ -19,8 +19,7 @@ import { asAbsPath } from '../types.js';
 import type { ApNetworkLookup } from '../network/resolvePublicTarget.js';
 import type { LanLeaseRow } from '../network/lanAddress.js';
 import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
-import type { PatchRow } from '../patches/upsertPatch.js';
+import type { AppendLog } from '../patches/appendMachineLog.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import type { Identity } from '../commands/types.js';
 import { plaintextFor } from '../../test/passwords.js';
@@ -111,18 +110,14 @@ const makeDeps = (
   gatewayPatches: readonly OwnerPatchRow[] = [],
   over: Partial<SnmpWalkDeps> = {},
 ) => {
-  const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async () => ({
+  const appendLog = vi.fn<AppendLog>(async () => ({
     error: null,
   }));
-  const readSnmpdLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(
-    async () => ({ data: null, error: null }),
-  );
   const deps: SnmpWalkDeps = {
     nonceStore: freshStore,
     now: () => FIXED_NOW,
     findPatches: async () => ({ data: [...gatewayPatches], error: null }),
-    readSnmpdLog,
-    upsertPatch,
+    appendLog,
     findNetworkByPublicIp: async () => ({ data: AP_NETWORK, error: null }),
     listOccupantsByEssid: async () => ({ data: [], error: null }),
     listLeasesByEssid: async () => ({ data: DEFENDER_LEASES, error: null }),
@@ -142,7 +137,7 @@ const makeDeps = (
     }),
     ...over,
   };
-  return { deps, upsertPatch };
+  return { deps, appendLog };
 };
 
 /** A walk sent from across the world. The attacker's OWN ESSID travels with it, because
@@ -166,8 +161,8 @@ const walkAcrossTheWorld = async (
 const identityOf = (response: { readonly body: Record<string, unknown> }): SnmpIdentity =>
   (response.body as { readonly identity: SnmpIdentity }).identity;
 
-const loggedRow = (upsertPatch: ReturnType<typeof makeDeps>['upsertPatch']) =>
-  upsertPatch.mock.calls.map(([row]) => row).find((row) => row.path === SNMPD_LOG_PATH);
+const loggedRow = (appendLog: ReturnType<typeof makeDeps>['appendLog']) =>
+  appendLog.mock.calls.map(([row]) => row).find((row) => row.path === SNMPD_LOG_PATH);
 
 describe('walking a device that belongs to somebody else, by the address the world routes it by', () => {
   it('names the gateway and shows the PUBLIC address alone, never the LAN behind it', async () => {
@@ -244,24 +239,24 @@ describe('every way of not answering a stranger, which has to be one way', () =>
   });
 
   it('still records the visit of a stranger whose community was refused', async () => {
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     await walkAcrossTheWorld(deps, { community: 'not-the-one' });
 
     // Silent to the caller, never to the owner: this file is the only evidence a walk
     // leaves anywhere in the world.
-    expect(loggedRow(upsertPatch)?.content).toContain(
+    expect(loggedRow(appendLog)?.text).toContain(
       `Authentication failure (incorrect community name) from UDP: [${ATTACKER_PUBLIC_IP}]`,
     );
   });
 
   it("files a stranger's walk under the access point's own row, never the visitor's", async () => {
     const attacker = generateIdentity();
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     await walkAcrossTheWorld(deps, { attacker });
 
-    const logged = loggedRow(upsertPatch);
+    const logged = loggedRow(appendLog);
     expect(logged?.machine_id).toBe(AP_GATEWAY_ID);
     expect(logged?.writer_key).toBe(apGatewayLogWriterKey(TARGET_ESSID));
     expect(logged?.writer_key).not.toBe(attacker.publicKeyHex);
@@ -283,7 +278,7 @@ describe('every way of not answering a stranger, which has to be one way', () =>
   });
 
   it('leaves no line on a gateway that never heard the stranger', async () => {
-    const { deps, upsertPatch } = makeDeps([
+    const { deps, appendLog } = makeDeps([
       patchRow(RULES_V4_PATH, `deny ${SERVICE_CATALOG.snmp.defaultPort}\n`),
     ]);
 
@@ -291,7 +286,7 @@ describe('every way of not answering a stranger, which has to be one way', () =>
 
     // A line here would tell the owner somebody reached a port they had closed, and
     // tell the stranger their community had been read.
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('still answers on every port the gateway did not close', async () => {

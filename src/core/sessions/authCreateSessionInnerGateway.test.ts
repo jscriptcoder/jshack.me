@@ -22,12 +22,7 @@ import type { AuthSessionRow } from './authCreateSession.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import type { Directory } from '../filesystem/types.js';
 import { AUTH_LOG_PATH } from '../logging/authLog.js';
-import type {
-  MachineLogReadQuery,
-  MachineLogReadResult,
-} from '../patches/appendMachineLog.js';
-import type { PatchRow } from '../patches/upsertPatch.js';
-import { logRead } from '../../test/factories/logRows.js';
+import type { AppendLog, MachineLogAppend } from '../patches/appendMachineLog.js';
 import type { HomeVantage } from './callerVantage.js';
 import type { ActiveSession } from '../patches/authorizeMachineAccess.js';
 import { lanAddressFor } from '../network/lanAddress.js';
@@ -189,19 +184,15 @@ const deepBootTombstone: OwnerPatchRow = { ...bootTombstone, path: '/boot/vmlinu
 const GHOST_PW = 'hunter2';
 const GHOST_ROW = `ghost:${md5(GHOST_PW)}:1001:1001:Ghost:/home/ghost:/bin/bash`;
 
-/** A capturing auth.log appender: `appended` collects every system-written trace row
- *  so a test can assert the deep-reach line (or its absence). The clock is fixed; the
- *  read half always reports an empty log so the first line is written verbatim. */
+/** A capturing auth.log appender: `appended` collects every system-written trace append
+ *  so a test can assert the deep-reach line (or its absence). The clock is fixed. */
 const makeLogDeps = () => {
-  const appended: PatchRow[] = [];
-  const readAuthLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(
-    async () => logRead(null),
-  );
-  const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async (row) => {
+  const appended: MachineLogAppend[] = [];
+  const appendLog = vi.fn<AppendLog>(async (row) => {
     appended.push(row);
     return { error: null };
   });
-  return { now: () => Date.parse('2026-06-17T00:00:02.000Z'), readAuthLog, upsertPatch, appended };
+  return { now: () => Date.parse('2026-06-17T00:00:02.000Z'), appendLog, appended };
 };
 
 /** Where the caller stands: the session they hold on a box they name, and the network
@@ -228,8 +219,7 @@ const gatewayDeps = (
     findPatches,
     insertSession,
     now: log.now,
-    readAuthLog: log.readAuthLog,
-    upsertPatch: log.upsertPatch,
+    appendLog: log.appendLog,
     findActiveSession: async () => ({ data: standing.session ?? null, error: null }),
     findHomeVantage: async () => ({
       data: standing.home === undefined ? { essid: ESSID, octet: 50 } : standing.home,
@@ -992,7 +982,7 @@ describe('handleAuthCreateSessionInnerGateway — where the caller stands', () =
 
     await handleAuthCreateSessionInnerGateway(envelope({ caller_machine_id: HOP_ID }), deps);
 
-    expect(appended.map((row) => row.content ?? '').join('')).toContain(
+    expect(appended.map((row) => row.text).join('')).toContain(
       `Accepted password for guest from ${DEEP.subnet}.1`,
     );
   });
@@ -1061,8 +1051,8 @@ describe('handleAuthCreateSessionInnerGateway — where the caller stands', () =
 });
 
 describe('handleAuthCreateSessionInnerGateway — deep-reach auth.log trace', () => {
-  const writtenLines = (appended: readonly PatchRow[]): string =>
-    appended.map((row) => row.content ?? '').join('');
+  const writtenLines = (appended: readonly MachineLogAppend[]): string =>
+    appended.map((row) => row.text).join('');
 
   it("files the line under the network's own key, not whoever reached the box", async () => {
     // The chain is regenerated from the ESSID and every occupant walks the identical one,

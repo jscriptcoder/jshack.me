@@ -39,11 +39,14 @@ import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import { formatSnmpdSetLine } from '../logging/snmpdLog.js';
 import type { SnmpSetRefusal } from '../snmp/set.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
+import type { PatchRow } from '../patches/upsertPatch.js';
 
 export type SnmpSetDeps = ServiceHostLookup &
   CallerVantageDeps &
   SnmpTraceDeps & {
     readonly nonceStore: NonceStore;
+    /** Write the file a SET changes on the device. */
+    readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
   };
 
 export type { HandlerResponse };

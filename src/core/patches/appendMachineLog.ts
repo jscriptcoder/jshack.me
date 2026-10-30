@@ -2,12 +2,13 @@
  * appendMachineLog — the shared server-side primitive for landing one already-
  * formatted syslog line on a machine's log file as the SYSTEM, not the player.
  *
- * It is a read-modify-write expressed as a patch: read the log as a READER sees it,
- * append `${line}\n`, upsert. "As a reader sees it" is the latest of every writer's
- * rows at the path, not the appender's own row: a root wipe (a truncate, or an `rm`
- * tombstone) lands under the WIPER's key, so building on the appender's own older
- * row would bring the wiped lines back with the next line recorded, and no wipe
- * would ever stick.
+ * The database appends it (`append_machine_log`), under a lock on the log's machine and
+ * path, so two lines landing at the same moment both land: read here and written back,
+ * two appends at once built on the same copy and the later one dropped the earlier line.
+ * It appends to the log as a READER sees it, the latest of every writer's rows at the
+ * path, not the appender's own row: a root wipe (a truncate, or an `rm` tombstone) lands
+ * under the WIPER's key, so building on the appender's own older row would bring the
+ * wiped lines back with the next line recorded, and no wipe would ever stick.
  *
  * It deliberately bypasses L1/L2 — a service (sshd
  * today; nmap/ftp/nc/mysqld/redis next) records the login/scan it just handled,
@@ -17,33 +18,29 @@
  * is held to being ONE line, whichever caller-sent field it was built from.
  *
  * Fire-and-forget by design: system logging must never break the action it
- * records, so it returns nothing and surfaces no error. A FAILED read bails
- * without writing — better to drop one log line than clobber an existing log
- * with a contentless write when the read transiently failed.
+ * records, so it returns nothing and surfaces no error.
  */
 
 import type { AbsPath } from '../types.js';
 import type { FilePermissions } from '../filesystem/types.js';
-import type { ListPathPatchesResult, PatchRow } from './upsertPatch.js';
-import { orderPatchesForReplay } from './orderPatchesForReplay.js';
 
-export type MachineLogReadQuery = {
+/** Text to add to the end of a machine's log, as the database's append takes it. A
+ *  tombstone at the path reads as an empty log, so the text recreates the file holding
+ *  only itself. */
+export type MachineLogAppend = {
   readonly machine_id: string;
   readonly path: string;
+  /** The row the appended log is written as: who the system recorded. */
+  readonly writer_key: string;
+  readonly owner: string;
+  readonly permissions: FilePermissions;
+  readonly text: string;
 };
 
-/** Every writer's row at the log's path on the machine. */
-export type MachineLogReadResult = ListPathPatchesResult;
-
-/** The log a reader sees, which every system append builds on: the latest of every
- *  writer's rows at the path. A tombstone (`content: null`) reads as an empty log, so
- *  the next line recreates the file holding only itself. */
-export const logAsReadersSeeIt = (rows: MachineLogReadResult['data']): string =>
-  orderPatchesForReplay(rows ?? []).at(-1)?.content ?? '';
+export type AppendLog = (append: MachineLogAppend) => Promise<{ readonly error: unknown }>;
 
 export type AppendMachineLogDeps = {
-  readonly readLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
-  readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
+  readonly appendLog: AppendLog;
 };
 
 export type MachineLogTarget = {
@@ -65,26 +62,20 @@ export type MachineLogTarget = {
 const onOneLine = (line: string): string => line.replace(/\r/g, '\\r').replace(/\n/g, '\\n');
 
 /** Land several lines in ONE append: they are one event to the box, and an append each
- *  would be a read-modify-write each, racing over the same file. The lines arrive apart
- *  rather than already joined, so the only breaks in what is written are the ones
- *  between them. */
+ *  would let another line land between them. The lines arrive apart rather than already
+ *  joined, so the only breaks in what is written are the ones between them. */
 export const appendMachineLogLines = async (
   deps: AppendMachineLogDeps,
   target: MachineLogTarget,
   lines: readonly string[],
 ): Promise<void> => {
-  const existing = await deps.readLog({ machine_id: target.machineId, path: target.path });
-  if (existing.error) return;
-
-  const current = logAsReadersSeeIt(existing.data);
-  await deps.upsertPatch({
-    writer_key: target.writerKey,
+  await deps.appendLog({
     machine_id: target.machineId,
     path: target.path,
-    content: `${current}${lines.map(onOneLine).join('\n')}\n`,
+    writer_key: target.writerKey,
     owner: target.owner,
     permissions: target.permissions,
-    node_type: 'file',
+    text: `${lines.map(onOneLine).join('\n')}\n`,
   });
 };
 

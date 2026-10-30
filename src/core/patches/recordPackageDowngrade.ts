@@ -45,14 +45,9 @@ import { authorizeMachineAccess, type FindActiveSession } from './authorizeMachi
 import type { FindPublicIpByEssid } from '../logging/crossPlayerSourceIp.js';
 import type { FindHomeVantage, FindWorkstationLease } from '../sessions/callerVantage.js';
 import { resolveTraceProvenance } from './traceProvenance.js';
-import {
-  appendMachineLog,
-  type MachineLogReadQuery,
-  type MachineLogReadResult,
-} from './appendMachineLog.js';
+import { appendMachineLog, type AppendLog } from './appendMachineLog.js';
 import type { FindOccupantWorkstationByMachineId } from './remoteWritePermission.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
-import type { PatchRow } from './upsertPatch.js';
 
 export type RecordPackageDowngradeDeps = {
   readonly nonceStore: NonceStore;
@@ -60,8 +55,7 @@ export type RecordPackageDowngradeDeps = {
    *  deterministic under test. */
   readonly now: () => number;
   readonly findActiveSession: FindActiveSession;
-  readonly readLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
-  readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
+  readonly appendLog: AppendLog;
   /** Whose box this is — `null` for a generated host nobody owns. One lookup decides
    *  both halves of the provenance below. */
   readonly findOccupantWorkstationByMachineId: FindOccupantWorkstationByMachineId;
@@ -139,7 +133,7 @@ export const handleRecordPackageDowngrade = async (
   });
 
   await appendMachineLog(
-    { readLog: deps.readLog, upsertPatch: deps.upsertPatch },
+    { appendLog: deps.appendLog },
     {
       writerKey: provenance.writerKey,
       machineId: payload.machine_id,

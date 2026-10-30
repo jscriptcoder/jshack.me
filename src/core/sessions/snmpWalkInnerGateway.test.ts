@@ -15,8 +15,7 @@ import { SNMPD_LOG_PATH } from '../logging/snmpdLog.js';
 import { asAbsPath } from '../types.js';
 import type { Directory } from '../filesystem/types.js';
 import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
-import type { PatchRow } from '../patches/upsertPatch.js';
+import type { AppendLog } from '../patches/appendMachineLog.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /**
@@ -106,12 +105,9 @@ const forwardTo = (destination: string): OwnerPatchRow =>
   patchRow('/etc/iptables/rules.v4', `forward ${FORWARDED_PORT} to ${destination}`);
 
 const makeDeps = (gatewayPatches: readonly OwnerPatchRow[]) => {
-  const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async () => ({
+  const appendLog = vi.fn<AppendLog>(async () => ({
     error: null,
   }));
-  const readSnmpdLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(
-    async () => ({ data: null, error: null }),
-  );
   const deps: SnmpWalkDeps = {
     nonceStore: freshStore,
     now: () => FIXED_NOW,
@@ -121,8 +117,7 @@ const makeDeps = (gatewayPatches: readonly OwnerPatchRow[]) => {
       data: machine_id === DEEP.gatewayId ? [...gatewayPatches] : [],
       error: null,
     }),
-    readSnmpdLog,
-    upsertPatch,
+    appendLog,
     findPublicIpByEssid: async () => ({ data: { public_ip: PUBLIC_IP }, error: null }),
     findNetworkByPublicIp: async () => ({ data: null, error: null }),
     listOccupantsByEssid: async () => ({ data: [], error: null }),
@@ -135,7 +130,7 @@ const makeDeps = (gatewayPatches: readonly OwnerPatchRow[]) => {
     findHomeVantage: async () => ({ data: { essid: DEEP.essid, octet: 50 }, error: null }),
     findWorkstationLease: async () => ({ data: null, error: null }),
   };
-  return { deps, upsertPatch };
+  return { deps, appendLog };
 };
 
 const walk = (request: { readonly port?: number; readonly community?: string } = {}) =>
@@ -147,8 +142,8 @@ const walk = (request: { readonly port?: number; readonly community?: string } =
     source_ip: CLIENT_IP,
   });
 
-const snmpdLogWrites = (upsertPatch: ReturnType<typeof makeDeps>['upsertPatch']) =>
-  upsertPatch.mock.calls.map(([row]) => row).filter((row) => row.path === SNMPD_LOG_PATH);
+const snmpdLogWrites = (appendLog: ReturnType<typeof makeDeps>['appendLog']) =>
+  appendLog.mock.calls.map(([row]) => row).filter((row) => row.path === SNMPD_LOG_PATH);
 
 describe('walking a device behind an inner gateway', () => {
   it('answers as the device the forward reaches, not as the gateway addressed', async () => {
@@ -179,14 +174,14 @@ describe('walking a device behind an inner gateway', () => {
     // A deep box is shown the fronting gateway's downstream `.1` and nothing else. The
     // player's own LAN address never reaches it, so a log line carrying that address
     // would be evidence of a request the device never received.
-    const { deps, upsertPatch } = makeDeps([forwardTo(`${DEEP.device.ip}:161`)]);
+    const { deps, appendLog } = makeDeps([forwardTo(`${DEEP.device.ip}:161`)]);
 
     await handleSnmpWalk(await walk(), deps);
 
-    const [logWrite] = snmpdLogWrites(upsertPatch);
+    const [logWrite] = snmpdLogWrites(appendLog);
     expect(logWrite?.machine_id).toBe(DEEP.deviceId);
-    expect(logWrite?.content).toContain(`${DEEP.subnet}.1`);
-    expect(logWrite?.content).not.toContain(CLIENT_IP);
+    expect(logWrite?.text).toContain(`${DEEP.subnet}.1`);
+    expect(logWrite?.text).not.toContain(CLIENT_IP);
   });
 
   it('is silent when the forward lands somewhere other than the agent', async () => {
@@ -229,15 +224,14 @@ describe('walking the inner gateway itself', () => {
     // A bare address is the box standing at it, even though that box is a gateway with
     // forwards of its own. The port a request arrives on is what decides which of the
     // two it is, and 161 is the gateway's own.
-    const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async () => ({
+    const appendLog = vi.fn<AppendLog>(async () => ({
       error: null,
     }));
     const deps: SnmpWalkDeps = {
       nonceStore: freshStore,
       now: () => FIXED_NOW,
       findPatches: async () => ({ data: [], error: null }),
-      readSnmpdLog: async () => ({ data: null, error: null }),
-      upsertPatch,
+      appendLog,
       findPublicIpByEssid: async () => ({ data: { public_ip: PUBLIC_IP }, error: null }),
       findNetworkByPublicIp: async () => ({ data: null, error: null }),
       listOccupantsByEssid: async () => ({ data: [], error: null }),

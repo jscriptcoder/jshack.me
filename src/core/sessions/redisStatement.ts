@@ -43,7 +43,7 @@ import { derivePid } from '../logging/syslog.js';
 import { formatRedisMutationLine } from '../logging/redisLog.js';
 import { appendMachineLog } from '../patches/appendMachineLog.js';
 import { asGameTime } from '../types.js';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
+import type { AppendLog } from '../patches/appendMachineLog.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
 
@@ -52,9 +52,7 @@ export type RedisStatementDeps = ServiceHostLookup &
   readonly nonceStore: NonceStore;
   /** The server's wall clock, epoch-ms (UTC) — stamps an attempt line. */
   readonly now: () => number;
-  /** The TARGET's current `/var/log/redis.log` — the read half of the trace, so a guess
-   *  accretes onto the box's history instead of replacing it. */
-  readonly readRedisLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
+  readonly appendLog: AppendLog;
   /** Write a patch. Today that is the one line a judged `AUTH` leaves on the target;
    *  the write verbs will use the same seam for the store itself. */
   readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
@@ -107,7 +105,7 @@ const recordOnTarget = async (
 
   try {
     await appendMachineLog(
-      { readLog: deps.readRedisLog, upsertPatch: deps.upsertPatch },
+      { appendLog: deps.appendLog },
       {
         writerKey: target.writerKey,
         machineId: target.machineId,

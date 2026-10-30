@@ -32,11 +32,10 @@ import { computeApGatewayId } from '../identity/router.js';
 import { lanAddressFor, type LanLeaseRow } from '../network/lanAddress.js';
 import type { ApNetworkLookup, NatOccupantRow } from '../network/resolvePublicTarget.js';
 import type { Directory } from '../filesystem/types.js';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
+import type { AppendLog } from '../patches/appendMachineLog.js';
 import type { OwnerPatchRow } from '../network/materializeMachineFs.js';
 import type { PatchRow } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
-import { logRead } from '../../test/factories/logRows.js';
 import { ALL_GENERATED_PASSWORDS } from '../../test/passwords.js';
 
 /**
@@ -133,15 +132,13 @@ const makeDeps = (over: Partial<RedisStatementDeps> = {}) => {
   const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(async () => ({
     error: null,
   }));
-  const readRedisLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(
-    async () => ({ data: null, error: null }),
-  );
+  const appendLog = vi.fn<AppendLog>(async () => ({ error: null }));
   const deps: RedisStatementDeps = {
     nonceStore: freshStore,
     now: () => FIXED_NOW,
     findPatches,
-    readRedisLog,
     upsertPatch,
+    appendLog,
     findNetworkByPublicIp: async () => ({ data: null, error: null }),
     listOccupantsByEssid: async () => ({ data: [], error: null }),
     listLeasesByEssid: async () => ({ data: [], error: null }),
@@ -152,7 +149,7 @@ const makeDeps = (over: Partial<RedisStatementDeps> = {}) => {
     ...homeVantage(ESSID),
     ...over,
   };
-  return { deps, findPatches, readRedisLog, upsertPatch };
+  return { deps, findPatches, upsertPatch, appendLog };
 };
 
 /** The plaintext behind a generated store's lock. Every secret in this world is drawn
@@ -322,7 +319,7 @@ describe('what a statement leaves behind', () => {
   it('writes NOTHING for a session of reads — not a row, not a line', async () => {
     const identity = generateIdentity();
     const host = openStoreHostOn(ESSID);
-    const { deps, upsertPatch } = makeDeps();
+    const { appendLog, deps, upsertPatch } = makeDeps();
 
     const quiet = [
       'KEYS *',
@@ -347,6 +344,7 @@ describe('what a statement leaves behind', () => {
     // It was watched from before the first write existed, which is what makes it a rule
     // the writes had to fit rather than one they could quietly have broken.
     expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 });
 
@@ -491,7 +489,7 @@ describe('producing a locked store secret', () => {
     const host = lockedStoreHostOn(ESSID);
     const password = plaintextOf(storeOn(host).requirepassHash ?? '');
     const { machineId } = resolveLanHostIdentity(host, ESSID);
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, upsertPatch, appendLog } = makeDeps();
 
     const response = await handleRedisStatement(
       await signedStatement(identity, {
@@ -503,37 +501,33 @@ describe('producing a locked store secret', () => {
     );
 
     expect(response.body).toEqual({ output: ['OK'], failed: false });
-    expect(upsertPatch).toHaveBeenCalledTimes(1);
-    expect(upsertPatch).toHaveBeenCalledWith({
+    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).toHaveBeenCalledTimes(1);
+    expect(appendLog).toHaveBeenCalledWith({
       writer_key: apGatewayLogWriterKey(ESSID),
       machine_id: machineId,
       path: REDIS_LOG_PATH,
-      content: `${attemptLine('success', host.hostname)}\n`,
+      text: `${attemptLine('success', host.hostname)}\n`,
       owner: REDIS_LOG_OWNER,
       permissions: REDIS_LOG_PERMISSIONS,
-      node_type: 'file',
     });
   });
 
-  it('records a refused attempt too, appended to what the log already held', async () => {
+  it('records a refused attempt too', async () => {
     const identity = generateIdentity();
     const host = lockedStoreHostOn(ESSID);
-    const earlier = '4470:M 09 Aug 2026 11:00:00.000 * Client connected from 10.0.0.9';
-    const { deps, upsertPatch } = makeDeps({
-      readRedisLog: async () => logRead(`${earlier}\n`),
-    });
+    const { deps, appendLog } = makeDeps();
 
     const response = await handleRedisStatement(
       await signedStatement(identity, { target_ip: host.ip, statement: 'AUTH guesswork' }),
       deps,
     );
 
-    // The wall of failures IS the defender's evidence, so a guess must accrete onto
-    // the box's history rather than replace it.
+    // The wall of failures IS the defender's evidence, so a guess leaves a line too.
     expect(response.body).toEqual({ output: ['(error) ERR invalid password'], failed: true });
-    expect(upsertPatch).toHaveBeenCalledWith(
+    expect(appendLog).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: `${earlier}\n${attemptLine('failure', host.hostname)}\n`,
+        text: `${attemptLine('failure', host.hostname)}\n`,
       }),
     );
   });
@@ -541,7 +535,7 @@ describe('producing a locked store secret', () => {
   it('records nothing for an AUTH at a store that holds no secret', async () => {
     const identity = generateIdentity();
     const host = openStoreHostOn(ESSID);
-    const { deps, upsertPatch } = makeDeps();
+    const { appendLog, deps, upsertPatch } = makeDeps();
 
     const response = await handleRedisStatement(
       await signedStatement(identity, { target_ip: host.ip, statement: 'AUTH anything' }),
@@ -555,6 +549,7 @@ describe('producing a locked store secret', () => {
       failed: true,
     });
     expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('refuses the next statement once the store secret has changed under it', async () => {
@@ -607,7 +602,7 @@ describe('producing a locked store secret', () => {
     const identity = generateIdentity();
     const host = lockedStoreHostOn(ESSID);
     const password = plaintextOf(storeOn(host).requirepassHash ?? '');
-    const { deps, upsertPatch } = makeDeps();
+    const { appendLog, deps, upsertPatch } = makeDeps();
 
     for (const statement of ['KEYS *', 'GET nothing:here', 'DBSIZE']) {
       await handleRedisStatement(
@@ -619,6 +614,7 @@ describe('producing a locked store secret', () => {
     // Learning to write for one verb must not have made reads noisy: against an open
     // store the arrival line is still the defender's only evidence of a theft.
     expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 });
 
@@ -638,6 +634,8 @@ describe('producing a locked store secret', () => {
 describe('changing a store through the door', () => {
   const rowsAt = (upsertPatch: ReturnType<typeof makeDeps>['upsertPatch'], path: string) =>
     upsertPatch.mock.calls.map(([row]) => row).filter((row) => row.path === path);
+  const appendsAt = (appendLog: ReturnType<typeof makeDeps>['appendLog'], path: string) =>
+    appendLog.mock.calls.map(([append]) => append).filter((append) => append.path === path);
 
   it('persists the whole store, root-owned, under the target own writer key', async () => {
     const identity = generateIdentity();
@@ -682,14 +680,14 @@ describe('changing a store through the door', () => {
     const identity = generateIdentity();
     const host = openStoreHostOn(ESSID);
     const { machineId } = resolveLanHostIdentity(host, ESSID);
-    const { deps, upsertPatch } = makeDeps();
+    const { deps, appendLog } = makeDeps();
 
     await handleRedisStatement(
       await signedStatement(identity, { target_ip: host.ip, statement: 'SET greeting hello' }),
       deps,
     );
 
-    const [logged] = rowsAt(upsertPatch, REDIS_LOG_PATH);
+    const [logged] = appendsAt(appendLog, REDIS_LOG_PATH);
     expect(logged).toMatchObject({
       // The box it happened ON, named explicitly: `patches` is keyed on
       // (machine_id, path, writer_key), so a line filed against the wrong machine is a
@@ -699,7 +697,7 @@ describe('changing a store through the door', () => {
       owner: REDIS_LOG_OWNER,
       permissions: REDIS_LOG_PERMISSIONS,
     });
-    expect(logged?.content).toContain(
+    expect(logged?.text).toContain(
       formatRedisMutationLine({
         detail: 'SET greeting "hello"',
         fromIp: CLIENT_IP,
@@ -712,7 +710,7 @@ describe('changing a store through the door', () => {
   it('writes a change it can name no address for as coming from nowhere nameable', async () => {
     const identity = generateIdentity();
     const host = openStoreHostOn(ESSID);
-    const { deps, upsertPatch } = makeDeps(homeVantage(ESSID, null));
+    const { deps, appendLog } = makeDeps(homeVantage(ESSID, null));
 
     await handleRedisStatement(
       await signedStatement(identity, {
@@ -728,33 +726,16 @@ describe('changing a store through the door', () => {
     // reading their own log needs to see that the key changed even when the visitor
     // cannot be placed. The connect door already answers this way; both rungs of the
     // same fallback belong to both doors.
-    const [logged] = rowsAt(upsertPatch, REDIS_LOG_PATH);
-    expect(logged?.content).toContain('unknown');
-  });
-
-  it('accretes onto the log the box already held rather than replacing it', async () => {
-    const identity = generateIdentity();
-    const host = openStoreHostOn(ESSID);
-    const { deps, upsertPatch } = makeDeps({
-      readRedisLog: vi.fn(async () => logRead('a line the box already held')),
-    });
-
-    await handleRedisStatement(
-      await signedStatement(identity, { target_ip: host.ip, statement: 'SET greeting hello' }),
-      deps,
-    );
-
-    expect(rowsAt(upsertPatch, REDIS_LOG_PATH)[0]?.content).toContain(
-      'a line the box already held',
-    );
+    const [logged] = appendsAt(appendLog, REDIS_LOG_PATH);
+    expect(logged?.text).toContain('unknown');
   });
 
   it('removes a key and records the removal, without recording a removal that missed', async () => {
     const identity = generateIdentity();
     const host = openStoreHostOn(ESSID);
     const held = Object.keys(storeOn(host).keys)[0] ?? '';
-    const { deps: hitDeps, upsertPatch: hitPatch } = makeDeps();
-    const { deps: missDeps, upsertPatch: missPatch } = makeDeps();
+    const { deps: hitDeps, upsertPatch: hitPatch, appendLog: hitLog } = makeDeps();
+    const { deps: missDeps, upsertPatch: missPatch, appendLog: missLog } = makeDeps();
 
     const hit = await handleRedisStatement(
       await signedStatement(identity, { target_ip: host.ip, statement: `DEL ${held}` }),
@@ -767,19 +748,20 @@ describe('changing a store through the door', () => {
 
     expect(hit.body).toEqual({ output: ['(integer) 1'], failed: false });
     expect(rowsAt(hitPatch, DATADIR_PATH)).toHaveLength(1);
-    expect(rowsAt(hitPatch, REDIS_LOG_PATH)).toHaveLength(1);
+    expect(appendsAt(hitLog, REDIS_LOG_PATH)).toHaveLength(1);
 
     // A key the store never held is a write verb that wrote nothing. Persisting an
     // unchanged store and filing a line about a removal that did not happen would give
     // a defender an intruder to chase who had changed nothing.
     expect(miss.body).toEqual({ output: ['(integer) 0'], failed: false });
     expect(missPatch).not.toHaveBeenCalled();
+    expect(missLog).not.toHaveBeenCalled();
   });
 
   it('never reports OK for a change that could not be stored', async () => {
     const identity = generateIdentity();
     const host = openStoreHostOn(ESSID);
-    const { deps, upsertPatch } = makeDeps({
+    const { deps, appendLog } = makeDeps({
       upsertPatch: vi.fn(async () => ({ error: { message: 'the row was rejected' } })),
     });
 
@@ -793,14 +775,14 @@ describe('changing a store through the door', () => {
     // is the one answer this door must never give.
     expect(response).toEqual({ status: 500, body: { error: 'datadir_write_failed' } });
     // And no line claiming a change that was never stored.
-    expect(rowsAt(upsertPatch, REDIS_LOG_PATH)).toHaveLength(0);
+    expect(appendsAt(appendLog, REDIS_LOG_PATH)).toHaveLength(0);
   });
 
   it('refuses a write to a locked store, and takes it once the password rides along', async () => {
     const identity = generateIdentity();
     const host = lockedStoreHostOn(ESSID);
     const secret = plaintextOf(storeOn(host).requirepassHash ?? '');
-    const { deps: shutDeps, upsertPatch: shutPatch } = makeDeps();
+    const { deps: shutDeps, upsertPatch: shutPatch, appendLog: shutLog } = makeDeps();
     const { deps: openDeps, upsertPatch: openPatch } = makeDeps();
 
     const refused = await handleRedisStatement(
@@ -821,6 +803,7 @@ describe('changing a store through the door', () => {
       failed: true,
     });
     expect(shutPatch).not.toHaveBeenCalled();
+    expect(shutLog).not.toHaveBeenCalled();
 
     expect(taken.body).toEqual({ output: ['OK'], failed: false });
     expect(rowsAt(openPatch, DATADIR_PATH)).toHaveLength(1);
@@ -925,7 +908,10 @@ describe('a store on a hidden layer', () => {
 
   it('writes a change onto the DEEP box, under its own machine id', async () => {
     const identity = generateIdentity();
-    const { deps, upsertPatch } = makeDeps({ ...homeVantage(DEEP_OPEN.essid), findPatches: throughForward(DEEP_OPEN) });
+    const { deps, upsertPatch, appendLog } = makeDeps({
+      ...homeVantage(DEEP_OPEN.essid),
+      findPatches: throughForward(DEEP_OPEN),
+    });
 
     const response = await askDeep(identity, DEEP_OPEN, deps, {
       statement: 'SET sess:new hello',
@@ -939,6 +925,9 @@ describe('a store on a hidden layer', () => {
     );
     expect(
       upsertPatch.mock.calls.every(([row]) => row.machine_id === DEEP_OPEN.machineId),
+    ).toBe(true);
+    expect(
+      appendLog.mock.calls.every(([append]) => append.machine_id === DEEP_OPEN.machineId),
     ).toBe(true);
   });
 
@@ -977,34 +966,39 @@ describe('a store on a hidden layer', () => {
 
   it('records the change in the deep box own log, at the address NAT showed it', async () => {
     const identity = generateIdentity();
-    const { deps, upsertPatch } = makeDeps({ ...homeVantage(DEEP_OPEN.essid), findPatches: throughForward(DEEP_OPEN) });
+    const { deps, appendLog } = makeDeps({
+      ...homeVantage(DEEP_OPEN.essid),
+      findPatches: throughForward(DEEP_OPEN),
+    });
 
     await askDeep(identity, DEEP_OPEN, deps, { statement: 'SET sess:new hello' });
 
     // Behind NAT the box only ever saw the fronting gateway's `.1`. The line a defender
     // finds down there has to name what the route showed, not what the caller claimed.
-    expect(upsertPatch).toHaveBeenCalledWith(
+    expect(appendLog).toHaveBeenCalledWith(
       expect.objectContaining({
         machine_id: DEEP_OPEN.machineId,
         path: REDIS_LOG_PATH,
-        content: expect.stringContaining(`Client ${DEEP_OPEN.natIp} SET sess:new "hello"`),
+        text: expect.stringContaining(`Client ${DEEP_OPEN.natIp} SET sess:new "hello"`),
       }),
     );
-    expect(upsertPatch).not.toHaveBeenCalledWith(
+    expect(appendLog).not.toHaveBeenCalledWith(
       expect.objectContaining({
         path: REDIS_LOG_PATH,
-        content: expect.stringContaining(CLIENT_IP),
+        text: expect.stringContaining(CLIENT_IP),
       }),
     );
   });
 
   it('leaves a deep box byte-identical when the statement was a read', async () => {
     const identity = generateIdentity();
-    const { deps, upsertPatch } = makeDeps({ ...homeVantage(DEEP_OPEN.essid), findPatches: throughForward(DEEP_OPEN) });
+    const { appendLog, deps, upsertPatch } = makeDeps({ ...homeVantage(DEEP_OPEN.essid), findPatches: throughForward(DEEP_OPEN) });
 
     await askDeep(identity, DEEP_OPEN, deps, { statement: 'KEYS *' });
 
     expect(upsertPatch).not.toHaveBeenCalled();
+
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('refuses a locked deep store until the password crosses the forward too', async () => {
@@ -1229,7 +1223,7 @@ describe("another player's store, asked from the other side of the world", () =>
 
   it('leaves the mutation line in the defender log at the SERVER-derived address', async () => {
     const identity = generateIdentity();
-    const { deps, upsertPatch } = crossPlayerDeps();
+    const { deps, appendLog } = crossPlayerDeps();
 
     await askAcrossTheWorld(identity, deps, {
       statement: 'SET intruder:was-here yes',
@@ -1238,33 +1232,33 @@ describe("another player's store, asked from the other side of the world", () =>
 
     // The one thing the defender has to go on, so it cannot be a string the attacker's
     // own client chose. Their public address is resolved from their VERIFIED key.
-    expect(upsertPatch).toHaveBeenCalledWith(
+    expect(appendLog).toHaveBeenCalledWith(
       expect.objectContaining({
         writer_key: DEFENDER.publicKeyHex,
         path: REDIS_LOG_PATH,
-        content: expect.stringContaining(ATTACKER_PUBLIC_IP),
+        text: expect.stringContaining(ATTACKER_PUBLIC_IP),
       }),
     );
-    expect(upsertPatch).not.toHaveBeenCalledWith(
-      expect.objectContaining({ path: REDIS_LOG_PATH, content: expect.stringContaining(CLIENT_IP) }),
+    expect(appendLog).not.toHaveBeenCalledWith(
+      expect.objectContaining({ path: REDIS_LOG_PATH, text: expect.stringContaining(CLIENT_IP) }),
     );
   });
 
   it('records a guess at the lock on the defender box, and changes nothing', async () => {
     const identity = generateIdentity();
-    const { deps, upsertPatch } = crossPlayerDeps();
+    const { appendLog, deps, upsertPatch } = crossPlayerDeps();
 
     await askAcrossTheWorld(identity, deps, { statement: 'AUTH hunter2' });
 
     // A password actually weighed is the one thing besides the arrival that leaves a
     // mark, and it lands on the DEFENDER's log at the address the server derived. A
     // stranger guessing at the lock is what a defender most needs to be able to see.
-    expect(upsertPatch).toHaveBeenCalledWith(
+    expect(appendLog).toHaveBeenCalledWith(
       expect.objectContaining({
         writer_key: DEFENDER.publicKeyHex,
         machine_id: DEFENDER_WS,
         path: REDIS_LOG_PATH,
-        content: expect.stringContaining(ATTACKER_PUBLIC_IP),
+        text: expect.stringContaining(ATTACKER_PUBLIC_IP),
       }),
     );
     // A guess is not a change. Nothing about the store moved.
@@ -1406,7 +1400,7 @@ describe("a fellow occupant's store, asked from across the room", () => {
 
   it('names the caller by the address the LEASE issued, never the one they typed', async () => {
     const identity = generateIdentity();
-    const { deps, upsertPatch } = sameLanDeps(identity.publicKeyHex);
+    const { deps, appendLog } = sameLanDeps(identity.publicKeyHex);
 
     await askNextDoor(identity, deps, {
       statement: `AUTH ${DEFENDER_ROOT_PW}`,
@@ -1415,14 +1409,14 @@ describe("a fellow occupant's store, asked from across the room", () => {
     // Nothing rewrote the source on the way in — the box really did see this address —
     // but it is still read from the lease store rather than taken from the request,
     // because evidence a client can write is none.
-    expect(upsertPatch).toHaveBeenCalledWith(
+    expect(appendLog).toHaveBeenCalledWith(
       expect.objectContaining({
         path: REDIS_LOG_PATH,
-        content: expect.stringContaining(ATTACKER_LAN_IP),
+        text: expect.stringContaining(ATTACKER_LAN_IP),
       }),
     );
-    expect(upsertPatch).not.toHaveBeenCalledWith(
-      expect.objectContaining({ content: expect.stringContaining(CLIENT_IP) }),
+    expect(appendLog).not.toHaveBeenCalledWith(
+      expect.objectContaining({ text: expect.stringContaining(CLIENT_IP) }),
     );
   });
 

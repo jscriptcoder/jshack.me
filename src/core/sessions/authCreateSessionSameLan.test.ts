@@ -25,10 +25,8 @@ import {
 import { derivePid } from '../logging/syslog.js';
 import { formatListenerContent } from '../services/pidfile.js';
 import { asGameTime } from '../types.js';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
-import type { PatchRow } from '../patches/upsertPatch.js';
+import type { AppendLog } from '../patches/appendMachineLog.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
-import { logRead } from '../../test/factories/logRows.js';
 import { plaintextFor } from '../../test/passwords.js';
 
 /**
@@ -180,11 +178,7 @@ const makeDeps = (
     error: null,
   }),
   insert: () => Promise<{ error: unknown }> = async () => ({ error: null }),
-  readLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult> = async () => ({
-    data: null,
-    error: null,
-  }),
-  upsert: (row: PatchRow) => Promise<{ error: unknown }> = async () => ({ error: null }),
+  append: AppendLog = async () => ({ error: null }),
   leases: () => Promise<LeasesResult> = async () => ({
     data: derivedLeases(OCCUPANTS),
     error: null,
@@ -194,8 +188,7 @@ const makeDeps = (
   const listLeasesByEssid = vi.fn<(essid: string) => Promise<LeasesResult>>(leases);
   const findPatches = vi.fn<(query: { machine_id: string }) => Promise<PatchesResult>>(patches);
   const insertSession = vi.fn<(row: AuthSessionRow) => Promise<{ error: unknown }>>(insert);
-  const readAuthLog = vi.fn<(query: MachineLogReadQuery) => Promise<MachineLogReadResult>>(readLog);
-  const upsertPatch = vi.fn<(row: PatchRow) => Promise<{ error: unknown }>>(upsert);
+  const appendLog = vi.fn<AppendLog>(append);
   const deps: AuthCreateSessionSameLanDeps = {
     ...vantageDeps(),
     nonceStore: freshStore,
@@ -204,8 +197,7 @@ const makeDeps = (
     findPatches,
     insertSession,
     now: () => FIXED_NOW,
-    readAuthLog,
-    upsertPatch,
+    appendLog,
   };
   return {
     deps,
@@ -213,8 +205,7 @@ const makeDeps = (
     listLeasesByEssid,
     findPatches,
     insertSession,
-    readAuthLog,
-    upsertPatch,
+    appendLog,
   };
 };
 
@@ -558,7 +549,7 @@ describe('handleAuthCreateSessionSameLan', () => {
 
   describe('the connect attempt leaves an auth.log trace on the target box', () => {
     it("appends one 'Accepted' line on A's workstation under A's owner key, sourced from B's LAN IP", async () => {
-      const { deps, upsertPatch } = makeDeps();
+      const { deps, appendLog } = makeDeps();
 
       const result = await handleAuthCreateSessionSameLan(
         envelope(BOB, { username: 'guest', password: GUEST_PW }),
@@ -569,21 +560,20 @@ describe('handleAuthCreateSessionSameLan', () => {
       // Owner-keyed (writer = A, not the connecting B) on A's workstation record, so
       // multiple actors' lines accrete into ONE row — the Story-6 keystone. The
       // attacker's identity lives in the line's source IP, never the writer_key.
-      expect(upsertPatch).toHaveBeenCalledTimes(1);
-      expect(upsertPatch.mock.calls[0]![0]).toEqual({
+      expect(appendLog).toHaveBeenCalledTimes(1);
+      expect(appendLog.mock.calls[0]![0]).toEqual({
         writer_key: ALICE.publicKeyHex,
         machine_id: A_WS_ID,
         path: '/var/log/auth.log',
-        content: `${expectedSshdLine('success', 'guest')}\n`,
+        text: `${expectedSshdLine('success', 'guest')}\n`,
         owner: 'root',
         permissions: AUTH_LOG_PERMISSIONS,
-        node_type: 'file',
       });
-      expect(upsertPatch.mock.calls[0]![0].writer_key).not.toBe(BOB.publicKeyHex);
+      expect(appendLog.mock.calls[0]![0].writer_key).not.toBe(BOB.publicKeyHex);
     });
 
     it("appends a 'Failed password' line on a wrong password and still returns 401 without inserting", async () => {
-      const { deps, upsertPatch, insertSession } = makeDeps();
+      const { deps, appendLog, insertSession } = makeDeps();
 
       const result = await handleAuthCreateSessionSameLan(
         envelope(BOB, { username: 'guest', password: 'not-the-guest-pw' }),
@@ -591,13 +581,13 @@ describe('handleAuthCreateSessionSameLan', () => {
       );
 
       expect(result).toEqual({ status: 401, body: { error: 'invalid_credentials' } });
-      expect(upsertPatch).toHaveBeenCalledTimes(1);
-      expect(upsertPatch.mock.calls[0]![0].content).toBe(`${expectedSshdLine('failure', 'guest')}\n`);
+      expect(appendLog).toHaveBeenCalledTimes(1);
+      expect(appendLog.mock.calls[0]![0].text).toBe(`${expectedSshdLine('failure', 'guest')}\n`);
       expect(insertSession).not.toHaveBeenCalled();
     });
 
     it("records B's LAN IP — never B's home public IP and never the client-claimed source_ip", async () => {
-      const { deps, upsertPatch } = makeDeps();
+      const { deps, appendLog } = makeDeps();
 
       await handleAuthCreateSessionSameLan(
         // A forged source_ip in the envelope must be ignored: the source is derived
@@ -606,52 +596,36 @@ describe('handleAuthCreateSessionSameLan', () => {
         deps,
       );
 
-      const content = upsertPatch.mock.calls[0]![0].content as string;
+      const content = appendLog.mock.calls[0]![0].text as string;
       expect(content).toContain(B_LAN_IP);
       expect(content).not.toContain('203.0.113.200');
       expect(content).not.toContain(B_HOME_PUBLIC_IP);
     });
 
-    it('appends onto the existing auth.log content rather than clobbering it', async () => {
-      const priorLine = expectedSshdLine('failure', 'guest', '192.168.50.9');
-      const { deps, upsertPatch } = makeDeps(undefined, undefined, undefined, async () =>
-        logRead(`${priorLine}\n`),
-      );
-
-      await handleAuthCreateSessionSameLan(
-        envelope(BOB, { username: 'guest', password: GUEST_PW }),
-        deps,
-      );
-
-      expect(upsertPatch.mock.calls[0]![0].content).toBe(
-        `${priorLine}\n${expectedSshdLine('success', 'guest')}\n`,
-      );
-    });
-
     it('writes no trace when no occupant owns the target LAN IP (nothing reachable to log on)', async () => {
-      const { deps, upsertPatch } = makeDeps();
+      const { deps, appendLog } = makeDeps();
 
       await handleAuthCreateSessionSameLan(
         envelope(BOB, { username: 'guest', password: GUEST_PW, target_ip: '10.0.0.99' }),
         deps,
       );
 
-      expect(upsertPatch).not.toHaveBeenCalled();
+      expect(appendLog).not.toHaveBeenCalled();
     });
 
     it('writes no trace when the target workstation sshd is down', async () => {
-      const { deps, upsertPatch } = makeDeps(undefined, async () => ({ data: [], error: null }));
+      const { deps, appendLog } = makeDeps(undefined, async () => ({ data: [], error: null }));
 
       await handleAuthCreateSessionSameLan(
         envelope(BOB, { username: 'guest', password: GUEST_PW }),
         deps,
       );
 
-      expect(upsertPatch).not.toHaveBeenCalled();
+      expect(appendLog).not.toHaveBeenCalled();
     });
 
     it('writes no trace when the target workstation is bricked', async () => {
-      const { deps, upsertPatch } = makeDeps(undefined, async () => ({
+      const { deps, appendLog } = makeDeps(undefined, async () => ({
         data: [wsSshdUp, bootTombstone],
         error: null,
       }));
@@ -661,11 +635,11 @@ describe('handleAuthCreateSessionSameLan', () => {
         deps,
       );
 
-      expect(upsertPatch).not.toHaveBeenCalled();
+      expect(appendLog).not.toHaveBeenCalled();
     });
 
     it('still authenticates and inserts when the trace write throws (best-effort logging)', async () => {
-      const { deps, insertSession } = makeDeps(undefined, undefined, undefined, undefined, async () => {
+      const { deps, insertSession } = makeDeps(undefined, undefined, undefined, async () => {
         throw new Error('log store down');
       });
 
@@ -696,7 +670,6 @@ describe('handleAuthCreateSessionSameLan', () => {
         undefined,
         undefined,
         undefined,
-        undefined,
         redrawnLeases,
       );
 
@@ -719,7 +692,6 @@ describe('handleAuthCreateSessionSameLan', () => {
         undefined,
         undefined,
         undefined,
-        undefined,
         redrawnLeases,
       );
 
@@ -733,8 +705,8 @@ describe('handleAuthCreateSessionSameLan', () => {
     });
 
     it("stamps B's LEASED address as the auth.log source, not B's derived one", async () => {
-      const { deps, upsertPatch } = standing(
-        makeDeps(undefined, undefined, undefined, undefined, undefined, redrawnLeases),
+      const { deps, appendLog } = standing(
+        makeDeps(undefined, undefined, undefined, undefined, redrawnLeases),
         livingAt({ essid: ESSID, octet: B_REDRAWN_OCTET }),
       );
 
@@ -747,14 +719,14 @@ describe('handleAuthCreateSessionSameLan', () => {
         deps,
       );
 
-      expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
-        content: `${expectedSshdLine('success', 'guest', addressAt(B_REDRAWN_OCTET))}\n`,
+      expect(appendLog.mock.calls[0]![0]).toMatchObject({
+        text: `${expectedSshdLine('success', 'guest', addressAt(B_REDRAWN_OCTET))}\n`,
       });
     });
 
     it('logs a caller on the LAN who holds no lease as unknown rather than inventing an address', async () => {
-      const { deps, upsertPatch } = standing(
-        makeDeps(undefined, undefined, undefined, undefined, undefined, async () => ({
+      const { deps, appendLog } = standing(
+        makeDeps(undefined, undefined, undefined, undefined, async () => ({
           data: [{ owner_key: ALICE.publicKeyHex, octet: A_REDRAWN_OCTET }],
           error: null,
         })),
@@ -771,8 +743,8 @@ describe('handleAuthCreateSessionSameLan', () => {
       );
 
       expect(result.status).toBe(200);
-      expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
-        content: `${expectedSshdLine('success', 'guest', 'unknown')}\n`,
+      expect(appendLog.mock.calls[0]![0]).toMatchObject({
+        text: `${expectedSshdLine('success', 'guest', 'unknown')}\n`,
       });
     });
 
@@ -782,7 +754,6 @@ describe('handleAuthCreateSessionSameLan', () => {
       const { deps, findPatches } = standing(
         makeDeps(
           async () => ({ data: [A_ROW], error: null }),
-          undefined,
           undefined,
           undefined,
           undefined,
@@ -806,7 +777,6 @@ describe('handleAuthCreateSessionSameLan', () => {
 
     it('reports a server error when the lease lookup fails — never guesses an address', async () => {
       const { deps, findPatches } = makeDeps(
-        undefined,
         undefined,
         undefined,
         undefined,
@@ -860,14 +830,14 @@ describe('a backdoor on the box at the next desk', () => {
   });
 
   it('leaves nothing in the defender’s auth.log', async () => {
-    const { deps, upsertPatch } = makeDeps(undefined, async () => ({
+    const { deps, appendLog } = makeDeps(undefined, async () => ({
       data: [mallorysListener],
       error: null,
     }));
 
     await handleAuthCreateSessionSameLan(knock(), deps);
 
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 
   it('still stores where the knock came from on the session', async () => {
@@ -922,7 +892,7 @@ describe('logging in to the box at the next desk from a shell held on that LAN',
     envelope(CAROL, { username: 'guest', password: GUEST_PW, ...fields });
 
   it('lets her in, and the target’s log names the box she stands on', async () => {
-    const { deps, insertSession, upsertPatch } = standing(makeDeps(), holdingShellOn(ESSID));
+    const { deps, insertSession, appendLog } = standing(makeDeps(), holdingShellOn(ESSID));
 
     const result = await handleAuthCreateSessionSameLan(
       fromCarol({ caller_machine_id: NPC_BOX_ID }),
@@ -935,18 +905,18 @@ describe('logging in to the box at the next desk from a shell held on that LAN',
       machine_id: A_WS_ID,
       essid: ESSID,
     });
-    expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
-      content: `${expectedSshdLine('success', 'guest', npcBox.ip)}\n`,
+    expect(appendLog.mock.calls[0]![0]).toMatchObject({
+      text: `${expectedSshdLine('success', 'guest', npcBox.ip)}\n`,
     });
   });
 
   it('names the lease of the player whose workstation she stands on', async () => {
-    const { deps, upsertPatch } = standing(makeDeps(), holdingShellOn(ESSID, DAVE_OCTET));
+    const { deps, appendLog } = standing(makeDeps(), holdingShellOn(ESSID, DAVE_OCTET));
 
     await handleAuthCreateSessionSameLan(fromCarol({ caller_machine_id: DAVE_WS_ID }), deps);
 
-    expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
-      content: `${expectedSshdLine('success', 'guest', lanAddressFor(ESSID, DAVE_OCTET))}\n`,
+    expect(appendLog.mock.calls[0]![0]).toMatchObject({
+      text: `${expectedSshdLine('success', 'guest', lanAddressFor(ESSID, DAVE_OCTET))}\n`,
     });
   });
 
@@ -1010,7 +980,7 @@ describe('localhost typed in a shell held on the box at the next desk', () => {
     });
 
   it('logs her into the box she stands on, the trace naming loopback', async () => {
-    const { deps, insertSession, upsertPatch } = standing(makeDeps(), onAlicesBox);
+    const { deps, insertSession, appendLog } = standing(makeDeps(), onAlicesBox);
 
     const result = await handleAuthCreateSessionSameLan(fromCarol({}), deps);
 
@@ -1021,9 +991,9 @@ describe('localhost typed in a shell held on the box at the next desk', () => {
       machine_id: A_WS_ID,
       source_ip: '127.0.0.1',
     });
-    expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
+    expect(appendLog.mock.calls[0]![0]).toMatchObject({
       machine_id: A_WS_ID,
-      content: `${expectedSshdLine('success', 'guest', '127.0.0.1')}\n`,
+      text: `${expectedSshdLine('success', 'guest', '127.0.0.1')}\n`,
     });
   });
 
@@ -1048,19 +1018,19 @@ describe('localhost typed in a shell held on the box at the next desk', () => {
   });
 
   it('reaches nothing once the box’s owner has left the network', async () => {
-    const { deps, insertSession, upsertPatch } = standing(makeDeps(), holdingShellOn(ESSID));
+    const { deps, insertSession, appendLog } = standing(makeDeps(), holdingShellOn(ESSID));
 
     const result = await handleAuthCreateSessionSameLan(fromCarol({}), deps);
 
     expect(result).toEqual({ status: 404, body: { error: 'host_unreachable' } });
     expect(insertSession).not.toHaveBeenCalled();
-    expect(upsertPatch).not.toHaveBeenCalled();
+    expect(appendLog).not.toHaveBeenCalled();
   });
 });
 
 describe('a same-LAN login is traced in the log of the door it knocked on', () => {
   it('writes an ftp login to the box’s vsftpd log, never as an sshd line', async () => {
-    const { deps, upsertPatch } = makeDeps(undefined, async () => ({
+    const { deps, appendLog } = makeDeps(undefined, async () => ({
       data: [wsFtpdUp],
       error: null,
     }));
@@ -1071,11 +1041,11 @@ describe('a same-LAN login is traced in the log of the door it knocked on', () =
     );
 
     const stamp = { fromIp: B_LAN_IP, time: asGameTime(FIXED_NOW), pid: derivePid(FIXED_NOW) };
-    expect(upsertPatch.mock.calls[0]![0]).toMatchObject({
+    expect(appendLog.mock.calls[0]![0]).toMatchObject({
       machine_id: A_WS_ID,
       path: VSFTPD_LOG_PATH,
       writer_key: ALICE.publicKeyHex,
-      content:
+      text:
         `${formatVsftpdConnectLine(stamp)}\n` +
         `${formatVsftpdLoginLine({ ...stamp, outcome: 'success', user: 'guest', hostname: A_WS_NAME })}\n`,
     });

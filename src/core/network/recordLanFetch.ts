@@ -57,15 +57,10 @@ import {
   ACCESS_LOG_PERMISSIONS,
   formatAccessLogLine,
 } from '../logging/accessLog.js';
-import {
-  appendMachineLogLines,
-  type MachineLogReadQuery,
-  type MachineLogReadResult,
-} from '../patches/appendMachineLog.js';
+import { appendMachineLogLines, type AppendLog } from '../patches/appendMachineLog.js';
 import { asGameTime } from '../types.js';
 import { resolveCallerVantageOn, type CallerVantageDeps } from '../sessions/callerVantage.js';
 import type { Directory } from '../filesystem/types.js';
-import type { PatchRow } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /** The occupancy fields an own-LAN fetch trace needs: whose row it is and which box (to
@@ -83,8 +78,7 @@ export type RecordLanFetchDeps = CallerVantageDeps & {
   readonly nonceStore: NonceStore;
   /** The server's wall clock, epoch-ms (UTC) — stamps the access.log line. */
   readonly now: () => number;
-  readonly readLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
-  readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
+  readonly appendLog: AppendLog;
   /** Every occupant of the ESSID — read to recognise the workstation that answered
    *  and to rebuild it. */
   readonly listOccupantsByEssid: (
@@ -255,7 +249,7 @@ export const handleRecordLanFetch = async (
     // ONE append for the whole run, the way the hydra sweep lands on `auth.log`: a
     // per-line write would re-read and re-upsert the entire log for every path tried.
     await appendMachineLogLines(
-      { readLog: deps.readLog, upsertPatch: deps.upsertPatch },
+      { appendLog: deps.appendLog },
       {
         writerKey: resolved.writerKey,
         machineId: resolved.machineId,

@@ -36,8 +36,7 @@ import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 import { derivePid } from '../logging/syslog.js';
 import { appendMachineLog } from '../patches/appendMachineLog.js';
 import { asGameTime } from '../types.js';
-import type { MachineLogReadQuery, MachineLogReadResult } from '../patches/appendMachineLog.js';
-import type { PatchRow } from '../patches/upsertPatch.js';
+import type { AppendLog } from '../patches/appendMachineLog.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 export type RedisConnectDeps = ServiceHostLookup &
@@ -45,11 +44,7 @@ export type RedisConnectDeps = ServiceHostLookup &
   readonly nonceStore: NonceStore;
   /** The server's wall clock, epoch-ms (UTC) — stamps the redis.log line. */
   readonly now: () => number;
-  /** The TARGET's current `/var/log/redis.log` — the read half of the trace, so a
-   *  connection appends to the box's history instead of replacing it. */
-  readonly readRedisLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
-  /** Write a patch (here: the one line this arrival leaves on the target). */
-  readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
+  readonly appendLog: AppendLog;
 };
 
 export type { HandlerResponse };
@@ -98,7 +93,7 @@ const recordArrival = async (
 
   try {
     await appendMachineLog(
-      { readLog: deps.readRedisLog, upsertPatch: deps.upsertPatch },
+      { appendLog: deps.appendLog },
       {
         writerKey: arrival.writerKey,
         machineId: arrival.machineId,

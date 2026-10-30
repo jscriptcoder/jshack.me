@@ -63,17 +63,12 @@ import {
   ACCESS_LOG_PERMISSIONS,
   formatAccessLogLine,
 } from '../logging/accessLog.js';
-import {
-  appendMachineLog,
-  type MachineLogReadQuery,
-  type MachineLogReadResult,
-} from '../patches/appendMachineLog.js';
+import { appendMachineLog, type AppendLog } from '../patches/appendMachineLog.js';
 import { asGameTime } from '../types.js';
 import { resolveCallerVantageOn, type CallerVantageDeps } from '../sessions/callerVantage.js';
 import type { HttpFetchOccupant } from './resolveHttpFetch.js';
 import type { Directory } from '../filesystem/types.js';
 import type { OwnerPatchRow } from './materializeWorkstationFs.js';
-import type { PatchRow } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /** What it takes to find a web server on the network from where the caller stands.
@@ -104,8 +99,7 @@ export type ResolveOccupantFetchDeps = OccupantWebTargetDeps & {
   readonly nonceStore: NonceStore;
   /** The server's wall clock, epoch-ms (UTC) — stamps the access.log line. */
   readonly now: () => number;
-  readonly readLog: (query: MachineLogReadQuery) => Promise<MachineLogReadResult>;
-  readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
+  readonly appendLog: AppendLog;
 };
 
 export type HandlerResponse = {
@@ -393,7 +387,7 @@ export const handleResolveOccupantFetch = async (
   });
   try {
     await appendMachineLog(
-      { readLog: deps.readLog, upsertPatch: deps.upsertPatch },
+      { appendLog: deps.appendLog },
       {
         writerKey: target.logWriterKey,
         machineId: target.machineId,
