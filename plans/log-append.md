@@ -63,6 +63,12 @@ row the way a reader orders them, and writes the appended row, all in one transa
    - **The guardian is out of scope.** `scripts/guardian.ts` appends its `passwd` lines to
      `auth.log` in the decider from the journal it already read. An operator round racing a live
      login is rare, and a dropped guardian line is the operator's own. Noted beside decision 3.
+   - **The client's own-box daemon logs are an accepted limit.** `mysqlOwnBox`, `redisOwnBox`
+     and `snmpOwnBox` add the player's own `mysql.log` / `redis.log` / snmpd lines through the
+     ordinary write path, read then write, so one can still race a visitor's line on the same
+     file. They are the player's own writes, as decision 3's wipe is; moving them onto the lock
+     needs a signed own-box append endpoint and a client change, which this slice does not take.
+     Recorded beside decision 3's limit in `backlog.md`.
    - **`api/patches.ts`'s four hand-copied `readLog` closures go away** with the reads, which
      closes that backlog item.
    - One slice, one PR, a patch version bump (a fix, as #743 was).
@@ -87,6 +93,11 @@ row the way a reader orders them, and writes the appended row, all in one transa
   3. `INSERT … VALUES (…, current || append_text, …, 'file') ON CONFLICT (machine_id, path,
      writer_key) DO UPDATE SET content, owner, permissions, node_type` (not `is_new`, which the
      supabase-js upsert never sent either). The trigger stamps it.
+
+  It stays `VOLATILE` (the default): under READ COMMITTED a volatile function takes a fresh
+  snapshot per statement, so the read after the lock sees the append that held it. Marked
+  `STABLE`, the read would use the snapshot from before the wait and drop that line again. The
+  SQL header says so.
 - `REVOKE EXECUTE … FROM PUBLIC, anon, authenticated; GRANT EXECUTE … TO service_role`, as
   `talkit_post` does.
 
@@ -99,10 +110,12 @@ nothing reads them (the two own-box handlers are the other readers). The header'
 "read-modify-write" paragraph becomes "the database appends under a lock" and keeps the why of
 building on every writer's latest row.
 
-**The shared fake (`src/test/fakes/machineLogJournal.ts`, beside the existing factories).** An
+**The shared fake (`src/test/factories/machineLogJournal.ts`, replacing `logRows.ts`).** An
 in-memory journal whose `appendLog` appends to the latest row by `orderPatchesForReplay`, and a
-reader of a log as it stands. Every handler test that faked `readLog` + `upsertPatch` for a log
-moves onto it.
+reader of a log as it stands. It is seeded with rows built by `logRow`, which moves into it (a
+test that needs another writer's newer row builds one); `logRead` faked the read `readLog`
+returned and goes with it. Every handler test that faked `readLog` + `upsertPatch` for a log
+moves onto it, and `logRows.ts` is deleted with its last importer.
 
 **The glue.** Each endpoint file (`api/network.ts`, `api/patches.ts`, `api/sessions.ts`) gets an
 `appendLogVia({ supabase, label })` beside its `listPathPatchesVia`, calling
@@ -136,8 +149,8 @@ build handler deps directly (`testFtpSession`, `testFtpSweepTrace`, `testLocalEx
 6. **Docs.** `conventions-and-gotchas.md` (the journal stamps with `clock_timestamp()`, and a
    system line goes through `append_machine_log`), the `appendMachineLog` entry in
    `cross-player-architecture.md` if it describes the read-then-write, `backlog.md` (close the
-   lost-line item and the `readLog` closures item; add decision 3's accepted limit and the
-   guardian note), `project-status.md`. Version bump in `package.json` + `package-lock.json`.
+   lost-line item and the `readLog` closures item; add decision 3's accepted limit, the
+   own-box daemon logs beside it, and the guardian note), `project-status.md`. Version bump in `package.json` + `package-lock.json`.
 
 ## Evidence & gates
 
@@ -157,3 +170,4 @@ build handler deps directly (`testFtpSession`, `testFtpSweepTrace`, `testLocalEx
 
 - Player writes taking the lock (decision 3).
 - The guardian's `auth.log` lines (decision 6).
+- The client's own-box daemon logs (`mysql.log`, `redis.log`, the snmpd log) (decision 6).
