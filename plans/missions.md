@@ -34,17 +34,17 @@ legacy's design, scenarios and known problems are in `docs/mission-ideas/`.
    was proposed here and dropped in decision 17.) The number seeds the PRNG that picks a **template** and fills its details
    from **pools**: two players get missions of the same kinds, differing in the pool draws and
    always at different addresses. **No two players are ever offered the same mission**: the
-   server draws a fresh number for each job it posts and records it as issued, so the record is of
+   server draws a fresh number for each job it posts and records it in the missions table, so the record is of
    who was given what, never of where a network lives. Rejected: free-form seeds hashed into the
    block (collisions by about 5,000 seeds, and a table to settle them breaks "the address comes
    from the seed"); free-form seeds with an address stored on first accept (the address no longer
    comes from the seed). Legacy's keyword seeds are dropped with them: their substring matching was
    a known problem, and a dev who wants given axes searches for a number that has them.
 
-3. **Only issued missions exist (2026-10-31).** A 195 address nobody was given answers exactly as
+3. **Only accepted missions exist (2026-10-31).** A 195 address nobody was given answers exactly as
    an empty address does, at every door: no reply to a scan, a fetch, `ssh` or any service gate,
    so a wrong guess tells a prober nothing. Every door finds a 195 network through one lookup of
-   the issued record, the path `networkByPublicIp` already takes for the 194 boards. Once issued,
+   the missions table, the path `networkByPublicIp` already takes for the 194 boards. Once accepted,
    a mission is reachable by whoever holds its address: the contractor, someone they shared it
    with, or someone who read it where it leaked. Rejected: every 195 address a live network (a
    random sweep finds 16.5M networks nobody was hired for, and the board stops being the way in).
@@ -109,7 +109,7 @@ legacy's design, scenarios and known problems are in `docs/mission-ideas/`.
    types get higher ranges of their own. One job pays for 20 to 80 rideit fares, and JSC stays
    loose until something else costs it (`backlog.md`, "anything to spend JSC on"). Recognition,
    the other half of a mission reward the wallet epic deferred, stays deferred: completions are in
-   the issued record and nothing else shows them. Rejected: 40 to 80 JSC (a dinner, not a
+   the missions table and nothing else shows them. Rejected: 40 to 80 JSC (a dinner, not a
    contract).
 
 9. **Every mission is solvable by construction: a guaranteed route per hop, from a catalog, among
@@ -156,26 +156,42 @@ legacy's design, scenarios and known problems are in `docs/mission-ideas/`.
 
 12. **A client has no inbox (2026-10-31).** A mail to a client handle is read by the server,
     answered with a reply in the sender's inbox (system mail, always delivered) and kept nowhere;
-    with no Sent folder in emailit.io, the proof leaves no copy, and the issued record is where
+    with no Sent folder in emailit.io, the proof leaves no copy, and the missions table is where
     completion lives. Rejected: real client inboxes (pool handles are reused across thousands of
     missions, so a client's inbox reaches the 100-message cap and bounces every contractor's proof
     `mailbox full`, and those inboxes grow emailit.io's root view toward its 4.5 MB ceiling).
 
-13. **The mission engine runs on the server only (2026-10-31).** The generator, templates, pools,
-    client handles and briefings live in code only `api/` imports, as hireme's pages, mail and
-    lookup do. A player reaches a mission box only through doors that already go to the server
-    (scan, fetch, `ssh`, `hydra`, the exploit door, and the remote read `resolveCrossPlayerFs`,
-    which builds a box on the server and prunes it to the caller's tier before it is sent), so the
-    client never generates one. The bundle grows by little more than the 195 block in `isPublicIp`
-    and a `whois` record, as the 194 boards did; nothing about a mission ships to the client, and
-    the keyed secret of decision 6 stays as defence in depth. The generator emits the machine
-    shape every v2 network box already has, so the journal, the write validation and every reader
-    treat a mission box like any other (legacy's mission instances were never server-side, and its
-    machines had two structures). **To verify in the plan, not assume:** that working from a
-    mission box (a scan of its LAN from the gateway, `ssh` to the internal box) resolves on the
-    server, as operate-from-a-hop suggests. Rejected: a shared generator in `core/` run on both
-    sides like the world (kilobytes the bundle ceiling does not have, and every secret needing
-    the server-written treatment anyway).
+13. **The engine is split: the network's shape in `core/`, its secrets and prose on the server
+    (2026-10-31, revised the same day).** First decided as server-only. The check this entry
+    asked for then failed: a shell standing on a remote box works out that box's network **on the
+    client**, from its ESSID (`vantage.ts` takes the subnet from `generateHomeLan(session.essid)`;
+    `nmap` from a hop sweeps `generateHomeLan(essid)`; `ssh` and `scp` from a hop find the host
+    there and read its seeded tree through `resolveLanHostIdentity` to decide whether it listens,
+    before the server is asked; `generateHomeLan` has 43 callers, `ftp`, `mysql`, `nc`, `ping` and
+    `redis-cli` among them). A server-only network would answer "No route to host" to every
+    command typed on its gateway. So:
+    - **In `core/`, in the bundle: the network's shape** — its subnet, the gateway and the key
+      box, their hostnames (the target-name pool), and each box's services at their pinned
+      versions (the route and decoy draws that decide services). That is what `generateHomeLan`
+      and `resolveLanHostIdentity` already answer for every network; missions are one branch
+      there, as fixed sites are one branch in `apGatewayFs`, and every hop command works
+      unchanged.
+    - **On the server only: everything secret or written as prose** — the key and its file (laid
+      into the key box on the server before the journal is replayed, as `withBoardsList` lays in
+      `/etc/hireme/boards`), and the offers, briefings, client handles and pitches. Account
+      passwords need nothing new: the crackable words already ship, the uncrackable ones as md5s
+      only. The keyed secret of decision 6 is what keeps the key out of reach of anyone holding
+      the generator.
+    - **The cost** is an estimated 1 to 2 KB gzipped, so the bundle ceiling is raised by explicit
+      decision when the slice measures it, as before.
+
+    One machine structure and one set of hop paths: the generator emits the shape every v2 network
+    box has, so the journal, the write validation and every reader treat a mission box like any
+    other (legacy's mission instances were never server-side, and its machines had two
+    structures). Rejected: server-only with the client taught to ask (about ten commands each
+    growing a "this is a mission, ask the server" branch, and server endpoints for a scan and a
+    login from a hop on a mission LAN: two reachability paths for one kind of network, the
+    "two structures" decision 1 rules out).
 
 14. **No deadline, no rescue, and the guardian stays out (2026-10-31).** An accepted job stays the
     contractor's until they complete or drop it; the only thing it holds is the one active slot,
@@ -189,7 +205,7 @@ legacy's design, scenarios and known problems are in `docs/mission-ideas/`.
 
 15. **A root on the boards' server sees the active contracts (2026-10-31).** Beside
     `/etc/hireme/boards`, `/etc/hireme/contracts` holds one `<handle> <client handle> <mission
-    address> <pay>` line per accepted job, built from the issued record on each read, the way the
+    address> <pay>` line per accepted job, built from the missions table on each read, the way the
     boards list is (laid in before the journal is replayed, root session only, nothing of it on the
     wire below root, a failed read a 500 and never an empty file). A root learns every live
     mission and who is working it: they cannot claim another's job, but they can race the
@@ -214,14 +230,14 @@ legacy's design, scenarios and known problems are in `docs/mission-ideas/`.
     (`/etc/halden/billing.key`, `/root/.config/vault/key`).
 
 17. **The address is a mission's only identity (2026-10-31).** No readable seed code: the address
-    is the seed (decision 2), sharing it is how a mission is shared (decision 1), only issued
+    is the seed (decision 2), sharing it is how a mission is shared (decision 1), only accepted
     missions exist so a code would open nothing the address does not (decision 3), and every way a
     mission leaks leaks the address. The 24-bit number lives only inside the server. Rejected: a
     reference code in the briefing as flavour (it would do nothing).
 
 18. **An operator script stages missions for testing (2026-10-31).** `scripts/hireme.ts`, run
     against dev or local and never needed in play, as `guardian.ts` and `valleynews.ts` are:
-    `post <handle>` fills a board's offers now, past the 24-hour turnover; `issue <handle>
+    `post <handle>` fills a board's offers now, past the 24-hour turnover; `accept <handle>
     [--number N]` accepts a job directly, optionally at a chosen number (how a dev gets a mission
     with given axes, decision 2); `show <address>` prints the mission's template, routes, decoys,
     key path and key, reading the server secret from the env, so only an operator can run it;
@@ -243,8 +259,8 @@ legacy's design, scenarios and known problems are in `docs/mission-ideas/`.
 20. **Four slices, as the hireme epic was cut (2026-10-31).** Each merges on its own with its own
     wire-checks, and each shows players a little more:
     1. **A mission exists**: the server-only engine (the exfiltrate template, the two routes, the
-       decoys, a gateway and a key box), the 195 block, the issued table, the lookup at every
-       door, the server secret, and `scripts/hireme.ts issue/show/drop`. An operator-issued
+       decoys, a gateway and a key box), the 195 block, the missions table, the lookup at every
+       door, the server secret, and `scripts/hireme.ts accept/show/drop`. An operator-accepted
        address answers `nmap`, `ssh`, `hydra` and `msfconsole`, with the key root-only on the key
        box. Carries decision 13's check that working from a mission box resolves on the server.
     2. **The board hires**: three offers, the 24-hour turnover, `POST /accept` with the briefing
@@ -271,3 +287,117 @@ legacy's design, scenarios and known problems are in `docs/mission-ideas/`.
       accepts at once (the owner and someone on a leaked board) take one job and refuse the other.
     - **Proof mails count toward the 20 sends an hour**, like any send: retries are unlimited in
       kind, never in rate.
+
+---
+
+## Find-gaps (2026-10-31)
+
+Run on the grill record before the slice 1 plan. Each answer below is the owner's.
+
+22. **A mission's states, and which are reachable.** One state model for the missions table
+    (which replaces the "issued record" wording of the first draft):
+
+    | State | Reached by | Reachable |
+    | --- | --- | --- |
+    | `offered` | posted to a board, its number reserved | no |
+    | `burned` | an offer the 24-hour turnover replaced | never |
+    | `accepted` | `POST /accept` | yes |
+    | `completed` | a right key mailed by the contractor | yes, for good |
+    | `abandoned` | `POST /drop` | yes, for good |
+
+    **An address is reachable if and only if its number was ever accepted.** A completed network
+    stays up as an abandoned one does (decision 5): it is persistent and shared, and its address
+    may already be out.
+
+23. **A decoy is defined by what its hole grants, never by when it publishes.** Every release
+    carries exactly one hole, with a fixed severity and publish day, and severity sets the tier
+    (`exploitEffect.ts`: critical root, high user, medium and low guest). Decision 10's "a service
+    whose hole has not published" would publish within days and, if critical, become a second
+    route to root. So: a **service decoy** is a release whose one hole is `low` or `medium`, a guest
+    shell at most, which cannot read the root-only key (a player can still land there and look
+    around); an **account decoy** holds a password from the uncrackable pool and stays shut. A
+    decoy is never a release whose hole has not published, because the generator cannot know
+    what it will grant. **Libraries are pinned by the same rule:** `msfconsole --local` escalates
+    through a box's libraries and a high or critical library hole grants root
+    (`localExploit.ts`), so a guest-shell decoy beside one badly pinned library is a route. Every
+    library on a mission box sits on a release whose hole is `low` or `medium` (user, never root);
+    the library route, when the catalog gains it, is a template pinning one library to a critical
+    release. This supersedes the decoy kinds named in decision 10.
+
+24. **The server secret: one per deployment, never rotated, failing closed.**
+    `MISSION_KEY_SECRET` is set in the Vercel env for Preview (`jshack-dev`) and Production
+    (`jshack-prod`), and in `.env.local` for `vercel dev`; the two differ, so a key read on dev
+    never works on prod. It **never rotates**: changing it changes every mission's key at once,
+    including keys contractors have read and not yet mailed, so a rotation is an operator incident
+    (a leak) whose cost, every unmailed key in the valley refused, is accepted then. A door that
+    needs it and finds none answers 500 `mission_secret_missing`; there is never a default, which
+    would put a guessable key in production. Only the server and `scripts/hireme.ts show` read it,
+    and it is never logged or printed, only `show`'s derived key.
+
+25. **On the key box, a route lands root; the gateway is passed through, not broken.** The key is
+    root-only and, since entry 23, nothing below root climbs, so: the **hydra route** is a
+    crackable `root` on the key box (a word from the crackable pool), its sshd reached through the
+    gateway's forward (`hydra -p <fwd> … 195.x.y.z`, the D2.4 forwarded-port door as it is); the
+    **msfconsole route** is a `critical` service on the key box, also reached through a forward.
+    Either way **the forward exposes the route's port**: the gateway is the way in, not a box to
+    break, and its own admin password comes from the uncrackable pool (an account decoy), so the
+    guaranteed path never needs it. `guest` and the NPC user keep the world's odds
+    (`passwordPools.ts`: guest 1, user 0.7): shells to look around in, which cannot climb.
+
+26. **"Published long ago" is a fixed cutoff day, `MISSION_ROUTE_DAY`.** The generator is a pure
+    function of the mission's number and never reads the clock (reading today would make the
+    same number a different network tomorrow). The cutoff is the game day slice 1 ships on (about
+    day 111). A **route release** is one whose hole is `critical` and published on or before the
+    cutoff; the clock only moves forward, so every route stays open for good. Only packages with
+    such a release carry a route, and a test walks every service package's timeline and fails if
+    the template could draw one without. **Decoys need no cutoff**: a `low` or `medium` hole grants
+    guest at most whether or not it has published, so a decoy release may be old or new. Moving the
+    cutoff changes the pool and so the network of every existing number: free until launch (the
+    no-backward-compat rule), never after it without a plan for the missions already accepted.
+
+27. **A mission network's ESSID is `mission-<number>`, and nobody joins it.** Every v2 network is
+    keyed by an ESSID (its subnet, gateway id, hostnames and journal scope), so a mission's is
+    `mission-` and its number in decimal. It is on no town's scan list, and `nmcli connect` joins
+    only an ESSID from that list; **the plan verifies the server's join refuses it too**, so a
+    crafted client cannot join a mission's LAN as an occupant. Players never see the ESSID, only
+    the address and the hostnames. With the shape in the bundle (entry 13), anyone holding the
+    generator can compute any 195 number's hostnames, services and versions offline: **accepted**,
+    since without the address it says nothing about which missions exist and with the address a
+    scan says the same; existence (entry 22) and the key (entry 24) stay on the server.
+
+28. **Offers are posted lazily, when a board is read.** A `GET /` on a board tops it up: fewer than
+    3 `offered` rows, and the server posts new ones until there are 3. Boards that already exist
+    (since v0.420.0) get their first offers on the first read after slice 2 ships, with no
+    backfill and no cron. **The 24 hours count from each offer's own `posted_at`**: an offer older
+    than that is `burned` on the next read and replaced in the same top-up, so offers turn over one
+    by one rather than in a daily wipe, and a completed or dropped job's slot fills on the next
+    read (decision 5). The read and the top-up are **one transaction** under the lock on the
+    handle's row that accepting takes (entry 21), so two reads at once cannot post six offers.
+    Anyone reading a leaked board tops it up too, which is harmless: it is the same board.
+
+29. **To the rest of the world, a mission network is a small business's line.** `whois` answers for
+    the whole 195 block, accepted or not, from the client, as it does for 194, with a record that
+    does not name hireme (`inetnum: 195.0.0.0 - 195.255.255.255`, `netname: SMALLBIZ-NET`,
+    `org-name: Harrow Valley Business Broadband`), so looking up a briefing's address says "a
+    business connection", not "a mission". findit, mapit and the web see nothing: a mission network
+    is not a place, so no listing, no pin, no site. A payout shows on chainit as any mint does, the
+    ledger being public: a mint to an address, never which job paid it. valleynews stays
+    operator-written, nothing generated about missions.
+
+### Gaps closed — find-gaps session, 2026-10-31
+
+Resolved (9):
+- [Blocker → entry 22] "Issued" meant both posted and reachable; one state model, reachable iff
+  ever accepted.
+- [Blocker → entry 23] Decoys whose hole had not published would open within days; decoys are
+  defined by what their hole grants, libraries pinned by the same rule.
+- [Blocker → entry 24] The server secret's lifecycle: per deployment, never rotated, fails closed.
+- [Should → entry 25] The hydra route cracks `root` on the key box; the forward exposes the route.
+- [Should → entry 26] "Published long ago" is a fixed cutoff day, so the generator never reads the
+  clock.
+- [Should → entry 27] The mission ESSID, unjoinable; offline knowledge of the shape accepted.
+- [Should → entry 28] Offers posted lazily on a board read, each on its own 24 hours.
+- [Nice → entry 29] `whois` for the 195 block; findit, mapit and the web see nothing.
+- [Nice → entry 29] chainit shows a payout as any mint.
+
+Parked: none.
