@@ -1,6 +1,6 @@
 # Plan: missions
 
-**Status:** grill in progress (started 2026-10-31). No plan yet, no code.
+**Status:** grill complete (2026-10-31). Slice 1 plan being drafted; no code yet.
 
 Missions are the one legacy system v2 has not rebuilt. The groundwork is built: wallets and the
 operator mint, emailit.io, the hireme.io contractor boards (every board saying no work is
@@ -227,3 +227,47 @@ legacy's design, scenarios and known problems are in `docs/mission-ideas/`.
     key path and key, reading the server secret from the env, so only an operator can run it;
     `drop <handle>` clears an active job. It cannot complete a job: completion only ever happens
     through `mail`, so every test of a payout goes through the real door.
+
+19. **The board shows the current contract without its address; dropping is a form
+    (2026-10-31).** While a job is active, the board shows a "Current contract" block above the
+    offers: client, target company, pay and `[ Drop contract ]`, never the address (decision 4
+    keeps addresses in the mailbox). A leaked board shows who you work for and against whom, not
+    where. Accept and drop are forms on the board, `POST /accept` and `POST /drop`, which `curl -d`
+    reaches as it reaches `/apply`, with refusals and confirmations under the button in hireme's
+    style ("Contract dropped. Copper Systems will not be in touch again."), and the client mails
+    one short line on a drop. **Whoever holds a board address can drop that board's job, and accept
+    its offers**, since the address is the board's only key; an accept they make still mails the
+    briefing to the board's own inbox, so it tells them nothing, and a drop costs the job, never pay
+    already earned.
+
+20. **Four slices, as the hireme epic was cut (2026-10-31).** Each merges on its own with its own
+    wire-checks, and each shows players a little more:
+    1. **A mission exists**: the server-only engine (the exfiltrate template, the two routes, the
+       decoys, a gateway and a key box), the 195 block, the issued table, the lookup at every
+       door, the server secret, and `scripts/hireme.ts issue/show/drop`. An operator-issued
+       address answers `nmap`, `ssh`, `hydra` and `msfconsole`, with the key root-only on the key
+       box. Carries decision 13's check that working from a mission box resolves on the server.
+    2. **The board hires**: three offers, the 24-hour turnover, `POST /accept` with the briefing
+       mailed from the client handle, the current contract, `POST /drop`, the reserved client
+       handles, `scripts/hireme.ts post`. The board's "no contracts available yet" goes.
+    3. **The client pays**: a mail to a client handle checked by its shape, the reply, the mint
+       paying the contractor's wallet exactly once, completion recorded, the slot refilled.
+    4. **The root view**: `/etc/hireme/contracts` on the boards' server.
+
+    Then the close-out: one browser run over all four (two players, one working a job and one
+    handed the leaked address) and a valleynews `/dev` post announcing contract work. The routes
+    that leak a login in a file (decision 10) follow as their own small epic. Each slice bumps the
+    version, runs the mutation gate on its new modules, and lands its migration on `jshack-dev` and
+    `jshack-prod` before the merge.
+
+21. **Defaults, applied with the plan (the owner may overrule):**
+    - **A mission box leaves traces like any box**: `auth.log`, `kern.log`, `access.log` and the
+      exploit door's lines, sourced from the visitor's vantage, so whoever arrives later reads who
+      came before and from where. A job that cares about stealth is a later template.
+    - **A job is paid once.** Completion and the mint happen in one database transaction keyed on
+      the job, so two right mails sent together pay once; a right key after completion earns a
+      reply that the job is already done.
+    - **Accepting is atomic** under a lock on the handle's row, as `hireme_apply` is, so two
+      accepts at once (the owner and someone on a leaked board) take one job and refuse the other.
+    - **Proof mails count toward the 20 sends an hour**, like any send: retries are unlimited in
+      kind, never in rate.
