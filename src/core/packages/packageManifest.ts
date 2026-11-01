@@ -49,6 +49,7 @@ const binaryNamesAt = (fs: Directory, segments: readonly string[]): ReadonlySet<
 const installedPackages = (
   fs: Directory,
   firmwareVendor: FirmwareVendor | undefined,
+  versions: Readonly<Record<string, string>>,
 ): readonly (readonly [string, string])[] => {
   const daemons = binaryNamesAt(fs, SBIN_SEGMENTS);
   // Every program of a service, not only its default: `/usr/sbin/apache2` is the
@@ -60,7 +61,10 @@ const installedPackages = (
   );
   const firmware = firmwareVendor === undefined ? [] : [firmwarePackageOf(firmwareVendor)];
   return [...new Set([...services, ...SYSTEM_LIBRARIES, ...firmware])].flatMap((pkg) => {
-    const version = startingVersionOf(pkg);
+    // A pinned version where one is given — a contract box sits on a chosen release —
+    // otherwise the version the box ships with. A pin for a package the box does not
+    // carry never reaches here: `pkg` is drawn from what the tree actually holds.
+    const version = versions[pkg] ?? startingVersionOf(pkg);
     return version === undefined ? [] : [[pkg, version] as const];
   });
 };
@@ -75,14 +79,20 @@ const installedPackages = (
  */
 export const withPackageManifest = (
   fs: Directory,
-  options: { readonly firmwareVendor?: FirmwareVendor } = {},
+  options: {
+    readonly firmwareVendor?: FirmwareVendor;
+    /** Versions to pin, package to version, for a box that must sit on chosen releases
+     *  rather than the ones it ships with. A pin for a package the box does not carry is
+     *  ignored. Empty by default, so every other caller's manifest is unchanged. */
+    readonly versions?: Readonly<Record<string, string>>;
+  } = {},
 ): Directory =>
   applyPatches(fs, [
     {
       path: DPKG_STATUS_PATH,
       content: formatDpkgStatus(
-        installedPackages(fs, options.firmwareVendor).map(([pkg, version]) =>
-          buildEntry(pkg, version),
+        installedPackages(fs, options.firmwareVendor, options.versions ?? {}).map(
+          ([pkg, version]) => buildEntry(pkg, version),
         ),
       ),
       owner: DPKG_STATUS_OWNER,
