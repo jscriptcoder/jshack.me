@@ -4,6 +4,7 @@ import {
   chainGatewayBaseFsForMachineId,
   machineIdForLanHost,
   generatedBaseFsForMachineId,
+  missionKeyBoxNumber,
   resolveDeepGatewayIdentity,
 } from './lanHostIdentity.js';
 import { generateDeepLayer } from './generateDeepLayer.js';
@@ -115,6 +116,29 @@ describe('a contract network through the hop resolvers', () => {
   it('resolves the gateway to the contract gateway', () => {
     const gateway = gatewayOn(MISSION_ESSID);
     expect(baseFsForLanHost(gateway, MISSION_ESSID)).toEqual(buildApGatewayBaseFs(MISSION_ESSID));
+  });
+});
+
+describe('naming the key box of a contract number', () => {
+  const MISSION_ESSID = 'mission-66051';
+
+  it('is the machine_id of the one machine behind the gateway, carrying the number', () => {
+    // The server lays the key onto exactly this box, so it must recognise the box by its
+    // id alone — the id a session on the key box carries — and recover the number from it.
+    const keyBox = hostOn(MISSION_ESSID, (host) => host.kind === 'machine');
+    expect(missionKeyBoxNumber(MISSION_ESSID, machineIdForLanHost(keyBox, MISSION_ESSID))).toBe(
+      66051,
+    );
+  });
+
+  it('is not the gateway — the gateway holds no key', () => {
+    expect(
+      missionKeyBoxNumber(MISSION_ESSID, machineIdForLanHost(gatewayOn(MISSION_ESSID), MISSION_ESSID)),
+    ).toBeNull();
+  });
+
+  it('is nothing on a network that is not a contract', () => {
+    expect(missionKeyBoxNumber(ESSID, machineIdForLanHost(gatewayOn(ESSID), ESSID))).toBeNull();
   });
 });
 

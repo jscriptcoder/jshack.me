@@ -67,6 +67,12 @@ import {
   type FindBoardHandle,
 } from '../src/core/hireme/boards.js';
 import { BOARD_FIRST_OCTET } from '../src/core/generation/world.js';
+import { missionKeyBoxNumber } from '../src/core/generation/lanHostIdentity.js';
+import {
+  missionKey,
+  missionKeyPath,
+  requireMissionSecret,
+} from '../src/core/missions/missionSecret.js';
 import { randomInt, randomUUID } from 'node:crypto';
 
 // Vercel adapter for POST /api/network — joining an AP, and reaching what is on it.
@@ -1049,6 +1055,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (error) console.error('[network] boards lookup error:', error);
       return { data: data as readonly Board[] | null, error };
     };
+    // A contract's key, derived here from the server-only secret (no table to read) and
+    // handed to the handler to lay onto the key box. Only the one machine behind a contract
+    // gateway is a key box; everything else is left as generated. With no secret set, the
+    // box is unavailable rather than carrying a guessable key.
+    const findMissionKeyFile = async ({
+      essid,
+      machine_id,
+    }: {
+      essid: string;
+      machine_id: string;
+    }) => {
+      const missionNumber = missionKeyBoxNumber(essid, machine_id);
+      if (missionNumber === null) return { data: null, error: null };
+      let secret: string;
+      try {
+        secret = requireMissionSecret(process.env.MISSION_KEY_SECRET);
+      } catch {
+        return { data: null, error: 'mission_secret_missing' as const };
+      }
+      return {
+        data: { path: missionKeyPath(missionNumber), content: `${missionKey(missionNumber, secret)}\n` },
+        error: null,
+      };
+    };
     const { status, body } = await handleResolveCrossPlayerFs(req.body, {
       nonceStore: noopNonceStore,
       findOccupantWorkstationByMachineId,
@@ -1057,6 +1087,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findPatches,
       findMailSpool,
       findBoards,
+      findMissionKeyFile,
     });
     res.status(status).json(body);
     return;

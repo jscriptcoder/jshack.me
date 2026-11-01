@@ -115,6 +115,20 @@ export const resolveLanHostIdentity = (host: LanHost, essid: string): LanHostIde
   baseFs: baseFsForLanHost(host, essid),
 });
 
+/** The contract number of the box `machineId` names, but ONLY when it is the key box — the
+ *  one machine behind a contract gateway — and `null` for anything else: the gateway, a box
+ *  on an ordinary network, or an address no contract makes. The server lays the key onto
+ *  this box and no other, and it holds only the id a session carries, so this is how it
+ *  recognises the box and recovers the number the key is derived from. Bundle-safe: the
+ *  number is public shape, never the secret the key comes from. */
+export const missionKeyBoxNumber = (essid: string, machineId: string): number | null => {
+  const missionNumber = missionNumberFromEssid(essid);
+  if (missionNumber === null) return null;
+  const keyBox = generateHomeLan(essid).hosts.find((host) => host.kind === 'machine');
+  if (keyBox === undefined) return null;
+  return machineIdForLanHost(keyBox, essid) === machineId ? missionNumber : null;
+};
+
 /** A deep CHILD GATEWAY's storage identity — its machine_id + seeded base FS — from the
  *  machine_id of the gateway that FRONTS its parent layer, the child's own deep IP, and
  *  its device `kind`. The child is keyed off its parent so two children at the same octet
