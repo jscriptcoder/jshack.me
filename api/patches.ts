@@ -11,6 +11,8 @@ import {
 import type { AppendLog } from '../src/core/patches/appendMachineLog.js';
 import { handleListPatches, type ListPatchesQuery } from '../src/core/patches/listPatches.js';
 import { handleRemovePatch, type PatchTreeQuery } from '../src/core/patches/removePatch.js';
+import { missionKeyBoxNumber } from '../src/core/generation/lanHostIdentity.js';
+import { missionKeyPath } from '../src/core/missions/missionSecret.js';
 import { handleAppendAuthLog } from '../src/core/patches/appendAuthLog.js';
 import { handleAppendKernLog } from '../src/core/patches/appendKernLog.js';
 import { handleRecordFtpTransfer } from '../src/core/patches/recordFtpTransfer.js';
@@ -292,6 +294,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return { data: data as OccupantWorkstation | null, error };
   };
 
+  // The key path a contract key box carries — the path only, no secret: the write gate
+  // asks whether a tier may write it, which its root-only perms answer. Null for every
+  // other box. Letting a root's `rm` of the key resolve and be permitted is all this does.
+  const missionKeyPathOf = ({ essid, machine_id }: { essid: string; machine_id: string }) => {
+    const missionNumber = missionKeyBoxNumber(essid, machine_id);
+    return missionNumber === null ? null : missionKeyPath(missionNumber);
+  };
+
   if (actionOf(req.body) === 'listPatches') {
     const listPatches = async ({ machine_id }: ListPatchesQuery) => {
       const { data, error } = await supabase
@@ -335,6 +345,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findActiveSession,
       listMachinePatches,
       findOccupantWorkstationByMachineId,
+      missionKeyPathOf,
       deletePatchTree,
       upsertPatch,
     });
@@ -604,6 +615,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     listMachinePatches,
     listPathPatches,
     findOccupantWorkstationByMachineId,
+    missionKeyPathOf,
     upsertPatch,
     endMachineSessions,
     endSessionsAbove,

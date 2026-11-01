@@ -35,6 +35,7 @@ import {
   enforceRemoteWriteL2,
   type FindOccupantWorkstationByMachineId,
   type ListMachinePatches,
+  type MissionKeyPathOf,
 } from './remoteWritePermission.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import type { PatchRow } from './upsertPatch.js';
@@ -54,6 +55,9 @@ export type RemovePatchDeps = {
   /** Same-LAN fallback for L2 when no occupancy row exists (a shared-AP occupant evicted
    *  by a later joiner) — resolves the workstation from the occupancy table. */
   readonly findOccupantWorkstationByMachineId: FindOccupantWorkstationByMachineId;
+  /** The key path a contract key box carries, so a root's `rm` of the key is permitted
+   *  (the bare key box carries no such path). Absent off the mission wiring. */
+  readonly missionKeyPathOf?: MissionKeyPathOf;
   /** Delete the row at `path` AND every row beneath it (`path/...`). */
   readonly deletePatchTree: (query: PatchTreeQuery) => Promise<{ readonly error: unknown }>;
   /** Record the `content: null` deletion marker (the tombstone). */
@@ -105,6 +109,7 @@ export const handleRemovePatch = async (
     session: access.session,
     listMachinePatches: deps.listMachinePatches,
     findOccupantWorkstationByMachineId: deps.findOccupantWorkstationByMachineId,
+    ...(deps.missionKeyPathOf ? { missionKeyPathOf: deps.missionKeyPathOf } : {}),
   });
   if (!permitted.ok) {
     return { status: permitted.status, body: { error: permitted.error } };
