@@ -3,8 +3,9 @@
 **Status:** Slice 1 shipped and deployed (v0.438.0, PR #746, merged 2026-11-01; branch gone).
 Migration on `jshack-dev` and `jshack-prod`; `MISSION_KEY_SECRET` set for Preview, Production and
 `.env.development.local` (each different). Verified end to end 2026-11-01 (local browser E2E
-through the msfconsole route, and a prod key-door check). **Next: slice 2** (offers, accept and
-drop on the board, the briefing, reserved client handles, pay).
+through the msfconsole route, and a prod key-door check). **Next: slice 2, planned below** (the
+board hires: offers, accept and drop, the briefing, reserved client handles), on
+`feat/missions-board-hires`.
 
 Missions are the one legacy system v2 has not rebuilt. The groundwork is built: wallets and the
 operator mint, emailit.io, the hireme.io contractor boards (every board saying no work is
@@ -406,6 +407,45 @@ Resolved (9):
 
 Parked: none.
 
+### Planning slice 2 (2026-11-01)
+
+30. **An offer is named by a random ref, never by its number.** An offer's number is its address
+    (decision 2), and an offer never shows the address (decision 4), so the `[ Accept ]` form
+    cannot carry it. Each offer posted to a board gets a short random `ref`, unique per handle and
+    kept in the missions table, and the form posts `offer=<ref>` in a hidden field (as rideit's
+    tickets and talkit's comments carry theirs). A page whose offer has since turned over is
+    refused ("That offer is no longer available."), never silently swapped for another job.
+    Rejected: the slot's position (a board that turned over between the read and the click accepts
+    a job the player never read).
+
+31. **Slice 2 ships before slice 3 pays, and the gap is accepted.** Vercel deploys `main` on merge,
+    so for the days between the two merges a contractor can accept, root the key box and mail the
+    key to the client handle, and the mail bounces as to any handle with no account. Nothing is
+    lost: the key never rotates (entry 24) and a job has no deadline (decision 14), so the same
+    key mailed once slice 3 ships is paid. Rejected: keeping the board shut behind a flag until
+    slice 3 (a bridge to remove, and slice 2 would ship nothing a player sees) and stacking slices
+    2 and 3 into one merge (a bigger review and the rebase churn).
+
+32. **Defaults, applied with the slice 2 plan (the owner may overrule):**
+    - **A board has three slots, and the active job holds one.** Decision 5 has a slot fill
+      "the moment that job is completed or dropped" and entry 28 tops up to 3 `offered` rows; read
+      together, the top-up fills to 3 counting the accepted job, so while a job is active the board
+      shows it and 2 offers, and the third offer comes on the first read after it closes.
+    - **Client handles fit the handle alphabet.** `mail` sends only to a valid handle
+      (`^[a-z][a-z0-9_-]*$`, at most 24 characters), so decision 11's `copper.ops` is `copper-ops`.
+    - **The offers and briefings are server-only.** `hireme/pages.ts` ships in the bundle (the
+      front page is a file in hireme.io's tree), so the board page moves to a module only the
+      server's fetch handler imports, beside the new client, pitch and "what the key opens" pools.
+    - **The operator's `accept` stays silent.** It still writes an accepted row directly and mails
+      no briefing; `show` gains the client, the target company and the pay, which is what a test
+      of slice 3's mail door needs. The briefing is tested through the real `POST /accept`.
+    - **A `GET` of `/accept` or `/drop` answers the board** and changes nothing, as rideit's
+      `/board` does for a browser going back.
+    - **The words.** Accepted: "Contract accepted. <Client> has sent you a briefing." Dropped:
+      "Contract dropped. <Client> will not be in touch again." Busy: "Finish or drop your current
+      contract first". Gone: "That offer is no longer available." No job: "You have no current
+      contract." Each under the button it answers, in hireme's `role="alert"` style.
+
 ---
 
 ## Slice 1 — a mission exists
@@ -530,3 +570,133 @@ wire-check driving one) is handed the address.
 Offers, accept and drop on the board, the briefing, reserved client handles, pay (slice 2);
 completion by mail and the mint (slice 3); `/etc/hireme/contracts` (slice 4). The guardian needs
 no change: its rounds walk only the declared world.
+
+---
+
+## Slice 2 — the board hires
+
+**Branch:** `feat/missions-board-hires` · **Version:** 0.439.0 · **Class:** behavior change ·
+**Delivery:** independent PR against `main`
+
+**Goal.** A contractor opens their board and finds three offers, each a client, the kind of job,
+the pay and a pitch, and no address. Accepting one mails a briefing from the client's handle with
+the mission's address in it, and that address starts answering; the board then shows the current
+contract, which can be dropped. Offers nobody takes turn over after 24 hours, and their numbers
+never become reachable. No pay yet: a mailed key bounces until slice 3 (entry 31).
+
+**Actor and trigger.** A player holding a board's address reads it (`lynx`/`curl`) and submits
+its forms (`POST /accept`, `POST /drop`, or `curl -d`).
+
+### What it builds
+
+- **The terms of a contract** (server-only, `core/missions/`, imported by the fetch handler and
+  `scripts/` alone): from the number, as the shape is (a PRNG seeded by the number, never the
+  clock) — the **client** (a company and its reserved handle, `Copper Systems` / `copper-ops`),
+  the **target company** (its display name built on the shape's stem, so `halden-gw` belongs to a
+  company called Halden something), the **pitch** (black-hat or grey), **what the key opens**, the
+  **kind of job** ("retrieve an access key", exfiltrate being the one template) and the **pay**
+  (500 to 2,000 JSC, rounded to the nearest 50, decision 8). The key path pool is not touched.
+- **Reserved client handles**: every handle in the client pool joins emailit.io's reserved list,
+  so signing up as one is refused as a reserved system name.
+- **The missions table** (migration): a `ref` column (nullable: the operator's rows have none;
+  every offer posted from a board has one), unique per handle (entry 30). Three store functions,
+  each one transaction under the lock on the handle's `email_accounts` row (entry 21), each
+  answering with a word, `EXECUTE` for `service_role` alone, as `hireme_apply`:
+  - **post offers** (entry 28): burn the handle's offers posted more than 24 hours ago, then post
+    from the candidate numbers and refs offered until offers plus the accepted job make 3
+    (entry 32); a number or ref already taken is skipped, and the caller draws again when too few
+    landed. It answers with the board as it now stands: the offers (number, ref) and the current
+    job's number, if any.
+  - **accept** (`handle`, `number`, the briefing): `busy` when the handle holds an accepted job;
+    `gone` when the number is not this handle's offer, or is one posted more than 24 hours ago;
+    otherwise the row turns `accepted` (`accepted_at`) and the briefing lands in the inbox as
+    system mail (always delivered, as the board's own mail is), answering `accepted`.
+  - **drop** (`handle`, `number`, the client's line): `no_contract` when that number is not the
+    handle's accepted job; otherwise `abandoned` (`closed_at`) and the client's line mailed,
+    answering `dropped`.
+
+  The caller reads the offer's number by its ref first and builds the briefing from it, and the
+  function checks again under the lock, so a turnover between the two is `gone`.
+- **The board** (server-only module; `boardPage` leaves `hireme/pages.ts`): `GET /` on a board
+  posts offers and renders, above them while a job is active, a "Current contract" block (client,
+  target company, pay, `[ Drop contract ]`, never the address, decision 19), then each offer as
+  one block (decision 16's line and pitch) with its own form and hidden `offer=<ref>`. The "no
+  contracts available yet" line goes.
+- **The doors** (`resolveHttpFetch.ts`): `POST /accept` and `POST /drop` on the boards' server,
+  ahead of the 405 every other POST there still gets, answered from functions, never from a file
+  (a root on the boards' server cannot stop either), each answering the board with its message
+  under the button (entry 32). Every hit is an `access.log` line on the boards' server naming the
+  board address asked, as the board's `GET` is, never with the form. `GET /accept` and `GET /drop`
+  answer the board. Numbers and refs are drawn from the OS's randomness (`randomInt`), as board
+  addresses are.
+- **The briefing** (decision 16): from `<client handle>@emailit.io`, subject `Contract: <target
+  company>`, giving the target company, the mission address, what the key opens, the key's form
+  (`ACCESS-XXXX-XXXX-XXXX`), that the reply goes to this address with the key and a wallet
+  address, and the payment rule ("No key, no money. No wallet, no money."). Never the way in, the
+  path or the key's file. A drop mails one short line from the same handle.
+- **`scripts/hireme.ts`**: `post <handle>` burns the handle's current offers and posts 3 fresh
+  ones now, past the 24-hour turnover (decision 18); `show <address>` adds the client, target
+  company and pay. `accept` and `drop` are unchanged (entry 32).
+
+### Acceptance criteria
+
+1. A board read for a handle with no offers shows 3 offers, each with a client, "retrieve an
+   access key", a pay between 500 and 2,000 JSC that is a multiple of 50 ("1,350 JSC"), a pitch
+   and an `[ Accept ]` button; neither the page nor its HTML holds a `195.` address.
+2. Reading the board again shows the same 3 offers; two reads at once leave 3 offers, not 6.
+3. An offer posted more than 24 hours ago is gone on the next read and replaced by a fresh one;
+   the replaced offer's address still answers as an empty address.
+4. Accepting an offer answers "Contract accepted. <Client> has sent you a briefing."; the inbox
+   holds the briefing from `<client handle>@emailit.io` with subject `Contract: <target
+   company>`, the mission's address, what the key opens, the key's form and the payment rule, and
+   no route, path or key; `nmap` of that address now finds the gateway.
+5. After accepting, the board shows a "Current contract" block (client, target company, pay,
+   `[ Drop contract ]`) with no address, and 2 offers.
+6. Accepting while a job is active answers "Finish or drop your current contract first", mails
+   nothing and changes nothing.
+7. Accepting with a ref that is not one of this board's live offers (turned over, another
+   handle's, made up) answers "That offer is no longer available." and mails nothing.
+8. Two accepts of different offers on one board at once: one is accepted, the other refused as
+   busy, and one briefing is mailed.
+9. Dropping answers "Contract dropped. <Client> will not be in touch again."; the client mails one
+   line; the address still answers; the next read shows 3 offers and no current contract.
+10. Dropping with no active job answers "You have no current contract."
+11. Signing up as any client handle is refused as a reserved system name.
+12. `GET /accept` and `GET /drop` answer the board and change nothing; a POST to any other path
+    on the boards' server is still 405.
+13. The boards' server's `access.log` records each `POST /accept` and `POST /drop` with the board
+    address asked and without the form.
+14. The same number gives the same client, target company, pitch, what the key opens and pay on
+    every read (unit, over 2,000 numbers); every client handle passes `validateUsername`.
+15. `scripts/hireme.ts post <handle>` replaces the board's offers with 3 fresh ones; `show
+    <address>` prints the client, target company and pay.
+16. The built main chunk holds no client handle, pitch or briefing line (grep); its size is
+    measured against the budget.
+
+### Evidence
+
+- **Unit (TDD)**: the terms (AC 14, the pay range and rounding at 500, 2,000 and a value that
+  rounds either way), the board page's states (offers, current contract, each message), the
+  accept and drop answers against an injected store (each word, a store failure, a store word
+  nobody taught it, as `apply.test.ts` does), the doors' routing in `resolveHttpFetch.test.ts`
+  (AC 12, 13), the reserved handles (AC 11), the operator order parser (`post`).
+- **Wire-check** `scripts/testMissionBoard.ts` vs `vercel dev` + local supabase: AC 1–10, 12, 13
+  through the real `/api/network`, the 24-hour turnover by back-dating `posted_at` with the
+  service role, the races in AC 2 and 8 by firing two requests together.
+  `scripts/testMissions.ts` stays green.
+- **Mutation gate** at PR readiness on the terms module, the board page, and the accept and drop
+  answers.
+- **Bundle**: `npm run build` and `scripts/checkBudgets.ts`, grep of the chunk (AC 16).
+- **Ops, before the merge**: confirm no account holds a client handle on `jshack-dev` or
+  `jshack-prod` (a read; a held one is swapped out of the pool); the migration on both (link,
+  push, unlink per project; the prod push run by the owner).
+- No browser run: the epic's close-out run covers it.
+
+**Required skills:** `tdd`, `testing` and `functional` for the terms and the page; `refactoring`
+after each green; `mutation-testing` at the PR gate.
+
+### Out of scope
+
+Completion by mail, the reply, the mint and the slot refilling on completion (slice 3; until then
+a mailed key bounces, entry 31); `/etc/hireme/contracts` (slice 4). The routes that leak a login
+in a file stay their own epic.
