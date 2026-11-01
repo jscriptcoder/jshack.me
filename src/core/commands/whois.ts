@@ -13,12 +13,13 @@ import {
   BOARD_FIRST_OCTET,
   declaredNetwork,
   HARROW_VALLEY,
+  MISSION_FIRST_OCTET,
   networkAt,
   PLACELESS_FIRST_OCTET,
 } from '../generation/world.js';
 import { fixedSite, type FixedSite } from '../generation/fixedSites.js';
 import { siteAddress } from '../generation/publisher.js';
-import { isBoardAddress } from '../generation/ip.js';
+import { isBoardAddress, isMissionAddress } from '../generation/ip.js';
 import { vantageOf } from '../network/vantage.js';
 import { errorLine, text } from './streaming.js';
 
@@ -56,9 +57,20 @@ const BOARDS_RECORD: RegistryRecord = {
   orgName: 'hireme.io',
 };
 
+/** The contract networks, answered for the whole block whether a contract stands at the
+ *  address or not, as an ordinary small-business line. The record names no contract and
+ *  nothing of hireme: a briefing's address looks up as a business connection, and the
+ *  block says nothing of which of its addresses are live. */
+const MISSION_RECORD: RegistryRecord = {
+  inetnum: `${MISSION_FIRST_OCTET}.0.0.0 - ${MISSION_FIRST_OCTET}.255.255.255`,
+  netname: 'SMALLBIZ-NET',
+  orgName: 'Harrow Valley Business Broadband',
+};
+
 /** The record for whichever network answers at `address`, or `undefined` where none does. */
 const recordAt = (address: string): RegistryRecord | undefined => {
   if (isBoardAddress(address)) return BOARDS_RECORD;
+  if (isMissionAddress(address)) return MISSION_RECORD;
   const key = networkAt(address);
   const site = fixedSite(key ?? '');
   if (site !== undefined) return fixedSiteRecord(site, address);
