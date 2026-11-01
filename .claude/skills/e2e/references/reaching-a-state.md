@@ -354,3 +354,66 @@ anyone else on their next line.
 A player who only holds a shell sees nothing until they type: their next command answers
 `Connection to ap-gw closed by remote host.` and leaves them at home. That is the drop, not a
 lag — the closed line names the PROMPT's hostname.
+
+---
+
+## A contract network (mission)
+
+Verified 2026-11-01 (v0.438.0), local full browser journey + a prod key-door check. A contract
+is a 24-bit number; its 195 address answers as a reachable network (gateway + key box) only
+while accepted, completed or abandoned. The one guaranteed route roots the key box, which holds
+a root-only key file the server lays in from `MISSION_KEY_SECRET`.
+
+**Pick the contract offline first** — a temp file in the repo ([offline-secrets.md](offline-secrets.md)), run with
+`npx dotenv -e .env.development.local -- npx tsx ./m.tmp.ts` so `MISSION_KEY_SECRET` is in env
+for the expected-key assertion:
+
+```ts
+import { isMissionNumber, missionAddressForNumber, missionEssid } from './src/core/missions/missionNetwork.js';
+import { missionShape } from './src/core/missions/missionShape.js';
+import { missionKey, missionKeyPath } from './src/core/missions/missionSecret.js';
+import { generateHomeLan } from './src/core/generation/generateHomeLan.js';
+import { machineIdForLanHost } from './src/core/generation/lanTopology.js';
+// A number whose route is 'msfconsole' (no password step) or 'hydra'; walk up from any base.
+const n = 100000; // missionShape(n).route === 'msfconsole', address 195.1.134.160, forward :80
+const essid = missionEssid(n);                         // mission-100000 (CANNOT be joined — 403)
+const keyBox = generateHomeLan(essid).hosts.find((h) => h.kind === 'machine')!;
+machineIdForLanHost(keyBox, essid);                    // key box id, e.g. halden-files-...
+missionShape(n).forward;                               // msf: {80,80}; hydra: {2222,22}
+missionKeyPath(n);                                     // e.g. /etc/contract/access.key
+missionKey(n, process.env.MISSION_KEY_SECRET!);        // the exact ACCESS- token `cat` must print
+```
+
+**Stage it** — the mission must be ACCEPTED for a handle that owns a mailbox; the FIRING player
+is any player, not the handle. The operator refuses a handle with no `email_accounts` row, so
+insert one first (`signed_up_by` has a CHECK — it must be a 64-hex key, e.g. `md5(a)+md5(b)`),
+then:
+
+```
+npx dotenv -e .env.development.local -- npx tsx scripts/hireme.ts accept <handle> --number 100000
+```
+
+It prints `Accepted contract 100000 for <handle>: 195.1.134.160`. Now reach it as a fresh player:
+
+| # | Command | Trap |
+|---|---|---|
+| 1 | join a wifi (airmon/airodump/nmcli, above) | **A fresh player is OFFLINE** (`WLAN0 DOWN`, `ESSID —`). A public 195 target does not resolve until the player stands on SOME network, so join a crackable town network first — the contract is reached FROM a vantage, not from the bare box |
+| 2 | `su root` → `apt install nmap` → `apt install metasploit` → `exit` | Neither is preinstalled. `cat` the installs' prompt back before Enter as always |
+| 3 | `nmap 195.1.134.160` | Lists `22/tcp ssh` (the gateway's OWN sshd) AND the forwarded route port (`80/tcp http` here). The forward is the way in; the gateway's `:22` is not |
+| 4a | msfconsole route: `msfconsole 195.1.134.160 80` | `[+] Full shell as root@195.1.134.160`, and the prompt becomes `root@<key-box-name>` (the machine-id name part, e.g. `halden-files`, not the scan hostname — the same cosmetic mismatch the AP gateway shows). No password: the critical CVE on the forwarded service lands root |
+| 4b | hydra route: `ssh root@195.1.134.163 -p 2222` | The forward is public `:2222` → the box's own `:22`. Derive the root password offline — `plaintextFor(missionShape(n).keyBoxRootHash)` ([offline-secrets.md](offline-secrets.md)) — rather than running `hydra` for minutes; the key box's own sshd answers behind the forward |
+| 5 | `cat /etc/contract/access.key` | Prints the `ACCESS-XXXX-XXXX-XXXX` token. **`cat` on the served key box is PACED** — the prompt returns before the line arrives, so read the screen a few seconds later (exactly like `cat` on the AP gateway). An empty read or `mission_secret_missing` means the deployment's `MISSION_KEY_SECRET` is unset |
+
+The msfconsole route is the cleaner browser recipe — it roots the box with no password step.
+
+**The whole key-box reach, offline.** To prove the key door (e.g. that a deployment's secret is
+bound) without the browser journey, skip the crack/exploit: seed a root `sessions` row on the key
+box standing on the mission essid, then POST a signed `resolveCrossPlayerFs { machine_id }` (the
+server lays the key in `findMissionKeyFile`). This is how `scripts/testMissions.ts` reads it, and
+how the prod secret was checked on 2026-11-01 — a well-formed `ACCESS-` token back means the
+secret is bound; it needs the supabase creds, not the secret itself.
+
+**Clean up.** `hireme.ts drop <handle>` only ABANDONS the contract — the network stays reachable
+for good by design. True removal is a service-role `delete()` of the `hireme_missions` row (plus
+the mailbox and the key box / gateway `patches` rows a run leaves), the way the wire-check's
+`cleanup()` does it.
