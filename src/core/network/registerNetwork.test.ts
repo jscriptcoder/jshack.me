@@ -11,6 +11,7 @@ import { assignHomeNetwork } from './homeNetwork.js';
 import { lanAddressFor } from './lanAddress.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import { DECLARED_NETWORKS, isLandmark, RIDGEMONT, TOWNS } from '../generation/world.js';
+import { missionEssid } from '../missions/missionNetwork.js';
 import { sessionRow, sessionTable, type SessionRow } from '../../test/factories/sessionTable.js';
 
 /**
@@ -471,6 +472,24 @@ describe('handleRegisterNetwork: which networks a player may join', () => {
     );
 
     expect(result).toEqual({ status: 500, body: { error: 'location_lookup_failed' } });
+    expect(allocateLanLease).not.toHaveBeenCalled();
+    expect(upsertOccupant).not.toHaveBeenCalled();
+  });
+
+  it('refuses a join to a mission network, even with undeclared networks admitted, without leasing or writing', async () => {
+    // A mission network is on no town's scan list, so the client never offers it; a crafted
+    // join must not make a caller an occupant of one. The refusal holds with the lab flag on,
+    // which otherwise admits any made-up network, so the only way onto a 195 address is the
+    // forward its gateway publishes.
+    const id = generateIdentity();
+    const { deps, allocateLanLease, upsertOccupant } = makeDeps({ admitsUndeclaredNetworks: true });
+
+    const result = await handleRegisterNetwork(
+      envelope(id, { essid: missionEssid(66051) }),
+      deps,
+    );
+
+    expect(result).toEqual(NOT_JOINABLE);
     expect(allocateLanLease).not.toHaveBeenCalled();
     expect(upsertOccupant).not.toHaveBeenCalled();
   });
