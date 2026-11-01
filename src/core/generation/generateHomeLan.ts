@@ -30,6 +30,8 @@ import { declaredNetwork } from './world.js';
 import { HOSTNAME_PREFIXES, OFFICE_HOSTNAME_PREFIXES } from './pools/hostnames.js';
 import { lanSubnetPrefix } from '../network/lanAddress.js';
 import { seedApGatewayHostname, seedInnerGatewayHostname } from './gatewayHostname.js';
+import { missionNumberFromEssid } from '../missions/missionNetwork.js';
+import { GATEWAY_SUFFIX, KEY_BOX_SUFFIX, TARGET_STEMS } from '../missions/pools.js';
 import type { Ipv4 } from '../network/interfaces.js';
 
 export type LanHostKind = 'machine' | 'router' | 'switch';
@@ -147,8 +149,28 @@ const machinesAt = (
   );
 };
 
+/** A contract network's LAN: a gateway at `.1` and a key box behind it, both named for
+ *  the target company, drawn from the contract's number alone. Its own shape, not the
+ *  town topology above — no inner gateway, no switch, no filler — so a scan reads as one
+ *  company's two machines. */
+const missionLan = (subnet: string, missionNumber: number): HomeLan => {
+  const prng = createPrng(`mission-shape-${missionNumber}`);
+  const stem = prng.pick(TARGET_STEMS);
+  const keyBoxOctet = prng.nextInt(2, 254);
+  return {
+    subnet,
+    hosts: [
+      { ip: `${subnet}.1`, hostname: `${stem}-${GATEWAY_SUFFIX}`, kind: 'router' },
+      { ip: `${subnet}.${keyBoxOctet}`, hostname: `${stem}-${KEY_BOX_SUFFIX}`, kind: 'machine' },
+    ],
+  };
+};
+
 export const generateHomeLan = (essid: string): HomeLan => {
   const subnet = lanSubnetPrefix(essid);
+
+  const missionNumber = missionNumberFromEssid(essid);
+  if (missionNumber !== null) return missionLan(subnet, missionNumber);
 
   // The `.1` is the ACCESS POINT's gateway, not the viewer's own box, so its name
   // seeds off the ESSID — every occupant sees the same gateway under the same name,

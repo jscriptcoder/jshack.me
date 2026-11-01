@@ -542,3 +542,34 @@ describe('generateHomeLan for a network sized by its profile', () => {
     ]);
   });
 });
+
+describe('generateHomeLan for a contract network', () => {
+  const MISSION_ESSID = 'mission-66051';
+
+  it('is a gateway and a key box alone, both named for one target company', () => {
+    const lan = generateHomeLan(MISSION_ESSID);
+
+    expect(lan.hosts).toHaveLength(2);
+    const [gateway, keyBox] = lan.hosts;
+    expect(gateway?.ip).toBe(`${lan.subnet}.1`);
+    expect(gateway?.kind).toBe('router');
+    expect(keyBox?.kind).toBe('machine');
+    expect(octetOf(keyBox?.ip ?? '')).toBeGreaterThanOrEqual(2);
+    expect(octetOf(keyBox?.ip ?? '')).toBeLessThanOrEqual(254);
+
+    // One company's two machines: `<stem>-gw` at the address, `<stem>-files` behind it.
+    const gatewayStem = gateway?.hostname.replace(/-gw$/, '');
+    expect(gateway?.hostname).toBe(`${gatewayStem}-gw`);
+    expect(keyBox?.hostname).toBe(`${gatewayStem}-files`);
+  });
+
+  it('is the same network for the same number, wherever it is regenerated', () => {
+    expect(generateHomeLan(MISSION_ESSID)).toEqual(generateHomeLan(MISSION_ESSID));
+  });
+
+  it('gives two different numbers two different companies, at their own addresses', () => {
+    const first = generateHomeLan('mission-66051');
+    const second = generateHomeLan('mission-131587');
+    expect(first.hosts[0]?.hostname).not.toBe(second.hosts[0]?.hostname);
+  });
+});
