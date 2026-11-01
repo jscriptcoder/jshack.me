@@ -14,10 +14,11 @@
  * address, at `/etc/hireme/boards`.
  */
 
-import { isBoardAddress } from '../generation/ip.js';
+import { isBoardAddress, isMissionAddress } from '../generation/ip.js';
 import { BOARD_SERVER_NETWORK } from '../generation/fixedSites.js';
 import { computeApGatewayId } from '../identity/router.js';
 import { file, ROOT_FILE, withFiles } from '../generation/baseFs.js';
+import { missionEssid, missionNumberForAddress } from '../missions/missionNetwork.js';
 import type { Directory } from '../filesystem/types.js';
 import {
   derivedNetworkByPublicIp,
@@ -28,6 +29,19 @@ import {
 export type FindBoardHandle = (
   address: string,
 ) => Promise<{ readonly data: { readonly handle: string } | null; readonly error: unknown }>;
+
+/** The recorded state of the contract numbered `missionNumber`, or `null` where no row
+ *  names it. Only the table knows whether a number was ever drawn and how far its job got;
+ *  the number's network stands at its 195 address only once the state is a reachable one. */
+export type FindMissionState = (
+  missionNumber: number,
+) => Promise<{ readonly data: { readonly state: string } | null; readonly error: unknown }>;
+
+/** The states in which a contract's network answers at its address: once a contractor has
+ *  accepted it, and for good after the job completes or is abandoned (the network is
+ *  persistent and shared, and its address may already be out). An `offered` or `burned`
+ *  number is never reachable — the server drew it, but nobody was ever hired for it. */
+const REACHABLE_MISSION_STATES: ReadonlySet<string> = new Set(['accepted', 'completed', 'abandoned']);
 
 const BOARD_SERVER: ApNetworkLookup = {
   router_machine_id: computeApGatewayId(BOARD_SERVER_NETWORK),
@@ -74,13 +88,35 @@ export const withBoardsList = (box: Directory, boards: readonly Board[]): Direct
 };
 
 /** The network standing at `publicIp`: the boards' server where a handle holds a board's
- *  address, otherwise whatever the world puts there. A failed read of the boards is passed
- *  on rather than answered either way. */
+ *  address, a contract's network where its 195 number has been accepted (or since
+ *  completed or abandoned), otherwise whatever the world puts there. A board address is
+ *  looked up only against the boards, a 195 address only against the missions table, and
+ *  every other address against the world alone; a failed read of either table is passed on
+ *  rather than answered either way. */
 export const networkByPublicIp =
-  (findBoardHandle: FindBoardHandle) =>
+  ({
+    findBoardHandle,
+    findMissionState,
+  }: {
+    readonly findBoardHandle: FindBoardHandle;
+    readonly findMissionState: FindMissionState;
+  }) =>
   async (
     publicIp: string,
   ): Promise<{ readonly data: ApNetworkLookup | null; readonly error: unknown }> => {
+    if (isMissionAddress(publicIp)) {
+      // A 195 address whose last octet is not a host octet names no contract, so no row
+      // could ever stand at it: it answers as an empty address without the table being read.
+      const missionNumber = missionNumberForAddress(publicIp);
+      if (missionNumber === null) return { data: null, error: null };
+      const { data, error } = await findMissionState(missionNumber);
+      if (error) return { data: null, error };
+      if (data === null || !REACHABLE_MISSION_STATES.has(data.state)) {
+        return { data: null, error: null };
+      }
+      const essid = missionEssid(missionNumber);
+      return { data: { router_machine_id: computeApGatewayId(essid), essid }, error: null };
+    }
     if (!isBoardAddress(publicIp)) return derivedNetworkByPublicIp(publicIp);
     const { data, error } = await findBoardHandle(publicIp);
     if (error) return { data: null, error };

@@ -17,7 +17,11 @@ import {
   type FiringShell,
 } from '../src/core/sessions/exploitLocalElevate.js';
 import type { NatOccupantRow } from '../src/core/network/resolvePublicTarget.js';
-import { networkByPublicIp, type FindBoardHandle } from '../src/core/hireme/boards.js';
+import {
+  networkByPublicIp,
+  type FindBoardHandle,
+  type FindMissionState,
+} from '../src/core/hireme/boards.js';
 import {
   handleAuthCreateSessionSameLan,
   type OccupantConnectRow,
@@ -136,10 +140,30 @@ const findBoardHandleVia =
     return { data: data as { handle: string } | null, error };
   };
 
-/** What stands at a public address: a board's address read from the table, every other
- *  address derived from the world. Every door to a public address finds its network
- *  through this, so none can reach a board another cannot. */
-const networkByPublicIpVia = (spec: QuerySpec) => networkByPublicIp(findBoardHandleVia(spec));
+/** The recorded state of a contract number, or none where no row names it — the read that
+ *  tells an accepted mission's address from an empty one. Service role only; `number` is the
+ *  primary key, so the read is one indexed row. */
+const findMissionStateVia =
+  ({ supabase, label }: QuerySpec): FindMissionState =>
+  async (missionNumber) => {
+    const { data, error } = await supabase
+      .from('hireme_missions')
+      .select('state')
+      .eq('number', missionNumber)
+      .maybeSingle();
+    logFailure(label, error);
+    return { data: data as { state: string } | null, error };
+  };
+
+/** What stands at a public address: a board's address read from the boards table, a
+ *  contract's 195 address read from the missions table, every other address derived from
+ *  the world. Every door to a public address finds its network through this, so none can
+ *  reach a board or a mission another cannot. */
+const networkByPublicIpVia = (spec: QuerySpec) =>
+  networkByPublicIp({
+    findBoardHandle: findBoardHandleVia(spec),
+    findMissionState: findMissionStateVia(spec),
+  });
 
 /** Every row shape this endpoint persists into `sessions`. They differ in `kind` and in
  *  whether an `essid` rides along; the insert itself does not care, and each handler has

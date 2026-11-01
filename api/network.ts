@@ -65,6 +65,7 @@ import {
   networkByPublicIp,
   type Board,
   type FindBoardHandle,
+  type FindMissionState,
 } from '../src/core/hireme/boards.js';
 import { BOARD_FIRST_OCTET } from '../src/core/generation/world.js';
 import { missionKeyBoxNumber } from '../src/core/generation/lanHostIdentity.js';
@@ -120,10 +121,30 @@ const findBoardHandleVia =
     return { data: data as { handle: string } | null, error };
   };
 
-/** What stands at a public address: a board's address read from the table, every other
- *  address derived from the world. Every door to a public address finds its network
- *  through this, so none can reach a board another cannot. */
-const networkByPublicIpVia = (spec: QuerySpec) => networkByPublicIp(findBoardHandleVia(spec));
+/** The recorded state of a contract number, or none where no row names it — the read that
+ *  tells an accepted mission's address from an empty one. Service role only; `number` is the
+ *  primary key, so the read is one indexed row. */
+const findMissionStateVia =
+  ({ supabase, label }: QuerySpec): FindMissionState =>
+  async (missionNumber) => {
+    const { data, error } = await supabase
+      .from('hireme_missions')
+      .select('state')
+      .eq('number', missionNumber)
+      .maybeSingle();
+    logFailure(label, error);
+    return { data: data as { state: string } | null, error };
+  };
+
+/** What stands at a public address: a board's address read from the boards table, a
+ *  contract's 195 address read from the missions table, every other address derived from
+ *  the world. Every door to a public address finds its network through this, so none can
+ *  reach a board or a mission another cannot. */
+const networkByPublicIpVia = (spec: QuerySpec) =>
+  networkByPublicIp({
+    findBoardHandle: findBoardHandleVia(spec),
+    findMissionState: findMissionStateVia(spec),
+  });
 
 /**
  * Finding the box behind a public address and a port — the reads shared by every web
