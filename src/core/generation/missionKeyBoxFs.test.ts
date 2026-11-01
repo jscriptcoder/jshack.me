@@ -81,6 +81,16 @@ describe('the key box of a contract network', () => {
   it('is the same box for the same number', () => {
     expect(buildMissionKeyBoxFs(MSF)).toEqual(buildMissionKeyBoxFs(MSF));
   });
+
+  it('starts the standard log files empty, as a box that has traced like any other', () => {
+    // A mission box leaves auth, kern and access traces like any box, so it ships those
+    // three logs, each empty until something writes to it.
+    const fs = buildMissionKeyBoxFs(HYDRA);
+
+    for (const log of ['access.log', 'auth.log', 'kern.log']) {
+      expect(fileAt(fs, ['var', 'log', log])).toBe('');
+    }
+  });
 });
 
 /** The key box's root hash on the msfconsole route stays shut. */

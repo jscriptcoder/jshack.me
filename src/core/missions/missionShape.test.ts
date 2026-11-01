@@ -3,6 +3,7 @@ import { MISSION_ROUTE_DAY, missionShape } from './missionShape.js';
 import { liveCve } from '../cve/liveCve.js';
 import { packageTimeline } from '../cve/packageTimeline.js';
 import { FIRMWARE_VENDORS, firmwarePackageOf } from '../packages/packageVersions.js';
+import { UNCRACKABLE_HASHES } from '../generation/passwordPools.js';
 
 /** A spread of contract numbers whose last octet is a host octet (2–254). */
 const SAMPLE_NUMBERS = Array.from({ length: 2000 }, (_unused, index) => index * 8381 + 2).filter(
@@ -38,6 +39,35 @@ describe('missionShape', () => {
   it('draws both routes across the number space', () => {
     const routes = new Set(SAMPLE_NUMBERS.map((missionNumber) => missionShape(missionNumber).route));
     expect(routes).toEqual(new Set(['hydra', 'msfconsole']));
+  });
+
+  const firstWithRoute = (route: 'hydra' | 'msfconsole'): number => {
+    const found = SAMPLE_NUMBERS.find((missionNumber) => missionShape(missionNumber).route === route);
+    if (found === undefined) throw new Error(`no ${route} contract in the sample`);
+    return found;
+  };
+
+  it('gives the hydra route a crackable key box root, forwarded to the box own sshd', () => {
+    // The hydra route is a way IN: its key box root must be crackable (the msfconsole route's
+    // stays shut — see the key-box test), and the gateway forwards the public :2222 onto the
+    // box's own :22 so the crack has a real sshd to land on.
+    const shape = missionShape(firstWithRoute('hydra'));
+
+    expect(UNCRACKABLE_HASHES).not.toContain(shape.keyBoxRootHash);
+    expect(shape.forward).toEqual({ publicPort: 2222, internalPort: 22 });
+  });
+
+  it('forwards the msfconsole route straight onto the exposed service port', () => {
+    // The way in is the service hole, so the gateway forwards the public port onto the same
+    // port the service listens on behind it.
+    const shape = missionShape(firstWithRoute('msfconsole'));
+    const routeService = shape.keyBoxServices[0];
+
+    expect(routeService).toBeDefined();
+    expect(shape.forward).toEqual({
+      publicPort: routeService?.port,
+      internalPort: routeService?.port,
+    });
   });
 
   it('gives the msfconsole route a live critical hole, and pins everything else safe', () => {

@@ -22,6 +22,14 @@ describe('the key a contract hands out', () => {
     expect(missionKey(66051, SECRET)).toBe(missionKey(66051, SECRET));
   });
 
+  it('derives a fixed token from the number and secret — a vector that must not drift', () => {
+    // Pinned so any change to the HMAC or the base32 encoding is caught: a key a contractor
+    // mailed must still verify on a later deploy of the same secret, so the exact bytes the
+    // digest produces are part of the contract, not only the token's shape.
+    expect(missionKey(66051, SECRET)).toBe('ACCESS-S770-AP28-PYMA');
+    expect(missionKey(2, SECRET)).toBe('ACCESS-FMVN-Y62F-129G');
+  });
+
   it('is a different key for a different number', () => {
     expect(missionKey(66051, SECRET)).not.toBe(missionKey(66052, SECRET));
   });
@@ -45,13 +53,17 @@ describe('where a contract hides its key', () => {
     expect(missionKeyPath(66051)).toBe(missionKeyPath(66051));
   });
 
-  it('varies with the number across the pool', () => {
+  it('varies with the number across the pool, every path a root-only system file', () => {
     // Not a proof of uniqueness — the pool is smaller than the numbers — only that the
-    // path is drawn from the number rather than fixed for every contract.
-    const paths = new Set(
-      Array.from({ length: 200 }, (_unused, index) => missionKeyPath(index + 2)),
-    );
-    expect(paths.size).toBeGreaterThan(1);
+    // path is drawn from the number rather than fixed for every contract. Every path the
+    // pool can yield is a believable root-only absolute file, so none leaks a key into a
+    // place a non-root shell could read.
+    const paths = Array.from({ length: 200 }, (_unused, index) => missionKeyPath(index + 2));
+
+    expect(new Set(paths).size).toBeGreaterThan(1);
+    for (const path of paths) {
+      expect(path).toMatch(/^\/(etc|root|var|opt)\/[^/]/);
+    }
   });
 });
 

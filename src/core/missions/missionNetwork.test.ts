@@ -25,6 +25,10 @@ describe('missionAddressForNumber', () => {
   it('has no address for a number outside the 24-bit block or not a whole number', () => {
     expect(missionAddressForNumber(-1)).toBeNull();
     expect(missionAddressForNumber(0x1000000)).toBeNull();
+    // Just past the ceiling with a host last octet: the ceiling check must reject it, not
+    // only the last-octet check (which the ceiling itself trips because it is a multiple
+    // of 256).
+    expect(missionAddressForNumber(0x1000002)).toBeNull();
     expect(missionAddressForNumber(66051.5)).toBeNull();
   });
 });
@@ -52,6 +56,15 @@ describe('missionNumberForAddress', () => {
     expect(missionNumberForAddress('195.1.2.300')).toBeNull();
     expect(missionNumberForAddress('mission-66051')).toBeNull();
   });
+
+  it('has no number for an address with a non-numeric or non-canonical octet', () => {
+    // A non-numeric octet is not quietly read as some number; a leading zero or trailing
+    // space is not a canonical octet, so neither names a contract even where the digits
+    // would otherwise decode to a host number.
+    expect(missionNumberForAddress('195.1.x.3')).toBeNull();
+    expect(missionNumberForAddress('195.01.2.3')).toBeNull();
+    expect(missionNumberForAddress('195.1.2.3 ')).toBeNull();
+  });
 });
 
 describe('missionEssid and missionNumberFromEssid', () => {
@@ -66,5 +79,9 @@ describe('missionEssid and missionNumberFromEssid', () => {
     expect(missionNumberFromEssid('mission-12x')).toBeNull();
     expect(missionNumberFromEssid('mission-01')).toBeNull();
     expect(missionNumberFromEssid('mission-0')).toBeNull();
+    // A leading zero or a trailing non-digit is not canonical, even where the digits parse
+    // to a real contract number — the essid must be the exact decimal the writer produced.
+    expect(missionNumberFromEssid('mission-066051')).toBeNull();
+    expect(missionNumberFromEssid('mission-66051.0')).toBeNull();
   });
 });
