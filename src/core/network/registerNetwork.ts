@@ -23,6 +23,7 @@ import { verifySignedRequest } from '../signedRequest/verify.js';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
 import { lanAddressFor } from './lanAddress.js';
 import { declaredNetwork } from '../generation/world.js';
+import { missionNumberFromEssid } from '../missions/missionNetwork.js';
 import { standingTown, type FindPlayerLocation } from './playerLocation.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import { dropConnectionsThrough, type DropConnectionsDeps } from './unregisterOccupant.js';
@@ -108,6 +109,15 @@ export const handleRegisterNetwork = async (
     return { status: STATUS_BY_VERIFY_REASON[verified.reason], body: { error: verified.reason } };
   }
   const { publicKey, payload } = verified;
+
+  // A mission network is nobody's to stand on: it is on no town's scan list, so the client
+  // never offers it, and the mission's own boxes are the only machines there. A crafted join
+  // must never make a caller an occupant of one, so it is refused before anything else —
+  // ahead of the lab flag that otherwise admits any undeclared network — leaving the forward
+  // the gateway publishes as the only way onto a 195 address.
+  if (missionNumberFromEssid(payload.essid) !== null) {
+    return { status: 403, body: { error: 'network_not_joinable' } };
+  }
 
   // A player's WiFi reaches only the town they stand in, so its networks are the only ones
   // a join may reach. Another town's are never offered on their WiFi and their keys are

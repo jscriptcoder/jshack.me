@@ -30,6 +30,8 @@ import { ESSID_CATALOG } from './pools/essidCatalog.js';
 import { publisherSite } from './publisher.js';
 import { DECLARED_NETWORKS, isLandmark } from './world.js';
 import { generateHomeLan } from './generateHomeLan.js';
+import { missionShape } from '../missions/missionShape.js';
+import { parseDpkgVersions } from '../packages/dpkgStatus.js';
 import { hostServices } from './remoteHostFs.js';
 import { parseAclDenies } from '../network/switchAcl.js';
 import { parseSnmpdConf, readSnmpdConf } from '../snmp/conf.js';
@@ -1040,5 +1042,47 @@ describe('the AP gateway of a network in another town', () => {
       'GATEWAY-DENTAL': ['80 → .34:80', '2222 → .235:22'],
       'SUMMIT-HOLDINGS-MILLBROOK': ['8080 → .69:80'],
     });
+  });
+});
+
+describe('the gateway of a contract network', () => {
+  const MISSION_NUMBER = 66051;
+  const MISSION_ESSID = `mission-${MISSION_NUMBER}`;
+  const gateway = (): Directory => buildApGatewayBaseFs(MISSION_ESSID);
+  const subnet = (): string => generateHomeLan(MISSION_ESSID).subnet;
+
+  it('keeps an uncrackable admin password, so the route passes through rather than breaks it', () => {
+    const passwd = fileAt(gateway(), ['etc'], 'passwd');
+    const rootHash = passwd.split('\n')[0]?.split(':')[1];
+
+    expect(rootHash).toBe(missionShape(MISSION_NUMBER).gatewayAdminHash);
+    expect(UNCRACKABLE_HASHES).toContain(rootHash);
+  });
+
+  it('answers its own sshd, so a shell on it can be reached sideways', () => {
+    expect(readOpenPorts(gateway()).some((openPort) => openPort.service === 'ssh')).toBe(true);
+  });
+
+  it('forwards its one port onto the key box', () => {
+    const shape = missionShape(MISSION_NUMBER);
+    const rules = fileAt(gateway(), ['etc', 'iptables'], 'rules.v4');
+
+    expect(parseForwardRules(rules)).toEqual([
+      {
+        publicPort: shape.forward.publicPort,
+        internalIp: `${subnet()}.${shape.keyBoxOctet}`,
+        internalPort: shape.forward.internalPort,
+      },
+    ]);
+  });
+
+  it('sits on the safe releases the shape pins, firmware included', () => {
+    const shape = missionShape(MISSION_NUMBER);
+    const manifest = parseDpkgVersions(fileAt(gateway(), ['var', 'lib', 'dpkg'], 'status'));
+
+    expect(manifest.size).toBeGreaterThan(0);
+    for (const [pkg, version] of manifest) {
+      expect(version, pkg).toBe(shape.gatewayVersions[pkg]);
+    }
   });
 });

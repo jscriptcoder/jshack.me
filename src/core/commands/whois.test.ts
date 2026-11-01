@@ -356,8 +356,28 @@ describe('whois', () => {
     },
   );
 
-  it.each(['195.12.40.7', '1194.12.40.7', '194.12.40'])(
-    "has no entry for %s, outside the boards' block",
+  it.each(['195.12.40.7', '195.0.0.0', '195.255.255.255'])(
+    'names a business connection for %s, across the whole contract-network block',
+    async (address) => {
+      // A briefing's address looks up as an ordinary small-business line, never as a
+      // contract: the record answers for the block, held or not, and names no contracts.
+      const { lines, exitCode } = await run(address);
+
+      expect({ lines, exitCode }).toEqual({
+        lines: [
+          '% Harrow Valley registry',
+          '',
+          'inetnum:        195.0.0.0 - 195.255.255.255',
+          'netname:        SMALLBIZ-NET',
+          'org-name:       Harrow Valley Business Broadband',
+        ],
+        exitCode: 0,
+      });
+    },
+  );
+
+  it.each(['196.12.40.7', '1194.12.40.7', '194.12.40'])(
+    'has no entry for %s, outside every block the registry answers in',
     async (address) => {
       const { lines, exitCode } = await run(address);
 

@@ -761,6 +761,10 @@ export const PLACELESS_FIRST_OCTET = 193;
  *  held by one emailit.io handle and stored rather than derived. No network in the world
  *  answers in it, so an address nobody holds is as empty as any other. */
 export const BOARD_FIRST_OCTET = 194;
+/** The block a contract's network answers in: one address per contract, which is the
+ *  contract's number written as an address. Only a network somebody was given answers
+ *  there, so the rest of the block is as empty as any other address. */
+export const MISSION_FIRST_OCTET = 195;
 /** How many networks the placeless block holds: every second octet by a town's worth. */
 const PLACELESS_NETWORKS = TOWNS_PER_REGION * NETWORKS_PER_TOWN;
 /** Steps through the placeless block. A prime sharing no factor with

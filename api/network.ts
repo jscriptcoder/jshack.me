@@ -65,8 +65,15 @@ import {
   networkByPublicIp,
   type Board,
   type FindBoardHandle,
+  type FindMissionState,
 } from '../src/core/hireme/boards.js';
 import { BOARD_FIRST_OCTET } from '../src/core/generation/world.js';
+import { missionKeyBoxNumber } from '../src/core/generation/lanHostIdentity.js';
+import {
+  missionKey,
+  missionKeyPath,
+  requireMissionSecret,
+} from '../src/core/missions/missionSecret.js';
 import { randomInt, randomUUID } from 'node:crypto';
 
 // Vercel adapter for POST /api/network — joining an AP, and reaching what is on it.
@@ -114,10 +121,30 @@ const findBoardHandleVia =
     return { data: data as { handle: string } | null, error };
   };
 
-/** What stands at a public address: a board's address read from the table, every other
- *  address derived from the world. Every door to a public address finds its network
- *  through this, so none can reach a board another cannot. */
-const networkByPublicIpVia = (spec: QuerySpec) => networkByPublicIp(findBoardHandleVia(spec));
+/** The recorded state of a contract number, or none where no row names it — the read that
+ *  tells an accepted mission's address from an empty one. Service role only; `number` is the
+ *  primary key, so the read is one indexed row. */
+const findMissionStateVia =
+  ({ supabase, label }: QuerySpec): FindMissionState =>
+  async (missionNumber) => {
+    const { data, error } = await supabase
+      .from('hireme_missions')
+      .select('state')
+      .eq('number', missionNumber)
+      .maybeSingle();
+    logFailure(label, error);
+    return { data: data as { state: string } | null, error };
+  };
+
+/** What stands at a public address: a board's address read from the boards table, a
+ *  contract's 195 address read from the missions table, every other address derived from
+ *  the world. Every door to a public address finds its network through this, so none can
+ *  reach a board or a mission another cannot. */
+const networkByPublicIpVia = (spec: QuerySpec) =>
+  networkByPublicIp({
+    findBoardHandle: findBoardHandleVia(spec),
+    findMissionState: findMissionStateVia(spec),
+  });
 
 /**
  * Finding the box behind a public address and a port — the reads shared by every web
@@ -1049,6 +1076,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (error) console.error('[network] boards lookup error:', error);
       return { data: data as readonly Board[] | null, error };
     };
+    // A contract's key, derived here from the server-only secret (no table to read) and
+    // handed to the handler to lay onto the key box. Only the one machine behind a contract
+    // gateway is a key box; everything else is left as generated. With no secret set, the
+    // box is unavailable rather than carrying a guessable key.
+    const findMissionKeyFile = async ({
+      essid,
+      machine_id,
+    }: {
+      essid: string;
+      machine_id: string;
+    }) => {
+      const missionNumber = missionKeyBoxNumber(essid, machine_id);
+      if (missionNumber === null) return { data: null, error: null };
+      let secret: string;
+      try {
+        secret = requireMissionSecret(process.env.MISSION_KEY_SECRET);
+      } catch {
+        return { data: null, error: 'mission_secret_missing' as const };
+      }
+      return {
+        data: { path: missionKeyPath(missionNumber), content: `${missionKey(missionNumber, secret)}\n` },
+        error: null,
+      };
+    };
     const { status, body } = await handleResolveCrossPlayerFs(req.body, {
       nonceStore: noopNonceStore,
       findOccupantWorkstationByMachineId,
@@ -1057,6 +1108,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findPatches,
       findMailSpool,
       findBoards,
+      findMissionKeyFile,
     });
     res.status(status).json(body);
     return;

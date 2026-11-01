@@ -7,6 +7,7 @@ import {
 import { generateIdentity } from '../identity/identity.js';
 import { computeDeepGatewayId, computeInnerGatewayId, computeApGatewayId } from '../identity/router.js';
 import { generateHomeLan } from '../generation/generateHomeLan.js';
+import { machineIdForLanHost } from '../generation/lanTopology.js';
 import { wifiPoolOf } from '../generation/generateWifi.js';
 import { RIDGEMONT } from '../generation/world.js';
 import { generateDeepLayer, seedNetworkDepth } from '../generation/generateDeepLayer.js';
@@ -558,5 +559,55 @@ describe('enforceRemoteWriteL2 — writing to a fellow occupant (cross-player)',
     });
 
     expect(outcome).toEqual({ ok: false, status: 500, error: 'permission_check_failed' });
+  });
+});
+
+/**
+ * A contract KEY BOX: the server lays the key into a root-only file whose parent
+ * directories the bare key box does not carry, so without that overlay a root's `rm`
+ * of the key resolves to a missing parent and is denied — the removal could never
+ * stick. The write gate is told the key path (never the key itself — the permission
+ * question needs only the path and its root-only perms) and lays an empty root-only
+ * file there, so a root write is permitted and the removal can be journaled.
+ */
+describe('enforceRemoteWriteL2 — a contract key box', () => {
+  const noPriorPatches = () => Promise.resolve({ data: [], error: null });
+  const noOccupant = () => Promise.resolve({ data: null, error: null });
+  const MISSION_ESSID = 'mission-66051';
+  const KEY_PATH = '/root/.config/vault/key';
+
+  const keyBoxMachineId = (): string => {
+    const keyBox = generateHomeLan(MISSION_ESSID).hosts.find((host) => host.kind === 'machine');
+    if (keyBox === undefined) throw new Error('the contract network generated no key box');
+    return machineIdForLanHost(keyBox, MISSION_ESSID);
+  };
+
+  const missionKeyPathOf = ({ essid, machine_id }: { essid: string; machine_id: string }) =>
+    essid === MISSION_ESSID && machine_id === keyBoxMachineId() ? KEY_PATH : null;
+
+  it('lets a root remove the key the server laid in, so the removal can stick', async () => {
+    const outcome = await enforceRemoteWriteL2({
+      machineId: keyBoxMachineId(),
+      path: KEY_PATH,
+      session: { userType: 'root', essid: MISSION_ESSID },
+      listMachinePatches: noPriorPatches,
+      findOccupantWorkstationByMachineId: noOccupant,
+      missionKeyPathOf,
+    });
+
+    expect(outcome.ok).toBe(true);
+  });
+
+  it('still denies a guest a write to the root-only key path', async () => {
+    const outcome = await enforceRemoteWriteL2({
+      machineId: keyBoxMachineId(),
+      path: KEY_PATH,
+      session: { userType: 'guest', essid: MISSION_ESSID },
+      listMachinePatches: noPriorPatches,
+      findOccupantWorkstationByMachineId: noOccupant,
+      missionKeyPathOf,
+    });
+
+    expect(outcome).toEqual({ ok: false, status: 403, error: 'permission_denied' });
   });
 });

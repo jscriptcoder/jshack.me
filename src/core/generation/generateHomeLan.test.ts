@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { generateHomeLan, type LanHost } from './generateHomeLan.js';
+import { missionShape } from '../missions/missionShape.js';
 import { assignHomeNetwork } from '../network/homeNetwork.js';
 import { seedApGatewayHostname, seedInnerGatewayHostname } from './gatewayHostname.js';
 import { DRAWN_ROLES, machineRole } from './machineRole.js';
@@ -540,5 +541,49 @@ describe('generateHomeLan for a network sized by its profile', () => {
       'vpn-gw',
       'mikrotik01',
     ]);
+  });
+});
+
+describe('generateHomeLan for a contract network', () => {
+  const MISSION_ESSID = 'mission-66051';
+
+  it('is a gateway and a key box alone, both named for one target company', () => {
+    const lan = generateHomeLan(MISSION_ESSID);
+
+    expect(lan.hosts).toHaveLength(2);
+    const [gateway, keyBox] = lan.hosts;
+    expect(gateway?.ip).toBe(`${lan.subnet}.1`);
+    expect(gateway?.kind).toBe('router');
+    expect(keyBox?.kind).toBe('machine');
+    expect(octetOf(keyBox?.ip ?? '')).toBeGreaterThanOrEqual(2);
+    expect(octetOf(keyBox?.ip ?? '')).toBeLessThanOrEqual(254);
+
+    // One company's two machines: `<stem>-gw` at the address, `<stem>-files` behind it.
+    const gatewayStem = gateway?.hostname.replace(/-gw$/, '');
+    expect(gateway?.hostname).toBe(`${gatewayStem}-gw`);
+    expect(keyBox?.hostname).toBe(`${gatewayStem}-files`);
+  });
+
+  it('is the same network for the same number, wherever it is regenerated', () => {
+    expect(generateHomeLan(MISSION_ESSID)).toEqual(generateHomeLan(MISSION_ESSID));
+  });
+
+  it('gives two different numbers two different companies, at their own addresses', () => {
+    const first = generateHomeLan('mission-66051');
+    const second = generateHomeLan('mission-131587');
+    expect(first.hosts[0]?.hostname).not.toBe(second.hosts[0]?.hostname);
+  });
+
+  it('places the key box where the shape says, so the gateway forwards onto it', () => {
+    // The topology and the shape draw the stem and the key-box octet independently off
+    // one seed; the forward points at the octet, so the two must agree.
+    for (const missionNumber of [66051, 131587, 1000002, 16000002]) {
+      const lan = generateHomeLan(`mission-${missionNumber}`);
+      const shape = missionShape(missionNumber);
+      const keyBox = lan.hosts[1];
+      expect(keyBox?.ip).toBe(`${lan.subnet}.${shape.keyBoxOctet}`);
+      expect(keyBox?.hostname).toBe(`${shape.stem}-files`);
+      expect(lan.hosts[0]?.hostname).toBe(`${shape.stem}-gw`);
+    }
   });
 });

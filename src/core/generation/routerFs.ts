@@ -41,6 +41,9 @@ import { AUTH_LOG_PERMISSIONS } from '../logging/authLog.js';
 import { KERN_LOG_PERMISSIONS } from '../logging/kernLog.js';
 import { SNMPD_LOG_PERMISSIONS } from '../logging/snmpdLog.js';
 import { RULES_V4_PERMISSIONS, withForward } from '../network/iptablesRules.js';
+import { lanSubnetPrefix } from '../network/lanAddress.js';
+import { missionNumberFromEssid } from '../missions/missionNetwork.js';
+import { missionShape } from '../missions/missionShape.js';
 import { siteForward } from './remoteHostFs.js';
 import { seededForwards } from './seededForwards.js';
 import { ACL_CONF_PERMISSIONS, parseAclDenies } from '../network/switchAcl.js';
@@ -200,6 +203,9 @@ const buildGatewayBaseFs = (
     dhcp: null,
     ports: [],
   },
+  /** Versions to pin in the manifest, for a gateway that must sit on chosen releases (a
+   *  contract's gateway); empty leaves every package at the one it ships with. */
+  versions: Readonly<Record<string, string>> = {},
 ): Directory => {
   const passwd = generatePasswd([
     {
@@ -342,7 +348,7 @@ const buildGatewayBaseFs = (
     },
     TRAVERSABLE_DIR,
   );
-  return withPackageManifest(withFiles(tree, adminUi), { firmwareVendor });
+  return withPackageManifest(withFiles(tree, adminUi), { firmwareVendor, versions });
 };
 
 /**
@@ -365,6 +371,7 @@ export const buildRouterBaseFsFromIdentity = (
   site: { readonly essid: string; readonly machineId: string },
   network?: GatewayNetworkEntries,
   rulesV4: string = RULES_V4_SEED,
+  versions: Readonly<Record<string, string>> = {},
 ): Directory =>
   buildGatewayBaseFs(
     identity,
@@ -376,6 +383,7 @@ export const buildRouterBaseFsFromIdentity = (
     },
     site,
     network,
+    versions,
   );
 
 /**
@@ -390,8 +398,39 @@ export const buildRouterBaseFsFromIdentity = (
 export const buildApGatewayBaseFs = (essid: string): Directory =>
   withRootSsh(apGatewayFs(essid), buildBranchSshDirectory(essid));
 
+/** A contract network's gateway: an ordinary router that passes its one forward through
+ *  to the key box. Its admin password is uncrackable and every package it carries sits on
+ *  a safe release, so it is the way in, never a box to break. Its own sshd always answers,
+ *  so a shell on it can be reached sideways. One branch here, as a fixed site is one branch
+ *  below, so every reader treats it like any gateway. */
+const missionGatewayFs = (essid: string, missionNumber: number): Directory => {
+  const shape = missionShape(missionNumber);
+  const subnet = lanSubnetPrefix(essid);
+  const rules = withForward(RULES_V4_SEED, shape.forward.publicPort, {
+    internalIp: `${subnet}.${shape.keyBoxOctet}`,
+    internalPort: shape.forward.internalPort,
+  });
+  return buildRouterBaseFsFromIdentity(
+    {
+      adminPwHash: shape.gatewayAdminHash,
+      snmpCommunityHash: seedApGatewayCommunityHash(essid),
+      firmwareSeed: `ap-gw-${essid}`,
+      hasSsh: true,
+      hasSnmp: false,
+    },
+    { essid, machineId: computeApGatewayId(essid) },
+    undefined,
+    rules,
+    shape.gatewayVersions,
+  );
+};
+
 /** The AP gateway's tree before root's `.ssh/`. */
 const apGatewayFs = (essid: string): Directory => {
+  // A contract network's gateway stands at its 195 address, forwarding one port to the
+  // key box behind it.
+  const missionNumber = missionNumberFromEssid(essid);
+  if (missionNumber !== null) return missionGatewayFs(essid, missionNumber);
   // A fixed site owns its public address with nothing behind it, so the box a request to
   // that address reaches, its "gateway", is the site itself.
   const site = fixedSite(essid);

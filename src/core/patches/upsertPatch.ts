@@ -35,6 +35,7 @@ import {
   enforceRemoteWriteL2,
   type FindOccupantWorkstationByMachineId,
   type ListMachinePatches,
+  type MissionKeyPathOf,
 } from './remoteWritePermission.js';
 import {
   DPKG_LOG_OWNER,
@@ -109,6 +110,9 @@ export type UpsertPatchDeps = RebootSequenceDeps & {
   /** Same-LAN fallback for L2 when no occupancy row exists (a shared-AP occupant evicted
    *  by a later joiner) — resolves the workstation from the occupancy table. */
   readonly findOccupantWorkstationByMachineId: FindOccupantWorkstationByMachineId;
+  /** The key path a contract key box carries, so a root's write to the key is permitted
+   *  (the bare key box carries no such path). Absent off the mission wiring. */
+  readonly missionKeyPathOf?: MissionKeyPathOf;
   readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
 };
 
@@ -267,6 +271,7 @@ export const handleUpsertPatch = async (
     session: access.session,
     listMachinePatches: deps.listMachinePatches,
     findOccupantWorkstationByMachineId: deps.findOccupantWorkstationByMachineId,
+    ...(deps.missionKeyPathOf ? { missionKeyPathOf: deps.missionKeyPathOf } : {}),
   });
   if (!permitted.ok) {
     return { status: permitted.status, body: { error: permitted.error } };

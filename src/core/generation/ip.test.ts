@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { isBoardAddress, isPublicIp } from './ip.js';
-import { BOARD_FIRST_OCTET, PLACELESS_FIRST_OCTET } from './world.js';
+import { isBoardAddress, isMissionAddress, isPublicIp } from './ip.js';
+import { BOARD_FIRST_OCTET, MISSION_FIRST_OCTET, PLACELESS_FIRST_OCTET } from './world.js';
 
 // The first octets networks' addresses were once drawn from at random. None of them is
 // a block the world answers in.
@@ -20,9 +20,14 @@ describe('isPublicIp', () => {
     expect(isPublicIp('194.255.255.254')).toBe(true);
   });
 
-  it("refuses the blocks either side of the boards'", () => {
+  it("accepts an address in the contract networks' block, given out or not", () => {
+    // Whether anybody was given a contract network there is the server's to say.
+    expect(isPublicIp(`${MISSION_FIRST_OCTET}.12.40.7`)).toBe(true);
+  });
+
+  it('refuses the blocks either side of the ones the world answers in', () => {
     expect(isPublicIp('192.12.40.7')).toBe(false);
-    expect(isPublicIp('195.12.40.7')).toBe(false);
+    expect(isPublicIp('196.12.40.7')).toBe(false);
   });
 
   it('refuses an address outside every block the world answers in', () => {
@@ -51,5 +56,19 @@ describe('isBoardAddress', () => {
     expect(isBoardAddress('87.1.0.159')).toBe(false);
     expect(isBoardAddress('194.12.40')).toBe(false);
     expect(isBoardAddress('194.12.40.7-9')).toBe(false);
+  });
+});
+
+describe('isMissionAddress', () => {
+  it("accepts a single address in the contract networks' block", () => {
+    expect(isMissionAddress(`${MISSION_FIRST_OCTET}.12.40.7`)).toBe(true);
+    expect(isMissionAddress('195.0.0.0')).toBe(true);
+  });
+
+  it('refuses the blocks either side of it, and any other shape', () => {
+    expect(isMissionAddress('194.12.40.7')).toBe(false);
+    expect(isMissionAddress('196.12.40.7')).toBe(false);
+    expect(isMissionAddress('195.12.40')).toBe(false);
+    expect(isMissionAddress('195.12.40.7-9')).toBe(false);
   });
 });

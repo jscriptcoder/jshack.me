@@ -50,8 +50,10 @@ import {
  *  zod 4.4.3 → 4.6.7 added 7,128 B, rounded up to 7,200 — its classic API hangs every
  *  method on every schema, so none of its growth tree-shakes away. The
  *  content's part was 150 KB until every town beyond Ridgemont wrote landmarks of its own:
- *  their 43 rows add 1,205 B, rounded up to 2,000. */
-const BUNDLE_CEILING_BYTES = 297_175;
+ *  their 43 rows add 1,205 B, rounded up to 2,000; then the missions slice (the 195 block
+ *  and its address codec, the mission branch in `generateHomeLan`, the key-box FS builder,
+ *  and the whois 195 record) added 510 B, rounded up to 1,000. */
+const BUNDLE_CEILING_BYTES = 298_175;
 
 /** About a tenth of that before world content, so a loaded machine's noise cannot fail
  *  the check while a content change that makes boxes ten times dearer still does. */

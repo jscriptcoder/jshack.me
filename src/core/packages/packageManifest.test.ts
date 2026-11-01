@@ -117,6 +117,23 @@ describe('the package manifest every box carries', () => {
     expect(manifest.get('openssh-server')).toBeDefined();
   });
 
+  it('pins a package to a given version when one is supplied, leaving the rest starting', () => {
+    // A contract box pins its packages to a chosen release rather than shipping at the
+    // starting one, so its holes are the ones the contract was built around.
+    const base = playerBox();
+    const pinned = manifestOf(withPackageManifest(base, { versions: { 'openssh-server': '9.3.0' } }));
+
+    expect(pinned.get('openssh-server')).toBe('9.3.0');
+    // A package with no pin still ships at its starting version.
+    expect(pinned.get('libssl')).toBe(startingVersionOf('libssl'));
+  });
+
+  it('ignores a pin for a package the box does not carry', () => {
+    const pinned = manifestOf(withPackageManifest(playerBox(), { versions: { nginx: '1.20.0' } }));
+
+    expect(pinned.has('nginx')).toBe(false);
+  });
+
   it('names all eight system libraries on every box', () => {
     const boxes: readonly Directory[] = [
       playerBox(),
