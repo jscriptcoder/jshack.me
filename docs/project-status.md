@@ -1407,6 +1407,32 @@ agreed order:
     merge. The plan was retired on close-out. **Pick up here (2026-10-30):** the owner's choice from the
     items still open in `backlog.md`.
 
+38. ✅ **Missions slice 1 — a contract network exists (v0.438.0, PR #746, merged 2026-11-01).**
+    The first slice of the missions epic. An operator accepts a job for an emailit.io handle
+    (`scripts/hireme.ts accept <handle> --number N`), and that contract's 195 address becomes a
+    reachable network — a gateway and a key box regenerated on demand from the contract's 24-bit
+    number, never stored as a place. The one guaranteed route roots the key box: a hydra route
+    (crack root through a public `:2222` → `:22` forward) or a msfconsole route (a critical-CVE
+    service on the forwarded port). The key box holds a root-only key file whose `ACCESS-` token
+    the server derives from `MISSION_KEY_SECRET` and lays in on read (`findMissionKeyFile`); the
+    key lives in no table. A mission essid cannot be joined (`403 network_not_joinable`), and with
+    the secret unset the key box answers `500 mission_secret_missing` (fails closed, no default).
+    Table `hireme_missions` records who holds which contract and its lifecycle (offered, burned,
+    accepted, completed, abandoned); only accepted/completed/abandoned answer as a network.
+    Evidence: unit tests, the `scripts/testMissions.ts` wire-check (19/19) driving the real
+    operator, the mutation gate on the new `core/` modules, and the bundle ceiling raised by owner
+    decision to 298,175 B (`checkBudgets.ts`). **Deploy ops (2026-11-01):** the migration is on
+    `jshack-dev` and `jshack-prod`; `MISSION_KEY_SECRET` is set for Preview, Production and
+    `.env.development.local`, each a distinct value (never printed). **Verified end to end
+    (2026-11-01):** a local browser E2E — fresh Ridgemont player joined a crackable network,
+    `apt install nmap metasploit`, `nmap` the 195 address, `msfconsole` rooted the key box, and
+    `cat` read the `ACCESS-` key matching the offline-derived value — and a minimal prod key-door
+    check that read a well-formed, distinct key from production, confirming the Production secret
+    is bound. The e2e skill gained a mission recipe (`reaching-a-state.md`, commit `35441224`).
+    `plans/missions.md` stays live for the rest of the epic. **Pick up here (2026-11-01):**
+    missions slice 2 — offers, accept and drop on the board, the briefing, reserved client
+    handles, and pay (see `plans/missions.md`, "Out of scope" of slice 1).
+
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
 and that is expected. For the shipped systems, start from the three as-built docs named at the top

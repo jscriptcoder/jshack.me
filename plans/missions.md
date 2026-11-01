@@ -1,7 +1,10 @@
 # Plan: missions
 
-**Status:** grill complete (2026-10-31). Slice 1 planned and its acceptance criteria approved
-(2026-11-01); in progress on `feat/missions-exist`.
+**Status:** Slice 1 shipped and deployed (v0.438.0, PR #746, merged 2026-11-01; branch gone).
+Migration on `jshack-dev` and `jshack-prod`; `MISSION_KEY_SECRET` set for Preview, Production and
+`.env.development.local` (each different). Verified end to end 2026-11-01 (local browser E2E
+through the msfconsole route, and a prod key-door check). **Next: slice 2** (offers, accept and
+drop on the board, the briefing, reserved client handles, pay).
 
 Missions are the one legacy system v2 has not rebuilt. The groundwork is built: wallets and the
 operator mint, emailit.io, the hireme.io contractor boards (every board saying no work is
@@ -515,9 +518,12 @@ wire-check driving one) is handed the address.
   its route.
 - **Mutation gate** at PR readiness on the new `core/` modules and the changed lookup.
 - **Bundle**: `npm run build` and `scripts/checkBudgets.ts` (AC 15), grep of the chunk.
-- **Ops before merge**: the migration on `jshack-dev` and `jshack-prod` (link, push, unlink);
-  `MISSION_KEY_SECRET` set for Preview and Production and in `.env.local`, each value different
-  (asked of the owner at that step, never printed).
+- **Ops (done 2026-11-01)**: the migration is on `jshack-dev` and `jshack-prod` (link, push,
+  unlink per project); `MISSION_KEY_SECRET` is set for Preview, Production and
+  `.env.development.local`, each value different (never printed). Verified live: a local browser
+  E2E (fresh player → join wifi → `msfconsole` roots the key box → `cat` reads the `ACCESS-` key,
+  matching the offline-derived value) and a minimal prod key-door check (a well-formed, distinct
+  key came back from production, so the Production secret is bound).
 
 ### Out of scope
 
