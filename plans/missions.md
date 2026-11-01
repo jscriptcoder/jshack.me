@@ -1,6 +1,7 @@
 # Plan: missions
 
-**Status:** grill complete (2026-10-31). Slice 1 plan being drafted; no code yet.
+**Status:** grill complete (2026-10-31). Slice 1 planned and its acceptance criteria approved
+(2026-11-01); in progress on `feat/missions-exist`.
 
 Missions are the one legacy system v2 has not rebuilt. The groundwork is built: wallets and the
 operator mint, emailit.io, the hireme.io contractor boards (every board saying no work is
@@ -401,3 +402,125 @@ Resolved (9):
 - [Nice → entry 29] chainit shows a payout as any mint.
 
 Parked: none.
+
+---
+
+## Slice 1 — a mission exists
+
+**Branch:** `feat/missions-exist` · **Version:** 0.438.0 · **Class:** behavior change
+
+**Goal.** An operator accepts a job for a handle from `scripts/hireme.ts`, and its 195 address
+answers like a small business's line: `nmap` finds the gateway and the forwarded port, the one
+guaranteed way in (`hydra` or `msfconsole`, whichever the number drew) lands root on the key box,
+and root reads a key that `scripts/hireme.ts show` agrees with. An address nobody was given
+answers exactly as an empty one. No board, no mail, no pay: those are slices 2 and 3.
+
+**Actor and trigger.** The operator runs `scripts/hireme.ts accept <handle>`; a player (or the
+wire-check driving one) is handed the address.
+
+### What it builds
+
+- **The block and the address** (`core/`, bundle). `MISSION_FIRST_OCTET = 195` beside the board
+  block (`generation/world.ts`); `isPublicIp` accepts it, so every cross-network command routes a
+  `195.` target to the server. The number is the address's low 24 bits (`195.a.b.c` is
+  `a·65536 + b·256 + c`); only host octets 2–254 are numbers, as the boards' CHECK has it. The
+  ESSID is `mission-<number>` in decimal (entry 27). `whois` answers the whole block with entry
+  29's record.
+- **The shape** (`core/`, bundle): one mission branch in each of `generateHomeLan` (the gateway at
+  `.1` and the key box at a drawn octet, the `lone` shape), `buildApGatewayBaseFs` (the gateway)
+  and `baseFsForLanHost` (the key box), all drawn from the number alone, never the clock:
+  - **hostnames** from a target-stem pool (`halden-gw`, `halden-files`);
+  - **the route**, `hydra` or `msfconsole`, one draw;
+  - **the gateway**: router firmware as every gateway has, an admin password from the
+    uncrackable pool, and one forward in `rules.v4`, the route's port to the key box (entry 25);
+  - **the key box**, built by a mission builder of its own and **not** by `buildRemoteHostFs`'s
+    role draws, so nothing the world scatters on an NPC (a database login, a backup, a backdoor,
+    a role config) opens a way in nobody guaranteed. Its accounts: `root` (crackable on the hydra
+    route, uncrackable on the msfconsole route), the NPC user and `guest` at the world's odds.
+    Its services: the route's (sshd, or a service pinned to a `critical` release published on or
+    before `MISSION_ROUTE_DAY`) plus up to two decoys. Its manifest pins **every** package that
+    is not the route, sshd and vsftpd (which ship on every box) and the libraries included, to a
+    release whose hole is `low` or `medium` (entry 23);
+  - `MISSION_ROUTE_DAY = 111` (entry 26).
+- **The secrets** (server only; modules imported from `api/` and `scripts/` alone). The key
+  path pool, and the key, `ACCESS-XXXX-XXXX-XXXX` formatted from an HMAC-SHA256 of the number
+  under `MISSION_KEY_SECRET` (`node:crypto`). The key file (mode 600, root's) is laid into the key
+  box before the journal is replayed, at the two server sites that build a network box from its
+  id: the read (`resolveCrossPlayerFs`, at every tier, the walker keeping it off the wire below
+  root) and the write gate (`remoteWritePermission`), so a root's `rm` of the key is accepted and
+  sticks. No secret: 500 `mission_secret_missing` (entry 24).
+- **The missions table** (migration): `number` (PK, the CHECK above), `handle` (references
+  `email_accounts`), `state` (CHECK in entry 22's five), `posted_at`, `accepted_at`,
+  `closed_at`; a partial unique index on `handle` where `state = 'accepted'` (one active job);
+  RLS on with no policies.
+- **The lookup**: `networkByPublicIp` (`core/hireme/boards.ts`) gains a mission finder: a `195.`
+  address is the network `mission-<number>` when its row's state is `accepted`, `completed` or
+  `abandoned`, nothing otherwise, its read error passed on. The twelve door wirings change only
+  through the two `networkByPublicIpVia` helpers in `api/network.ts` and `api/sessions.ts`.
+- **The join refuses a mission ESSID** (`registerNetwork.ts`) before anything else, with 403
+  `network_not_joinable`, even when `JSHACK_ADMIT_LAB_NETWORKS` admits undeclared networks (it is
+  set in `.env.development.local`, so the wire-check sees the refusal with it on).
+- **Working from a mission box traces as its 195 address**: `derivedPublicIpByEssid` learns the
+  mission ESSID, so a scan typed on the key box writes the mission's address into the scanned
+  box's `kern.log`, not `unknown`.
+- **`scripts/hireme.ts`** (operator, dev or local; reads the service role and the secret from
+  env): `accept <handle> [--number N]` (refuses a handle with an active job or no mailbox; draws a
+  free number with `randomInt` when none is given; prints the address); `show <address>`
+  (template, route, decoys, key path, key); `drop <handle>` (state `abandoned`, `closed_at`).
+  It has no `complete`.
+
+### Acceptance criteria
+
+1. With no row for a number, `curl`, `nmap`, `ssh` and `hydra` against its 195 address answer
+   exactly as against an empty `193.` address; the same holds for a row in state `offered` or
+   `burned`.
+2. After `scripts/hireme.ts accept alice`, `nmap -sV <address>` shows the gateway's services and
+   the forwarded port.
+3. On a number whose route is `hydra`, `hydra` through the forwarded port cracks `root` on the
+   key box, and `ssh root@<address> -p <port>` lands a root shell on it.
+4. On a number whose route is `msfconsole`, `nmap -sV` through the forward shows the pinned
+   release and its CVE, and `msfconsole` lands root on the key box.
+5. As root on the key box, `cat <key path>` prints the key `scripts/hireme.ts show` prints. As
+   `guest` or the NPC user the file's content does not reach the client.
+6. From a root shell on the key box, `nmap <mission subnet>` lists the gateway and the key box,
+   and `ssh` sideways to the gateway is answered (asks for a password), never "No route to host"
+   (the hop check of decision 13).
+7. For 2,000 drawn numbers (a unit test): the route is reachable through the forward and grants
+   root; no other package on either box holds a `critical` or `high` hole on any day; the
+   gateway's admin and, on the msfconsole route, the key box's `root` are uncrackable; every
+   service package the route can draw has a `critical` release published on or before
+   `MISSION_ROUTE_DAY`, and every package a mission box carries has a `low` or `medium` release.
+8. The same number generates the same network on the client and the server, today and on any
+   later game day.
+9. `scripts/hireme.ts drop alice` leaves the address reachable and frees alice to accept again;
+   a second `accept alice` while one is active is refused.
+10. A root's `rm` of the key file sticks for the next root reader.
+11. With `MISSION_KEY_SECRET` unset, a read of the key box answers 500 `mission_secret_missing`
+    (handler unit test).
+12. A join of `mission-<number>` answers 403 `network_not_joinable`, with the lab flag on.
+13. `whois <any 195 address>` prints entry 29's record.
+14. A scan typed on the key box records the mission's 195 address in the scanned box's
+    `kern.log`.
+15. The built main chunk holds no key path from the pool and no `MISSION_KEY_SECRET` read; its
+    growth is measured and the ceiling raised by explicit decision if needed (entry 13).
+
+### Evidence
+
+- **Unit (TDD)**: the address codec and block (`ip.test.ts`), `whois.test.ts`, the generator's
+  shape and invariants (AC 7, 8), the key format and its dependence on the secret, the lookup
+  over the five states and a failed read (`boards.test.ts`), the overlay and the missing secret
+  (`resolveCrossPlayerFs.test.ts`), the write gate (AC 10), the join refusal.
+- **Wire-check** `scripts/testMissions.ts` vs `vercel dev` + local supabase, driving
+  `scripts/hireme.ts`: AC 1–6, 9, 10, 12, 14, each against a number picked with `--number` for
+  its route.
+- **Mutation gate** at PR readiness on the new `core/` modules and the changed lookup.
+- **Bundle**: `npm run build` and `scripts/checkBudgets.ts` (AC 15), grep of the chunk.
+- **Ops before merge**: the migration on `jshack-dev` and `jshack-prod` (link, push, unlink);
+  `MISSION_KEY_SECRET` set for Preview and Production and in `.env.local`, each value different
+  (asked of the owner at that step, never printed).
+
+### Out of scope
+
+Offers, accept and drop on the board, the briefing, reserved client handles, pay (slice 2);
+completion by mail and the mint (slice 3); `/etc/hireme/contracts` (slice 4). The guardian needs
+no change: its rounds walk only the declared world.
