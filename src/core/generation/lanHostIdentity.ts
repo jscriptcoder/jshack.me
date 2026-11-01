@@ -38,6 +38,8 @@ import {
 } from './routerFs.js';
 import { readOpenPorts } from '../services/pidfile.js';
 import { buildRemoteHostFs } from './remoteHostFs.js';
+import { buildMissionKeyBoxFs } from './missionKeyBoxFs.js';
+import { missionNumberFromEssid } from '../missions/missionNetwork.js';
 import { hostMachineId } from './remoteHostId.js';
 import { generateHomeLan, type LanHost, type LanHostKind } from './generateHomeLan.js';
 import { generateDeepLayer } from './generateDeepLayer.js';
@@ -92,7 +94,9 @@ export const forwardsIntoDeepLayer = (options: {
 };
 
 /** A LAN host's seeded base filesystem — the edge router, an inner gateway, a switch,
- *  or a coordinate-seeded NPC tree. */
+ *  or a coordinate-seeded NPC tree. On a contract network the one machine behind the
+ *  gateway is the key box, built deliberately rather than as an NPC, so nothing the
+ *  world scatters on a host can open a way in the contract did not place. */
 export const baseFsForLanHost = (host: LanHost, essid: string): Directory => {
   const octet = lanHostOctet(host);
   if (host.kind === 'router') {
@@ -101,6 +105,8 @@ export const baseFsForLanHost = (host: LanHost, essid: string): Directory => {
   if (host.kind === 'switch') {
     return buildSwitchBaseFs(essid, octet);
   }
+  const missionNumber = missionNumberFromEssid(essid);
+  if (missionNumber !== null) return buildMissionKeyBoxFs(missionNumber);
   return buildRemoteHostFs(essid, host);
 };
 

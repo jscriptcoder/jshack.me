@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { MISSION_ROUTE_DAY, missionShape } from './missionShape.js';
 import { liveCve } from '../cve/liveCve.js';
 import { packageTimeline } from '../cve/packageTimeline.js';
-import { firmwarePackageOf } from '../packages/packageVersions.js';
+import { FIRMWARE_VENDORS, firmwarePackageOf } from '../packages/packageVersions.js';
 
 /** A spread of contract numbers whose last octet is a host octet (2–254). */
 const SAMPLE_NUMBERS = Array.from({ length: 2000 }, (_unused, index) => index * 8381 + 2).filter(
@@ -76,7 +76,9 @@ describe('missionShape', () => {
         expect(['low', 'medium'], `gateway for ${missionNumber}`).toContain(severity);
       }
       // The gateway's firmware is among its pins, so the gateway is not rootable by CVE.
-      expect(shape.gatewayVersions[firmwarePackageOf(shape.gatewayFirmwareVendor)]).toBeDefined();
+      for (const vendor of FIRMWARE_VENDORS) {
+        expect(shape.gatewayVersions[firmwarePackageOf(vendor)]).toBeDefined();
+      }
     }
   });
 });

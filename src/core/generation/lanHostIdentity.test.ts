@@ -9,6 +9,8 @@ import {
 import { generateDeepLayer } from './generateDeepLayer.js';
 import { computeDeepGatewayId } from '../identity/router.js';
 import { generateHomeLan, type LanHost } from './generateHomeLan.js';
+import { buildMissionKeyBoxFs } from './missionKeyBoxFs.js';
+import { buildApGatewayBaseFs } from './routerFs.js';
 import type { Directory } from '../filesystem/types.js';
 import { readRunningProcesses } from '../services/pidfile.js';
 
@@ -98,6 +100,21 @@ describe('every host on an AP’s LAN', () => {
         readFile(baseFsForLanHost(pick(OTHER_ESSID), OTHER_ESSID), 'etc', 'passwd'),
       );
     }
+  });
+});
+
+describe('a contract network through the hop resolvers', () => {
+  const MISSION_ESSID = 'mission-66051';
+
+  it('resolves the key box to the deliberate contract box, not an NPC tree', () => {
+    const keyBox = hostOn(MISSION_ESSID, (host) => host.kind === 'machine');
+    const resolved = baseFsForLanHost(keyBox, MISSION_ESSID);
+    expect(resolved).toEqual(buildMissionKeyBoxFs(66051));
+  });
+
+  it('resolves the gateway to the contract gateway', () => {
+    const gateway = gatewayOn(MISSION_ESSID);
+    expect(baseFsForLanHost(gateway, MISSION_ESSID)).toEqual(buildApGatewayBaseFs(MISSION_ESSID));
   });
 });
 

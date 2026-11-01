@@ -29,7 +29,7 @@ import { createPrng, type Prng } from '../generation/prng.js';
 import { packageTimeline } from '../cve/packageTimeline.js';
 import { SYSTEM_LIBRARIES } from '../generation/libraries.js';
 import { drawPasswordHash, CRACK_CHANCE, UNCRACKABLE_HASHES } from '../generation/passwordPools.js';
-import { FIRMWARE_VENDORS, firmwarePackageOf, type FirmwareVendor } from '../packages/packageVersions.js';
+import { FIRMWARE_VENDORS, firmwarePackageOf } from '../packages/packageVersions.js';
 import { TARGET_STEMS } from './pools.js';
 
 /** The game day a route's hole must have published on or before: the day slice 1 ships.
@@ -56,9 +56,11 @@ export type MissionShape = {
   /** The key box's `root` password hash: crackable on the hydra route, uncrackable
    *  otherwise. */
   readonly keyBoxRootHash: string;
-  /** The gateway's firmware vendor and the safe release it sits on. */
-  readonly gatewayFirmwareVendor: FirmwareVendor;
-  /** Versions to pin on the gateway, package to version. */
+  /** The gateway's `root` ("admin") password hash — always uncrackable, so the gateway is
+   *  a box the route passes through rather than one to break into. */
+  readonly gatewayAdminHash: string;
+  /** Versions to pin on the gateway, package to version. Every firmware vendor is pinned
+   *  safe, so whichever the gateway builder draws sits on a guest-at-most release. */
   readonly gatewayVersions: Readonly<Record<string, string>>;
   /** The services the key box runs: the route's service (on the msfconsole route) and any
    *  decoys, each already on its chosen release. */
@@ -130,6 +132,17 @@ const safeBaseVersions = (prng: Prng): Record<string, string> => {
   return base;
 };
 
+/** Every firmware vendor pinned to a safe release. The gateway builder draws its own
+ *  vendor, so pinning them all means whichever it lands on sits on a guest-at-most
+ *  release and the gateway is not rootable by a firmware hole. */
+const safeFirmwareVersions = (prng: Prng): Record<string, string> => {
+  const firmware: Record<string, string> = {};
+  for (const vendor of FIRMWARE_VENDORS) {
+    firmware[firmwarePackageOf(vendor)] = safeVersionOf(firmwarePackageOf(vendor), prng);
+  }
+  return firmware;
+};
+
 export const missionShape = (missionNumber: number): MissionShape => {
   // The first two draws are the topology's (stem, then key-box octet); generateHomeLan
   // reads them, so their order is fixed here and nowhere else.
@@ -142,13 +155,9 @@ export const missionShape = (missionNumber: number): MissionShape => {
   const versionPrng = createPrng(`mission-versions-${missionNumber}`);
   const keyBoxVersions = safeBaseVersions(versionPrng);
 
-  const gatewayFirmwareVendor = versionPrng.pick(FIRMWARE_VENDORS);
   const gatewayVersions: Record<string, string> = {
     ...safeBaseVersions(versionPrng),
-    [firmwarePackageOf(gatewayFirmwareVendor)]: safeVersionOf(
-      firmwarePackageOf(gatewayFirmwareVendor),
-      versionPrng,
-    ),
+    ...safeFirmwareVersions(versionPrng),
   };
 
   const keyBoxServices: MissionService[] = [];
@@ -170,6 +179,7 @@ export const missionShape = (missionNumber: number): MissionShape => {
   // stays shut, so the only way onto the box is the service hole.
   const keyBoxRootHash =
     route === 'hydra' ? crackableHash(versionPrng) : versionPrng.pick(UNCRACKABLE_HASHES);
+  const gatewayAdminHash = versionPrng.pick(UNCRACKABLE_HASHES);
 
   return {
     missionNumber,
@@ -177,7 +187,7 @@ export const missionShape = (missionNumber: number): MissionShape => {
     keyBoxOctet,
     route,
     keyBoxRootHash,
-    gatewayFirmwareVendor,
+    gatewayAdminHash,
     gatewayVersions,
     keyBoxServices,
     keyBoxVersions,
