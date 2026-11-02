@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { answerSignup, type NewAccount } from './signup.js';
 import { md5 } from '../generation/md5.js';
+import { CLIENT_HANDLES } from '../missions/missionTerms.js';
 
 /**
  * Signing up at emailit.io: a form POSTed to `/signup` becomes an account, or the reason
@@ -178,6 +179,16 @@ describe('a sign-up refused before the store is asked', () => {
     expect(asked).toEqual([]);
     expect(text).toContain(`"${handle}" is a reserved system name`);
   });
+
+  it.each(CLIENT_HANDLES)(
+    'refuses the contract client handle %s, which a briefing is mailed from',
+    async (handle) => {
+      const { asked, text } = await signUpWith(`handle=${handle}&password=s3cret`);
+
+      expect(asked).toEqual([]);
+      expect(text).toContain(`"${handle}" is a reserved system name`);
+    },
+  );
 
   it('refuses a reserved handle typed in capitals, which is the same handle', async () => {
     const { asked, text } = await signUpWith('handle=PostMaster&password=s3cret');

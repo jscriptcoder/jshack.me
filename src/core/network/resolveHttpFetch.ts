@@ -55,7 +55,12 @@ import {
 import { answerSignup, type SignUp } from '../emailit/signup.js';
 import { answerApply, type Apply } from '../hireme/apply.js';
 import { loggedRequestPath, type FindBoardHandle } from '../hireme/boards.js';
-import { boardPage } from '../hireme/pages.js';
+import {
+  answerAccept,
+  answerContractBoard,
+  answerDrop,
+  type BoardStore,
+} from '../hireme/contracts.js';
 import { answerBoard, answerTicket, type BoardDeps } from '../rideit/board.js';
 import { BOARD_PATH as RIDE_BOARD_PATH, TICKET_PATH } from '../rideit/pages.js';
 import { answerPost, type PostThread } from '../talkit/answerPost.js';
@@ -184,6 +189,13 @@ export type ResolveHttpFetchDeps = WebTargetDeps & {
   readonly drawBoardAddress: () => string;
   /** The handle holding a board's address. Only a fetch of a board reaches it. */
   readonly findBoardHandle: FindBoardHandle;
+  /** A board's offers and current contract, topped up on every read. Only a board's own
+   *  doors (`/`, `/accept`, `/drop`) reach it. */
+  readonly contractStore: BoardStore;
+  /** A contract number nobody may guess, offered to a board short of offers. */
+  readonly drawContractNumber: () => number;
+  /** A ref for a new offer, as its Accept form posts it. */
+  readonly drawOfferRef: () => string;
   /** Start a thread at talkit.io. Only a form POSTed to talkit's `/post` reaches it. */
   readonly postThread: PostThread;
   /** Comment on a thread at talkit.io. Only a form POSTed to talkit's `/comment` reaches
@@ -517,6 +529,26 @@ const NEWS_VIEWS = new Map<string, (requestPath: string, news: NewsReads) => Pro
 /** A request path without its query string. */
 const pathOf = (requestPath: string): string => requestPath.split('?')[0] ?? requestPath;
 
+/** Where a board takes an accept, and a drop. */
+const ACCEPT_PATH = '/accept';
+const DROP_PATH = '/drop';
+
+/** Which of a board's doors a request on the boards' server knocks at, or null when it is
+ *  none of them. A form to `/accept` or `/drop` is that door; the same path without a form
+ *  is a browser going back to the page the form answered, and gets the board, accepting
+ *  and dropping nothing. A form to the board itself is no door, and is refused as every
+ *  server refuses a form. */
+const contractDoorOf = (
+  requestPath: string,
+  form: string | undefined,
+): 'read' | 'accept' | 'drop' | null => {
+  const path = pathOf(requestPath);
+  if (path === BOARD_PATH) return form === undefined ? 'read' : null;
+  if (path === ACCEPT_PATH) return form === undefined ? 'read' : 'accept';
+  if (path === DROP_PATH) return form === undefined ? 'read' : 'drop';
+  return null;
+};
+
 /** A site's own application log: where it lives on the box, and who may read it. */
 type SiteLog = Pick<MachineLogTarget, 'path' | 'owner' | 'permissions'>;
 
@@ -766,6 +798,41 @@ export const handleResolveHttpFetch = async (
     };
   }
 
+  // A contractor board is answered by the boards' server from the table, for the handle
+  // holding the address asked, never from a file: a root on the server can plant a page at
+  // any other path, but cannot put one in place of anybody's board, nor stop it hiring.
+  // Reached only after the target resolved, so a dark server answers no board at all.
+  const contractDoor =
+    target.essid === BOARD_SERVER_NETWORK ? contractDoorOf(payload.path, payload.body) : null;
+  if (contractDoor !== null) {
+    const holder = await deps.findBoardHandle(payload.target);
+    // No page was served, so nothing is recorded, as for chainit's failed read.
+    if (holder.error) return { status: 500, body: { error: 'board_lookup_failed' } };
+    // The board was let go between finding the server and reading it: nothing is there.
+    if (holder.data === null) return UNREACHABLE;
+    const door = {
+      handle: holder.data.handle,
+      address: payload.target,
+      store: deps.contractStore,
+      drawNumber: deps.drawContractNumber,
+      drawRef: deps.drawOfferRef,
+    };
+    const page =
+      contractDoor === 'accept'
+        ? await answerAccept({ ...door, form: payload.body ?? '' })
+        : contractDoor === 'drop'
+          ? await answerDrop(door)
+          : await answerContractBoard(door);
+    if (page === null) return { status: 500, body: { error: 'board_failed' } };
+    await logFetch(deps, target, publicKey, standing.standingEssid, {
+      ...(payload.body === undefined ? {} : { method: 'POST' as const }),
+      path: loggedPath,
+      status: 200,
+      size: page.length,
+    });
+    return { status: 200, body: { ok: true, content: page, server: target.server } };
+  }
+
   // No other server takes a form. It still answered, with its 405 page, so the refusal is
   // recorded like any served response — as the POST it was, never with the form.
   if (payload.body !== undefined) {
@@ -776,25 +843,6 @@ export const handleResolveHttpFetch = async (
       size: METHOD_NOT_ALLOWED_PAGE.length,
     });
     return { status: 405, body: { error: 'method_not_allowed', server: target.server } };
-  }
-
-  // A contractor board is answered by the boards' server from the table, for the handle
-  // holding the address asked, never from a file: a root on the server can plant a page at
-  // any other path, but cannot put one in place of anybody's board. Reached only after the
-  // target resolved, so a dark server answers no board at all.
-  if (target.essid === BOARD_SERVER_NETWORK && pathOf(payload.path) === BOARD_PATH) {
-    const holder = await deps.findBoardHandle(payload.target);
-    // No page was served, so nothing is recorded, as for chainit's failed read.
-    if (holder.error) return { status: 500, body: { error: 'board_lookup_failed' } };
-    // The board was let go between finding the server and reading it: nothing is there.
-    if (holder.data === null) return UNREACHABLE;
-    const page = boardPage(holder.data.handle);
-    await logFetch(deps, target, publicKey, standing.standingEssid, {
-      path: loggedPath,
-      status: 200,
-      size: page.length,
-    });
-    return { status: 200, body: { ok: true, content: page, server: target.server } };
   }
 
   // rideit sells tickets from a function, never from a file: a root on rideit can deface

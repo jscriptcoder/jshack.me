@@ -47,7 +47,8 @@ import {
 import type { SignUp } from '../emailit/signup.js';
 import type { Apply } from '../hireme/apply.js';
 import type { FindBoardHandle } from '../hireme/boards.js';
-import { boardPage, HIREME_FRONT_PAGE } from '../hireme/pages.js';
+import { HIREME_FRONT_PAGE } from '../hireme/pages.js';
+import type { BoardStore } from '../hireme/contracts.js';
 import type { PostThread } from '../talkit/answerPost.js';
 import type { PostComment } from '../talkit/answerComment.js';
 import { FINDIT_FRONT_PAGE } from '../findit/page.js';
@@ -224,6 +225,7 @@ type FetchOverrides = {
   signUp?: SignUp;
   apply?: Apply;
   findBoardHandle?: FindBoardHandle;
+  contractStore?: Partial<BoardStore>;
   findBalance?: WalletBalanceDeps['findBalance'];
   findTransfers?: WalletHistoryDeps['findTransfers'];
   findLatestTransfers?: ChainReads['findLatestTransfers'];
@@ -276,6 +278,18 @@ const makeDeps = (over: FetchOverrides = {}) => {
   const findBoardHandle = vi.fn<FindBoardHandle>(
     over.findBoardHandle ?? (async () => ({ data: null, error: null })),
   );
+  // Default: a board fills from whatever it is offered, and every accept and drop is
+  // taken. Only a board's own doors ever ask.
+  const contractStore: BoardStore = {
+    postOffers: vi.fn<BoardStore['postOffers']>(async ({ candidates }) => ({
+      data: { offers: candidates, current: null },
+      error: null,
+    })),
+    accept: vi.fn<BoardStore['accept']>(async () => ({ data: 'accepted', error: null })),
+    drop: vi.fn<BoardStore['drop']>(async () => ({ data: 'dropped', error: null })),
+    ...over.contractStore,
+  };
+  let offersDrawn = 0;
   // Default: the ledger has never seen the address. Only chainit's `/address` ever asks.
   const findBalance = vi.fn<WalletBalanceDeps['findBalance']>(
     over.findBalance ?? (async () => ({ data: null, error: null })),
@@ -344,6 +358,12 @@ const makeDeps = (over: FetchOverrides = {}) => {
     apply,
     drawBoardAddress: () => '194.12.40.7',
     findBoardHandle,
+    contractStore,
+    drawContractNumber: () => 100000,
+    drawOfferRef: () => {
+      offersDrawn += 1;
+      return `ref${offersDrawn}`;
+    },
     findBalance,
     findTransfers,
     findLatestTransfers,
@@ -364,6 +384,7 @@ const makeDeps = (over: FetchOverrides = {}) => {
     signUp,
     apply,
     findBoardHandle,
+    contractStore,
     findBalance,
     findTransfers,
     findLatestTransfers,
@@ -1830,14 +1851,18 @@ describe("a contractor board answers at its address", () => {
   const accessLogOf = (appendLog: ReturnType<typeof makeDeps>['appendLog']) =>
     appendLog.mock.calls.map(([row]) => row).find((row) => row.path === ACCESS_LOG_PATH);
 
-  it('answers the board of the handle that holds the address asked', async () => {
-    const { deps, findBoardHandle } = makeDeps(onBoards);
+  it('answers the board of the handle that holds the address asked, with its offers', async () => {
+    const { deps, findBoardHandle, contractStore } = makeDeps(onBoards);
 
-    expect(await handleResolveHttpFetch(request({}), deps)).toEqual({
-      status: 200,
-      body: { ok: true, content: boardPage('neo'), server: 'nginx' },
-    });
+    const response = await handleResolveHttpFetch(request({}), deps);
+
+    expect(response).toMatchObject({ status: 200, body: { ok: true, server: 'nginx' } });
+    expect(contentOf(response)).toContain('Welcome back, neo.');
+    expect(contentOf(response)).toContain('Ref: ref1');
     expect(findBoardHandle).toHaveBeenCalledWith(NEO_BOARD);
+    expect(contractStore.postOffers).toHaveBeenCalledWith(
+      expect.objectContaining({ handle: 'neo' }),
+    );
   });
 
   it("answers another handle's address with that handle's board", async () => {
@@ -1845,7 +1870,7 @@ describe("a contractor board answers at its address", () => {
 
     const response = await handleResolveHttpFetch(request({ target: TRINITY_BOARD }), deps);
 
-    expect(contentOf(response)).toBe(boardPage('trinity'));
+    expect(contentOf(response)).toContain('Welcome back, trinity.');
   });
 
   it('answers the board however its query string reads', async () => {
@@ -1853,7 +1878,7 @@ describe("a contractor board answers at its address", () => {
 
     const response = await handleResolveHttpFetch(request({ path: '/?from=mail' }), deps);
 
-    expect(contentOf(response)).toBe(boardPage('neo'));
+    expect(contentOf(response)).toContain('Welcome back, neo.');
   });
 
   // Every board's address lands on the one box and its one log, so the line names the
@@ -1902,7 +1927,9 @@ describe("a contractor board answers at its address", () => {
       patches: patchesByMachine({ [BOARDS_ID]: [publishedPage('<h1>OWNED</h1>')] }),
     });
 
-    expect(contentOf(await handleResolveHttpFetch(request({}), deps))).toBe(boardPage('neo'));
+    expect(contentOf(await handleResolveHttpFetch(request({}), deps))).toContain(
+      'Welcome back, neo.',
+    );
     expect(contentOf(await handleResolveHttpFetch(request({ path: '/index.html' }), deps))).toBe(
       '<h1>OWNED</h1>',
     );
@@ -1958,6 +1985,147 @@ describe("a contractor board answers at its address", () => {
     await handleResolveHttpFetch(envelope({}), deps);
 
     expect(findBoardHandle).not.toHaveBeenCalled();
+  });
+});
+
+describe('a contractor board takes an accept and a drop', () => {
+  const BOARDS_ID = computeApGatewayId(BOARD_SERVER_NETWORK);
+  const NEO_BOARD = '194.12.40.7';
+  const onBoards = {
+    lookup: async () => ({
+      data: { router_machine_id: BOARDS_ID, essid: BOARD_SERVER_NETWORK },
+      error: null,
+    }),
+    listOccupantsByEssid: async () => ({ data: [], error: null }),
+    listLeasesByEssid: async () => ({ data: [], error: null }),
+    findBoardHandle: async (address: string) => ({
+      data: address === NEO_BOARD ? { handle: 'neo' } : null,
+      error: null,
+    }),
+  };
+  /** Neo's board as the store holds it: one offer, and the job numbered 70000 in hand. */
+  const holding = {
+    postOffers: async () => ({
+      data: { offers: [{ number: 100003, ref: 'abc' }], current: 70000 },
+      error: null,
+    }),
+  };
+  const request = (fields: Record<string, unknown>) =>
+    signRequest(BOB, 'resolveHttpFetch', {
+      target: NEO_BOARD,
+      port: HTTP_DEFAULT_PORT,
+      path: '/',
+      ...fields,
+    });
+  const contentOf = (response: { body: Record<string, unknown> }): string =>
+    typeof response.body.content === 'string' ? response.body.content : '';
+  const accessLogOf = (appendLog: ReturnType<typeof makeDeps>['appendLog']) =>
+    appendLog.mock.calls.map(([row]) => row).find((row) => row.path === ACCESS_LOG_PATH);
+
+  it('accepts the offer a form posts to /accept, for the handle holding the board', async () => {
+    const { deps, contractStore } = makeDeps({ ...onBoards, contractStore: holding });
+
+    const response = await handleResolveHttpFetch(
+      request({ path: '/accept', body: 'offer=abc' }),
+      deps,
+    );
+
+    expect(response).toMatchObject({ status: 200, body: { ok: true, server: 'nginx' } });
+    expect(contentOf(response)).toContain('has sent you a briefing.');
+    expect(contractStore.accept).toHaveBeenCalledWith(
+      expect.objectContaining({ handle: 'neo', number: 100003 }),
+    );
+  });
+
+  it('drops the contract held when a form is posted to /drop', async () => {
+    const { deps, contractStore } = makeDeps({ ...onBoards, contractStore: holding });
+
+    const response = await handleResolveHttpFetch(
+      request({ path: '/drop', body: 'confirm=yes' }),
+      deps,
+    );
+
+    expect(contentOf(response)).toContain('will not be in touch again.');
+    expect(contractStore.drop).toHaveBeenCalledWith(
+      expect.objectContaining({ handle: 'neo', number: 70000 }),
+    );
+  });
+
+  // Every board's address lands on the one server, so the line names the board asked.
+  it.each(['/accept', '/drop'])(
+    'records a form posted to %s as the POST it was, never with the form',
+    async (path) => {
+      const { deps, appendLog } = makeDeps({ ...onBoards, contractStore: holding });
+
+      const response = await handleResolveHttpFetch(request({ path, body: 'offer=abc' }), deps);
+
+      expect(accessLogOf(appendLog)?.machine_id).toBe(BOARDS_ID);
+      expect(accessLogOf(appendLog)?.text).toBe(
+        `${BOB_PUBLIC_IP} - - [30/Jul/2026:13:55:36 +0000] "POST http://${NEO_BOARD}${path} HTTP/1.1" 200 ${contentOf(response).length}\n`,
+      );
+    },
+  );
+
+  // A browser going back to the page a form answered asks for it without the form.
+  it.each(['/accept', '/drop'])(
+    'answers the board for %s without a form, changing nothing',
+    async (path) => {
+      const { deps, contractStore } = makeDeps({ ...onBoards, contractStore: holding });
+
+      const response = await handleResolveHttpFetch(request({ path }), deps);
+
+      expect(contentOf(response)).toContain('Welcome back, neo.');
+      expect(contentOf(response)).not.toContain('role="alert"');
+      expect(contractStore.accept).not.toHaveBeenCalled();
+      expect(contractStore.drop).not.toHaveBeenCalled();
+    },
+  );
+
+  it('takes the form whatever query string the path carries', async () => {
+    const { deps, contractStore } = makeDeps({ ...onBoards, contractStore: holding });
+
+    await handleResolveHttpFetch(request({ path: '/accept?from=lynx', body: 'offer=abc' }), deps);
+
+    expect(contractStore.accept).toHaveBeenCalled();
+  });
+
+  it('answers as nothing at an address nobody holds, asking the store nothing', async () => {
+    const { deps, contractStore } = makeDeps(onBoards);
+
+    const response = await handleResolveHttpFetch(
+      request({ target: '194.1.1.2', path: '/accept', body: 'offer=abc' }),
+      deps,
+    );
+
+    expect(response).toEqual({ status: 404, body: { error: 'host_unreachable' } });
+    expect(contractStore.postOffers).not.toHaveBeenCalled();
+  });
+
+  it('reports a board the store could not answer as a server error, and records nothing', async () => {
+    const { deps, appendLog } = makeDeps({
+      ...onBoards,
+      contractStore: { postOffers: async () => ({ data: null, error: { message: 'down' } }) },
+    });
+
+    expect(
+      await handleResolveHttpFetch(request({ path: '/accept', body: 'offer=abc' }), deps),
+    ).toEqual({ status: 500, body: { error: 'board_failed' } });
+    expect(accessLogOf(appendLog)).toBeUndefined();
+  });
+
+  it('refuses a form posted to /accept on any server but the boards server', async () => {
+    const { deps, contractStore } = makeDeps({ patches: aliceServing() });
+
+    const response = await handleResolveHttpFetch(
+      envelope({ path: '/accept', body: 'offer=abc' }),
+      deps,
+    );
+
+    expect(response).toEqual({
+      status: 405,
+      body: { error: 'method_not_allowed', server: 'nginx' },
+    });
+    expect(contractStore.postOffers).not.toHaveBeenCalled();
   });
 });
 

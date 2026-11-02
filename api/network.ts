@@ -628,6 +628,47 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         `${BOARD_FIRST_OCTET}.${randomInt(256)}.${randomInt(256)}.${randomInt(2, 255)}`,
       // Only a fetch of a board's address reaches this: whose board it is.
       findBoardHandle: findBoardHandleVia({ supabase, label: 'http-fetch board read' }),
+      // Only a board's own doors reach these. Each is one transaction under the handle's
+      // lock inside its function, answering as it came off the wire for the core to read.
+      contractStore: {
+        postOffers: async ({ handle, candidates }) => {
+          const { data, error } = await supabase.rpc('hireme_post_offers', {
+            post_handle: handle,
+            candidate_numbers: candidates.map((candidate) => candidate.number),
+            candidate_refs: candidates.map((candidate) => candidate.ref),
+          });
+          logFailure('http-fetch hireme post offers', error);
+          return { data: data as unknown, error };
+        },
+        accept: async ({ handle, number, briefing }) => {
+          const { data, error } = await supabase.rpc('hireme_accept', {
+            accept_handle: handle,
+            accept_number: number,
+            mail_sender: briefing.sender,
+            mail_subject: briefing.subject,
+            mail_body: briefing.body,
+          });
+          logFailure('http-fetch hireme accept', error);
+          return { data: data as unknown, error };
+        },
+        drop: async ({ handle, number, line }) => {
+          const { data, error } = await supabase.rpc('hireme_drop', {
+            drop_handle: handle,
+            drop_number: number,
+            mail_sender: line.sender,
+            mail_subject: line.subject,
+            mail_body: line.body,
+          });
+          logFailure('http-fetch hireme drop', error);
+          return { data: data as unknown, error };
+        },
+      },
+      // A contract's number: its 195 address's low 24 bits, the last octet a host octet.
+      // Drawn from the OS's randomness, since nobody may guess the next one; the store
+      // skips one already drawn.
+      drawContractNumber: () => randomInt(256) * 65536 + randomInt(256) * 256 + randomInt(2, 255),
+      // Six hex digits, unique on its board; the store skips one the board already used.
+      drawOfferRef: () => randomInt(0x1000000).toString(16).padStart(6, '0'),
       // Only a form POSTed to talkit.io's /post reaches this. The password check, the
       // hourly cap and the insert are one transaction inside the function, and its answer
       // is handed over as it came off the wire for the handler to read.

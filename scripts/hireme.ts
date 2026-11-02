@@ -1,5 +1,5 @@
 // The operator's desk for contracts — stages a job for a handle, drops the one it holds,
-// or shows what a contract number drew. Run against dev or local, never needed in play, as
+// posts a board fresh offers, or shows what a contract number drew. Run against dev or local, never needed in play, as
 // guardian.ts and valleynews.ts are. It cannot COMPLETE a job: a payout only ever goes
 // through the real mail door, so every test of one goes through that door.
 //
@@ -11,6 +11,11 @@
 //   drop <handle>                 Abandons the handle's active contract. The network stays
 //                                 reachable (it is persistent and shared); the handle is free
 //                                 to accept again. Refuses a handle with no active contract.
+//   post <handle>                 Burns the handle's live offers and posts three fresh ones
+//                                 now, past the board's 24-hour turnover, as a read of the
+//                                 board would. A held contract keeps its slot, so a handle
+//                                 working a job gets two. Prints each new offer's ref and
+//                                 address (offers are not reachable until accepted).
 //   show <address>                Prints the contract's template, route, forward, services,
 //                                 key path and key. The key is derived from MISSION_KEY_SECRET,
 //                                 so only an operator with the deployment secret can run it.
@@ -19,6 +24,7 @@
 //   npx dotenv -e .env.development.local -- npx tsx scripts/hireme.ts accept alice
 //   npx dotenv -e .env.development.local -- npx tsx scripts/hireme.ts accept alice --number 66051
 //   npx dotenv -e .env.development.local -- npx tsx scripts/hireme.ts drop alice
+//   npx dotenv -e .env.development.local -- npx tsx scripts/hireme.ts post alice
 //   npx dotenv -e .env.development.local -- npx tsx scripts/hireme.ts show 195.1.2.3
 //
 // In production the operator supplies production's SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY
@@ -45,7 +51,7 @@ import { requireMissionSecret } from '../src/core/missions/missionSecret.js';
 const order = readMissionOrder(process.argv.slice(2));
 if (order === null) {
   console.error(
-    'Usage: hireme.ts accept <handle> [--number N] | drop <handle> | show <address>',
+    'Usage: hireme.ts accept <handle> [--number N] | drop <handle> | post <handle> | show <address>',
   );
   process.exit(2);
 }
@@ -148,6 +154,33 @@ const drop = async (handle: string) => {
   console.log(droppedLine(handle, missionNumber, missionAddressForNumber(missionNumber)!));
 };
 
+/** The offers a board holds once topped up, as the store answers them. */
+type PostedBoard = { readonly offers: readonly { number: number; ref: string }[] };
+
+const post = async (handle: string) => {
+  const burned = await sr
+    .from('hireme_missions')
+    .update({ state: 'burned' })
+    .eq('handle', handle)
+    .eq('state', 'offered');
+  if (burned.error) fail('burning the live offers', burned.error);
+
+  const candidates = Array.from({ length: 3 }, () => ({
+    number: randomInt(0, 256) * 65536 + randomInt(0, 256) * 256 + randomInt(2, 255),
+    ref: randomInt(0x1000000).toString(16).padStart(6, '0'),
+  }));
+  const posted = await sr.rpc('hireme_post_offers', {
+    post_handle: handle,
+    candidate_numbers: candidates.map((candidate) => candidate.number),
+    candidate_refs: candidates.map((candidate) => candidate.ref),
+  });
+  if (posted.error) fail('posting offers', posted.error);
+  if (posted.data === null) refuse(`${handle} has no mailbox; nothing posted`);
+  for (const offer of (posted.data as PostedBoard).offers) {
+    console.log(`Offered ${handle} ref ${offer.ref}: ${missionAddressForNumber(offer.number)!}`);
+  }
+};
+
 const show = (address: string) => {
   const missionNumber = missionNumberForAddress(address);
   if (missionNumber === null) {
@@ -167,6 +200,7 @@ const show = (address: string) => {
 const main = async () => {
   if (order.verb === 'accept') await accept(order.handle, order.number);
   else if (order.verb === 'drop') await drop(order.handle);
+  else if (order.verb === 'post') await post(order.handle);
   else show(order.address);
 };
 
