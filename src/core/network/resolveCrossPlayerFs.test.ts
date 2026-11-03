@@ -20,7 +20,8 @@ import { BOOT_ID_OWNER, BOOT_ID_PATH, BOOT_ID_PERMISSIONS, readBootId } from '..
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import type { SpoolAccount } from '../emailit/spool.js';
 import type { Board } from '../hireme/boards.js';
-import { BOARD_SERVER_NETWORK, EMAILIT_NETWORK } from '../generation/fixedSites.js';
+import type { ActiveContract } from '../missions/contractsList.js';
+import { BOARD_SERVER_NETWORK, EMAILIT_NETWORK, HIREME_NETWORK } from '../generation/fixedSites.js';
 import { MAIL_SPOOL_FILE, ROOT_FILE } from '../generation/baseFs.js';
 
 /**
@@ -84,6 +85,7 @@ type PatchesResult = { data: readonly OwnerPatchRow[] | null; error: unknown };
 type LastEssidResult = { data: string | null; error: unknown };
 type SpoolResult = { data: readonly SpoolAccount[] | null; error: unknown };
 type BoardsResult = { data: readonly Board[] | null; error: unknown };
+type ContractsResult = { data: readonly ActiveContract[] | null; error: unknown };
 type MissionKeyFileResult = { data: { path: string; content: string } | null; error: unknown };
 
 const NEO_BOARD = '194.12.40.7';
@@ -91,6 +93,15 @@ const NEO_BOARD = '194.12.40.7';
 /** One board, held by neo. */
 const BOARDS: readonly Board[] = [
   { handle: 'neo', address: NEO_BOARD, applied_at: '2026-10-20T09:00:00.000+00:00' },
+];
+
+/** The address of neo's one job, number 796679, whose client is bellwether-desk paying 1,400
+ *  JSC. */
+const NEO_MISSION = '195.12.40.7';
+
+/** One job, accepted by neo. */
+const CONTRACTS: readonly ActiveContract[] = [
+  { handle: 'neo', number: 796679, accepted_at: '2026-11-03T09:00:00.000+00:00' },
 ];
 
 const NEO_HASH = '5f4dcc3b5aa765d61d8327deb882cf99';
@@ -122,6 +133,7 @@ const makeDeps = (
     lastEssid?: () => Promise<LastEssidResult>;
     spool?: () => Promise<SpoolResult>;
     boards?: () => Promise<BoardsResult>;
+    contracts?: () => Promise<ContractsResult>;
     missionKeyFile?: () => Promise<MissionKeyFileResult>;
   } = {},
 ) => {
@@ -144,6 +156,9 @@ const makeDeps = (
   const findBoards = vi.fn<() => Promise<BoardsResult>>(
     over.boards ?? (async () => ({ data: BOARDS, error: null })),
   );
+  const findContracts = vi.fn<() => Promise<ContractsResult>>(
+    over.contracts ?? (async () => ({ data: CONTRACTS, error: null })),
+  );
   const findMissionKeyFile = vi.fn<
     (query: { essid: string; machine_id: string }) => Promise<MissionKeyFileResult>
   >(over.missionKeyFile ?? (async () => ({ data: null, error: null })));
@@ -155,6 +170,7 @@ const makeDeps = (
     findPatches,
     findMailSpool,
     findBoards,
+    findContracts,
     findMissionKeyFile,
   };
   return {
@@ -165,6 +181,7 @@ const makeDeps = (
     findPatches,
     findMailSpool,
     findBoards,
+    findContracts,
     findMissionKeyFile,
   };
 };
@@ -1104,6 +1121,100 @@ describe("handleResolveCrossPlayerFs on the boards' server, whose list is the bo
     const result = await handleResolveCrossPlayerFs(envelope(id, BOARD_SERVER_MACHINE), deps);
 
     expect(result).toEqual({ status: 500, body: { error: 'boards_lookup_failed' } });
+  });
+});
+
+describe("handleResolveCrossPlayerFs on the boards' server, whose contracts are the missions table", () => {
+  it('lays every active job into the box for a root session, root-only, beside the boards', async () => {
+    const id = generateIdentity();
+    const { deps, findContracts } = onBoardServer();
+
+    const result = await handleResolveCrossPlayerFs(envelope(id, BOARD_SERVER_MACHINE), deps);
+    const tree = treeOf(result);
+
+    expect(result.status).toBe(200);
+    expect(contentOf(tree, 'etc', 'hireme', 'contracts')).toBe(
+      `neo bellwether-desk ${NEO_MISSION} 1400\n`,
+    );
+    expect(get(tree, 'etc', 'hireme', 'contracts')).toMatchObject({ perms: ROOT_FILE });
+    expect(contentOf(tree, 'etc', 'hireme', 'boards')).toBe(`neo ${NEO_BOARD}\n`);
+    expect(findContracts).toHaveBeenCalledTimes(1);
+  });
+
+  it('lays an empty list for a root session when no job is active', async () => {
+    const id = generateIdentity();
+    const { deps } = onBoardServer({ contracts: async () => ({ data: null, error: null }) });
+
+    const result = await handleResolveCrossPlayerFs(envelope(id, BOARD_SERVER_MACHINE), deps);
+
+    expect(result.status).toBe(200);
+    expect(contentOf(treeOf(result), 'etc', 'hireme', 'contracts')).toBe('');
+  });
+
+  it.each(['user', 'guest'] as const)(
+    'reads no missions for a %s session, and sends none of them',
+    async (userType) => {
+      const id = generateIdentity();
+      const { deps, findContracts } = onBoardServer({
+        session: async () => ({ data: { userType, essid: BOARD_SERVER_NETWORK }, error: null }),
+      });
+
+      const result = await handleResolveCrossPlayerFs(envelope(id, BOARD_SERVER_MACHINE), deps);
+
+      expect(result.status).toBe(200);
+      expect(get(treeOf(result), 'etc', 'hireme')).toBeUndefined();
+      expect(JSON.stringify(result.body)).not.toContain(NEO_MISSION);
+      expect(JSON.stringify(result.body)).not.toContain('bellwether-desk');
+      expect(findContracts).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    ['emailit.io', EMAILIT_NETWORK],
+    ['hireme.io', HIREME_NETWORK],
+  ])('reads no missions for a root on %s', async (_site, network) => {
+    const id = generateIdentity();
+    const { deps, findContracts } = makeDeps({
+      occupant: async () => ({ data: null, error: null }),
+      session: async () => ({ data: { userType: 'root', essid: network }, error: null }),
+      patches: async () => ({ data: [], error: null }),
+    });
+
+    const result = await handleResolveCrossPlayerFs(
+      envelope(id, computeApGatewayId(network)),
+      deps,
+    );
+
+    expect(result.status).toBe(200);
+    expect(JSON.stringify(result.body)).not.toContain(NEO_MISSION);
+    expect(findContracts).not.toHaveBeenCalled();
+  });
+
+  it("shows a root's rewrite of the list in place of the list", async () => {
+    const id = generateIdentity();
+    const forged = ownerRow({
+      path: '/etc/hireme/contracts',
+      content: 'trin copper-ops 195.1.1.2 2000\n',
+      permissions: ROOT_FILE,
+    });
+    const { deps } = onBoardServer({ patches: async () => ({ data: [forged], error: null }) });
+
+    const result = await handleResolveCrossPlayerFs(envelope(id, BOARD_SERVER_MACHINE), deps);
+
+    expect(contentOf(treeOf(result), 'etc', 'hireme', 'contracts')).toBe(
+      'trin copper-ops 195.1.1.2 2000\n',
+    );
+  });
+
+  it('reports a server error, not an empty list, when the table cannot be read', async () => {
+    const id = generateIdentity();
+    const { deps } = onBoardServer({
+      contracts: async () => ({ data: null, error: new Error('db down') }),
+    });
+
+    const result = await handleResolveCrossPlayerFs(envelope(id, BOARD_SERVER_MACHINE), deps);
+
+    expect(result).toEqual({ status: 500, body: { error: 'contracts_lookup_failed' } });
   });
 });
 

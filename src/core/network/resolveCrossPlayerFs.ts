@@ -28,7 +28,8 @@
  * into the box before the journal is replayed, so what a root wrote or removed there is
  * what the next root sees. Below root it is never built, so no table is read and nothing
  * of it reaches the wire. The boards' server shows its root the list of contractor boards
- * the same way (`core/hireme/boards.ts`).
+ * the same way (`core/hireme/boards.ts`), and beside it every active contract
+ * (`core/missions/contractsList.ts`).
  *
  * The journal is replayed whole, every writer's rows in the order the server stamped them.
  */
@@ -46,6 +47,7 @@ import { computeApGatewayId } from '../identity/router.js';
 import { BOARD_SERVER_NETWORK, EMAILIT_NETWORK } from '../generation/fixedSites.js';
 import { withMailSpool, type SpoolAccount } from '../emailit/spool.js';
 import { withBoardsList, type Board } from '../hireme/boards.js';
+import { withContractsList, type ActiveContract } from '../missions/contractsList.js';
 import { file, withFiles, ROOT_FILE } from '../generation/baseFs.js';
 import { filterTreeForSession, filterTreeToAllowlist } from '../patches/readFilter.js';
 import { serializeTree } from '../filesystem/treeCodec.js';
@@ -97,6 +99,9 @@ export type ResolveCrossPlayerFsDeps = {
   /** Every contractor board, with the handle holding it. Asked only for a root session on
    *  the boards' server. */
   readonly findBoards: () => Promise<Lookup<readonly Board[]>>;
+  /** Every accepted job, with the handle working it. Asked only for a root session on the
+   *  boards' server. */
+  readonly findContracts: () => Promise<Lookup<readonly ActiveContract[]>>;
   /** The key file for a contract's key box, or `data: null` when the target is no key box
    *  (an ordinary network box, or the contract's gateway). A contract box with no
    *  deployment secret set returns `error: 'mission_secret_missing'`, which the handler
@@ -208,13 +213,18 @@ export const handleResolveCrossPlayerFs = async (
   if (spool !== null && spool.error) {
     return { status: 500, body: { error: 'mail_spool_lookup_failed' } };
   }
-  const boards =
-    isRoot && payload.machine_id === BOARD_SERVER_MACHINE ? await deps.findBoards() : null;
+  const onBoardServer = isRoot && payload.machine_id === BOARD_SERVER_MACHINE;
+  const boards = onBoardServer ? await deps.findBoards() : null;
   if (boards !== null && boards.error) {
     return { status: 500, body: { error: 'boards_lookup_failed' } };
   }
+  const contracts = onBoardServer ? await deps.findContracts() : null;
+  if (contracts !== null && contracts.error) {
+    return { status: 500, body: { error: 'contracts_lookup_failed' } };
+  }
   const withMail = spool === null ? base.data : withMailSpool(base.data, spool.data ?? []);
-  const box = boards === null ? withMail : withBoardsList(withMail, boards.data ?? []);
+  const withBoards = boards === null ? withMail : withBoardsList(withMail, boards.data ?? []);
+  const box = contracts === null ? withBoards : withContractsList(withBoards, contracts.data ?? []);
 
   const patches = await deps.findPatches({
     machine_id: payload.machine_id,
