@@ -127,6 +127,14 @@ server** answers at every board's address.
   is not read and nothing of it reaches the wire; a failed read is a 500 `boards_lookup_failed`,
   never an empty file. Rooting this box is the way to everyone's board at once; reading one inbox
   is the way to one.
+- **Beside it**, `/etc/hireme/contracts`: one `<handle> <client handle> <mission address> <pay>`
+  line per accepted job in the order they were accepted, the pay as the bare number of JSC,
+  built from `hireme_missions` on each read (`withContractsList`, `core/missions/contractsList.ts`,
+  server-only) and laid in, read and refused exactly as the boards' list is, with its own
+  `contracts_lookup_failed`. A completed or dropped job leaves it. A root learns every live
+  mission and who is working it: they cannot claim another's job, but they can race its
+  contractor to the key box, or find that contractor's board in `boards` and go after their
+  `~/.mailrc` to take the payout.
 - **On hireme.io**, nothing special: who applied is only in the table, so the boards' server is
   the one prize.
 - **Working from the boards' server traces as `unknown`** in other boxes' logs, as from any box
@@ -186,8 +194,8 @@ and what the root view adds. A second, darknet operator stays open as later cont
 ## Key files
 
 - **Server**: `supabase/migrations/20261020020000_hireme_boards.sql`; `api/network.ts` (`apply`,
-  `drawBoardAddress`, `findBoardHandle`, `findBoards`) and `api/sessions.ts` (the lookup at each
-  door).
+  `drawBoardAddress`, `findBoardHandle`, `findBoards`, `findContracts`) and `api/sessions.ts`
+  (the lookup at each door).
 - **hireme**: `core/hireme/` — `apply.ts`, `pages.ts`, `boards.ts`.
 - **Wiring**: `core/network/resolveHttpFetch.ts` (the `/apply` and board dispatch),
   `core/network/resolveHttpSweep.ts`, `core/network/resolveCrossPlayerFs.ts` (the list),

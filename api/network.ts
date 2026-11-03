@@ -67,6 +67,7 @@ import {
   type FindBoardHandle,
   type FindMissionState,
 } from '../src/core/hireme/boards.js';
+import type { ActiveContract } from '../src/core/missions/contractsList.js';
 import { BOARD_FIRST_OCTET } from '../src/core/generation/world.js';
 import { missionKeyBoxNumber } from '../src/core/generation/lanHostIdentity.js';
 import {
@@ -1158,6 +1159,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (error) console.error('[network] boards lookup error:', error);
       return { data: data as readonly Board[] | null, error };
     };
+    // Every accepted job with the handle working it. The order is the core's.
+    const findContracts = async () => {
+      const { data, error } = await supabase
+        .from('hireme_missions')
+        .select('handle, number, accepted_at')
+        .eq('state', 'accepted');
+      if (error) console.error('[network] contracts lookup error:', error);
+      return { data: data as readonly ActiveContract[] | null, error };
+    };
     // A contract's key, derived here from the server-only secret (no table to read) and
     // handed to the handler to lay onto the key box. Only the one machine behind a contract
     // gateway is a key box; everything else is left as generated. With no secret set, the
@@ -1190,6 +1200,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findPatches,
       findMailSpool,
       findBoards,
+      findContracts,
       findMissionKeyFile,
     });
     res.status(status).json(body);

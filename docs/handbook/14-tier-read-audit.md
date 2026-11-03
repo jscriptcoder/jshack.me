@@ -272,7 +272,9 @@ as well as on a player's workstation.
 `/var/mail` and every account's hash in `/etc/emailit/passwd`, built from the email tables. Below
 root the tables are not read at all, so nothing of them reaches the wire. Since v0.422.0 a root
 session on the boards' server is likewise served `/etc/hireme/boards`, every contractor board's
-handle and address, built from `hireme_boards` and read for root alone.
+handle and address, built from `hireme_boards` and read for root alone. Since v0.441.0 it is also
+served `/etc/hireme/contracts`, every accepted job's handle, client handle, mission address and
+pay, built from `hireme_missions` and read for root alone.
 
 ### `POST /api/wallet`
 
