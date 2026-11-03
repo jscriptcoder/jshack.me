@@ -27,8 +27,7 @@ import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
 import { lanAddressesByOwner, type LanLeaseRow } from '../network/lanAddress.js';
 import { materializeWorkstationFs, type OwnerPatchRow } from '../network/materializeWorkstationFs.js';
 import { canBoot } from '../boot/bootFiles.js';
-import { md5 } from '../generation/md5.js';
-import { accountIn } from './passwdAccount.js';
+import { admitToDoor } from './doorAdmission.js';
 import { formatLoginLines, type SweepLog } from '../services/serviceCatalog.js';
 import { LOOPBACK_IPV4 } from '../network/interfaces.js';
 import { derivePid } from '../logging/syslog.js';
@@ -263,10 +262,9 @@ export const handleAuthCreateSessionSameLan = async (
     return { status: 401, body: { error: 'invalid_credentials' } };
   }
 
-  // Validate against A's own /etc/passwd. Unknown user and wrong password are one 401 —
-  // the response never reveals which accounts exist.
-  const account = accountIn(workstationFs, payload.username);
-  const passwordOk = account !== null && md5(payload.password) === account.hash;
+  // Validate against A's own tree. Unknown user and wrong password are one 401 — the
+  // response never reveals which accounts exist.
+  const userType = admitToDoor(payload.kind, workstationFs, payload.username, payload.password);
 
   // The box is resolved and reachable, so the attempt CAN be logged — sshd records both
   // accepted and rejected logins. (Every 404 above logs nothing — no reachable box to
@@ -280,10 +278,10 @@ export const handleAuthCreateSessionSameLan = async (
       hostname: target.workstation_machine_name,
       sweepLog: reached.spec.sweepLog,
     },
-    { outcome: passwordOk ? 'success' : 'failure', user: payload.username, fromIp },
+    { outcome: userType === null ? 'failure' : 'success', user: payload.username, fromIp },
   );
 
-  if (account === null || !passwordOk) {
+  if (userType === null) {
     return { status: 401, body: { error: 'invalid_credentials' } };
   }
 
@@ -291,7 +289,7 @@ export const handleAuthCreateSessionSameLan = async (
     session_id: payload.session_id,
     player_key: publicKey,
     machine_id: target.workstation_machine_id,
-    credentials: { username: payload.username, userType: account.userType },
+    credentials: { username: payload.username, userType },
     parent_session_id: payload.parent_session_id ?? null,
     source_ip: fromIp,
     // The door the caller knocked on — an ftp/scp occupant login is its own kind of
@@ -305,6 +303,6 @@ export const handleAuthCreateSessionSameLan = async (
 
   return {
     status: 200,
-    body: { ok: true, userType: account.userType, machine_id: target.workstation_machine_id },
+    body: { ok: true, userType, machine_id: target.workstation_machine_id },
   };
 };

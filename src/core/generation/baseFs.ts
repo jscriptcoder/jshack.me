@@ -91,6 +91,14 @@ export const WEB_PAGE_FILE: FilePermissions = {
   write: ['root'],
   execute: [],
 };
+/** A file under an ftp server's public directory: world-readable, because an anonymous
+ *  login is a guest and fetching it is what the directory is for. Root-only write, as a
+ *  published page is, and never a program. */
+export const FTP_PUBLIC_FILE: FilePermissions = {
+  read: ['root', 'user', 'guest'],
+  write: ['root'],
+  execute: [],
+};
 /** A role's config in `/etc` (`mysql.cnf`, `motion.conf`): world-readable because
  *  saying what a box is FOR is the lowest tier of recon and costs no credential,
  *  root-only write because configuring the box is root's job, and never executable —

@@ -289,6 +289,40 @@ describe('handleAuthCreateSessionSameLan', () => {
     });
   });
 
+  it('lets anonymous into a neighbour’s ftp at guest tier where their config says so', async () => {
+    const { deps, insertSession } = makeDeps(undefined, async () => ({
+      data: [wsFtpdUp, { ...wsFtpdUp, path: '/etc/vsftpd.conf', content: 'anonymous_enable=YES\n' }],
+      error: null,
+    }));
+
+    const result = await handleAuthCreateSessionSameLan(
+      envelope(BOB, { username: 'anonymous', password: 'anything', kind: 'ftp', port: 2121 }),
+      deps,
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({ userType: 'guest' });
+    expect(insertSession.mock.calls[0]![0].credentials).toEqual({
+      username: 'anonymous',
+      userType: 'guest',
+    });
+  });
+
+  it('refuses anonymous at a neighbour’s ftp where their config says nothing', async () => {
+    const { deps, insertSession } = makeDeps(undefined, async () => ({
+      data: [wsFtpdUp],
+      error: null,
+    }));
+
+    const result = await handleAuthCreateSessionSameLan(
+      envelope(BOB, { username: 'anonymous', password: 'anything', kind: 'ftp', port: 2121 }),
+      deps,
+    );
+
+    expect(result.status).toBe(401);
+    expect(insertSession).not.toHaveBeenCalled();
+  });
+
   it('records the door kind the caller named, so an ftp occupant login is not filed as ssh', async () => {
     const { deps, insertSession } = makeDeps(undefined, async () => ({
       data: [wsFtpdUp],

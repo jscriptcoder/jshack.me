@@ -5,6 +5,7 @@ import {
   readMissionOrder,
   showReport,
 } from './hiremeOrders.js';
+import { missionLeakPath } from './missionLeak.js';
 import { missionShape } from './missionShape.js';
 import { missionKey, missionKeyPath } from './missionSecret.js';
 import { missionAddressForNumber, missionEssid } from './missionNetwork.js';
@@ -12,6 +13,7 @@ import { missionTerms } from './missionTerms.js';
 import {
   COMMON_PASSWORDS,
   CRACKABLE_PASSWORDS,
+  plaintextFor,
   UNCRACKABLE_PASSWORDS,
   WIFI_PASSWORDS,
 } from '../../test/passwords.js';
@@ -122,6 +124,22 @@ describe('showReport', () => {
     expect(lines).toContain(`  Leak:     ${WEB_ROUTE_LEAK_PATH}`);
     // Through a boolean: a failing `toContain` would print the word.
     expect(lines.includes(`  Word:     ${WEB_ROUTE_WORD}`)).toBe(true);
+  });
+
+  it('prints both forwards, the leaked file and the word on an ftp route', () => {
+    const number = Array.from({ length: 4000 }, (_unused, index) => index * 256 + 2).find(
+      (candidate) => missionShape(candidate).route === 'ftp',
+    )!;
+    const lines = showReport(number, SECRET, RAW_SECRETS).split('\n');
+
+    expect(lines).toContain('  Route:    ftp');
+    expect(lines).toContain('  Forward:  :21 -> key box :21');
+    expect(lines).toContain('  Forward:  :2222 -> key box :22');
+    expect(lines).toContain(`  Leak:     ${missionLeakPath(number)}`);
+    // Through a boolean: a failing `toContain` would print the word.
+    expect(
+      lines.includes(`  Word:     ${plaintextFor(missionShape(number).keyBoxRootHash)}`),
+    ).toBe(true);
   });
 
   it('says so when it cannot read the word, and still prints the rest', () => {

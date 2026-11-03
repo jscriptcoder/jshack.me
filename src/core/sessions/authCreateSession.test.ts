@@ -541,6 +541,72 @@ describe('handleAuthCreateSession', () => {
     );
   });
 
+  describe('anonymous at the ftp door of a box on the network', () => {
+    const anonymousEnvelope = (id: ReturnType<typeof generateIdentity>, kind = 'ftp') =>
+      signRequest(
+        id,
+        'authCreateSession',
+        basePayload({
+          target_ip: hostServing('ftp', true).ip,
+          username: 'anonymous',
+          password: 'anything',
+          kind,
+        }),
+      );
+    const configSaying = (content: string): OwnerPatchRow => ({
+      path: '/etc/vsftpd.conf',
+      content,
+      owner: 'root',
+      permissions: null,
+      node_type: 'file',
+      updated_at: '2026-06-19T00:00:00.000Z',
+      writer_key: 'root-writer',
+    });
+
+    it('lets anonymous in at guest tier where the live config says so', async () => {
+      const id = generateIdentity();
+      const { deps, insertSession, appendLog } = makeDeps({
+        findPatches: async () => ({ data: [configSaying('anonymous_enable=YES\n')], error: null }),
+      });
+
+      const result = await handleAuthCreateSession(anonymousEnvelope(id), deps);
+
+      expect(result).toEqual({ status: 200, body: { ok: true, userType: 'guest' } });
+      expect(insertSession.mock.calls[0]![0].credentials).toEqual({
+        username: 'anonymous',
+        userType: 'guest',
+      });
+      expect(appendLog.mock.calls[0]![0].text).toContain(
+        expectedVsftpdLine('success', 'anonymous'),
+      );
+    });
+
+    it('refuses anonymous on a generated file server, whose config never says so', async () => {
+      const id = generateIdentity();
+      const { deps, insertSession, appendLog } = makeDeps();
+
+      const result = await handleAuthCreateSession(anonymousEnvelope(id), deps);
+
+      expect(result.status).toBe(401);
+      expect(insertSession).not.toHaveBeenCalled();
+      expect(appendLog.mock.calls[0]![0].text).toContain(
+        expectedVsftpdLine('failure', 'anonymous'),
+      );
+    });
+
+    it('is no scp login, whatever the config says', async () => {
+      const id = generateIdentity();
+      const { deps, insertSession } = makeDeps({
+        findPatches: async () => ({ data: [configSaying('anonymous_enable=YES\n')], error: null }),
+      });
+
+      const result = await handleAuthCreateSession(anonymousEnvelope(id, 'scp'), deps);
+
+      expect(result.status).not.toBe(200);
+      expect(insertSession).not.toHaveBeenCalled();
+    });
+  });
+
   it('refuses an ftp login on a host running no ftp daemon, logging nothing', async () => {
     const id = generateIdentity();
     const host = hostServing('ftp', false);

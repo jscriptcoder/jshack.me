@@ -40,16 +40,16 @@ describe('missionShape', () => {
     expect(shape.keyBoxOctet).toBeLessThanOrEqual(254);
   });
 
-  it('draws every route about a third of the time', () => {
+  it('draws every route about a quarter of the time', () => {
     const counts = SAMPLE_NUMBERS.reduce<Record<string, number>>((tally, missionNumber) => {
       const { route } = missionShape(missionNumber);
       return { ...tally, [route]: (tally[route] ?? 0) + 1 };
     }, {});
 
-    expect(Object.keys(counts).sort()).toEqual(['hydra', 'msfconsole', 'web']);
+    expect(Object.keys(counts).sort()).toEqual(['ftp', 'hydra', 'msfconsole', 'web']);
     for (const count of Object.values(counts)) {
-      expect(count / SAMPLE_NUMBERS.length).toBeGreaterThan(0.28);
-      expect(count / SAMPLE_NUMBERS.length).toBeLessThan(0.39);
+      expect(count / SAMPLE_NUMBERS.length).toBeGreaterThan(0.2);
+      expect(count / SAMPLE_NUMBERS.length).toBeLessThan(0.3);
     }
   });
 
@@ -105,7 +105,7 @@ describe('missionShape', () => {
     }
   });
 
-  it('pins the hydra and web key boxes and the gateway so nothing on them grants more than guest', () => {
+  it('pins every other key box and the gateway so nothing on them grants more than guest', () => {
     for (const missionNumber of SAMPLE_NUMBERS) {
       const shape = missionShape(missionNumber);
 
@@ -143,20 +143,43 @@ describe('missionShape', () => {
     }
   });
 
-  it('spreads web route roots across the whole slice, so a farmed list really is 13 words', () => {
-    const roots = SAMPLE_NUMBERS.map((missionNumber) => missionShape(missionNumber))
-      .filter((shape) => shape.route === 'web')
-      .map((shape) => shape.keyBoxRootHash);
+  it('gives the ftp route an ftp server on a safe release, reached through :21 beside :2222', () => {
+    // The leaked word is the way in, so the daemon is a door to read through and not a hole
+    // to fall through. :2222 is what tells a scan this route from an msfconsole route on :21.
+    for (const missionNumber of SAMPLE_NUMBERS) {
+      const shape = missionShape(missionNumber);
+      if (shape.route !== 'ftp') continue;
 
-    expect([...new Set(roots)].sort()).toEqual([...LEAKABLE_HASHES].sort());
+      const [ftpService] = shape.keyBoxServices;
+      expect(ftpService?.service, `ftp service for ${missionNumber}`).toBe('ftp');
+      expect(ftpService?.port).toBe(21);
+      expect(shape.keyBoxVersions[ftpService?.package ?? '']).toBe(ftpService?.version);
+      expect(shape.forwards).toEqual([
+        { publicPort: 21, internalPort: 21 },
+        { publicPort: 2222, internalPort: 22 },
+      ]);
+    }
   });
 
-  it('holds a web route root to the leakable words, and every other shut door out of them', () => {
+  it.each(['web', 'ftp'] as const)(
+    'spreads %s route roots across the whole slice, so a farmed list really is 13 words',
+    (route) => {
+      const roots = SAMPLE_NUMBERS.map((missionNumber) => missionShape(missionNumber))
+        .filter((shape) => shape.route === route)
+        .map((shape) => shape.keyBoxRootHash);
+
+      expect([...new Set(roots)].sort()).toEqual([...LEAKABLE_HASHES].sort());
+    },
+  );
+
+  it('holds a leak route root to the leakable words, and every other shut door out of them', () => {
     for (const missionNumber of SAMPLE_NUMBERS) {
       const shape = missionShape(missionNumber);
       expect(SHUT_HASHES, `gateway of ${missionNumber}`).toContain(shape.gatewayAdminHash);
-      if (shape.route === 'web') {
-        expect(LEAKABLE_HASHES, `web root of ${missionNumber}`).toContain(shape.keyBoxRootHash);
+      if (shape.route === 'web' || shape.route === 'ftp') {
+        expect(LEAKABLE_HASHES, `${shape.route} root of ${missionNumber}`).toContain(
+          shape.keyBoxRootHash,
+        );
       }
       if (shape.route === 'msfconsole') {
         expect(SHUT_HASHES, `msfconsole root of ${missionNumber}`).toContain(shape.keyBoxRootHash);

@@ -16,14 +16,17 @@
  *
  * The accounts:
  *   - `root`, whose hash the shape draws — crackable on the hydra route (the way in), one a
- *     file gives away on the web route, and uncrackable on the msfconsole route (where the
+ *     file gives away on a leak route, and uncrackable on the msfconsole route (where the
  *     service hole is the way in);
  *   - an NPC user and `guest` at the world's own odds — shells to look around in that
  *     cannot read the root-only key, which is the point of their being here.
  *
  * The services: sshd always (so the box answers a login once a route lands it, and so the
- * hydra and web routes' forwards reach a real sshd), plus the one exposed service the shape
- * puts on the msfconsole route, on a critical release, and on the web route, on a safe one.
+ * hydra and leak routes' forwards reach a real sshd), plus the one exposed service the shape
+ * puts on the msfconsole route, on a critical release, and on a leak route, on a safe one.
+ *
+ * The ftp route also carries what its door reads and lands in: a config letting `anonymous`
+ * in, and an empty `/srv/ftp/pub`. No other key box says anything of the kind.
  */
 
 import {
@@ -44,6 +47,7 @@ import {
   HOME_DIR,
   PASSWD_FILE,
   ROOT_DIR,
+  SERVICE_CONFIG_FILE,
   SHELL,
   TMP_DIR,
   TRAVERSABLE_DIR,
@@ -59,6 +63,7 @@ import { binariesForService } from '../packages/aptPackages.js';
 import { ACCESS_LOG_PERMISSIONS } from '../logging/accessLog.js';
 import { AUTH_LOG_PERMISSIONS } from '../logging/authLog.js';
 import { KERN_LOG_PERMISSIONS } from '../logging/kernLog.js';
+import { VSFTPD_LOG_PERMISSIONS } from '../logging/vsftpdLog.js';
 import { createPrng } from './prng.js';
 import { CRACK_CHANCE, drawPasswordHash } from './passwordPools.js';
 import { usernamePool } from './pools/usernames.js';
@@ -71,6 +76,10 @@ const pidfile = (content: string, owner: string): FileEntry =>
 /** The default page a web service serves before anyone edits it — a stock install, the
  *  same one a player's own box serves. */
 const DEFAULT_PAGE = '<html><body><h1>It works!</h1></body></html>';
+
+/** What the ftp route's daemon is configured to do. It names no `anon_root`, because the
+ *  door reads only whether `anonymous` is let in. */
+const ANONYMOUS_FTP_CONFIG = 'listen=YES\nlisten_port=21\nanonymous_enable=YES\nlocal_enable=YES\n';
 
 export const buildMissionKeyBoxFs = (missionNumber: number): Directory => {
   const shape = missionShape(missionNumber);
@@ -107,7 +116,7 @@ export const buildMissionKeyBoxFs = (missionNumber: number): Directory => {
     },
   ]);
 
-  // sshd always runs; the route's exposed service runs too on the msfconsole and web routes.
+  // sshd always runs; the route's exposed service runs too on every route but hydra.
   const runningServices: readonly MissionService[] = shape.keyBoxServices;
   const toolchain = runningServices.flatMap(({ service, program }) =>
     binariesForService({ service, daemon: program }),
@@ -126,12 +135,22 @@ export const buildMissionKeyBoxFs = (missionNumber: number): Directory => {
   };
 
   const servesWeb = runningServices.some(({ service }) => service === 'http');
+  const servesFtp = runningServices.some(({ service }) => service === 'ftp');
+  const lettingAnonymousIn = shape.route === 'ftp';
 
   const tree = dir(
     {
       bin: dir(createBinaryEntries(SYSTEM_UTILITY_NAMES), TRAVERSABLE_DIR),
       boot: bootDir(),
-      etc: dir({ passwd: file(passwd, PASSWD_FILE) }, TRAVERSABLE_DIR),
+      etc: dir(
+        {
+          passwd: file(passwd, PASSWD_FILE),
+          ...(lettingAnonymousIn
+            ? { 'vsftpd.conf': file(ANONYMOUS_FTP_CONFIG, SERVICE_CONFIG_FILE) }
+            : {}),
+        },
+        TRAVERSABLE_DIR,
+      ),
       home: dir(
         {
           [username]: dir({}, HOME_DIR, username),
@@ -141,6 +160,14 @@ export const buildMissionKeyBoxFs = (missionNumber: number): Directory => {
       ),
       lib: dir(createLibraryEntries(SYSTEM_LIBRARIES), TRAVERSABLE_DIR),
       root: dir({}, ROOT_DIR),
+      ...(lettingAnonymousIn
+        ? {
+            srv: dir(
+              { ftp: dir({ pub: dir({}, TRAVERSABLE_DIR) }, TRAVERSABLE_DIR) },
+              TRAVERSABLE_DIR,
+            ),
+          }
+        : {}),
       tmp: dir({}, TMP_DIR),
       usr: dir(
         {
@@ -166,6 +193,7 @@ export const buildMissionKeyBoxFs = (missionNumber: number): Directory => {
               'access.log': file('', ACCESS_LOG_PERMISSIONS),
               'auth.log': file('', AUTH_LOG_PERMISSIONS),
               'kern.log': file('', KERN_LOG_PERMISSIONS),
+              ...(servesFtp ? { 'vsftpd.log': file('', VSFTPD_LOG_PERMISSIONS) } : {}),
             },
             TRAVERSABLE_DIR,
           ),

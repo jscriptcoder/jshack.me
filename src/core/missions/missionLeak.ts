@@ -10,19 +10,31 @@
  *
  * A file gives away a word and never whose it is: the player works out that it is a login
  * and which account's, by hand or by adding it to `passwords.txt` for `hydra`.
+ *
+ * The key is root-only on every route. So is the web route's file: a page on a generated box
+ * is otherwise readable by a guest, and the web door reads as the server, inside the document
+ * root, so root-only stops nothing it serves. The ftp route's file is readable by a guest,
+ * because the anonymous login that fetches it is one.
  */
 
+import { FTP_PUBLIC_FILE, ROOT_FILE } from '../generation/baseFs.js';
 import { missionKeyBoxNumber } from '../generation/lanHostIdentity.js';
 import { md5 } from '../generation/md5.js';
 import { createPrng } from '../generation/prng.js';
 import { WEB_ROOT } from '../network/http.js';
 import { parseSecrets } from '../secrets/parseSecrets.js';
+import { ANONYMOUS_FTP_ROOT } from '../sessions/doorAdmission.js';
+import type { FilePermissions } from '../filesystem/types.js';
 import { LEAKABLE_HASHES } from './leakablePool.js';
 import { missionKey, missionKeyPath, requireMissionSecret } from './missionSecret.js';
-import { missionShape } from './missionShape.js';
+import { missionShape, type MissionRoute } from './missionShape.js';
 
-/** A file the server lays onto a key box, root-only, before its journal replays. */
-export type MissionFile = { readonly path: string; readonly content: string };
+/** A file the server lays onto a key box before its journal replays. */
+export type MissionFile = {
+  readonly path: string;
+  readonly content: string;
+  readonly perms: FilePermissions;
+};
 
 /** Thrown when a door asks for a word this deployment cannot or may not give. The handler
  *  turns it into a 500, as it does a missing key secret: there is no default word. */
@@ -45,8 +57,9 @@ export const leakedWord = (hash: string, rawSecrets: string | undefined): string
   return word;
 };
 
-/** Each name is one a default `gobuster` tries, since being on that list is the whole gate.
- *  Its wording is tied to the name, so what a file says reads like what it is called. */
+/** Each name is one a default `gobuster` tries, since on the web route being on that list is
+ *  the whole gate. Its wording is tied to the name, so what a file says reads like what it is
+ *  called. */
 const FORGOTTEN_FILES: readonly {
   readonly name: string;
   readonly render: (word: string) => string;
@@ -68,15 +81,35 @@ const FORGOTTEN_FILES: readonly {
   },
 ];
 
+/** A plain `ls` hides a dotfile, so `pub/` would look empty with one in it. */
 const forgottenFileOf = (missionNumber: number): (typeof FORGOTTEN_FILES)[number] =>
-  createPrng(`mission-leak-${missionNumber}`).pick(FORGOTTEN_FILES);
+  createPrng(`mission-leak-${missionNumber}`).pick(
+    missionShape(missionNumber).route === 'ftp'
+      ? FORGOTTEN_FILES.filter(({ name }) => !name.startsWith('.'))
+      : FORGOTTEN_FILES,
+  );
+
+/** The directory a leak route's file sits in, and who may read it there. */
+const LEAK_HOMES: Readonly<
+  Partial<Record<MissionRoute, { readonly directory: string; readonly perms: FilePermissions }>>
+> = {
+  web: { directory: WEB_ROOT, perms: ROOT_FILE },
+  ftp: { directory: `${ANONYMOUS_FTP_ROOT}/pub`, perms: FTP_PUBLIC_FILE },
+};
+
+const leakPlaceOf = (
+  missionNumber: number,
+): { readonly path: string; readonly perms: FilePermissions } | null => {
+  const home = LEAK_HOMES[missionShape(missionNumber).route];
+  return home === undefined
+    ? null
+    : { path: `${home.directory}/${forgottenFileOf(missionNumber).name}`, perms: home.perms };
+};
 
 /** Where the forgotten file sits, drawn from the number, or null on a route with no leak.
  *  The path alone needs no secret, so the write gate can ask for it. */
 export const missionLeakPath = (missionNumber: number): string | null =>
-  missionShape(missionNumber).route === 'web'
-    ? `${WEB_ROOT}/${forgottenFileOf(missionNumber).name}`
-    : null;
+  leakPlaceOf(missionNumber)?.path ?? null;
 
 /** The word this contract's forgotten file gives away, which is its key box's root. */
 export const missionLeakWord = (missionNumber: number, rawSecrets: string | undefined): string =>
@@ -87,10 +120,10 @@ export const missionLeakFile = (
   missionNumber: number,
   rawSecrets: string | undefined,
 ): MissionFile | null => {
-  const path = missionLeakPath(missionNumber);
-  if (path === null) return null;
+  const place = leakPlaceOf(missionNumber);
+  if (place === null) return null;
   return {
-    path,
+    ...place,
     content: forgottenFileOf(missionNumber).render(missionLeakWord(missionNumber, rawSecrets)),
   };
 };
@@ -104,6 +137,7 @@ export const missionFiles = (
   const key = {
     path: missionKeyPath(missionNumber),
     content: `${missionKey(missionNumber, requireMissionSecret(env.keySecret))}\n`,
+    perms: ROOT_FILE,
   };
   const leak = missionLeakFile(missionNumber, env.rawSecrets);
   return leak === null ? [key] : [key, leak];
@@ -128,7 +162,7 @@ export const missionFilesForBox = async (
 };
 
 /** The paths `missionFiles` lays in, from the number alone: the write gate asks whether a
- *  tier may write one, which its root-only perms answer, and needs no secret to ask. */
+ *  tier may write one, which only root may on any of them, and needs no secret to ask. */
 export const missionFilePaths = (missionNumber: number): readonly string[] => {
   const leakPath = missionLeakPath(missionNumber);
   const keyPath = missionKeyPath(missionNumber);

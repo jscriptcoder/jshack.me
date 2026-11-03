@@ -24,7 +24,8 @@ import type { SpoolAccount } from '../emailit/spool.js';
 import type { Board } from '../hireme/boards.js';
 import type { ActiveContract } from '../missions/contractsList.js';
 import { BOARD_SERVER_NETWORK, EMAILIT_NETWORK, HIREME_NETWORK } from '../generation/fixedSites.js';
-import { MAIL_SPOOL_FILE, ROOT_FILE } from '../generation/baseFs.js';
+import { FTP_PUBLIC_FILE, MAIL_SPOOL_FILE, ROOT_FILE } from '../generation/baseFs.js';
+import type { MissionFile } from '../missions/missionLeak.js';
 
 /**
  * `handleResolveCrossPlayerFs` is the cross-player READ (Story 2, slices 2c+2d):
@@ -89,7 +90,7 @@ type SpoolResult = { data: readonly SpoolAccount[] | null; error: unknown };
 type BoardsResult = { data: readonly Board[] | null; error: unknown };
 type ContractsResult = { data: readonly ActiveContract[] | null; error: unknown };
 type MissionFilesResult = {
-  data: readonly { path: string; content: string }[] | null;
+  data: readonly MissionFile[] | null;
   error: unknown;
 };
 
@@ -1246,8 +1247,8 @@ const onKeyBox = (userType: 'root' | 'user' | 'guest', over: Parameters<typeof m
     patches: async () => ({ data: [], error: null }),
     missionFiles: async () => ({
       data: [
-        { path: MISSION_KEY_PATH, content: `${MISSION_KEY}\n` },
-        { path: MISSION_LEAK_PATH, content: MISSION_LEAK },
+        { path: MISSION_KEY_PATH, content: `${MISSION_KEY}\n`, perms: ROOT_FILE },
+        { path: MISSION_LEAK_PATH, content: MISSION_LEAK, perms: ROOT_FILE },
       ],
       error: null,
     }),
@@ -1335,6 +1336,28 @@ describe('handleResolveCrossPlayerFs on a contract key box, whose key the server
       expect(read.ok).toBe(false);
     },
   );
+
+  it('hands a guest the file in pub, and still keeps the key off the wire', async () => {
+    const id = generateIdentity();
+    const publicPath = '/srv/ftp/pub/notes.txt';
+    const { deps } = onKeyBox('guest', {
+      missionFiles: async () => ({
+        data: [
+          { path: MISSION_KEY_PATH, content: `${MISSION_KEY}\n`, perms: ROOT_FILE },
+          { path: publicPath, content: MISSION_LEAK, perms: FTP_PUBLIC_FILE },
+        ],
+        error: null,
+      }),
+    });
+
+    const result = await handleResolveCrossPlayerFs(envelope(id, missionKeyBox()), deps);
+    const view = createFsView(treeOf(result), { userType: 'guest' });
+    const read = view.read(asAbsPath(publicPath));
+
+    expect(read.ok && read.content).toBe(MISSION_LEAK);
+    expect(view.read(asAbsPath(MISSION_KEY_PATH)).ok).toBe(false);
+    expect(JSON.stringify(result.body)).not.toContain(MISSION_KEY);
+  });
 
   it('answers 500 mission_secret_missing when the deployment secret is unset', async () => {
     const id = generateIdentity();

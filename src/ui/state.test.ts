@@ -1650,12 +1650,16 @@ describe('the ftp sub-shell', () => {
 
   /** Log into a host by actually typing the command and answering both prompts —
    *  the shipped path, not a poked signal. */
-  const typeFtpLogin = async (state: typeof import('./state.js'), ip: string): Promise<void> => {
+  const typeFtpLogin = async (
+    state: typeof import('./state.js'),
+    ip: string,
+    account = 'guest',
+  ): Promise<void> => {
     state.setInput(`ftp ${ip}`);
     const run = state.runInput();
     // Name, then password — answered the way the player answers them.
     await vi.waitFor(() => expect(state.pendingPrompt()).toBeDefined());
-    state.setInput('guest');
+    state.setInput(account);
     state.submitPrompt();
     await vi.waitFor(() => expect(state.pendingPrompt()).toBeDefined());
     state.setInput('hunter2');
@@ -1672,6 +1676,16 @@ describe('the ftp sub-shell', () => {
 
   const lastLine = (state: typeof import('./state.js')): string =>
     state.scrollback().at(-1)?.content ?? '';
+
+  it('starts an anonymous session in the public directory, not a home nobody has', async () => {
+    const { state } = await bootOnline();
+    await typeFtpLogin(state, FTP_HOST.ip, 'anonymous');
+
+    state.setInput('pwd');
+    await state.runInput();
+
+    expect(lastLine(state)).toBe('257 "/srv/ftp" is the current directory.');
+  });
 
   it('lands at ftp> on a good credential, refuses shell commands there, and quits back', async () => {
     const { state, sent } = await loginOverFtp();

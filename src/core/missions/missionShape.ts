@@ -6,7 +6,7 @@
  * address can work the same shape out, which is what lets every hop command compute the
  * LAN locally the way it does for any network.
  *
- * Three ways in, drawn one per contract:
+ * Four ways in, drawn one per contract:
  *  - `hydra`: the key box's `root` has a crackable password, its sshd reached through the
  *    gateway's forward. No release hole is the way in, so sshd sits on a safe release like
  *    everything else.
@@ -17,6 +17,9 @@
  *    which the server lays in. A sweep through the forward to `:80` finds it, and the word
  *    logs in through the forward to `:2222`. The web server cannot log anybody in, so this
  *    route needs both, and it sits on a safe release: the file is the way in.
+ *  - `ftp`: the key box's `vsftpd` lets `anonymous` in, and `/srv/ftp/pub` holds a forgotten
+ *    file with `root`'s password in it, which the server lays in. The word logs in through
+ *    the forward to `:2222`, and the daemon sits on a safe release: the file is the way in.
  *
  * Everything that is NOT the way in sits on a release whose hole grants a guest shell at
  * most (`low` or `medium`): the gateway's firmware (so the gateway is passed through, not
@@ -43,7 +46,7 @@ export const MISSION_ROUTE_DAY = 111;
 
 /** Each route equally likely. Adding one re-rolls every contract's route, though never
  *  its address, key or key path. */
-const ROUTES = ['hydra', 'msfconsole', 'web'] as const;
+const ROUTES = ['hydra', 'msfconsole', 'web', 'ftp'] as const;
 
 export type MissionRoute = (typeof ROUTES)[number];
 
@@ -70,7 +73,7 @@ export type MissionShape = {
   readonly keyBoxOctet: number;
   readonly route: MissionRoute;
   /** The key box's `root` password hash: crackable on the hydra route, one a file can
-   *  leak on the web route, and one that stays shut on the msfconsole route. */
+   *  leak on a leak route, and one that stays shut on the msfconsole route. */
   readonly keyBoxRootHash: string;
   /** The gateway's `root` ("admin") password hash — always uncrackable and never one a
    *  file can leak, so the gateway is a box the route passes through rather than one to
@@ -79,8 +82,8 @@ export type MissionShape = {
   /** Versions to pin on the gateway, package to version. Every firmware vendor is pinned
    *  safe, so whichever the gateway builder draws sits on a guest-at-most release. */
   readonly gatewayVersions: Readonly<Record<string, string>>;
-  /** The services the key box runs: the route's service (on the msfconsole and web routes)
-   *  and any decoys, each already on its chosen release. */
+  /** The services the key box runs: the route's service (on every route but hydra) and any
+   *  decoys, each already on its chosen release. */
   readonly keyBoxServices: readonly MissionService[];
   /** Versions to pin on the key box, package to version — every service it runs and every
    *  library it carries. */
@@ -106,10 +109,19 @@ const WEB_SERVER: RouteCandidate = {
   port: 80,
 };
 
-const MSFCONSOLE_ROUTE_CANDIDATES: readonly RouteCandidate[] = [
-  WEB_SERVER,
-  { service: 'ftp', package: 'vsftpd', program: 'vsftpd', port: 21 },
-];
+const FTP_SERVER: RouteCandidate = {
+  service: 'ftp',
+  package: 'vsftpd',
+  program: 'vsftpd',
+  port: 21,
+};
+
+const MSFCONSOLE_ROUTE_CANDIDATES: readonly RouteCandidate[] = [WEB_SERVER, FTP_SERVER];
+
+/** The door holding the file, on each route where a file gives `root`'s word away. */
+const LEAK_ROUTE_DOORS: Readonly<
+  Record<Exclude<MissionRoute, 'hydra' | 'msfconsole'>, RouteCandidate>
+> = { web: WEB_SERVER, ftp: FTP_SERVER };
 
 /** The forward a word logs in through: the public :2222 onto the key box's own sshd. */
 const SSH_FORWARD: MissionForward = { publicPort: 2222, internalPort: 22 };
@@ -199,15 +211,16 @@ export const missionShape = (missionNumber: number): MissionShape => {
     keyBoxVersions[candidate.package] = version;
     forwards = [{ publicPort: candidate.port, internalPort: candidate.port }];
     keyBoxRootHash = versionPrng.pick(SHUT_HASHES);
-  } else if (route === 'web') {
-    const version = safeVersionOf(WEB_SERVER.package, versionPrng);
-    keyBoxServices.push({ ...WEB_SERVER, version });
-    keyBoxVersions[WEB_SERVER.package] = version;
-    forwards = [{ publicPort: WEB_SERVER.port, internalPort: WEB_SERVER.port }, SSH_FORWARD];
-    keyBoxRootHash = versionPrng.pick(LEAKABLE_HASHES);
-  } else {
+  } else if (route === 'hydra') {
     forwards = [SSH_FORWARD];
     keyBoxRootHash = crackableHash(versionPrng);
+  } else {
+    const door = LEAK_ROUTE_DOORS[route];
+    const version = safeVersionOf(door.package, versionPrng);
+    keyBoxServices.push({ ...door, version });
+    keyBoxVersions[door.package] = version;
+    forwards = [{ publicPort: door.port, internalPort: door.port }, SSH_FORWARD];
+    keyBoxRootHash = versionPrng.pick(LEAKABLE_HASHES);
   }
 
   const gatewayAdminHash = versionPrng.pick(SHUT_HASHES);

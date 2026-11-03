@@ -159,6 +159,13 @@ const vsftpdUp: OwnerPatchRow = {
   content: 'vsftpd:port=21',
 };
 
+/** A root saying in the box's own config that the ftp door lets `anonymous` in. */
+const anonymousEnabled: OwnerPatchRow = {
+  ...sshdUp,
+  path: '/etc/vsftpd.conf',
+  content: 'anonymous_enable=YES\n',
+};
+
 /** A root `rm /boot/vmlinuz` tombstone — replayed over a machine's seeded base, it
  *  deletes the kernel so `canBoot` reports that box bricked. On the GATEWAY's journal it
  *  takes the whole public IP dark; on an occupant's it darkens only that box. */
@@ -1065,6 +1072,86 @@ describe('handleAuthCreateSessionPublic', () => {
         owner: VSFTPD_LOG_OWNER,
         permissions: VSFTPD_LOG_PERMISSIONS,
       });
+    });
+
+    it('lets anonymous in at guest tier on a box whose config says so, and logs the visit', async () => {
+      const attacker = generateIdentity();
+      const { deps, appendLog, insertSession } = makeDeps({
+        patches: patchesByMachine({
+          [AP_GATEWAY_ID]: [aliceFtpForward],
+          [ALICE_WS]: [vsftpdUp, anonymousEnabled],
+        }),
+      });
+
+      const result = await handleAuthCreateSessionPublic(
+        ftpEnvelope(attacker, { username: 'anonymous', password: 'anything', port: 2121 }),
+        deps,
+      );
+
+      expect(result.status).toBe(200);
+      expect(result.body).toMatchObject({ userType: 'guest', machine_id: ALICE_WS });
+      expect(insertSession.mock.calls[0]![0]).toMatchObject({
+        kind: 'ftp',
+        credentials: { username: 'anonymous', userType: 'guest' },
+      });
+      expect(appendLog.mock.calls[0]![0].text).toContain('[anonymous] OK LOGIN');
+    });
+
+    it('refuses anonymous on a box whose config says nothing, as a failed login', async () => {
+      const attacker = generateIdentity();
+      const { deps, appendLog, insertSession } = makeDeps({
+        patches: patchesByMachine({ [AP_GATEWAY_ID]: [aliceFtpForward], [ALICE_WS]: [vsftpdUp] }),
+      });
+
+      const result = await handleAuthCreateSessionPublic(
+        ftpEnvelope(attacker, { username: 'anonymous', password: 'anything', port: 2121 }),
+        deps,
+      );
+
+      expect(result.status).toBe(401);
+      expect(insertSession).not.toHaveBeenCalled();
+      expect(appendLog.mock.calls[0]![0].text).toContain('[anonymous] FAIL LOGIN');
+    });
+
+    it('refuses anonymous once a root has set the config back to NO', async () => {
+      const attacker = generateIdentity();
+      const { deps, insertSession } = makeDeps({
+        patches: patchesByMachine({
+          [AP_GATEWAY_ID]: [aliceFtpForward],
+          [ALICE_WS]: [vsftpdUp, { ...anonymousEnabled, content: 'anonymous_enable=NO\n' }],
+        }),
+      });
+
+      const result = await handleAuthCreateSessionPublic(
+        ftpEnvelope(attacker, { username: 'anonymous', password: 'anything', port: 2121 }),
+        deps,
+      );
+
+      expect(result.status).toBe(401);
+      expect(insertSession).not.toHaveBeenCalled();
+    });
+
+    it('is no ssh login, whatever the config says', async () => {
+      const attacker = generateIdentity();
+      const { deps, insertSession } = makeDeps({
+        patches: patchesByMachine({
+          [AP_GATEWAY_ID]: [aliceForward],
+          [ALICE_WS]: [sshdUp, anonymousEnabled],
+        }),
+      });
+
+      const result = await handleAuthCreateSessionPublic(
+        envelope(attacker, {
+          session_id: 'ssh-anon-1',
+          username: 'anonymous',
+          password: 'anything',
+          port: 2222,
+        }),
+        deps,
+      );
+
+      expect(result.status).toBe(401);
+      expect(insertSession).not.toHaveBeenCalled();
     });
 
     it('records a refused ftp login as FAIL in the same file, and inserts nothing', async () => {
