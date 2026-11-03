@@ -2,7 +2,8 @@
 
 **Status:** Slice 1 (the web route) shipped at v0.442.0 and is verified on production. Slice 2 (anonymous FTP) shipped at
 v0.443.0, with no production check planned. Their as-builts are below.
-**Next: slice 3, the database route**, v0.444.0, not started. Slices 3–4 get their plans here as each starts.
+**Now: slice 3, the database route**, v0.444.0, planned below, with its criteria awaiting the owner's confirmation.
+Slice 4 gets its plan here when it starts.
 
 Contract networks ship with two ways onto the key box: `hydra` (a crackable root) and `msfconsole`
 (a critical hole). This epic adds four where a forgotten file or setting leaks root's password. A
@@ -399,5 +400,105 @@ at runtime, and this file reaches a door the same way.
 
 **PR-ready when:** the criteria are met with their tests, `npm run typecheck`, `npm run lint` and the full test suite pass,
 the wire-checks pass, and the mutation gate leaves only equivalents. The owner approves each commit.
+
+**Slice complete when:** the PR merges and this plan records the as-built.
+
+### Slice 3: a contract can be a database route, where a cracked login reads root's word from a table
+
+**Value:** a contractor on a database-route job sees `3306` and `2222` in a scan, cracks the application account with
+`hydra`, finds a `settings` table holding a word, works out that it is a login, and reads the key as root. They keep the word.
+
+**Path:** `missionShape` draws the route, two forwards and the database's two hashes → `routerFs` writes both forwards into
+the gateway's `rules.v4` → the key box builder runs `mysqld` on a safe release and generates the database without the word →
+`hydra <address> mysql` sweeps that database's accounts → the server lays the whole datadir, with `settings` added, onto the
+box at the database doors → `SHOW TABLES` and `SELECT` read it → `ssh -p 2222` logs in against the unchanged `/etc/passwd` →
+the existing key file and reply → the existing payout.
+
+**Class:** behavior change. **Delivery:** independent PR against `main`, branch `feat/leak-mysql-route`.
+
+**Required implementation skills:** `tdd`, `testing`, `functional`, `typescript-strict`, `refactoring` where it applies,
+and `mutation-testing` at the PR gate.
+
+**What the trace settled, against decision 11 and the note above:**
+
+- **The database doors don't lay files in today.** `api/sessions.ts` never touches `findMissionFiles`, and `reachBox` builds
+  a generated box without it, both through the forward (`generatedForwardTarget` in `resolvePublicTarget.ts`) and on the box's
+  own LAN (a shell's `mysql localhost`). `generatedLanBox` already takes it as optional, with the rule that a caller reading
+  what the box holds passes it. `mysqlConnect` and `mysqlStatement` become such callers. A contract network has no deep layer,
+  so the other two arms of `reachBox` stay as they are.
+- **`hydra` needs no lay-in.** The accounts sit in the base datadir, so a sweep reads them without the secret, and the
+  journal still wins once a statement has written the file back.
+- **The generator works on a contract network.** Measured over 500 networks with no failures: each gets an application with
+  several tables beside `users`, and no pool holds a table called `settings`, so nothing collides. `users` usually holds one row,
+  the box's own NPC, since a contract network has no neighbours to add. `mysql` has 5 safe releases.
+- **A guest shell can't read this one.** `data.json` is root-only (`DATADIR_FILE`), unlike the FTP file, and `resolveCrossPlayerFs`
+  already strips it by tier. A statement's write-back goes through the door's own `upsertPatch`, so the write gate's answer for
+  this path only affects a root editing the file by hand, and root may.
+
+**What it builds:**
+
+- **The shape:** `mysql` joins `ROUTES`, still the third draw on the topology stream. `mysqld` on a safe release, forwards
+  `3306` and `:2222`, and root from `LEAKABLE_HASHES`, as the other leak routes do. A new `keyBoxDatabase` field holds the
+  database's two hashes on this route and is null on the others: the application account from `crackableHash`, and database
+  root from `SHUT_HASHES`.
+- **The key box:** on this route, `/var/lib/mysql/data.json` from `generateApplication` with exactly two accounts, root and an
+  application account named from `MYSQL_USERNAMES`, and a seeded `/var/log/mysql.log`. No `/etc/mysql.cnf`, since no door reads it
+  and a key box carries only what its shape says.
+- **The table, on the server only:** `missionLeakFile` on this route answers with `DATADIR_PATH`, `DATADIR_FILE` and the base
+  database plus `settings`. Its columns are `name` and `value`, with fixed rows: `site_mode = live`, `maintenance = 0` and
+  `admin_pass = <word>`.
+- **The doors:** an optional `findMissionFiles` on `ResolvePublicTargetDeps`, used in `generatedForwardTarget` and in `reachBox`'s
+  own-LAN arm, and passed by `api/sessions.ts` for `mysqlConnect` and `mysqlStatement` only. A box whose files can't be made answers
+  500 `mission_secret_missing`, as the other doors do.
+- **The operator:** `show` needs no code, since it prints whatever `missionLeakPath` and `forwards` hold.
+
+**Bundle:** 64 B remain, so this slice will go over. Under decision 14 the build measures the real cost, and the owner approves the
+raise before the commit.
+
+**Acceptance criteria (for the owner to confirm before any code):**
+
+1. Across numbers, routes draw about a fifth each. A number's address, key and key path are the same whichever route it draws.
+2. On a database route, `nmap <address>` shows `3306` and `2222`, and the gateway's `rules.v4` holds both forwards.
+3. `hydra <address> mysql` finds the application account on every database route and never finds database root, and the sweep
+   leaves lines in `/var/log/mysql.log` on the key box.
+4. `mysql <address> <account>` with that password opens the database. `SHOW TABLES` lists `settings` beside the generated tables.
+   `SELECT * FROM settings` shows the word, and nothing in the table says `root`. The login leaves a `mysql.log` line.
+5. `ssh root@<address> -p 2222` with that word opens a root shell that can read the key, and mailing the key to the client pays
+   as on any route.
+6. Appending the word to `passwords.txt` makes `hydra` find root on `:2222`, and not database root on `:3306`. Without it, `hydra`
+   finds no root on `:2222`. `msfconsole` finds no root through `:3306` on this route.
+7. A guest shell on the key box cannot `cat` `data.json`, but can run `mysql localhost <account>` and read the table. A root shell
+   can `cat` the file and sees the word in it.
+8. After the application account runs `DELETE FROM settings WHERE name = 'admin_pass'`, a later visitor no longer finds the row, and
+   the key file is unaffected. After a statement changes another table, `settings` is still there. After a root's `rm` of `data.json`,
+   the account's login is refused and the key file is unaffected.
+9. The box as generated holds no `settings` table and no word. `checkSecrets` passes on a built `dist/`.
+10. With `JSHACK_SECRETS` unset, `mysql` to a database route's key box answers 500 and serves no row. Other routes and boxes on other
+    networks are unaffected.
+11. Every existing guarantee in `missionShape.test.ts` holds across all five routes: nothing but the route climbs, a database route's
+    root is a slice word, and its database root never is. No other route's key box runs `mysqld` or holds a datadir.
+12. `show` prints the route, both forwards, the path and the word. The PR states its gzipped cost and the raise the owner approved.
+
+**RED:** start from `missionShape.test.ts` and `missionKeyBoxFs.test.ts` (the draw, the forwards, the two hashes, the datadir), then
+`missionLeak.test.ts` (the table, its permissions, the word, fail-closed), then `resolvePublicTarget.test.ts` and `serviceHost.test.ts`
+(the lay-in at both arms and the 500), then `mysqlConnect.test.ts` and `mysqlStatement.test.ts` (the login, the `SELECT`, the write-back).
+`hiremeOrders.test.ts` gets one case for this route.
+
+**GREEN:** the least that passes each, in that order. **REFACTOR:** assess after each green. Tests with a fixed contract number may
+change route when `ROUTES` grows; those that need a route should search for one.
+
+**Wire-check:** a new `scripts/testMissionMysql.ts` against `vercel dev` and local supabase, driving a real accept: the scan, the
+sweep, the login over the public door and over `localhost`, `SHOW TABLES`, the `SELECT`, both `mysql.log` lines, the word's login, the
+key, the payout, the `DELETE` sticking, a change to another table keeping `settings`, and the `rm`. Run every `testMission*` script,
+since this slice re-rolls the contract fixtures, and the `testMysql*` scripts and `testHopDataDoors`, since their reach changed.
+
+**PRE-PR mutation:** scoped to `missionLeak.ts`, `missionShape.ts`, and the changed lines of `resolvePublicTarget.ts` and
+`serviceHost.ts`, one file at a time.
+
+**Deploy:** no migration, no new variable, and no production check: slice 1 already proved production reads `JSHACK_SECRETS` at
+runtime, and this file reaches a door the same way.
+
+**PR-ready when:** the criteria are met with their tests, `npm run typecheck`, `npm run lint` and the full test suite pass, the
+wire-checks pass, and the mutation gate leaves only equivalents. The owner approves each commit.
 
 **Slice complete when:** the PR merges and this plan records the as-built.
