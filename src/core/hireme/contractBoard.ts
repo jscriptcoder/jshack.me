@@ -41,7 +41,8 @@ export type ContractBoard = {
   readonly notice?: BoardNotice;
 };
 
-const payOf = (pay: number): string => `${pay.toLocaleString('en-US')} JSC`;
+/** A contract's pay as every page and mail reads it: "1,350 JSC". */
+export const payOf = (pay: number): string => `${pay.toLocaleString('en-US')} JSC`;
 
 const alert = (message: string): string => `<p role="alert">${escapeHtml(message)}</p>`;
 

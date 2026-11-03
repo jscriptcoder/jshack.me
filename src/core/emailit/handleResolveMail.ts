@@ -31,6 +31,12 @@
  *
  * Mail leaves no line in emailit.io's `access.log`. It is not a page fetch, and a check
  * for new mail every minute would bury the log.
+ *
+ * A send to a client's handle is never delivered: a client has no inbox, so the client
+ * reads it as it is sent and answers in the sender's inbox (`answerClientMail`). That needs
+ * the deployment's mission secret, to know a job's key; without one, such a send is refused
+ * as `mission_secret_missing` before anything is read, and every other mail goes on as
+ * before.
  */
 
 import { z } from 'zod';
@@ -47,6 +53,9 @@ import { EMAILIT_DOMAIN } from '../generation/fixedSites.js';
 import { md5 } from '../generation/md5.js';
 import { validatePassword } from '../gameConfig/gameConfig.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
+import { answerClientMail, type ClientMailStore } from '../missions/clientMail.js';
+import { clientByHandle } from '../missions/missionTerms.js';
+import { requireMissionSecret } from '../missions/missionSecret.js';
 import { listedMessageSchema, openedMessageSchema } from './inbox.js';
 
 /** Whose inbox is asked for, and by which player: the handle, the md5 of the password
@@ -99,6 +108,10 @@ export type ResolveMailDeps = WebTargetDeps & {
   readonly sendMessage: SendMessage;
   readonly deleteMessage: DeleteMessage;
   readonly changePassword: ChangePassword;
+  /** Where a mail to a client handle is read and answered. */
+  readonly clientMail: ClientMailStore;
+  /** The deployment's mission secret, as the environment holds it. */
+  readonly missionSecret: string | undefined;
 };
 
 const inboxAnswerSchema = z.discriminatedUnion('outcome', [
@@ -219,6 +232,27 @@ export const handleResolveMail = async (
   };
   // A store that failed, or answered in a shape nobody taught it, has not said whether the
   // password was right: telling the player it was wrong would be a guess.
+  const client = payload.op === 'send' ? clientByHandle(payload.to) : null;
+  if (payload.op === 'send' && client !== null) {
+    let secret: string;
+    try {
+      secret = requireMissionSecret(deps.missionSecret);
+    } catch {
+      return { status: 500, body: { error: 'mission_secret_missing' } };
+    }
+    const answer = await answerClientMail({
+      login: asked,
+      client,
+      subject: payload.subject,
+      body: payload.body,
+      secret,
+      store: deps.clientMail,
+    });
+    if (answer === null) return MAIL_FAILED;
+    if (answer !== 'replied') return refused(answer);
+    return { status: 200, body: { ok: true } };
+  }
+
   if (payload.op === 'send') {
     const reply = await deps.sendMessage({
       ...asked,
