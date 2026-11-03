@@ -1,8 +1,8 @@
 # Plan: the routes that leak a login
 
-**Status:** Slice 1 (the web route) shipped at v0.442.0 and is verified on production; its as-built is below.
-**Now: slice 2, anonymous FTP**, v0.443.0, planned below, with its criteria awaiting the owner's confirmation.
-Slices 3–4 get their plans here as each starts.
+**Status:** Slice 1 (the web route) shipped at v0.442.0 and is verified on production. Slice 2 (anonymous FTP) shipped at
+v0.443.0, with no production check planned. Their as-builts are below.
+**Next: slice 3, the database route**, v0.444.0, not started. Slices 3–4 get their plans here as each starts.
 
 Contract networks ship with two ways onto the key box: `hydra` (a crackable root) and `msfconsole`
 (a critical hole). This epic adds four where a forgotten file or setting leaks root's password. A
@@ -279,6 +279,25 @@ pass, the wire-checks pass, and the mutation gate leaves only equivalents. The o
 **Slice complete when:** the PR merges and this plan records the as-built.
 
 ### Slice 2: a contract can be an FTP route, where an anonymous login fetches root's word
+
+**As built (v0.443.0, PR #751, merged 2026-11-03).** The criteria below are met, with three limits on the evidence:
+`get` at the real `ftp>` prompt waits for the close-out browser run, since the wire-check reads the tree and records the
+transfer through the same endpoints. Criterion 11's 500 has unit tests only, as in slice 1. The `show` test was never seen
+failing, because `show` needed no code. What a later slice should know:
+
+- **Where a later route plugs in:** `ROUTES` and `LEAK_ROUTE_DOORS` in `missionShape.ts`, and `LEAK_HOMES` in
+  `missionLeak.ts`, which holds the directory and permissions of a route's file. A `MissionFile` now carries its own
+  permissions, and `withMissionFiles` uses them.
+- **Changed from the plan:** the door's rule is `src/core/sessions/doorAdmission.ts`. `admitToDoor` returns a tier rather
+  than an account, so no caller can pick up the hash. `ftpLanding` decides where a session starts.
+- **A session row takes `anonymous`** with no `/etc/passwd` entry, proved live by `scripts/testMissionFtp.ts`.
+- **Accepted, found while building:** an account a root creates and names `anonymous` also starts in `/srv/ftp`, because the
+  client only knows the name.
+- **Bundle:** 298,111 B gz, up 305 B, against the 298,175 B ceiling, so **64 B remain**. Slices 3 and 4 will need the raise
+  decision 14 expects.
+- **Open, not from this slice:** findit's generated web took 677–732 ms in `checkBudgets` this time, against about 1,100 ms
+  during slice 1 and the 1,000 ms ceiling. Nothing here touches it, so it's most likely machine load, and the budget question
+  stays with the owner.
 
 **Value:** a contractor on an FTP-route job sees `21` and `2222` in a scan, logs in as `anonymous` with any password,
 fetches a forgotten file from `pub/`, works out that the word inside is a login, and reads the key as root. They keep
