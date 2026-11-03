@@ -16,11 +16,13 @@ import { z } from 'zod';
 import { md5 } from '../generation/md5.js';
 import { validatePassword, validateUsername } from '../gameConfig/gameConfig.js';
 import { EMAILIT_DOMAIN } from '../generation/fixedSites.js';
+import { CLIENT_HANDLES } from '../missions/missionTerms.js';
 import { emailitFrontPage, welcomePage, type Refusal } from './pages.js';
 
 /** Handles nobody may sign up for, on top of the system names the Intro form keeps for
  *  itself (`root` and `admin` among them): they are the addresses mail itself is run from,
- *  and `noreply` is the one the welcome comes from. */
+ *  `noreply` is the one the welcome comes from, and the contract clients' handles are the
+ *  ones every briefing comes from and every proof of a job is mailed to. */
 const RESERVED_HANDLES: ReadonlySet<string> = new Set([
   'postmaster',
   'abuse',
@@ -31,6 +33,7 @@ const RESERVED_HANDLES: ReadonlySet<string> = new Set([
   'hireme',
   'valleynews',
   'rideit',
+  ...CLIENT_HANDLES,
 ]);
 
 /** The system sender every welcome comes from. Nobody can log in as it. */

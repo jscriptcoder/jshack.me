@@ -8,15 +8,17 @@
  * defaced front page leaves applying working, and a dark box takes both down.
  *
  * No page holds a board's address. Anyone may apply for any handle, so the address goes
- * only into the handle's inbox. The board itself is built here too, though it is served by
- * the boards' server, not by hireme.io's.
+ * only into the handle's inbox. The board itself is built in `contractBoard.ts`, on the
+ * server alone, since it shows the contracts' terms; it shares this page's frame.
  *
  * Plain HTML within what `lynx` renders, a command in a `<pre>` behind its `$ ` prompt.
  */
 
 import { escapeHtml } from '../findit/page.js';
 
-const page = (title: string, body: readonly string[], description?: string): string =>
+/** A hireme page: its title, its body's lines, and a description only for a page a search
+ *  engine lists. */
+export const hiremePage = (title: string, body: readonly string[], description?: string): string =>
   [
     '<html>',
     description === undefined
@@ -46,7 +48,7 @@ export const hiremeFrontPage = ({
 }: { readonly refusal?: Refusal; readonly email?: string } = {}): string => {
   const saidUnder = (line: Refusal['under']): readonly string[] =>
     refusal?.under === line ? [`<p role="alert">${escapeHtml(refusal.message)}</p>`] : [];
-  return page(
+  return hiremePage(
     'hireme.io - contract work',
     [
       '<h1>hireme.io</h1>',
@@ -71,15 +73,7 @@ export const HIREME_FRONT_PAGE = hiremeFrontPage();
 
 /** What an application that was mailed answers with. */
 export const thanksPage = (handle: string, address: string): string =>
-  page('Thanks for applying', [
+  hiremePage('Thanks for applying', [
     '<h1>Thanks for applying</h1>',
     `<p>Thanks, ${escapeHtml(handle)}. We have sent your contractor board to ${escapeHtml(address)}.</p>`,
-  ]);
-
-/** A handle's contractor board, answered by the server at the board's address. It says
- *  whose it is, since whoever holds the address reads it. */
-export const boardPage = (handle: string): string =>
-  page('hireme.io - contractor board', [
-    `<h1>Welcome back, ${escapeHtml(handle)}.</h1>`,
-    '<p>Contractor board — no contracts available yet. New work is coming soon.</p>',
   ]);

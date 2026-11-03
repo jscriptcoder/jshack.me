@@ -39,8 +39,12 @@ import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js
 import { ACCESS_LOG_PATH } from '../src/core/logging/accessLog.js';
 import { WEB_PAGE_FILE } from '../src/core/generation/baseFs.js';
 import { md5 } from '../src/core/generation/md5.js';
-import { boardPage } from '../src/core/hireme/pages.js';
 import { publicAddressOf } from './publicAddressOf.js';
+
+/** Whether a page is the contractor board of `handle`: it welcomes that handle back. The
+ *  rest of the page is the board's offers, drawn afresh, so it is never compared whole. */
+const isBoardOf = (content: string, handle: string): boolean =>
+  content.includes(`<h1>Welcome back, ${handle}.</h1>`);
 
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
 const SESSIONS = process.env.SESSIONS_ENDPOINT ?? 'http://localhost:3100/api/sessions';
@@ -264,19 +268,19 @@ const main = async () => {
   const neoBoard = await fetchAt(neoAddress, '/');
   check(
     "the mailed address answers the handle's board",
-    neoBoard.status === 200 && contentOf(neoBoard.body) === boardPage(neo),
+    neoBoard.status === 200 && isBoardOf(contentOf(neoBoard.body), neo),
     `status ${neoBoard.status}, ${contentOf(neoBoard.body).slice(0, 80)}`,
   );
   const queried = await fetchAt(neoAddress, '/?from=mail');
   check(
     'a query string on / answers the same board',
-    contentOf(queried.body) === boardPage(neo),
+    isBoardOf(contentOf(queried.body), neo),
     `status ${queried.status}`,
   );
   const trinBoard = await fetchAt(trinAddress, '/');
   check(
     "another handle's address answers that handle's board",
-    trinBoard.status === 200 && contentOf(trinBoard.body) === boardPage(trin),
+    trinBoard.status === 200 && isBoardOf(contentOf(trinBoard.body), trin),
     `status ${trinBoard.status}`,
   );
 
@@ -357,7 +361,7 @@ const main = async () => {
   const stillBoard = await fetchAt(neoAddress, '/');
   check(
     "a root's index.html is served at /index.html, and / still answers the board",
-    contentOf(planted.body) === '<h1>OWNED</h1>' && contentOf(stillBoard.body) === boardPage(neo),
+    contentOf(planted.body) === '<h1>OWNED</h1>' && isBoardOf(contentOf(stillBoard.body), neo),
     `${contentOf(planted.body)} / ${contentOf(stillBoard.body).slice(0, 60)}`,
   );
   await unwrite(BOARDS_MACHINE, '/var/www/html/index.html');
@@ -367,7 +371,7 @@ const main = async () => {
   const withHiremeDark = await fetchAt(neoAddress, '/');
   check(
     'with hireme.io bricked, a board still answers',
-    contentOf(withHiremeDark.body) === boardPage(neo),
+    isBoardOf(contentOf(withHiremeDark.body), neo),
     `status ${withHiremeDark.status}`,
   );
   await unwrite(HIREME_MACHINE, '/boot/vmlinuz');

@@ -36,9 +36,13 @@ import { gameDayAt } from '../src/core/cve/worldClock.js';
 import { asEpochMs } from '../src/core/types.js';
 import type { PasswordDraw } from '../src/core/guardian/rotate.js';
 import { md5 } from '../src/core/generation/md5.js';
-import { boardPage } from '../src/core/hireme/pages.js';
 import { deserializeTree, type SerializedDirectory } from '../src/core/filesystem/treeCodec.js';
 import type { Directory, FileNode } from '../src/core/filesystem/types.js';
+
+/** Whether a page is the contractor board of `handle`: it welcomes that handle back. The
+ *  rest of the page is the board's offers, drawn afresh, so it is never compared whole. */
+const isBoardOf = (content: string, handle: string): boolean =>
+  content.includes(`<h1>Welcome back, ${handle}.</h1>`);
 
 const PATHS_ONLY_DRAW: PasswordDraw = { crackable: () => '', uncrackable: () => '' };
 
@@ -306,7 +310,7 @@ const main = async () => {
   const board = await fetchBoard(neoAddress);
   check(
     "the table is untouched, and neo's board still answers at neo's address",
-    (await boardsTable([neo, trin])) === tableBefore && contentOf(board.body) === boardPage(neo),
+    (await boardsTable([neo, trin])) === tableBefore && isBoardOf(contentOf(board.body), neo),
     `fetch status ${board.status}`,
   );
 
@@ -353,8 +357,7 @@ const main = async () => {
   const boardAfter = await fetchBoard(trinAddress);
   check(
     'the table is untouched by the restore, and every board answers',
-    (await boardsTable([neo, trin])) === tableBefore &&
-      contentOf(boardAfter.body) === boardPage(trin),
+    (await boardsTable([neo, trin])) === tableBefore && isBoardOf(contentOf(boardAfter.body), trin),
     `fetch status ${boardAfter.status}`,
   );
 
