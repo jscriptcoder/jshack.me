@@ -1,11 +1,11 @@
 # Plan: missions
 
-**Status:** Slice 1 shipped and deployed (v0.438.0, PR #746, merged 2026-11-01; branch gone).
-Migration on `jshack-dev` and `jshack-prod`; `MISSION_KEY_SECRET` set for Preview, Production and
-`.env.development.local` (each different). Verified end to end 2026-11-01 (local browser E2E
-through the msfconsole route, and a prod key-door check). **Next: slice 2, planned below** (the
-board hires: offers, accept and drop, the briefing, reserved client handles), on
-`feat/missions-board-hires`.
+**Status:** Slices 1 and 2 shipped and deployed. Slice 1 is v0.438.0, PR #746, merged
+2026-11-01. Slice 2 is v0.439.0, PR #747, merged 2026-11-03. Slice 2's migration
+(`20261102000000_hireme_contracts.sql`) is on `jshack-dev` and `jshack-prod`, and no account on
+either holds a client handle. **Next: slice 3, not yet planned.** It covers completion by mail:
+the client's inbox takes the key and a wallet address, and the operator mint pays the quoted
+amount, so a mailed key stops bouncing. Run `/plan` before branching.
 
 Missions are the one legacy system v2 has not rebuilt. The groundwork is built: wallets and the
 operator mint, emailit.io, the hireme.io contractor boards (every board saying no work is
@@ -691,6 +691,12 @@ its forms (`POST /accept`, `POST /drop`, or `curl -d`).
   `jshack-prod` (a read; a held one is swapped out of the pool); the migration on both (link,
   push, unlink per project; the prod push run by the owner).
 - No browser run: the epic's close-out run covers it.
+- **As built (2026-11-03)**: unit suite 330 files and 10,004 tests; wire-checks
+  `testMissionBoard` 19/19, `testHiremeBoard` 15/15, `testHiremeBoardRoot` 13/13, `testMissions`
+  19/19, `testHireme` 21/21, `testEmailitSignup` 18/18. Mutation: 435 killed, 1 timeout; the 13
+  survivors and 1 no-coverage are all equivalent. Main chunk is 297,685 B gz against a 298,175 B
+  ceiling, so only 490 B of headroom is left for slice 3. Migration pushed to dev (by Claude) and
+  prod (by the owner).
 
 **Required skills:** `tdd`, `testing` and `functional` for the terms and the page; `refactoring`
 after each green; `mutation-testing` at the PR gate.
