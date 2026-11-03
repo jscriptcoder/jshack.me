@@ -8,9 +8,8 @@
  * in; who gets in, and what the box writes about it, is one rule for all of them.
  */
 
-import { md5 } from '../generation/md5.js';
 import { connectedWlan0, ownBoxSource } from '../network/interfaces.js';
-import { accountIn } from '../sessions/passwdAccount.js';
+import { admitToDoor } from '../sessions/doorAdmission.js';
 import type { UserType } from '../types.js';
 import type { AuthLogEvent, CommandEnv } from './types.js';
 
@@ -30,9 +29,9 @@ export const ownBoxVisitFrom = (env: CommandEnv, target: string): string | null 
     : null;
 
 /**
- * Check a credential against the own box's `/etc/passwd` and record the attempt in the
- * door's own log, from the address the box was reached by. The tier the account carries,
- * or null for a refusal.
+ * Check a credential against the own box's tree and record the attempt in the door's own
+ * log, from the address the box was reached by. The tier the login buys, or null for a
+ * refusal.
  *
  * An account with no password never matches, since no typed password hashes to empty:
  * the doors permit no empty password, so the player's own passwordless login is no way
@@ -47,8 +46,7 @@ export const admitOwnBoxLogin = async (
     readonly fromIp: string;
   },
 ): Promise<UserType | null> => {
-  const account = accountIn(env.fs.root(), attempt.user);
-  const admitted = account !== null && md5(attempt.password) === account.hash ? account : null;
+  const admitted = admitToDoor(attempt.door, env.fs.root(), attempt.user, attempt.password);
   try {
     await env.log.appendAuthLog({
       kind: 'doorLogin',
@@ -62,5 +60,5 @@ export const admitOwnBoxLogin = async (
   } catch {
     // best-effort: logging must never change whether the login happened.
   }
-  return admitted?.userType ?? null;
+  return admitted;
 };

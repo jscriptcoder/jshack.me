@@ -27,8 +27,7 @@
 import { z } from 'zod';
 import { verifySignedRequest } from '../signedRequest/verify.js';
 import { STATUS_BY_VERIFY_REASON } from '../signedRequest/httpStatus.js';
-import { md5 } from '../generation/md5.js';
-import { accountIn } from './passwdAccount.js';
+import { admitToDoor } from './doorAdmission.js';
 import {
   resolvePublicTarget,
   type PublicTarget,
@@ -231,24 +230,23 @@ export const handleAuthCreateSessionPublic = async (
     return { status: 401, body: { error: 'invalid_credentials' } };
   }
 
-  // Validate against the TARGET's own /etc/passwd (the gateway is root-only; a
-  // workstation also has its weak `guest` account). An unknown user OR a wrong
-  // password is one 401 — the response never reveals which accounts exist.
-  const account = accountIn(target.fs, payload.username);
-  const passwordOk = account !== null && md5(payload.password) === account.hash;
+  // Validate against the TARGET's own tree (the gateway is root-only; a workstation
+  // also has its weak `guest` account). An unknown user OR a wrong password is one
+  // 401 — the response never reveals which accounts exist.
+  const userType = admitToDoor(payload.kind, target.fs, payload.username, payload.password);
 
   // The target machine is resolved, so the attempt CAN be logged — sshd records both
   // accepted and rejected logins. (Every 404 host_unreachable above logs nothing —
   // there is no reachable machine to log on.) The line lands on the resolved machine
   // under the key that owns its logs.
   await logCrossPlayerAuth(deps, target.logWriterKey, target, {
-    outcome: passwordOk ? 'success' : 'failure',
+    outcome: userType === null ? 'failure' : 'success',
     user: payload.username,
     fromIp: sourceIp,
     sweepLog: spec.sweepLog,
   });
 
-  if (account === null || !passwordOk) {
+  if (userType === null) {
     return { status: 401, body: { error: 'invalid_credentials' } };
   }
 
@@ -256,7 +254,7 @@ export const handleAuthCreateSessionPublic = async (
     session_id: payload.session_id,
     player_key: publicKey,
     machine_id: target.machineId,
-    credentials: { username: payload.username, userType: account.userType },
+    credentials: { username: payload.username, userType },
     parent_session_id: payload.parent_session_id ?? null,
     source_ip: sourceIp,
     kind: payload.kind,
@@ -270,7 +268,7 @@ export const handleAuthCreateSessionPublic = async (
     status: 200,
     body: {
       ok: true,
-      userType: account.userType,
+      userType,
       machine_id: target.machineId,
       essid: target.essid,
     },

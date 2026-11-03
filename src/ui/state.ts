@@ -132,6 +132,7 @@ import { runCommandLine } from '../core/shell/runLine.js';
 import { commandEchoLine } from '../core/shell/prompt.js';
 import { buildCommandEnv, type BuildCommandEnvArgs } from './env.js';
 import { homeDirectory } from '../core/sessions/homeDirectory.js';
+import { ftpLanding } from '../core/sessions/doorAdmission.js';
 import { getPlayerIdentity } from './identity.js';
 import { isOwnWorkstation, parseWorkstationId } from '../core/identity/workstation.js';
 import { launchVantage } from '../core/sessions/launchVantage.js';
@@ -471,11 +472,11 @@ export const subShellPrompt = (): string | null => {
 };
 
 /** Hold an authenticated ftp session (backs `env.ftp.enter`), landing on the target
- *  at the logged-in account's home and pulling that machine's journal so the box
+ *  where the login lands and pulling that machine's journal so the box
  *  shows the state it is actually in, not the state it was generated in. */
 const enterFtpSession = (session: Session): void => {
   setFtpSession(session);
-  setFtpCwd(homeDirectory(session));
+  setFtpCwd(ftpLanding(session));
   setFtpPatches([]);
   setFtpServedRoot(null);
   void refreshFtpTree(session);

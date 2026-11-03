@@ -957,9 +957,10 @@ describe('what a mail server’s own config claims about it', () => {
   });
 });
 
-/** A setting `vsftpd.conf` may not claim, because the ftp door does not do it: nobody
- *  logs in anonymously, nobody is jailed in their home, and every login lands in its own
- *  home rather than a directory the config names. */
+/** A setting a file server's `vsftpd.conf` may not claim. The door reads
+ *  `anonymous_enable`, so `YES` would really let anybody in, which only a contract's ftp
+ *  route is meant to do. The rest it does not do at all: nobody is jailed in their home,
+ *  and no login lands in a directory the config names. */
 const FTP_FALSEHOODS: readonly RegExp[] = [
   /^anonymous_enable=YES$/m,
   /^anon_root=/m,

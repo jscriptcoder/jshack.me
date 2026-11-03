@@ -16,6 +16,11 @@ import { generateHomeLan } from '../generation/generateHomeLan.js';
 import { machineIdForLanHost } from '../generation/lanTopology.js';
 import { computeApGatewayId } from '../identity/router.js';
 import { missionEssid } from './missionNetwork.js';
+import { buildMissionKeyBoxFs } from '../generation/missionKeyBoxFs.js';
+import { withMissionFiles } from '../network/missionBoxFiles.js';
+import { createFsView } from '../filesystem/fsView.js';
+import { asAbsPath } from '../types.js';
+import { ROOT_FILE } from '../generation/baseFs.js';
 import {
   COMMON_PASSWORDS,
   CRACKABLE_PASSWORDS,
@@ -98,6 +103,10 @@ describe('missionLeakFile', () => {
     expect(new Set(paths).size).toBeGreaterThan(1);
   });
 
+  it('can be a dotfile on a web route, where a sweep finds what a listing would hide', () => {
+    expect(numbersWithRoute('web').map(missionLeakPath)).toContain('/var/www/html/.env');
+  });
+
   it('is the same for the same number', () => {
     const missionNumber = firstWithRoute('web');
 
@@ -108,6 +117,28 @@ describe('missionLeakFile', () => {
 
   it('holds the word of the box root, and never names the account', () => {
     for (const missionNumber of numbersWithRoute('web')) {
+      const word = plaintextFor(missionShape(missionNumber).keyBoxRootHash);
+      const leak = missionLeakFile(missionNumber, RAW_SECRETS);
+
+      expect(leak?.content.includes(word), `word in file of ${missionNumber}`).toBe(true);
+      expect(/root/i.test(leak?.content ?? 'root'), `account in file of ${missionNumber}`).toBe(
+        false,
+      );
+    }
+  });
+
+  it('sits in the ftp public directory on an ftp route, at a name a plain ls shows', () => {
+    const paths = numbersWithRoute('ftp').map(missionLeakPath);
+
+    for (const path of paths) {
+      expect(path, 'in pub').toMatch(/^\/srv\/ftp\/pub\/[^./][^/]*$/);
+    }
+    // Drawn from the number, across more than one name.
+    expect(new Set(paths).size).toBeGreaterThan(1);
+  });
+
+  it('holds the word of the box root on an ftp route, and never names the account', () => {
+    for (const missionNumber of numbersWithRoute('ftp')) {
       const word = plaintextFor(missionShape(missionNumber).keyBoxRootHash);
       const leak = missionLeakFile(missionNumber, RAW_SECRETS);
 
@@ -135,6 +166,7 @@ describe('missionFiles', () => {
       {
         path: missionKeyPath(missionNumber),
         content: `${missionKey(missionNumber, KEY_SECRET)}\n`,
+        perms: ROOT_FILE,
       },
     ]);
   });
@@ -147,6 +179,7 @@ describe('missionFiles', () => {
         {
           path: missionKeyPath(missionNumber),
           content: `${missionKey(missionNumber, KEY_SECRET)}\n`,
+          perms: ROOT_FILE,
         },
         missionLeakFile(missionNumber, RAW_SECRETS),
       ],
@@ -205,14 +238,17 @@ describe('missionFilesForBox', () => {
     ).toEqual({ data: [], error: null });
   });
 
-  it('fails closed on a web route when the pools are unset', async () => {
-    expect(
-      await missionFilesForBox(keyBoxOf(firstWithRoute('web')), {
-        keySecret: KEY_SECRET,
-        rawSecrets: undefined,
-      }),
-    ).toEqual({ data: null, error: 'mission_secret_missing' });
-  });
+  it.each(['web', 'ftp'] as const)(
+    'fails closed on a %s route when the pools are unset',
+    async (route) => {
+      expect(
+        await missionFilesForBox(keyBoxOf(firstWithRoute(route)), {
+          keySecret: KEY_SECRET,
+          rawSecrets: undefined,
+        }),
+      ).toEqual({ data: null, error: 'mission_secret_missing' });
+    },
+  );
 
   it('fails closed on any route when the key secret is unset', async () => {
     expect(
@@ -240,11 +276,59 @@ describe('missionFilesForBox', () => {
 
 describe('missionFilePaths', () => {
   it('names the same files the server lays in, from the number alone', () => {
-    for (const route of ['hydra', 'msfconsole', 'web'] as const) {
+    for (const route of ['hydra', 'msfconsole', 'web', 'ftp'] as const) {
       const missionNumber = firstWithRoute(route);
       const laid = missionFiles(missionNumber, { keySecret: KEY_SECRET, rawSecrets: RAW_SECRETS });
 
       expect(missionFilePaths(missionNumber), route).toEqual(laid.map((file) => file.path));
     }
+  });
+});
+
+describe('who can read what the server lays onto a key box', () => {
+  const HOLDING_BOTH = { keySecret: KEY_SECRET, rawSecrets: RAW_SECRETS };
+
+  /** The key box as a door sees it, with the number's files laid on. */
+  const laidBox = async (missionNumber: number) => {
+    const tree = await withMissionFiles(
+      async () => ({ data: missionFiles(missionNumber, HOLDING_BOTH), error: null }),
+      {
+        essid: missionEssid(missionNumber),
+        machineId: 'key-box',
+        baseFs: buildMissionKeyBoxFs(missionNumber),
+      },
+    );
+    if (tree === null) throw new Error('the files could not be made');
+    return tree;
+  };
+
+  const readableBy = (
+    tree: Awaited<ReturnType<typeof laidBox>>,
+    userType: 'guest' | 'root',
+    path: string,
+  ): boolean => createFsView(tree, { userType }).read(asAbsPath(path)).ok;
+
+  it('lets a guest read the file in pub on an ftp route, and not the key', async () => {
+    const missionNumber = firstWithRoute('ftp');
+    const tree = await laidBox(missionNumber);
+
+    expect(readableBy(tree, 'guest', missionLeakPath(missionNumber) ?? '')).toBe(true);
+    expect(readableBy(tree, 'guest', missionKeyPath(missionNumber))).toBe(false);
+    expect(readableBy(tree, 'root', missionKeyPath(missionNumber))).toBe(true);
+  });
+
+  it('keeps the file root-only on a web route, where the web door serves it instead', async () => {
+    const missionNumber = firstWithRoute('web');
+    const tree = await laidBox(missionNumber);
+
+    expect(readableBy(tree, 'guest', missionLeakPath(missionNumber) ?? '')).toBe(false);
+    expect(readableBy(tree, 'root', missionLeakPath(missionNumber) ?? '')).toBe(true);
+  });
+
+  it('lets only root change the file in pub', () => {
+    const leak = missionLeakFile(firstWithRoute('ftp'), RAW_SECRETS);
+
+    expect(leak?.perms.write).toEqual(['root']);
+    expect(leak?.perms.execute).toEqual([]);
   });
 });

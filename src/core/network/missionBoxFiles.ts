@@ -1,12 +1,10 @@
 /**
  * What a door does with the files only the server can write onto a contract's key box: lay
  * them over the generated base before the journal replays, so a root's `rm` of one sticks
- * for the next reader. Root-only, because a page on a generated box is otherwise readable
- * by a guest, and a guest shell on a key box must not read the word off the disk. The web
- * door reads as the server, inside the document root, so root-only stops nothing it serves.
+ * for the next reader. Each file says who may read it: see `missionLeak.ts`.
  */
 
-import { file, ROOT_FILE, withFiles } from '../generation/baseFs.js';
+import { file, withFiles } from '../generation/baseFs.js';
 import type { Directory } from '../filesystem/types.js';
 import type { MissionFile } from '../missions/missionLeak.js';
 
@@ -32,6 +30,6 @@ export const withMissionFiles = async (
   if (files.error || files.data === null) return null;
   return withFiles(
     box.baseFs,
-    files.data.map(({ path, content }) => [path, file(content, ROOT_FILE)] as const),
+    files.data.map(({ path, content, perms }) => [path, file(content, perms)] as const),
   );
 };

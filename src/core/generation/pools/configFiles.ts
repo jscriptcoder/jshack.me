@@ -121,8 +121,9 @@ const CONFIG_BY_ROLE: Readonly<Record<PooledConfigRole, RoleConfig>> = {
     },
   },
   // A setting here says what the ftp door does, and a player can check each against it:
-  // nobody logs in anonymously, nobody is jailed in their home, and every login lands in
-  // its own home rather than a root the config names. So no template claims
+  // the door reads `anonymous_enable`, so `YES` would let anybody in, and no generated file
+  // server is meant to. Nobody is jailed in their home, and every named login lands in its
+  // own home rather than a root the config names. So no template claims
   // `anonymous_enable=YES`, `anon_root`, `chroot_local_user` or `local_root`; the rest
   // describe what the daemon would do that no command can see either way. A user list
   // is always one of who may log in (`userlist_deny=NO`), and the box keeps it naming

@@ -18,6 +18,7 @@ const numberWithRoute = (route: MissionRoute): number => {
 const HYDRA = numberWithRoute('hydra');
 const MSF = numberWithRoute('msfconsole');
 const WEB = numberWithRoute('web');
+const FTP = numberWithRoute('ftp');
 
 const fileAt = (fs: Directory, segments: readonly string[]): string => {
   let node: FileNode = fs;
@@ -30,6 +31,12 @@ const fileAt = (fs: Directory, segments: readonly string[]): string => {
   if (node.kind !== 'file') throw new Error(`${segments.join('/')} is not a file`);
   return node.content;
 };
+
+const nodeAt = (fs: Directory, segments: readonly string[]): FileNode | undefined =>
+  segments.reduce<FileNode | undefined>(
+    (node, segment) => (node?.kind === 'directory' ? node.entries.get(segment) : undefined),
+    fs,
+  );
 
 const listTree = (directory: Directory, prefix = ''): readonly string[] =>
   [...directory.entries].flatMap(([name, node]) =>
@@ -55,6 +62,44 @@ describe('the key box of a contract network', () => {
     expect(fileAt(box, ['var', 'www', 'html', 'index.html'])).toContain('It works!');
     const published = listTree(box).filter((path) => path.startsWith('var/www/html/'));
     expect(published).toEqual(['var/www/html/index.html']);
+  });
+
+  it('runs an ftp server and sshd on the ftp route, and holds no leak of its own', () => {
+    const box = buildMissionKeyBoxFs(FTP);
+
+    expect(readOpenPorts(box).map((port) => port.service).sort()).toEqual(['ftp', 'ssh']);
+    // The directory is there for the door to land in; the file is the server's to lay in.
+    expect(nodeAt(box, ['srv', 'ftp', 'pub'])?.kind).toBe('directory');
+    expect(listTree(box).filter((path) => path.startsWith('srv/'))).toEqual([]);
+  });
+
+  it('says on the ftp route that the door lets anonymous in, for any tier to read', () => {
+    const config = nodeAt(buildMissionKeyBoxFs(FTP), ['etc', 'vsftpd.conf']);
+
+    expect(config?.kind).toBe('file');
+    expect(config?.kind === 'file' ? config.content : '').toMatch(/^anonymous_enable=YES$/m);
+    expect(config?.perms.read).toContain('guest');
+    expect(config?.perms.write).toEqual(['root']);
+  });
+
+  it('states no landing directory in the config, because the door reads none', () => {
+    expect(fileAt(buildMissionKeyBoxFs(FTP), ['etc', 'vsftpd.conf'])).not.toMatch(/anon_root/);
+  });
+
+  it.each([
+    ['hydra', HYDRA],
+    ['msfconsole', MSF],
+    ['web', WEB],
+  ] as const)('opens nothing to anonymous on the %s route', (_route, missionNumber) => {
+    const box = buildMissionKeyBoxFs(missionNumber);
+
+    expect(nodeAt(box, ['etc', 'vsftpd.conf'])).toBeUndefined();
+    expect(nodeAt(box, ['srv'])).toBeUndefined();
+  });
+
+  it('keeps a vsftpd log on any box running the daemon, and none on a box that is not', () => {
+    expect(fileAt(buildMissionKeyBoxFs(FTP), ['var', 'log', 'vsftpd.log'])).toBe('');
+    expect(nodeAt(buildMissionKeyBoxFs(HYDRA), ['var', 'log', 'vsftpd.log'])).toBeUndefined();
   });
 
   it('answers its own sshd, the hydra route reached through the forward', () => {

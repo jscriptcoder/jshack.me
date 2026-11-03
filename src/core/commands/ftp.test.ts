@@ -13,7 +13,8 @@ import {
   mockSession,
 } from '../../test/factories/commandEnv.js';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
-import { OWN_BOX, ownBoxEnv, type OwnBoxOptions } from '../../test/factories/ownBox.js';
+import { OWN_BOX, ownBoxEnv, ownBoxTree, type OwnBoxOptions } from '../../test/factories/ownBox.js';
+import { withFiles } from '../generation/baseFs.js';
 import { applyPatches, type Patch } from '../filesystem/applyPatches.js';
 import { defaultFilePermissions } from '../filesystem/defaultPermissions.js';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
@@ -1868,6 +1869,54 @@ describe('ftp to the box the shell stands on, at home', () => {
       ftp: mockFtpApi({ enter: over.onEnter ?? (() => undefined) }),
       pushSession: over.onPush ?? (() => undefined),
     });
+
+  /** The own box with its own config letting `anonymous` in, as its root wrote it. */
+  const anonymousOwnBoxEnv = (enter: (session: Session) => void, password = 'anything') =>
+    ownBoxEnv(
+      {},
+      {
+        fs: mockFsViewFromTree(
+          withFiles(ownBoxTree(), [
+            ['/etc/vsftpd.conf', buildFile('anonymous_enable=YES\n')],
+          ]),
+          { userType: 'user' },
+        ),
+        prompt: async () => password,
+        ftp: mockFtpApi({ enter }),
+      },
+    );
+
+  it('lets anonymous into the own box at guest tier where its config says so', async () => {
+    const entered = vi.fn<(session: Session) => void>();
+
+    const result = sync(
+      await ftp.execute(anonymousOwnBoxEnv(entered), ['localhost', 'anonymous'], new Map()),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(entered).toHaveBeenCalledWith(
+      expect.objectContaining({ username: 'anonymous', userType: 'guest', kind: 'ftp' }),
+    );
+  });
+
+  it('refuses anonymous on the own box where its config says nothing', async () => {
+    const entered = vi.fn<(session: Session) => void>();
+
+    const result = sync(
+      await ftp.execute(
+        ownBoxEnv(
+          {},
+          { prompt: async () => 'anything', ftp: mockFtpApi({ enter: entered }) },
+        ),
+        ['localhost', 'anonymous'],
+        new Map(),
+      ),
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(result.lines.at(-1)?.content).toBe('530 Login incorrect.');
+    expect(entered).not.toHaveBeenCalled();
+  });
 
   it('opens the ftp> prompt on the own box as the account the login bought, beside the shell', async () => {
     const entered = vi.fn<(session: Session) => void>();

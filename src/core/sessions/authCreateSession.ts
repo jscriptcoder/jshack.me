@@ -29,7 +29,6 @@ import { segmentsReachedFrom } from '../generation/lanTopology.js';
 import { deniedPortsFor, resolveDeepScanHosts } from '../scan/deepScanHosts.js';
 import { materializeMachineFs, type OwnerPatchRow } from '../network/materializeMachineFs.js';
 import { canBoot } from '../boot/bootFiles.js';
-import { md5 } from '../generation/md5.js';
 import {
   SERVICE_CATALOG,
   formatLoginLines,
@@ -43,16 +42,16 @@ import type { Directory } from '../filesystem/types.js';
 import { derivePid } from '../logging/syslog.js';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import { appendMachineLogLines, type AppendLog } from '../patches/appendMachineLog.js';
-import { accountIn } from './passwdAccount.js';
+import { admitToDoor } from './doorAdmission.js';
 import { resolveCallerVantage, type CallerVantageDeps } from './callerVantage.js';
 import { asGameTime, type UserType } from '../types.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 
 /** The doors this endpoint opens. Three of them authenticate the same way —
- *  against the box's real `/etc/passwd` — and differ only in which log records the
- *  attempt and what the client does with the row: `ssh` is a hop the shell walks
- *  onto, `ftp` a parallel session the terminal holds alongside where it already
- *  stands, and `scp` a transient row that exists for one transfer and is ended
+ *  through `admitToDoor`, which reads the box's real `/etc/passwd` — and differ only in
+ *  which log records the attempt and what the client does with the row: `ssh` is a hop
+ *  the shell walks onto, `ftp` a parallel session the terminal holds alongside where it
+ *  already stands, and `scp` a transient row that exists for one transfer and is ended
  *  behind it.
  *
  *  `nc` is the fourth and asks for nothing. There is no daemon behind it and no
@@ -455,8 +454,7 @@ export const handleAuthCreateSession = async (
     return { status: 401, body: { error: 'invalid_credentials' } };
   }
 
-  const account = accountIn(hostFs, payload.username);
-  const passwordOk = account !== null && md5(payload.password) === account.hash;
+  const userType = admitToDoor(payload.kind, hostFs, payload.username, payload.password);
 
   // The host is resolved by now, so the attempt CAN be logged — every door records
   // both accepted and rejected logins. (A 404 above logs nothing — there is no
@@ -467,21 +465,18 @@ export const handleAuthCreateSession = async (
     host,
     username: payload.username,
     fromIp: fromIp ?? 'unknown',
-    outcome: passwordOk ? 'success' : 'failure',
+    outcome: userType === null ? 'failure' : 'success',
     sweepLog: spec.sweepLog,
   });
 
-  if (account === null || !passwordOk) {
+  if (userType === null) {
     return { status: 401, body: { error: 'invalid_credentials' } };
   }
 
-  const { error } = await insertRow({
-    username: payload.username,
-    userType: account.userType,
-  });
+  const { error } = await insertRow({ username: payload.username, userType });
   if (error) {
     return { status: 500, body: { error: 'insert_failed' } };
   }
 
-  return { status: 200, body: { ok: true, userType: account.userType } };
+  return { status: 200, body: { ok: true, userType } };
 };
