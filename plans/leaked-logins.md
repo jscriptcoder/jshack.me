@@ -1,8 +1,8 @@
 # Plan: the routes that leak a login
 
 **Status:** Slice 1 (the web route) shipped at v0.442.0 and is verified on production; its as-built is below.
-**Next: slice 2, anonymous FTP**, v0.443.0, when the owner starts it. Slices 2–4 get their plans here as each
-starts.
+**Now: slice 2, anonymous FTP**, v0.443.0, planned below, with its criteria awaiting the owner's confirmation.
+Slices 3–4 get their plans here as each starts.
 
 Contract networks ship with two ways onto the key box: `hydra` (a crackable root) and `msfconsole`
 (a critical hole). This epic adds four where a forgotten file or setting leaks root's password. A
@@ -275,5 +275,110 @@ secret. That check runs on prod, so the owner approves it at the time.
 
 **PR-ready when:** the criteria are met with their tests, `npm run typecheck`, `npm run lint` and the full test suite
 pass, the wire-checks pass, and the mutation gate leaves only equivalents. The owner approves each commit.
+
+**Slice complete when:** the PR merges and this plan records the as-built.
+
+### Slice 2: a contract can be an FTP route, where an anonymous login fetches root's word
+
+**Value:** a contractor on an FTP-route job sees `21` and `2222` in a scan, logs in as `anonymous` with any password,
+fetches a forgotten file from `pub/`, works out that the word inside is a login, and reads the key as root. They keep
+the word.
+
+**Path:** `missionShape` draws the route and two forwards → `routerFs` writes both into the gateway's `rules.v4` → the
+key box builder runs `vsftpd` on a safe release, writes `/etc/vsftpd.conf` and makes `/srv/ftp/pub` → the server lays
+the file into `pub/`, guest-readable → `ftp <address> anonymous` reaches the door through the forward → the door reads
+the box's own config and opens a guest-tier session → `get` copies the file home → `ssh -p 2222` logs in against the
+unchanged `/etc/passwd` → the existing key file and reply → the existing payout.
+
+**Class:** behavior change. **Delivery:** independent PR against `main`, branch `feat/leak-ftp-route`.
+
+**Required implementation skills:** `tdd`, `testing`, `functional`, `typescript-strict`, `refactoring` where it applies,
+and `mutation-testing` at the PR gate.
+
+**What the trace settled, against decision 10 and the note above:**
+
+- **A session row takes a username no `/etc/passwd` holds.** `credentials` is plain JSONB, and a session's tier comes
+  from the row. The wire-check proves it end to end.
+- **"Same-LAN" means the own-LAN door.** `authCreateSession` is what reaches a key box from inside its network, for
+  example a shell on the box running `ftp localhost anonymous`. `authCreateSessionSameLan` only reaches players' boxes,
+  and contract networks have no occupants. `authCreateSessionInnerGateway` is never called by `ftp`.
+- **The file's permissions now vary by route.** `withMissionFiles` hard-codes `ROOT_FILE`, so a `MissionFile` has to carry
+  its own permissions: read for every tier and write for root only in `pub/`, root-only for the key and the web file. The
+  write gate needs no change, since it only reads write permission, which is root's on all three.
+- **`ftp` can log in as well as hand out the file.** `ftp <address> root` with the word opens a root session that can
+  `get` the key, so `:2222` is one way to use the word rather than the only one. Decision 15 keeps `:2222` anyway, so a
+  scan tells this route from an msfconsole route on `:21`.
+
+**What it builds:**
+
+- **The shape:** `ftp` joins `ROUTES`, still the third draw on the topology stream. `vsftpd` on a safe release, forwards
+  `21` and `:2222`, and root from `LEAKABLE_HASHES`, as the web route does.
+- **The key box:** on this route, `/etc/vsftpd.conf` with `anonymous_enable=YES` (world-readable, as every role config
+  is) and an empty `/srv/ftp/pub`. `/var/log/vsftpd.log` is seeded on any key box running `vsftpd`. The config leaves out
+  `anon_root`: the door doesn't read it, so stating it would break the promise that a setting says what the door does.
+- **One rule at the door** (`src/core/services/anonymousFtp.ts`, name to be settled in the code): the box's config says
+  whether `anonymous` is let in, for the `ftp` door only. It replaces the `accountIn` and `md5` pair in `authCreateSession`,
+  `authCreateSessionPublic`, `authCreateSessionSameLan` and `admitOwnBoxLogin`, so a door can't exist at one address and
+  not another. It admits at guest tier with any password. Everything else goes to `/etc/passwd` as today. A root who writes
+  `anonymous_enable=YES` on any box opens that box, which is what the setting says. On a box with no `/srv/ftp`, the
+  session lands in a directory that isn't there and `ls` says so.
+- **The landing:** `enterFtpSession` starts `anonymous` in `/srv/ftp` rather than `/home/anonymous`.
+- **The file, on the server only:** `missionLeakPath` gives `/srv/ftp/pub/<name>` on this route. Names and wording come
+  from the same pool as the web route, minus `.env`, because a plain `ls` hides a dotfile and the directory would look empty.
+- **Comments:** the pool's and `boxSurface.test.ts`'s "nobody logs in anonymously" become "no generated file server
+  claims it". The test itself stays and still bans `anonymous_enable=YES` on every file server in the world.
+- **The operator:** `show` needs no code, since it already prints whatever `missionLeakPath` and `forwards` hold.
+
+**No in-game hint:** no `man ftp` example, Hackademy line or banner mentions `anonymous`. A player either knows to try it,
+reads `anonymous_enable=YES` from a guest shell, or cracks `guest` with `hydra` and finds the file. The `/dev` story at
+close-out tells it afterwards.
+
+**Acceptance criteria (for the owner to confirm before any code):**
+
+1. Across numbers, routes draw about a quarter each. A number's address, key and key path are the same whichever route
+   it draws.
+2. On an FTP route, `nmap <address>` shows `21` and `2222`, and the gateway's `rules.v4` holds both forwards.
+3. `ftp <address> anonymous` with any password, an empty one included, answers `230` and lands in `/srv/ftp`. `pub/` lists
+   the file, and `get` copies it to the player's box. Its text holds the word and never the word `root`.
+4. `/var/log/vsftpd.log` on the key box records `[anonymous] OK LOGIN` and `OK DOWNLOAD`, each with the visitor's address.
+5. `ssh root@<address> -p 2222` with that word opens a root shell that can read the key, and mailing the key to the client
+   pays as on any route. `ftp <address> root` with the word also opens a root session.
+6. Appending the word to `passwords.txt` makes `hydra` find root on `:2222`. Without it, `hydra` finds no root on `:21` or
+   `:2222`. `msfconsole` finds no root through `:21` on this route.
+7. An anonymous session cannot `get` the key and cannot `put` anything. `ssh anonymous@<address> -p 2222` and `scp` as
+   `anonymous` are refused, and another unknown name at the `ftp` door gets `530`.
+8. A guest shell on the key box can run `ftp localhost anonymous` and fetch the file, and can also `cat` it directly, as
+   decision 10 accepted.
+9. After a root sets `anonymous_enable=NO`, a later visitor gets `530` and a `FAIL LOGIN` line. Setting it back reopens the
+   door. After a root's `rm` of the file, a later visitor no longer finds it and the key file is unaffected.
+10. `ftp <address> anonymous` gets `530` on a hydra route, on an msfconsole route running `vsftpd`, and on a generated file
+    server. A box whose root writes `anonymous_enable=YES` opens at the public, own-LAN, same-LAN and own-box doors alike.
+11. With `JSHACK_SECRETS` unset, an FTP route's key box serves no file and its read answers 500. Hydra and msfconsole routes
+    and boxes on other networks are unaffected.
+12. Every existing guarantee in `missionShape.test.ts` holds across all four routes: nothing but the route climbs, and an
+    FTP route's root is a slice word.
+13. `show` prints the route, both forwards, the path and the word. `checkSecrets` passes on a built `dist/`, and the PR states
+    its gzipped cost against the ceiling, with 369 B of room going in.
+
+**RED:** start from `missionShape.test.ts` and `missionKeyBoxFs.test.ts` (the draw, the forwards, the config, `/srv/ftp/pub`),
+then `missionLeak.test.ts` (the path, the permissions, no dotfile, fail-closed), then the door's own test, then
+`authCreateSessionPublic.test.ts`, `authCreateSession.test.ts`, `authCreateSessionSameLan.test.ts` and `ftp.test.ts`, then
+`state.test.ts` (the landing). `hiremeOrders.test.ts` gets one case for this route.
+
+**GREEN:** the least that passes each, in that order. **REFACTOR:** assess after each green. Tests with a fixed contract
+number may change route when `ROUTES` grows; those that need a route should search for one, as `webRouteContract.ts` does.
+
+**Wire-check:** a new `scripts/testMissionFtp.ts` against `vercel dev` and local supabase, driving a real accept: the scan,
+the anonymous login over the public door and over `localhost`, the listing, the fetch, both `vsftpd.log` lines, the word's
+login, the key, the payout, the config set to `NO`, and the `rm` sticking. Run every `testMission*` script and the
+`testFtp*` scripts, since the door's check changed and this slice re-rolls the contract fixtures.
+
+**PRE-PR mutation:** scoped to the door's rule, `missionLeak.ts` and `missionShape.ts`, one file at a time.
+
+**Deploy:** no migration, no new variable, and no production check: slice 1 already proved production reads `JSHACK_SECRETS`
+at runtime, and this file reaches a door the same way.
+
+**PR-ready when:** the criteria are met with their tests, `npm run typecheck`, `npm run lint` and the full test suite pass,
+the wire-checks pass, and the mutation gate leaves only equivalents. The owner approves each commit.
 
 **Slice complete when:** the PR merges and this plan records the as-built.
