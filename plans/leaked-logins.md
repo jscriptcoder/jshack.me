@@ -1,6 +1,7 @@
 # Plan: the routes that leak a login
 
-**Status:** Grilled 2026-11-03. Slices not yet planned. Nothing is built.
+**Status:** Grilled 2026-11-03. Nothing is built. **Next: slice 1, planned below** (the web route), on
+`feat/leak-web-route`. Slices 2–4 get their plans here as each starts.
 
 Contract networks ship with two ways onto the key box: `hydra` (a crackable root) and `msfconsole`
 (a critical hole). This epic adds four where a forgotten file or setting leaks root's password. A
@@ -142,3 +143,115 @@ or changing the password or config. `scripts/hireme.ts show` prints a route's pa
 Accepted across the epic: harvested words can be shared, so about a quarter of the world's uncrackable NPC
 doors can fall to a shared list; and each of the four slices re-rolls every contract's route, which stops
 being free once real players arrive.
+
+---
+
+## Slices
+
+One PR per slice against `main`, each with its own version bump. Slice 1 carries everything the routes
+share, so each later slice adds one door and one entry in `ROUTES`. The epic can stop after any of them.
+
+| Slice | Version | The player can now…                                                      | Adds                                                                                       |
+| ----- | -------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
+| 1     | v0.442.0 | sweep a key box, read a forgotten file, and log in as root with its word | the leakable slice, the word module, the two forwards, the flat draw, the web file         |
+| 2     | v0.443.0 | log in to a key box's FTP as `anonymous` and fetch the file              | the anonymous branch at the door, a truthful `vsftpd.conf`, `/srv/ftp/pub`                 |
+| 3     | v0.444.0 | crack a key box's database and `SELECT` the word                         | `mysqld` on the key box, a guaranteed crackable account, the server-added `settings` table |
+| 4     | v0.445.0 | guess or crack a community and read the word in a walk                   | `snmpd` on the key box, the server-written `snmpd.conf`, the guessable community pool      |
+
+**Facts each later slice starts from, found while tracing slice 1:** a database is the file
+`/var/lib/mysql/data.json`, so slice 3 lays in a whole file, the base's database plus the table, and a
+statement's write-back then carries the table through the journal. `hydra <ip> snmp` and
+`snmpWalkCrossPlayer` already exist, so slice 4 has no new walk output, though it should confirm that a
+forward to `:161` on a generated box reaches the agent. Slice 2 should confirm a session row accepts a
+username that no `/etc/passwd` holds, and cover the same-LAN path as well as the public one.
+
+**Close-out, after the last slice that ships:** one browser run over every shipped route (browser runs wait
+for the end of an epic), `docs/missions-architecture.md` updated with the routes, `docs/project-status.md`
+and `docs/backlog.md` recording D2.6b closed, a `/dev` story on valleynews.io, and this plan retired.
+
+### Slice 1: a contract can be a web route, where a sweep finds root's word in a forgotten file
+
+**Value:** a contractor on a web-route job runs `gobuster`, reads a forgotten file with `curl`, works out
+that the word inside is a login, and reads the key as root. They keep the word.
+
+**Path:** `missionShape` draws the route and two forwards → `routerFs` writes both into the gateway's
+`rules.v4` → the key box builder runs `nginx` on a safe release → the server lays the file into the box at
+each door that reads it → `gobuster` and `curl` reach it through the forward → `ssh -p 2222` logs in against
+the unchanged `/etc/passwd` → the existing key file and reply → the existing payout.
+
+**Class:** behavior change. **Delivery:** independent PR against `main`, branch `feat/leak-web-route`.
+
+**Required implementation skills:** `tdd`, `testing`, `functional`, `typescript-strict`, `refactoring` where
+it applies, and `mutation-testing` at the PR gate.
+
+**What it builds:**
+
+- **The leakable slice, in the bundle** (`src/core/missions/leakablePool.ts`): `LEAKABLE_HASHES`, about 13
+  hashes from positions no fixed box's root holds, and `SHUT_HASHES`, the rest of the pool. A fixed box's root
+  comes from a cheap draw on its `host-fs-` stream, not from building its tree; a test holds that draw equal
+  to the built `/etc/passwd`. Check for an import cycle first, since `routerFs` already imports `missionShape`.
+- **The shape:** `route` is `prng.pick(ROUTES)`, still the third draw on the topology stream, so stems and
+  octets do not move. `forward` becomes `forwards`, a list, with one entry on the old routes and two on a leak
+  route. The gateway's admin and the msfconsole root draw from `SHUT_HASHES`, and a web route's root from
+  `LEAKABLE_HASHES`. A web route's `nginx` sits on a safe release through the existing `safeVersionOf`.
+- **The word and the file, on the server only** (`src/core/missions/missionLeak.ts`, imported from `api/` and
+  `scripts/` alone): parses `JSHACK_SECRETS` with `parseSecrets`, finds the word whose md5 is the shape's hash,
+  and refuses any hash outside `LEAKABLE_HASHES`. It draws the path from a pool of default-list names, draws the
+  wording from a few templates, and throws an error the door turns into a 500 when the variable is missing.
+- **One lay-in at every door that reads the box.** `findMissionKeyFile` and `missionKeyPathOf` widen from one
+  file to the box's server-written files. The key already reaches `resolveCrossPlayerFs` and
+  `remoteWritePermission`. The web door goes through neither, so the file also has to reach
+  `generatedForwardTarget` in `resolveHttpFetch.ts` (which serves fetches and sweeps, both through
+  `resolveWebTarget`) and `replayedGeneratedBox` in `resolveOccupantFetch.ts` (a shell's `curl localhost`). Each
+  lays it in before the journal replays, so a root's `rm` sticks. **The key must stay unservable:** document-root
+  confinement already keeps it out of reach, and a test should hold that.
+- **The operator:** `show` prints the route, both forwards, the leaked path and the word.
+
+**Acceptance criteria (for the owner to confirm before any code):**
+
+1. Across numbers, routes draw about a third each. A number's address, key and key path are the same whichever
+   route it draws.
+2. On a web route, `nmap <address>` shows `80` and `2222`, and the gateway's `rules.v4` holds both forwards.
+3. A default `gobuster http://<address>` finds the file, and `curl` returns text holding the word and never the
+   word `root`. Each request is an `access.log` line on the key box.
+4. `ssh root@<address> -p 2222` with that word opens a root shell that can read the key, and mailing the key to the
+   client pays as on any route.
+5. Appending the word to `passwords.txt` makes `hydra` find root on `:2222`. Without it, `hydra` finds no root there.
+6. `msfconsole` finds no root through `:80` on a web route.
+7. A guest shell on the box cannot `cat` the file but gets it from `curl localhost`.
+8. After a root's `rm`, a later visitor gets a 404 and the key file is unaffected.
+9. Only slice words can come out of the server's module. Over 2,000 numbers, no gateway admin and no msfconsole root
+   holds a slice word. No fixed box's root holds one either.
+10. With `JSHACK_SECRETS` unset, a web route's door answers 500 and serves no file. Boxes on other networks are
+    unaffected.
+11. Every existing guarantee in `missionShape.test.ts` still holds across all three routes: nothing but the route
+    climbs, and a route's door is reachable through a forward.
+12. `show` prints the route, both forwards, the path and the word. `checkSecrets` passes on a built `dist/`, and the PR
+    states its gzipped cost against the ceiling.
+
+**RED:** start from `missionShape.test.ts` (the draw, the forwards, which pool each door draws from), then
+`missionLeak.test.ts` (the word, the refusal, the missing variable), then `resolveHttpFetch.test.ts`,
+`resolveHttpSweep.test.ts` and `resolveOccupantFetch.test.ts` (the file served and swept, the `rm`, the fail-closed
+500, the key not served), then `hiremeOrders.test.ts`.
+
+**GREEN:** the least that passes each, in that order. **REFACTOR:** assess after each green. `forwards` touches
+`hiremeOrders.ts`, `routerFs.ts` and `scripts/testMissions.ts`, which are the only readers of `forward` today.
+
+**Measure before locking the 13:** a probe over Ridgemont's networks counting how many uncrackable doors each slice
+size opens, printing counts and never words. If about a quarter is wrong, the owner picks the size before merge.
+
+**Wire-check:** a new `scripts/testMissionLeak.ts` against `vercel dev` and local supabase, driving a real accept:
+the sweep, the fetch, the word's login, the key, the payout, the `rm` sticking and the guest shell's `curl
+localhost`. `testMissions.ts` moves to `forwards`, and its route search covers the new route. Run every
+`testMission*` script, since each slice re-rolls their fixtures.
+
+**PRE-PR mutation:** scoped to `leakablePool.ts`, `missionLeak.ts` and `missionShape.ts`, one file at a time.
+
+**Deploy:** no migration and no new variable. `JSHACK_SECRETS` has only ever been read at build time, so a minimal
+check after the merge confirms a web route's file serves on production, as slice 1 of the missions epic did for its
+secret. That check runs on prod, so the owner approves it at the time.
+
+**PR-ready when:** the criteria are met with their tests, `npm run typecheck`, `npm run lint` and the full test suite
+pass, the wire-checks pass, and the mutation gate leaves only equivalents. The owner approves each commit.
+
+**Slice complete when:** the PR merges and this plan records the as-built.
