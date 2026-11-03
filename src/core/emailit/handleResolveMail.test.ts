@@ -6,6 +6,8 @@ import { EMAILIT_DOMAIN, EMAILIT_NETWORK } from '../generation/fixedSites.js';
 import { siteAddress } from '../generation/publisher.js';
 import { md5 } from '../generation/md5.js';
 import type { OwnerPatchRow } from '../network/materializeWorkstationFs.js';
+import type { ClientMailStore } from '../missions/clientMail.js';
+import { missionTerms } from '../missions/missionTerms.js';
 import {
   handleResolveMail,
   type ChangePassword,
@@ -46,6 +48,8 @@ const makeDeps = (
     readonly deleteMessage?: DeleteMessage;
     readonly changePassword?: ChangePassword;
     readonly journal?: readonly OwnerPatchRow[];
+    readonly clientOpened?: unknown;
+    readonly missionSecret?: string | undefined;
   } = {},
 ) => {
   const openMessage = vi.fn(
@@ -65,6 +69,15 @@ const makeDeps = (
   const changePassword = vi.fn(
     over.changePassword ?? (async () => ({ data: { outcome: 'changed' }, error: null })),
   );
+  // A sender holding no contract, so a client answers with the one reply that needs none.
+  const clientMail = {
+    open: vi.fn<ClientMailStore['open']>(async () => ({
+      data: over.clientOpened ?? { outcome: 'opened', jobs: [] },
+      error: null,
+    })),
+    complete: vi.fn<ClientMailStore['complete']>(async () => ({ data: 'completed', error: null })),
+    reply: vi.fn<ClientMailStore['reply']>(async () => ({ data: 'replied', error: null })),
+  };
   const findNetworkByPublicIp = vi.fn(async (publicIp: string) => ({
     data:
       publicIp === EMAILIT_IP ? { router_machine_id: EMAILIT_ID, essid: EMAILIT_NETWORK } : null,
@@ -84,9 +97,12 @@ const makeDeps = (
     sendMessage,
     deleteMessage,
     changePassword,
+    clientMail,
+    missionSecret: 'missionSecret' in over ? over.missionSecret : 'handler-test-secret',
   };
   return {
     deps,
+    clientMail,
     openInbox,
     openMessage,
     sendMessage,
@@ -444,6 +460,87 @@ describe('emailit.io delivers a message from whoever holds the password', () => 
       body: { error: 'payload_invalid' },
     });
     expect(sendMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe('a mail to a client handle is answered by the client, never delivered', () => {
+  const client = missionTerms(66051).client;
+  const clientRequest = () =>
+    inboxRequest({ op: 'send', to: client.handle, subject: 'the job', body: 'here it is' });
+
+  it('answers that the message went once the client has replied, delivering nothing', async () => {
+    const { deps, sendMessage, clientMail } = makeDeps();
+
+    expect(await handleResolveMail(clientRequest(), deps)).toEqual({
+      status: 200,
+      body: { ok: true },
+    });
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(clientMail.reply).toHaveBeenCalledWith({
+      handle: 'neo',
+      reply: {
+        sender: `${client.handle}@emailit.io`,
+        subject: 'No contract',
+        body: `We have no contract with you.\n\n-- ${client.company}\n`,
+      },
+    });
+  });
+
+  it('opens the contracts of the login with the md5 of the password, on the signed key', async () => {
+    const { deps, clientMail } = makeDeps();
+
+    await handleResolveMail(clientRequest(), deps);
+
+    expect(clientMail.open).toHaveBeenCalledWith({
+      handle: 'neo',
+      passwordMd5: md5('s3cret'),
+      playerKey: BOB.publicKeyHex,
+    });
+  });
+
+  it.each([
+    ['login_failed', 401],
+    ['throttled', 429],
+    ['send_limited', 429],
+  ])('passes on a refusal of %s as %i', async (outcome, status) => {
+    const { deps } = makeDeps({ clientOpened: { outcome } });
+
+    expect(await handleResolveMail(clientRequest(), deps)).toEqual({
+      status,
+      body: { error: outcome },
+    });
+  });
+
+  it('reports a client that could not say what happened as a server error', async () => {
+    const { deps } = makeDeps({ clientOpened: { outcome: 'opened' } });
+
+    expect(await handleResolveMail(clientRequest(), deps)).toEqual({
+      status: 500,
+      body: { error: 'mail_failed' },
+    });
+  });
+
+  it.each([undefined, ''])(
+    'refuses with mission_secret_missing when the secret is %o, opening nothing',
+    async (missionSecret) => {
+      const { deps, clientMail, sendMessage } = makeDeps({ missionSecret });
+
+      expect(await handleResolveMail(clientRequest(), deps)).toEqual({
+        status: 500,
+        body: { error: 'mission_secret_missing' },
+      });
+      expect(clientMail.open).not.toHaveBeenCalled();
+      expect(sendMessage).not.toHaveBeenCalled();
+    },
+  );
+
+  it('still delivers a mail to a player when the secret is missing', async () => {
+    const { deps, sendMessage, clientMail } = makeDeps({ missionSecret: undefined });
+    const request = inboxRequest({ op: 'send', to: 'trin', subject: 'hi', body: 'hi trin' });
+
+    expect((await handleResolveMail(request, deps)).status).toBe(200);
+    expect(sendMessage).toHaveBeenCalledOnce();
+    expect(clientMail.open).not.toHaveBeenCalled();
   });
 });
 

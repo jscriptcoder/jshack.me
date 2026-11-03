@@ -55,6 +55,10 @@ const CLIENTS: readonly MissionClient[] = [
 /** Every client handle, for emailit.io to keep from sign-up. */
 export const CLIENT_HANDLES: readonly string[] = CLIENTS.map((client) => client.handle);
 
+/** The client writing from this handle, or null for a handle no client holds. */
+export const clientByHandle = (handle: string): MissionClient | null =>
+  CLIENTS.find((client) => client.handle === handle) ?? null;
+
 /** What a target company does, after its stem: "Halden Logistics". */
 const TARGET_TRADES: readonly string[] = [
   'Logistics',

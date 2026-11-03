@@ -873,6 +873,47 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         logFailure('mail passwd', error);
         return { data: data as unknown, error };
       },
+      // Only a send to a client's handle reaches these: the client reads the mail and
+      // answers in the sender's inbox. Each is one call into its function, answering as it
+      // came off the wire for the core to read.
+      clientMail: {
+        open: async ({ handle, passwordMd5, playerKey }) => {
+          const { data, error } = await supabase.rpc('hireme_proof_open', {
+            open_handle: handle,
+            open_password_md5: passwordMd5,
+            open_player_key: playerKey,
+          });
+          logFailure('mail client open', error);
+          return { data: data as unknown, error };
+        },
+        // The completion, the mint and the reply are one transaction inside the function;
+        // an empty wallet is none.
+        complete: async ({ handle, number, wallet, pay, reply }) => {
+          const { data, error } = await supabase.rpc('hireme_complete', {
+            complete_handle: handle,
+            complete_number: number,
+            complete_wallet: wallet ?? '',
+            complete_pay: pay,
+            mail_sender: reply.sender,
+            mail_subject: reply.subject,
+            mail_body: reply.body,
+          });
+          logFailure('mail client complete', error);
+          return { data: data as unknown, error };
+        },
+        reply: async ({ handle, reply }) => {
+          const { data, error } = await supabase.rpc('hireme_client_reply', {
+            reply_handle: handle,
+            mail_sender: reply.sender,
+            mail_subject: reply.subject,
+            mail_body: reply.body,
+          });
+          logFailure('mail client reply', error);
+          return { data: data as unknown, error };
+        },
+      },
+      // Read here, at the boundary; the handler refuses a client mail without it.
+      missionSecret: process.env.MISSION_KEY_SECRET,
     });
     res.status(status).json(body);
     return;

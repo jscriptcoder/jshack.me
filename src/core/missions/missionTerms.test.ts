@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CLIENT_HANDLES, missionTerms } from './missionTerms.js';
+import { CLIENT_HANDLES, clientByHandle, missionTerms } from './missionTerms.js';
 import { missionShape } from './missionShape.js';
 import { validateUsername } from '../gameConfig/gameConfig.js';
 
@@ -48,6 +48,15 @@ describe('missionTerms', () => {
 
     expect(drawn).toEqual(new Set(CLIENT_HANDLES));
     for (const handle of CLIENT_HANDLES) expect(validateUsername(handle)).toBeNull();
+  });
+
+  // A mail to a client handle is answered by that client, in its company's name.
+  it('finds the client a handle belongs to, and nobody for any other handle', () => {
+    const { client } = missionTerms(SAMPLE_NUMBERS[0]!);
+
+    expect(clientByHandle(client.handle)).toEqual(client);
+    expect(clientByHandle('neo')).toBeNull();
+    expect(clientByHandle(client.handle.toUpperCase())).toBeNull();
   });
 
   it('pairs each client handle with one company', () => {
