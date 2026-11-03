@@ -42,6 +42,7 @@ import { createFsView } from '../filesystem/fsView.js';
 import { HTTP_DEFAULT_PORT, METHOD_NOT_ALLOWED_PAGE, resolveWebPath } from './http.js';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import { generatedLanBox } from './generatedLanBox.js';
+import { MISSION_FILES_MISSING, type FindMissionFiles } from './missionBoxFiles.js';
 import {
   BOARD_SERVER_NETWORK,
   CHAINIT_NETWORK,
@@ -158,6 +159,8 @@ export type WebTargetDeps = {
   readonly listLeasesByEssid: (
     essid: string,
   ) => Promise<{ readonly data: readonly LanLeaseRow[] | null; readonly error: unknown }>;
+  /** What the server lays onto a contract's key box, which a forward can reach. */
+  readonly findMissionFiles: FindMissionFiles;
 };
 
 export type ResolveHttpFetchDeps = WebTargetDeps & {
@@ -314,9 +317,16 @@ const generatedForwardTarget = async (
   network: ApNetworkLookup,
   forwarded: { readonly internalIp: string; readonly internalPort: number },
 ): Promise<FetchTarget | HandlerResponse> => {
-  const box = await generatedLanBox(deps.findPatches, network.essid, forwarded.internalIp);
+  const box = await generatedLanBox(
+    deps.findPatches,
+    network.essid,
+    forwarded.internalIp,
+    deps.findMissionFiles,
+  );
   if (box.kind === 'error') {
-    return { status: 500, body: { error: 'patches_lookup_failed' } };
+    return box.cause === 'mission_files'
+      ? MISSION_FILES_MISSING
+      : { status: 500, body: { error: 'patches_lookup_failed' } };
   }
   if (box.kind === 'absent') {
     return UNREACHABLE;

@@ -9,6 +9,17 @@ import { missionShape } from './missionShape.js';
 import { missionKey, missionKeyPath } from './missionSecret.js';
 import { missionAddressForNumber, missionEssid } from './missionNetwork.js';
 import { missionTerms } from './missionTerms.js';
+import {
+  COMMON_PASSWORDS,
+  CRACKABLE_PASSWORDS,
+  UNCRACKABLE_PASSWORDS,
+  WIFI_PASSWORDS,
+} from '../../test/passwords.js';
+import {
+  WEB_ROUTE_LEAK_PATH,
+  WEB_ROUTE_NUMBER,
+  WEB_ROUTE_WORD,
+} from '../../test/factories/webRouteContract.js';
 
 /**
  * What the operator types at `scripts/hireme.ts`, and what `show` prints back. The order
@@ -95,30 +106,61 @@ describe('showReport', () => {
   const MSFCONSOLE = Array.from({ length: 4000 }, (_unused, index) => index * 256 + 2).find(
     (candidate) => missionShape(candidate).route === 'msfconsole',
   )!;
+  const RAW_SECRETS = JSON.stringify({
+    UNCRACKABLE_PASSWORDS,
+    CRACKABLE_PASSWORDS,
+    COMMON_PASSWORDS,
+    WIFI_PASSWORDS,
+  });
+
+  it('prints both forwards, the leaked file and the word on a web route', () => {
+    const lines = showReport(WEB_ROUTE_NUMBER, SECRET, RAW_SECRETS).split('\n');
+
+    expect(lines).toContain('  Route:    web');
+    expect(lines).toContain('  Forward:  :80 -> key box :80');
+    expect(lines).toContain('  Forward:  :2222 -> key box :22');
+    expect(lines).toContain(`  Leak:     ${WEB_ROUTE_LEAK_PATH}`);
+    // Through a boolean: a failing `toContain` would print the word.
+    expect(lines.includes(`  Word:     ${WEB_ROUTE_WORD}`)).toBe(true);
+  });
+
+  it('says so when it cannot read the word, and still prints the rest', () => {
+    const lines = showReport(WEB_ROUTE_NUMBER, SECRET, undefined).split('\n');
+
+    expect(lines).toContain(`  Leak:     ${WEB_ROUTE_LEAK_PATH}`);
+    expect(lines).toContain('  Word:     (JSHACK_SECRETS is not set)');
+  });
+
+  it('prints no leak on a route with none', () => {
+    const report = showReport(HYDRA, SECRET, RAW_SECRETS);
+
+    expect(report).not.toContain('Leak:');
+    expect(report).not.toContain('Word:');
+  });
 
   it('prints the key only an operator can derive, beside its path', () => {
-    const report = showReport(HYDRA, SECRET);
+    const report = showReport(HYDRA, SECRET, undefined);
 
     expect(report).toContain(missionKey(HYDRA, SECRET));
     expect(report).toContain(missionKeyPath(HYDRA));
   });
 
   it('names the contract by its address and essid', () => {
-    const report = showReport(HYDRA, SECRET);
+    const report = showReport(HYDRA, SECRET, undefined);
 
     expect(report).toContain(missionAddressForNumber(HYDRA)!);
     expect(report).toContain(missionEssid(HYDRA));
   });
 
   it("names the number's actual route", () => {
-    expect(showReport(HYDRA, SECRET)).toContain('hydra');
-    expect(showReport(MSFCONSOLE, SECRET)).toContain('msfconsole');
+    expect(showReport(HYDRA, SECRET, undefined)).toContain('hydra');
+    expect(showReport(MSFCONSOLE, SECRET, undefined)).toContain('msfconsole');
   });
 
   // What a test of the mail door needs: whom to mail the key to, and what it should pay.
   it('names the client and its handle, the target company and the pay', () => {
     const terms = missionTerms(HYDRA);
-    const report = showReport(HYDRA, SECRET);
+    const report = showReport(HYDRA, SECRET, undefined);
 
     expect(report).toContain(`${terms.client.company} (${terms.client.handle}@emailit.io)`);
     expect(report).toContain(terms.targetCompany);
@@ -129,14 +171,16 @@ describe('showReport', () => {
     const shape = missionShape(HYDRA);
     const terms = missionTerms(HYDRA);
 
-    expect(showReport(HYDRA, SECRET)).toBe(
+    expect(showReport(HYDRA, SECRET, undefined)).toBe(
       [
         `Contract ${HYDRA} at ${missionAddressForNumber(HYDRA)} (essid ${missionEssid(HYDRA)})`,
         `  Client:   ${terms.client.company} (${terms.client.handle}@emailit.io)`,
         `  Target:   ${terms.targetCompany}, ${shape.stem}-gw / ${shape.stem}-files`,
         `  Pay:      ${terms.pay} JSC`,
         '  Route:    hydra',
-        `  Forward:  :${shape.forward.publicPort} -> key box :${shape.forward.internalPort}`,
+        ...shape.forwards.map(
+          (forward) => `  Forward:  :${forward.publicPort} -> key box :${forward.internalPort}`,
+        ),
         '  Services:',
         '    (none beyond the route)',
         `  Key path: ${missionKeyPath(HYDRA)}`,
@@ -147,7 +191,7 @@ describe('showReport', () => {
 
   it('lists each service on the key box with its release and port', () => {
     const [service] = missionShape(MSFCONSOLE).keyBoxServices;
-    const lines = showReport(MSFCONSOLE, SECRET).split('\n');
+    const lines = showReport(MSFCONSOLE, SECRET, undefined).split('\n');
 
     expect(lines.slice(lines.indexOf('  Services:') + 1, -2)).toEqual([
       `    ${service!.service} (${service!.package} ${service!.version}) :${service!.port}`,
@@ -155,7 +199,9 @@ describe('showReport', () => {
   });
 
   it('prints a different key under a different secret, as the two deployments do', () => {
-    expect(showReport(HYDRA, 'secret-one')).not.toBe(showReport(HYDRA, 'secret-two'));
+    expect(showReport(HYDRA, 'secret-one', undefined)).not.toBe(
+      showReport(HYDRA, 'secret-two', undefined),
+    );
   });
 });
 

@@ -575,6 +575,7 @@ describe('enforceRemoteWriteL2 — a contract key box', () => {
   const noOccupant = () => Promise.resolve({ data: null, error: null });
   const MISSION_ESSID = 'mission-66051';
   const KEY_PATH = '/root/.config/vault/key';
+  const LEAK_PATH = '/var/www/html/notes.txt';
 
   const keyBoxMachineId = (): string => {
     const keyBox = generateHomeLan(MISSION_ESSID).hosts.find((host) => host.kind === 'machine');
@@ -582,8 +583,8 @@ describe('enforceRemoteWriteL2 — a contract key box', () => {
     return machineIdForLanHost(keyBox, MISSION_ESSID);
   };
 
-  const missionKeyPathOf = ({ essid, machine_id }: { essid: string; machine_id: string }) =>
-    essid === MISSION_ESSID && machine_id === keyBoxMachineId() ? KEY_PATH : null;
+  const missionFilePathsOf = ({ essid, machine_id }: { essid: string; machine_id: string }) =>
+    essid === MISSION_ESSID && machine_id === keyBoxMachineId() ? [KEY_PATH, LEAK_PATH] : [];
 
   it('lets a root remove the key the server laid in, so the removal can stick', async () => {
     const outcome = await enforceRemoteWriteL2({
@@ -592,10 +593,36 @@ describe('enforceRemoteWriteL2 — a contract key box', () => {
       session: { userType: 'root', essid: MISSION_ESSID },
       listMachinePatches: noPriorPatches,
       findOccupantWorkstationByMachineId: noOccupant,
-      missionKeyPathOf,
+      missionFilePathsOf,
     });
 
     expect(outcome.ok).toBe(true);
+  });
+
+  it('lets a root remove the forgotten file the server laid in, too', async () => {
+    const outcome = await enforceRemoteWriteL2({
+      machineId: keyBoxMachineId(),
+      path: LEAK_PATH,
+      session: { userType: 'root', essid: MISSION_ESSID },
+      listMachinePatches: noPriorPatches,
+      findOccupantWorkstationByMachineId: noOccupant,
+      missionFilePathsOf,
+    });
+
+    expect(outcome.ok).toBe(true);
+  });
+
+  it('denies a guest a write to the forgotten file', async () => {
+    const outcome = await enforceRemoteWriteL2({
+      machineId: keyBoxMachineId(),
+      path: LEAK_PATH,
+      session: { userType: 'guest', essid: MISSION_ESSID },
+      listMachinePatches: noPriorPatches,
+      findOccupantWorkstationByMachineId: noOccupant,
+      missionFilePathsOf,
+    });
+
+    expect(outcome).toEqual({ ok: false, status: 403, error: 'permission_denied' });
   });
 
   it('still denies a guest a write to the root-only key path', async () => {
@@ -605,7 +632,7 @@ describe('enforceRemoteWriteL2 — a contract key box', () => {
       session: { userType: 'guest', essid: MISSION_ESSID },
       listMachinePatches: noPriorPatches,
       findOccupantWorkstationByMachineId: noOccupant,
-      missionKeyPathOf,
+      missionFilePathsOf,
     });
 
     expect(outcome).toEqual({ ok: false, status: 403, error: 'permission_denied' });

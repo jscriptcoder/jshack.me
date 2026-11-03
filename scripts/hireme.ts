@@ -28,7 +28,8 @@
 //   npx dotenv -e .env.development.local -- npx tsx scripts/hireme.ts show 195.1.2.3
 //
 // In production the operator supplies production's SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY
-// (and MISSION_KEY_SECRET for `show`). The secret is never printed; only `show`'s derived key.
+// (and MISSION_KEY_SECRET and JSHACK_SECRETS for `show`). Neither is printed; only what `show`
+// derives from them: a contract's key and, on a leak route, its word.
 //
 // Exits 0 when done; 1 on a refusal (no mailbox, active contract, no active contract) or a
 // database error; 2 on a bad order, a 195 address that names no contract, or missing env.
@@ -194,7 +195,7 @@ const show = (address: string) => {
     console.error('Missing env: MISSION_KEY_SECRET');
     return process.exit(2);
   }
-  console.log(showReport(missionNumber, secret));
+  console.log(showReport(missionNumber, secret, process.env.JSHACK_SECRETS));
 };
 
 const main = async () => {

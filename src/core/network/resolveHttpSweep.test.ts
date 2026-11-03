@@ -24,6 +24,15 @@ import type { ListPathPatchesResult } from '../patches/upsertPatch.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import type { AppendLog, MachineLogAppend } from '../patches/appendMachineLog.js';
 import { BOARD_SERVER_NETWORK } from '../generation/fixedSites.js';
+import { DEFAULT_DIRLIST } from './defaultDirlist.js';
+import {
+  servedMissionFiles,
+  WEB_ROUTE_ADDRESS,
+  WEB_ROUTE_ESSID,
+  WEB_ROUTE_GATEWAY,
+  WEB_ROUTE_KEY_BOX,
+  WEB_ROUTE_LEAK_REQUEST,
+} from '../../test/factories/webRouteContract.js';
 
 /**
  * `handleResolveHttpSweep` is the path sweep pointed at another player. It answers the
@@ -152,6 +161,7 @@ type SweepOverrides = {
   listLeasesByEssid?: (
     essid: string,
   ) => Promise<{ data: readonly LanLeaseRow[] | null; error: unknown }>;
+  findMissionFiles?: ResolveHttpSweepDeps['findMissionFiles'];
 };
 
 /** Alice forwards :80 to her own box, which is serving. The reachable baseline every
@@ -179,6 +189,7 @@ const makeDeps = (over: SweepOverrides = {}) => {
     findPatches: over.patches ?? aliceServing(publishedPage('/index.html', 'hello')),
     listOccupantsByEssid: async () => ({ data: OCCUPANTS, error: null }),
     listLeasesByEssid: over.listLeasesByEssid ?? (async () => ({ data: LEASES, error: null })),
+    findMissionFiles: over.findMissionFiles ?? (async () => ({ data: [], error: null })),
     now: () => SWEEP_TIME,
     appendLog,
     findHomeNetworkByOwnerKey: async () => ({ data: { public_ip: BOB_PUBLIC_IP }, error: null }),
@@ -206,6 +217,39 @@ const appendedLines = (appendLog: { mock: { calls: readonly (readonly MachineLog
 
 const logLine = (path: string, status: number, size: number, sourceIp = BOB_PUBLIC_IP): string =>
   formatAccessLogLine({ time: asGameTime(SWEEP_TIME), sourceIp, path, status, size });
+
+describe('a default sweep of a contract network', () => {
+  const sweepingContract = () =>
+    makeDeps({
+      lookup: async () => ({
+        data: { router_machine_id: WEB_ROUTE_GATEWAY, essid: WEB_ROUTE_ESSID },
+        error: null,
+      }),
+      patches: patchesByMachine({}),
+      findMissionFiles: servedMissionFiles,
+      listPathPatches: async () => ({ data: [dirlistRow(DEFAULT_DIRLIST)], error: null }),
+    });
+
+  it('finds the forgotten file, and only what the box publishes', async () => {
+    const { deps } = sweepingContract();
+
+    const response = await handleResolveHttpSweep(envelope({ target: WEB_ROUTE_ADDRESS }), deps);
+    const results = response.body['results'] as readonly { path: string; status: number }[];
+    const found = results.filter((result) => result.status === 200).map((result) => result.path);
+
+    expect(response.status).toBe(200);
+    expect(new Set(found)).toEqual(new Set(['/index.html', WEB_ROUTE_LEAK_REQUEST]));
+  });
+
+  it('writes the whole run on the key box as one append', async () => {
+    const { deps, appendLog } = sweepingContract();
+
+    await handleResolveHttpSweep(envelope({ target: WEB_ROUTE_ADDRESS }), deps);
+
+    expect(appendLog).toHaveBeenCalledTimes(1);
+    expect(appendLog.mock.calls[0]?.[0]).toMatchObject({ machine_id: WEB_ROUTE_KEY_BOX });
+  });
+});
 
 describe('a stranger sweeps a box for paths nobody linked', () => {
   it('reports what each word found, and the size of what came back', async () => {

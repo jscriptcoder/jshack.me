@@ -33,6 +33,16 @@ import { chainLinks } from '../generation/lanTopology.js';
 import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
 import { computeApGatewayId } from '../identity/router.js';
 import { withForgedSignature } from '../../test/factories/signedEnvelope.js';
+import {
+  missionFilesWithNoPools,
+  servedMissionFiles,
+  WEB_ROUTE_ESSID,
+  WEB_ROUTE_KEY_BOX,
+  WEB_ROUTE_KEY_BOX_IP,
+  WEB_ROUTE_LEAK_PATH,
+  WEB_ROUTE_LEAK_REQUEST,
+  WEB_ROUTE_WORD,
+} from '../../test/factories/webRouteContract.js';
 
 /**
  * `handleResolveOccupantFetch` serves a page off a FELLOW OCCUPANT's box to a caller on
@@ -189,6 +199,7 @@ const makeDeps = ({ aliceJournal = aliceServing(), ...over }: Overrides = {}) =>
       error: null,
     }),
     findWorkstationLease: async () => ({ data: null, error: null }),
+    findMissionFiles: async () => ({ data: [], error: null }),
     ...over,
     findPatches,
     listOccupantsByEssid,
@@ -600,6 +611,74 @@ describe('a caller in a shell on the box they fetch', () => {
       ),
     ).toEqual(REFUSED);
     expect(appendLog).not.toHaveBeenCalled();
+  });
+});
+
+describe('a shell on a contract key box asks its own web server', () => {
+  const shellOnKeyBox = (journal: readonly OwnerPatchRow[] = []) =>
+    makeDeps({
+      findActiveSession: async () => ({
+        data: { username: 'guest', userType: 'guest', essid: WEB_ROUTE_ESSID },
+        error: null,
+      }),
+      findMissionFiles: servedMissionFiles,
+      findPatches: async () => ({ data: journal, error: null }),
+    });
+  const overLoopback = (path: string) =>
+    envelope({
+      essid: WEB_ROUTE_ESSID,
+      target: LOOPBACK_IPV4,
+      path,
+      caller_machine_id: WEB_ROUTE_KEY_BOX,
+    });
+
+  it('is served the forgotten file a guest cannot read off the disk', async () => {
+    const { deps } = shellOnKeyBox();
+
+    const response = await handleResolveOccupantFetch(
+      await overLoopback(WEB_ROUTE_LEAK_REQUEST),
+      deps,
+    );
+
+    expect(response.status).toBe(200);
+    // Through a boolean: a failing `toContain` would print the word.
+    expect(String(response.body['content']).includes(WEB_ROUTE_WORD)).toBe(true);
+  });
+
+  it('gets a 404 once a root has removed it', async () => {
+    const { deps } = shellOnKeyBox([
+      journalRow({ path: WEB_ROUTE_LEAK_PATH, content: null, nodeType: null }),
+    ]);
+
+    expect(
+      await handleResolveOccupantFetch(await overLoopback(WEB_ROUTE_LEAK_REQUEST), deps),
+    ).toEqual({ status: 404, body: { error: 'not_found' } });
+  });
+
+  it('answers 500 when the deployment holds no pools', async () => {
+    const { deps } = makeDeps({
+      findActiveSession: shellOnKeyBox().deps.findActiveSession,
+      findMissionFiles: missionFilesWithNoPools,
+    });
+
+    expect(
+      await handleResolveOccupantFetch(await overLoopback(WEB_ROUTE_LEAK_REQUEST), deps),
+    ).toEqual({ status: 500, body: { error: 'mission_secret_missing' } });
+  });
+
+  it('reaches the same file from the gateway, across the contract LAN', async () => {
+    const { deps } = shellOnKeyBox();
+    const fromGateway = envelope({
+      essid: WEB_ROUTE_ESSID,
+      target: WEB_ROUTE_KEY_BOX_IP,
+      path: WEB_ROUTE_LEAK_REQUEST,
+      caller_machine_id: computeApGatewayId(WEB_ROUTE_ESSID),
+    });
+
+    const response = await handleResolveOccupantFetch(await fromGateway, deps);
+
+    expect(response.status).toBe(200);
+    expect(String(response.body['content']).includes(WEB_ROUTE_WORD)).toBe(true);
   });
 });
 

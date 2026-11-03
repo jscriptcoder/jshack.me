@@ -11,6 +11,7 @@ import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js'
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
 import { canBoot } from '../boot/bootFiles.js';
 import { materializeMachineFs, type OwnerPatchRow } from './materializeMachineFs.js';
+import { withMissionFiles, type FindMissionFiles } from './missionBoxFiles.js';
 import type { Directory } from '../filesystem/types.js';
 
 export type FindMachinePatches = (query: {
@@ -19,7 +20,7 @@ export type FindMachinePatches = (query: {
 
 /** What stands at the address: a running box with its journal replayed, `absent` when no
  *  generated machine is there or the one there cannot boot, or `error` when its journal
- *  could not be read. */
+ *  could not be read or the server could not make the files it lays on it. */
 export type GeneratedLanBox =
   | {
       readonly kind: 'up';
@@ -28,19 +29,27 @@ export type GeneratedLanBox =
       readonly fs: Directory;
     }
   | { readonly kind: 'absent' }
-  | { readonly kind: 'error' };
+  | { readonly kind: 'error'; readonly cause: 'patches' | 'mission_files' };
 
+/** A caller that reads what the box holds passes `findMissionFiles`, and one asking only
+ *  whether the box is up leaves it out. */
 export const generatedLanBox = async (
   findPatches: FindMachinePatches,
   essid: string,
   ip: string,
+  findMissionFiles?: FindMissionFiles,
 ): Promise<GeneratedLanBox> => {
   const host = generateHomeLan(essid).hosts.find((candidate) => candidate.ip === ip);
   if (host === undefined) return { kind: 'absent' };
   const { machineId, baseFs } = resolveLanHostIdentity(host, essid);
+  const laidFs =
+    findMissionFiles === undefined
+      ? baseFs
+      : await withMissionFiles(findMissionFiles, { essid, machineId, baseFs });
+  if (laidFs === null) return { kind: 'error', cause: 'mission_files' };
   const patches = await findPatches({ machine_id: machineId });
-  if (patches.error) return { kind: 'error' };
-  const fs = materializeMachineFs(baseFs, patches.data);
+  if (patches.error) return { kind: 'error', cause: 'patches' };
+  const fs = materializeMachineFs(laidFs, patches.data);
   // A bricked box cannot come up, so the forward reaches a dead host — whatever its
   // document root still holds.
   return canBoot(fs).ok ? { kind: 'up', host, machineId, fs } : { kind: 'absent' };

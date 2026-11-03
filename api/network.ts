@@ -69,12 +69,7 @@ import {
 } from '../src/core/hireme/boards.js';
 import type { ActiveContract } from '../src/core/missions/contractsList.js';
 import { BOARD_FIRST_OCTET } from '../src/core/generation/world.js';
-import { missionKeyBoxNumber } from '../src/core/generation/lanHostIdentity.js';
-import {
-  missionKey,
-  missionKeyPath,
-  requireMissionSecret,
-} from '../src/core/missions/missionSecret.js';
+import { missionFilesForBox } from '../src/core/missions/missionLeak.js';
 import { randomInt, randomUUID } from 'node:crypto';
 
 // Vercel adapter for POST /api/network — joining an AP, and reaching what is on it.
@@ -153,7 +148,17 @@ const networkByPublicIpVia = (spec: QuerySpec) =>
  * a fetch and a path sweep must resolve the same box from the same journal in the same
  * order, or the two would disagree about what is even there.
  */
+// The files only the server can write onto a contract's key box, made here from the
+// server-only secrets (no table to read). Every other box is left as generated. With a secret
+// that box needs unset, the box is unavailable rather than carrying a guessable file.
+const findMissionFiles = (query: { readonly essid: string; readonly machine_id: string }) =>
+  missionFilesForBox(query, {
+    keySecret: process.env.MISSION_KEY_SECRET,
+    rawSecrets: process.env.JSHACK_SECRETS,
+  });
+
 const webTargetDepsVia = ({ supabase, label }: QuerySpec): WebTargetDeps => ({
+  findMissionFiles,
   findNetworkByPublicIp: networkByPublicIpVia({ supabase, label: `${label} board lookup` }),
   // Per-machine journal: the gateway's (boot state + the live forward table), then the
   // reached box's (its running services and the pages themselves).
@@ -959,6 +964,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findPatches,
       listOccupantsByEssid,
       listLeasesByEssid,
+      findMissionFiles,
       appendLog: appendLogVia({ supabase, label: 'occupant-fetch access-log' }),
       findActiveSession: findActiveSessionVia({ supabase, label: 'occupant-fetch active-session' }),
       findHomeVantage: findHomeVantageVia({ supabase, label: 'occupant-fetch vantage' }),
@@ -984,6 +990,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findPatches,
       listOccupantsByEssid,
       listLeasesByEssid,
+      findMissionFiles,
       appendLog: appendLogVia({ supabase, label: 'occupant-sweep access-log' }),
       findActiveSession: findActiveSessionVia({ supabase, label: 'occupant-sweep active-session' }),
       findHomeVantage: findHomeVantageVia({ supabase, label: 'occupant-sweep vantage' }),
@@ -1168,30 +1175,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (error) console.error('[network] contracts lookup error:', error);
       return { data: data as readonly ActiveContract[] | null, error };
     };
-    // A contract's key, derived here from the server-only secret (no table to read) and
-    // handed to the handler to lay onto the key box. Only the one machine behind a contract
-    // gateway is a key box; everything else is left as generated. With no secret set, the
-    // box is unavailable rather than carrying a guessable key.
-    const findMissionKeyFile = async ({
-      essid,
-      machine_id,
-    }: {
-      essid: string;
-      machine_id: string;
-    }) => {
-      const missionNumber = missionKeyBoxNumber(essid, machine_id);
-      if (missionNumber === null) return { data: null, error: null };
-      let secret: string;
-      try {
-        secret = requireMissionSecret(process.env.MISSION_KEY_SECRET);
-      } catch {
-        return { data: null, error: 'mission_secret_missing' as const };
-      }
-      return {
-        data: { path: missionKeyPath(missionNumber), content: `${missionKey(missionNumber, secret)}\n` },
-        error: null,
-      };
-    };
     const { status, body } = await handleResolveCrossPlayerFs(req.body, {
       nonceStore: noopNonceStore,
       findOccupantWorkstationByMachineId,
@@ -1201,7 +1184,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findMailSpool,
       findBoards,
       findContracts,
-      findMissionKeyFile,
+      findMissionFiles,
     });
     res.status(status).json(body);
     return;

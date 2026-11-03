@@ -8,20 +8,22 @@
  * box carries exactly what the contract's shape says and nothing else: its three accounts,
  * its running services, and its pinned manifest.
  *
- * It does NOT hold the key. The key and its path are the server's secret; the server lays
- * the file into this tree before the journal is replayed, the way the boards' server's
- * list is laid in. This is the box as it generates, which both the client (computing the
- * LAN on a hop) and the server (building the box to read) agree on byte for byte.
+ * It does NOT hold the key, or on a leak route the forgotten file. Those and their paths are
+ * the server's; the server lays them into this tree before the journal is replayed, the way
+ * the boards' server's list is laid in. This is the box as it generates, which both the
+ * client (computing the LAN on a hop) and the server (building the box to read) agree on byte
+ * for byte.
  *
  * The accounts:
- *   - `root`, whose hash the shape draws — crackable on the hydra route (the way in),
- *     uncrackable on the msfconsole route (where the service hole is the way in);
+ *   - `root`, whose hash the shape draws — crackable on the hydra route (the way in), one a
+ *     file gives away on the web route, and uncrackable on the msfconsole route (where the
+ *     service hole is the way in);
  *   - an NPC user and `guest` at the world's own odds — shells to look around in that
  *     cannot read the root-only key, which is the point of their being here.
  *
  * The services: sshd always (so the box answers a login once a route lands it, and so the
- * hydra route's forward reaches a real sshd), plus, on the msfconsole route, the one
- * exposed service the shape put on a critical release.
+ * hydra and web routes' forwards reach a real sshd), plus the one exposed service the shape
+ * puts on the msfconsole route, on a critical release, and on the web route, on a safe one.
  */
 
 import {
@@ -105,7 +107,7 @@ export const buildMissionKeyBoxFs = (missionNumber: number): Directory => {
     },
   ]);
 
-  // sshd always runs; the route's exposed service runs too on the msfconsole route.
+  // sshd always runs; the route's exposed service runs too on the msfconsole and web routes.
   const runningServices: readonly MissionService[] = shape.keyBoxServices;
   const toolchain = runningServices.flatMap(({ service, program }) =>
     binariesForService({ service, daemon: program }),

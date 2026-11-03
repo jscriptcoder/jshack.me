@@ -1,18 +1,22 @@
 /**
  * A contract network's shape, a pure function of its number — the one place that decides,
  * for the gateway and the key box, their names, the one guaranteed way in, the versions
- * every package sits on, and the gateway's forward. It ships in the bundle: none of it is
+ * every package sits on, and the gateway's forwards. It ships in the bundle: none of it is
  * secret (the key and its path are the server's, not here), and a player holding the
  * address can work the same shape out, which is what lets every hop command compute the
  * LAN locally the way it does for any network.
  *
- * Two ways in, drawn one per contract:
+ * Three ways in, drawn one per contract:
  *  - `hydra`: the key box's `root` has a crackable password, its sshd reached through the
  *    gateway's forward. No release hole is the way in, so sshd sits on a safe release like
  *    everything else.
  *  - `msfconsole`: one exposed service on the key box sits on a release whose hole is
  *    `critical` and published on or before `MISSION_ROUTE_DAY`, reached through the
  *    forward. The hole is the way in.
+ *  - `web`: the key box's document root holds a forgotten file with `root`'s password in it,
+ *    which the server lays in. A sweep through the forward to `:80` finds it, and the word
+ *    logs in through the forward to `:2222`. The web server cannot log anybody in, so this
+ *    route needs both, and it sits on a safe release: the file is the way in.
  *
  * Everything that is NOT the way in sits on a release whose hole grants a guest shell at
  * most (`low` or `medium`): the gateway's firmware (so the gateway is passed through, not
@@ -30,13 +34,25 @@ import { packageTimeline } from '../cve/packageTimeline.js';
 import { SYSTEM_LIBRARIES } from '../generation/libraries.js';
 import { drawPasswordHash, CRACK_CHANCE, UNCRACKABLE_HASHES } from '../generation/passwordPools.js';
 import { FIRMWARE_VENDORS, firmwarePackageOf } from '../packages/packageVersions.js';
+import { LEAKABLE_HASHES, SHUT_HASHES } from './leakablePool.js';
 import { TARGET_STEMS } from './pools.js';
 
 /** The game day a route's hole must have published on or before: the day slice 1 ships.
  *  Fixed, never the live clock — moving it changes every existing contract's network. */
 export const MISSION_ROUTE_DAY = 111;
 
-export type MissionRoute = 'hydra' | 'msfconsole';
+/** Each route equally likely. Adding one re-rolls every contract's route, though never
+ *  its address, key or key path. */
+const ROUTES = ['hydra', 'msfconsole', 'web'] as const;
+
+export type MissionRoute = (typeof ROUTES)[number];
+
+/** One forward on the gateway: the public port it answers on, and the port it reaches on
+ *  the key box. */
+export type MissionForward = {
+  readonly publicPort: number;
+  readonly internalPort: number;
+};
 
 /** One service the key box runs: what it is, the program behind it, the port it listens
  *  on, and the release it sits on. */
@@ -53,24 +69,25 @@ export type MissionShape = {
   readonly stem: string;
   readonly keyBoxOctet: number;
   readonly route: MissionRoute;
-  /** The key box's `root` password hash: crackable on the hydra route, uncrackable
-   *  otherwise. */
+  /** The key box's `root` password hash: crackable on the hydra route, one a file can
+   *  leak on the web route, and one that stays shut on the msfconsole route. */
   readonly keyBoxRootHash: string;
-  /** The gateway's `root` ("admin") password hash — always uncrackable, so the gateway is
-   *  a box the route passes through rather than one to break into. */
+  /** The gateway's `root` ("admin") password hash — always uncrackable and never one a
+   *  file can leak, so the gateway is a box the route passes through rather than one to
+   *  break into. */
   readonly gatewayAdminHash: string;
   /** Versions to pin on the gateway, package to version. Every firmware vendor is pinned
    *  safe, so whichever the gateway builder draws sits on a guest-at-most release. */
   readonly gatewayVersions: Readonly<Record<string, string>>;
-  /** The services the key box runs: the route's service (on the msfconsole route) and any
-   *  decoys, each already on its chosen release. */
+  /** The services the key box runs: the route's service (on the msfconsole and web routes)
+   *  and any decoys, each already on its chosen release. */
   readonly keyBoxServices: readonly MissionService[];
   /** Versions to pin on the key box, package to version — every service it runs and every
    *  library it carries. */
   readonly keyBoxVersions: Readonly<Record<string, string>>;
-  /** The gateway's one forward: the public port it answers on, and the port it reaches on
-   *  the key box. */
-  readonly forward: { readonly publicPort: number; readonly internalPort: number };
+  /** The gateway's forwards onto the key box: one on a route with one door, and on a leak
+   *  route the door holding the file followed by `:2222`. */
+  readonly forwards: readonly MissionForward[];
 };
 
 /** A service that can be the msfconsole route: an exposed daemon with a `critical` release
@@ -82,10 +99,20 @@ type RouteCandidate = {
   readonly port: number;
 };
 
+const WEB_SERVER: RouteCandidate = {
+  service: 'http',
+  package: 'nginx',
+  program: 'nginx',
+  port: 80,
+};
+
 const MSFCONSOLE_ROUTE_CANDIDATES: readonly RouteCandidate[] = [
-  { service: 'http', package: 'nginx', program: 'nginx', port: 80 },
+  WEB_SERVER,
   { service: 'ftp', package: 'vsftpd', program: 'vsftpd', port: 21 },
 ];
+
+/** The forward a word logs in through: the public :2222 onto the key box's own sshd. */
+const SSH_FORWARD: MissionForward = { publicPort: 2222, internalPort: 22 };
 
 /** The versions of `key`'s releases whose hole grants a guest shell at most. */
 const safeVersions = (key: string): readonly string[] =>
@@ -149,7 +176,7 @@ export const missionShape = (missionNumber: number): MissionShape => {
   const prng = createPrng(`mission-shape-${missionNumber}`);
   const stem = prng.pick(TARGET_STEMS);
   const keyBoxOctet = prng.nextInt(2, 254);
-  const route: MissionRoute = prng.next() < 0.5 ? 'hydra' : 'msfconsole';
+  const route = prng.pick(ROUTES);
 
   // Versions and decoys on their own streams, so adding either never shifts the topology.
   const versionPrng = createPrng(`mission-versions-${missionNumber}`);
@@ -161,7 +188,8 @@ export const missionShape = (missionNumber: number): MissionShape => {
   };
 
   const keyBoxServices: MissionService[] = [];
-  let forward: { publicPort: number; internalPort: number };
+  let forwards: readonly MissionForward[];
+  let keyBoxRootHash: string;
 
   if (route === 'msfconsole') {
     const candidate = versionPrng.pick(MSFCONSOLE_ROUTE_CANDIDATES);
@@ -169,17 +197,20 @@ export const missionShape = (missionNumber: number): MissionShape => {
     if (version === undefined) throw new Error(`no route release for ${candidate.package}`);
     keyBoxServices.push({ ...candidate, version });
     keyBoxVersions[candidate.package] = version;
-    forward = { publicPort: candidate.port, internalPort: candidate.port };
+    forwards = [{ publicPort: candidate.port, internalPort: candidate.port }];
+    keyBoxRootHash = versionPrng.pick(SHUT_HASHES);
+  } else if (route === 'web') {
+    const version = safeVersionOf(WEB_SERVER.package, versionPrng);
+    keyBoxServices.push({ ...WEB_SERVER, version });
+    keyBoxVersions[WEB_SERVER.package] = version;
+    forwards = [{ publicPort: WEB_SERVER.port, internalPort: WEB_SERVER.port }, SSH_FORWARD];
+    keyBoxRootHash = versionPrng.pick(LEAKABLE_HASHES);
   } else {
-    // The hydra route reaches the key box's own sshd through the forward.
-    forward = { publicPort: 2222, internalPort: 22 };
+    forwards = [SSH_FORWARD];
+    keyBoxRootHash = crackableHash(versionPrng);
   }
 
-  // The hydra route insists on a crackable root; the msfconsole route wants one that
-  // stays shut, so the only way onto the box is the service hole.
-  const keyBoxRootHash =
-    route === 'hydra' ? crackableHash(versionPrng) : versionPrng.pick(UNCRACKABLE_HASHES);
-  const gatewayAdminHash = versionPrng.pick(UNCRACKABLE_HASHES);
+  const gatewayAdminHash = versionPrng.pick(SHUT_HASHES);
 
   return {
     missionNumber,
@@ -191,6 +222,6 @@ export const missionShape = (missionNumber: number): MissionShape => {
     gatewayVersions,
     keyBoxServices,
     keyBoxVersions,
-    forward,
+    forwards,
   };
 };

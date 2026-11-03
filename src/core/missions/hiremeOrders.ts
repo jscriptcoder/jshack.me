@@ -16,6 +16,7 @@
 
 import { missionShape } from './missionShape.js';
 import { EMAILIT_DOMAIN } from '../generation/fixedSites.js';
+import { missionLeakPath, missionLeakWord } from './missionLeak.js';
 import { missionKey, missionKeyPath } from './missionSecret.js';
 import { missionAddressForNumber, missionEssid } from './missionNetwork.js';
 import { missionTerms } from './missionTerms.js';
@@ -64,11 +65,24 @@ const serviceLine = (service: {
   readonly port: number;
 }): string => `    ${service.service} (${service.package} ${service.version}) :${service.port}`;
 
+/** The lines `show` adds on a route that leaks a word. Reading the word needs the pools, so
+ *  the report says when they are missing rather than failing the whole of `show`. */
+const leakLines = (missionNumber: number, rawSecrets: string | undefined): readonly string[] => {
+  const path = missionLeakPath(missionNumber);
+  if (path === null) return [];
+  const word = rawSecrets === undefined ? undefined : missionLeakWord(missionNumber, rawSecrets);
+  return [`  Leak:     ${path}`, `  Word:     ${word ?? '(JSHACK_SECRETS is not set)'}`];
+};
+
 /** The multi-line report `show <address>` prints for a contract number: the address and
- *  essid it answers at, the one guaranteed route, the gateway's forward, the key box's
- *  services, and — the operator-only half — the key and the path it sits at, both derived
- *  from the deployment secret. */
-export const showReport = (missionNumber: number, secret: string): string => {
+ *  essid it answers at, the one guaranteed route, the gateway's forwards, the key box's
+ *  services, and — the operator-only half — the key and the path it sits at, and on a leak
+ *  route the file and the word in it, all derived from the deployment's secrets. */
+export const showReport = (
+  missionNumber: number,
+  secret: string,
+  rawSecrets: string | undefined,
+): string => {
   const shape = missionShape(missionNumber);
   const terms = missionTerms(missionNumber);
   const address = missionAddressForNumber(missionNumber);
@@ -82,11 +96,14 @@ export const showReport = (missionNumber: number, secret: string): string => {
     `  Target:   ${terms.targetCompany}, ${shape.stem}-gw / ${shape.stem}-files`,
     `  Pay:      ${terms.pay} JSC`,
     `  Route:    ${shape.route}`,
-    `  Forward:  :${shape.forward.publicPort} -> key box :${shape.forward.internalPort}`,
+    ...shape.forwards.map(
+      (forward) => `  Forward:  :${forward.publicPort} -> key box :${forward.internalPort}`,
+    ),
     `  Services:`,
     services,
     `  Key path: ${missionKeyPath(missionNumber)}`,
     `  Key:      ${missionKey(missionNumber, secret)}`,
+    ...leakLines(missionNumber, rawSecrets),
   ].join('\n');
 };
 

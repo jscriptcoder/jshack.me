@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildMissionKeyBoxFs } from './missionKeyBoxFs.js';
-import { missionShape, MISSION_ROUTE_DAY } from '../missions/missionShape.js';
+import { missionShape, MISSION_ROUTE_DAY, type MissionRoute } from '../missions/missionShape.js';
 import { readOpenPorts } from '../services/pidfile.js';
 import { parseDpkgVersions } from '../packages/dpkgStatus.js';
 import { liveCve } from '../cve/liveCve.js';
@@ -8,7 +8,7 @@ import { UNCRACKABLE_HASHES } from './passwordPools.js';
 import type { Directory, FileNode } from '../filesystem/types.js';
 
 /** The first sampled contract number whose route is `route`. */
-const numberWithRoute = (route: 'hydra' | 'msfconsole'): number => {
+const numberWithRoute = (route: MissionRoute): number => {
   for (let missionNumber = 2; missionNumber < 5000; missionNumber += 1) {
     if (missionShape(missionNumber).route === route) return missionNumber;
   }
@@ -17,6 +17,7 @@ const numberWithRoute = (route: 'hydra' | 'msfconsole'): number => {
 
 const HYDRA = numberWithRoute('hydra');
 const MSF = numberWithRoute('msfconsole');
+const WEB = numberWithRoute('web');
 
 const fileAt = (fs: Directory, segments: readonly string[]): string => {
   let node: FileNode = fs;
@@ -30,6 +31,11 @@ const fileAt = (fs: Directory, segments: readonly string[]): string => {
   return node.content;
 };
 
+const listTree = (directory: Directory, prefix = ''): readonly string[] =>
+  [...directory.entries].flatMap(([name, node]) =>
+    node.kind === 'directory' ? listTree(node, `${prefix}${name}/`) : [`${prefix}${name}`],
+  );
+
 describe('the key box of a contract network', () => {
   it('carries the three accounts, with root as the shape draws it', () => {
     const passwd = fileAt(buildMissionKeyBoxFs(HYDRA), ['etc', 'passwd']);
@@ -39,6 +45,16 @@ describe('the key box of a contract network', () => {
     // An NPC user and guest sit below root, shells that cannot read the root-only key.
     expect(passwd).toMatch(/:1000:1000:/);
     expect(passwd).toMatch(/^guest:[^:]*:1001:1001:/m);
+  });
+
+  it('runs a web server and sshd on the web route, and holds no leak of its own', () => {
+    const box = buildMissionKeyBoxFs(WEB);
+
+    expect(readOpenPorts(box).map((port) => port.service).sort()).toEqual(['http', 'ssh']);
+    // The file is the server's to lay in: what the client computes must not hold it.
+    expect(fileAt(box, ['var', 'www', 'html', 'index.html'])).toContain('It works!');
+    const published = listTree(box).filter((path) => path.startsWith('var/www/html/'));
+    expect(published).toEqual(['var/www/html/index.html']);
   });
 
   it('answers its own sshd, the hydra route reached through the forward', () => {

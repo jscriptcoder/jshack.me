@@ -48,7 +48,7 @@ import { BOARD_SERVER_NETWORK, EMAILIT_NETWORK } from '../generation/fixedSites.
 import { withMailSpool, type SpoolAccount } from '../emailit/spool.js';
 import { withBoardsList, type Board } from '../hireme/boards.js';
 import { withContractsList, type ActiveContract } from '../missions/contractsList.js';
-import { file, withFiles, ROOT_FILE } from '../generation/baseFs.js';
+import { withMissionFiles, type FindMissionFiles } from './missionBoxFiles.js';
 import { filterTreeForSession, filterTreeToAllowlist } from '../patches/readFilter.js';
 import { serializeTree } from '../filesystem/treeCodec.js';
 import type { Directory } from '../filesystem/types.js';
@@ -66,12 +66,6 @@ export type ActiveSession = { readonly userType: UserType; readonly essid: strin
 type SessionQuery = { readonly player_key: string; readonly machine_id: string };
 
 type Lookup<Value> = { readonly data: Value | null; readonly error: unknown };
-
-/** The key file the server lays onto a contract's key box: where it sits, and the key
- *  itself. Both come from the server-only secret — never from the box's public shape — so
- *  the handler is handed the finished file rather than deriving it, keeping the derivation
- *  and its pool out of the bundle this handler also ships in. */
-export type MissionKeyFile = { readonly path: string; readonly content: string };
 
 export type ResolveCrossPlayerFsDeps = {
   readonly nonceStore: NonceStore;
@@ -102,16 +96,12 @@ export type ResolveCrossPlayerFsDeps = {
   /** Every accepted job, with the handle working it. Asked only for a root session on the
    *  boards' server. */
   readonly findContracts: () => Promise<Lookup<readonly ActiveContract[]>>;
-  /** The key file for a contract's key box, or `data: null` when the target is no key box
-   *  (an ordinary network box, or the contract's gateway). A contract box with no
-   *  deployment secret set returns `error: 'mission_secret_missing'`, which the handler
-   *  answers 500: there is no default key. Asked of any box the network makes, at every
-   *  tier, because keeping the key off the wire below root is the read filter's job, not
-   *  this lookup's. */
-  readonly findMissionKeyFile: (query: {
-    readonly essid: string;
-    readonly machine_id: string;
-  }) => Promise<Lookup<MissionKeyFile>>;
+  /** The files the server lays onto a contract's key box, and none for any other box. A
+   *  contract box with a deployment secret unset returns `error: 'mission_secret_missing'`,
+   *  which the handler answers 500: there is no default key or word. Asked of any box the
+   *  network makes, at every tier, because keeping them off the wire below root is the read
+   *  filter's job, not this lookup's. */
+  readonly findMissionFiles: FindMissionFiles;
 };
 
 const EMAILIT_MACHINE = computeApGatewayId(EMAILIT_NETWORK);
@@ -142,15 +132,14 @@ const networkBoxBaseFs = async (
   const essid = network.data;
   const baseTree = networkBaseFsForMachineId(essid, caller.machine_id);
   if (baseTree === null) return { data: null, error: null };
-  // A contract's key box is handed its key here, before the journal replays over it, so a
-  // root's `rm` of the key sticks for the next reader. Any other box — the contract's own
-  // gateway, or a box on an ordinary network — gets `data: null` and is left as generated.
-  const keyFile = await deps.findMissionKeyFile({ essid, machine_id: caller.machine_id });
-  if (keyFile.error) return { data: null, error: keyFile.error };
-  const tree =
-    keyFile.data === null
-      ? baseTree
-      : withFiles(baseTree, [[keyFile.data.path, file(keyFile.data.content, ROOT_FILE)]]);
+  // A contract's key box is handed its files here, before the journal replays over it, so
+  // a root's `rm` of one sticks for the next reader.
+  const tree = await withMissionFiles(deps.findMissionFiles, {
+    essid,
+    machineId: caller.machine_id,
+    baseFs: baseTree,
+  });
+  if (tree === null) return { data: null, error: 'mission_secret_missing' };
   return { data: tree, error: null };
 };
 
