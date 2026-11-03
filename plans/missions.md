@@ -1,13 +1,11 @@
 # Plan: missions
 
-**Status:** Slices 1 and 2 shipped and deployed. Slice 1 is v0.438.0, PR #746, merged
-2026-11-01. Slice 2 is v0.439.0, PR #747, merged 2026-11-03. Slice 2's migration
-(`20261102000000_hireme_contracts.sql`) is on `jshack-dev` and `jshack-prod`, and no account on
-either holds a client handle. Slice 3 (the client pays: the key mailed to the client's handle,
-the reply, the mint) is v0.440.0, PR #748, in review; its migration
-(`20261103000000_hireme_completion.sql`) is on `jshack-dev` and `jshack-prod`. **Next: slice 4,
-planned below** (the root view: `/etc/hireme/contracts`), on `feat/missions-root-view`, branched
-once #748 has merged.
+**Status:** Slices 1, 2 and 3 shipped and deployed. Slice 1 is v0.438.0, PR #746, merged
+2026-11-01. Slice 2 is v0.439.0, PR #747, merged 2026-11-03. Slice 3 is v0.440.0, PR #748, merged
+2026-11-03. Slice 2's migration (`20261102000000_hireme_contracts.sql`) and slice 3's
+(`20261103000000_hireme_completion.sql`) are on `jshack-dev` and `jshack-prod`, and no account on
+either holds a client handle. **Next: slice 4, planned below** (the root view:
+`/etc/hireme/contracts`), on `feat/missions-root-view`.
 
 Missions are the one legacy system v2 has not rebuilt. The groundwork is built: wallets and the
 operator mint, emailit.io, the hireme.io contractor boards (every board saying no work is
@@ -880,6 +878,13 @@ mission's address keeps answering.
 - **Ops, before the merge**: the migration on `jshack-dev` and `jshack-prod` (link, push, unlink
   per project; the owner runs the prod push). No new env: `MISSION_KEY_SECRET` is set on both.
 - No browser run: the epic's close-out run covers it.
+- **As built (2026-11-03)**: unit suite 331 files and 10,048 tests; wire-checks
+  `testMissionPay` 15/15 (new), `testMailSend` 23/23, `testMailRead` 15/15, `testMailPasswd`
+  12/12, `testMissionBoard` 19/19, `testMissions` 19/19, `testEmailitSignup` 18/18, `testHireme`
+  21/21. Mutation: `clientMail.ts` 143 killed, 5 survived, all equivalent; `missionTerms.ts` 74
+  killed, 0 survived; the 2 survivors in `handleResolveMail.ts`'s new lines are equivalent. Main
+  chunk unchanged at 297,685 B gz against a 298,175 B ceiling. Migration pushed to dev (by
+  Claude) and prod (by the owner).
 
 **Required skills:** `tdd`, `testing` and `functional` for the proof reader and the client's
 door; `refactoring` after each green, and for moving the send count, a preservation change held
