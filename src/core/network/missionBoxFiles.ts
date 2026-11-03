@@ -21,11 +21,13 @@ export const MISSION_FILES_MISSING = {
   body: { error: 'mission_secret_missing' },
 } as const;
 
-/** The base with its files laid on, or null when they could not be made. */
+/** The base with its files laid on, or null when they could not be made. A door that never
+ *  reads what those files hold has no `findMissionFiles` to pass, and gets the base back. */
 export const withMissionFiles = async (
-  findMissionFiles: FindMissionFiles,
+  findMissionFiles: FindMissionFiles | undefined,
   box: { readonly essid: string; readonly machineId: string; readonly baseFs: Directory },
 ): Promise<Directory | null> => {
+  if (findMissionFiles === undefined) return box.baseFs;
   const files = await findMissionFiles({ essid: box.essid, machine_id: box.machineId });
   if (files.error || files.data === null) return null;
   return withFiles(

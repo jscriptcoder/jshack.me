@@ -8,6 +8,17 @@ import { computeApGatewayId } from '../identity/router.js';
 import { DECLARED_NETWORKS, publicAddress } from '../generation/world.js';
 import { generateHomeLan } from '../generation/generateHomeLan.js';
 import { machineIdForLanHost } from '../generation/lanHostIdentity.js';
+import { databaseIn } from '../mysql/datadir.js';
+import type { Directory } from '../filesystem/types.js';
+import {
+  DATABASE_ROUTE_ADDRESS,
+  DATABASE_ROUTE_ESSID,
+  DATABASE_ROUTE_KEY_BOX,
+} from '../../test/factories/databaseRouteContract.js';
+import {
+  missionFilesWithNoPools,
+  servedMissionFiles,
+} from '../../test/factories/webRouteContract.js';
 
 /**
  * A public address leads to the network that stands at that place in the world, and to
@@ -57,5 +68,59 @@ describe('resolvePublicTarget', () => {
       essid: office.key,
       reachedPort: 22,
     });
+  });
+});
+
+describe('resolvePublicTarget through a forward onto a contract key box', () => {
+  const contractWorld: ResolvePublicTargetDeps = {
+    ...untouchedWorld,
+    findNetworkByPublicIp: async () => ({
+      data: {
+        router_machine_id: computeApGatewayId(DATABASE_ROUTE_ESSID),
+        essid: DATABASE_ROUTE_ESSID,
+      },
+      error: null,
+    }),
+  };
+
+  const reach = (deps: ResolvePublicTargetDeps) =>
+    resolvePublicTarget(deps, { publicIp: DATABASE_ROUTE_ADDRESS, port: 3306 });
+
+  const tablesIn = (fs: Directory | undefined): readonly string[] =>
+    fs === undefined ? [] : Object.keys(databaseIn(fs)?.tables ?? {});
+
+  it('lays the server files on for a door that reads them', async () => {
+    const result = await reach({ ...contractWorld, findMissionFiles: servedMissionFiles });
+
+    expect(result.ok && result.target.machineId).toBe(DATABASE_ROUTE_KEY_BOX);
+    expect(tablesIn(result.ok ? result.target.fs : undefined)).toContain('settings');
+  });
+
+  it('leaves the box as generated for a door that passes none', async () => {
+    const result = await reach(contractWorld);
+
+    expect(result.ok && result.target.machineId).toBe(DATABASE_ROUTE_KEY_BOX);
+    expect(tablesIn(result.ok ? result.target.fs : undefined)).not.toContain('settings');
+  });
+
+  it('answers that the files cannot be made when a secret the box needs is unset', async () => {
+    expect(await reach({ ...contractWorld, findMissionFiles: missionFilesWithNoPools })).toEqual({
+      ok: false,
+      status: 500,
+      error: 'mission_secret_missing',
+    });
+  });
+
+  it('still names a journal it could not read as a journal failure', async () => {
+    const result = await reach({
+      ...contractWorld,
+      findMissionFiles: servedMissionFiles,
+      findPatches: async ({ machine_id: machineId }) =>
+        machineId === DATABASE_ROUTE_KEY_BOX
+          ? { data: null, error: new Error('down') }
+          : { data: [], error: null },
+    });
+
+    expect(result).toEqual({ ok: false, status: 500, error: 'patches_lookup_failed' });
   });
 });

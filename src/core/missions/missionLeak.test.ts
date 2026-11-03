@@ -20,7 +20,9 @@ import { buildMissionKeyBoxFs } from '../generation/missionKeyBoxFs.js';
 import { withMissionFiles } from '../network/missionBoxFiles.js';
 import { createFsView } from '../filesystem/fsView.js';
 import { asAbsPath } from '../types.js';
-import { ROOT_FILE } from '../generation/baseFs.js';
+import { DATADIR_FILE, ROOT_FILE } from '../generation/baseFs.js';
+import { DATADIR_PATH, databaseIn } from '../mysql/datadir.js';
+import { parseMysqlDatabase } from '../mysql/types.js';
 import {
   COMMON_PASSWORDS,
   CRACKABLE_PASSWORDS,
@@ -149,6 +151,60 @@ describe('missionLeakFile', () => {
     }
   });
 
+  it('is the datadir on a database route, as root-only as the one it replaces', () => {
+    for (const missionNumber of numbersWithRoute('mysql')) {
+      const leak = missionLeakFile(missionNumber, RAW_SECRETS);
+
+      expect(missionLeakPath(missionNumber)).toBe(DATADIR_PATH);
+      expect(leak?.path).toBe(DATADIR_PATH);
+      expect(leak?.perms).toEqual(DATADIR_FILE);
+    }
+  });
+
+  it('adds only the settings table to the database the box generates', () => {
+    for (const missionNumber of numbersWithRoute('mysql')) {
+      const laid = parseMysqlDatabase(missionLeakFile(missionNumber, RAW_SECRETS)?.content ?? '');
+      const generated = databaseIn(buildMissionKeyBoxFs(missionNumber));
+      const { settings: _settings, ...others } = laid?.tables ?? {};
+
+      expect(laid?.name, `name of ${missionNumber}`).toBe(generated?.name);
+      expect(laid?.credentials, `accounts of ${missionNumber}`).toEqual(generated?.credentials);
+      expect(others, `tables of ${missionNumber}`).toEqual(generated?.tables);
+    }
+  });
+
+  it('holds the word of the box root in a settings row, and never names the account', () => {
+    for (const missionNumber of numbersWithRoute('mysql')) {
+      const word = plaintextFor(missionShape(missionNumber).keyBoxRootHash);
+      const laid = parseMysqlDatabase(missionLeakFile(missionNumber, RAW_SECRETS)?.content ?? '');
+      const settings = laid?.tables['settings'];
+
+      expect(settings?.columns).toEqual([
+        { name: 'name', type: 'VARCHAR', nullable: false, key: 'PRI' },
+        { name: 'value', type: 'VARCHAR', nullable: false },
+      ]);
+      expect(settings?.rows.map((row) => row['name'])).toEqual([
+        'site_mode',
+        'maintenance',
+        'admin_pass',
+      ]);
+      expect(settings?.rows[0]?.['value']).toBe('live');
+      expect(settings?.rows[1]?.['value']).toBe('0');
+      expect(settings?.rows[2]?.['value'] === word, `word of ${missionNumber}`).toBe(true);
+      expect(/root/i.test(JSON.stringify(settings)), `account in table of ${missionNumber}`).toBe(
+        false,
+      );
+    }
+  });
+
+  it('is the same database for the same number', () => {
+    const missionNumber = firstWithRoute('mysql');
+
+    expect(missionLeakFile(missionNumber, RAW_SECRETS)).toEqual(
+      missionLeakFile(missionNumber, RAW_SECRETS),
+    );
+  });
+
   it('does not exist on a route with no leak', () => {
     for (const route of ['hydra', 'msfconsole'] as const) {
       const missionNumber = firstWithRoute(route);
@@ -186,13 +242,14 @@ describe('missionFiles', () => {
     );
   });
 
-  it('fails closed on a web route when the pools are missing', () => {
-    const missionNumber = firstWithRoute('web');
-
-    expect(() =>
-      missionFiles(missionNumber, { keySecret: KEY_SECRET, rawSecrets: undefined }),
-    ).toThrow(MissionLeakUnavailableError);
-  });
+  it.each(['web', 'ftp', 'mysql'] as const)(
+    'fails closed on a %s route when the pools are missing',
+    (route) => {
+      expect(() =>
+        missionFiles(firstWithRoute(route), { keySecret: KEY_SECRET, rawSecrets: undefined }),
+      ).toThrow(MissionLeakUnavailableError);
+    },
+  );
 
   it('fails closed on any route when the key secret is missing', () => {
     expect(() =>
@@ -276,7 +333,7 @@ describe('missionFilesForBox', () => {
 
 describe('missionFilePaths', () => {
   it('names the same files the server lays in, from the number alone', () => {
-    for (const route of ['hydra', 'msfconsole', 'web', 'ftp'] as const) {
+    for (const route of ['hydra', 'msfconsole', 'web', 'ftp', 'mysql'] as const) {
       const missionNumber = firstWithRoute(route);
       const laid = missionFiles(missionNumber, { keySecret: KEY_SECRET, rawSecrets: RAW_SECRETS });
 
@@ -323,6 +380,14 @@ describe('who can read what the server lays onto a key box', () => {
 
     expect(readableBy(tree, 'guest', missionLeakPath(missionNumber) ?? '')).toBe(false);
     expect(readableBy(tree, 'root', missionLeakPath(missionNumber) ?? '')).toBe(true);
+  });
+
+  it('keeps the datadir from a guest on a database route, and opens it to root', async () => {
+    const missionNumber = firstWithRoute('mysql');
+    const tree = await laidBox(missionNumber);
+
+    expect(readableBy(tree, 'guest', DATADIR_PATH)).toBe(false);
+    expect(readableBy(tree, 'root', DATADIR_PATH)).toBe(true);
   });
 
   it('lets only root change the file in pub', () => {

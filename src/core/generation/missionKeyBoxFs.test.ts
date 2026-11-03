@@ -5,6 +5,8 @@ import { readOpenPorts } from '../services/pidfile.js';
 import { parseDpkgVersions } from '../packages/dpkgStatus.js';
 import { liveCve } from '../cve/liveCve.js';
 import { UNCRACKABLE_HASHES } from './passwordPools.js';
+import { MYSQL_USERNAMES } from './pools/database.js';
+import { databaseIn, DATADIR_OWNER } from '../mysql/datadir.js';
 import type { Directory, FileNode } from '../filesystem/types.js';
 
 /** The first sampled contract number whose route is `route`. */
@@ -19,6 +21,7 @@ const HYDRA = numberWithRoute('hydra');
 const MSF = numberWithRoute('msfconsole');
 const WEB = numberWithRoute('web');
 const FTP = numberWithRoute('ftp');
+const MYSQL = numberWithRoute('mysql');
 
 const fileAt = (fs: Directory, segments: readonly string[]): string => {
   let node: FileNode = fs;
@@ -100,6 +103,95 @@ describe('the key box of a contract network', () => {
   it('keeps a vsftpd log on any box running the daemon, and none on a box that is not', () => {
     expect(fileAt(buildMissionKeyBoxFs(FTP), ['var', 'log', 'vsftpd.log'])).toBe('');
     expect(nodeAt(buildMissionKeyBoxFs(HYDRA), ['var', 'log', 'vsftpd.log'])).toBeUndefined();
+  });
+
+  it('runs mysqld and sshd on the database route, with the client a shell logs in by', () => {
+    const box = buildMissionKeyBoxFs(MYSQL);
+
+    expect(readOpenPorts(box).map((port) => port.service).sort()).toEqual(['mysql', 'ssh']);
+    expect(nodeAt(box, ['usr', 'bin', 'mysql'])?.kind).toBe('file');
+    expect(nodeAt(box, ['usr', 'sbin', 'mysqld'])?.kind).toBe('file');
+  });
+
+  it('guards the database with its two drawn accounts and nobody else', () => {
+    const database = databaseIn(buildMissionKeyBoxFs(MYSQL));
+    const drawn = missionShape(MYSQL).keyBoxDatabase;
+
+    expect(database?.credentials).toHaveLength(2);
+    expect(database?.credentials[0]).toEqual({
+      username: 'root',
+      passwordHash: drawn?.rootHash,
+      userType: 'root',
+    });
+    expect(MYSQL_USERNAMES).toContain(database?.credentials[1]?.username);
+    expect(database?.credentials[1]?.passwordHash).toBe(drawn?.accountHash);
+    expect(database?.credentials[1]?.userType).toBe('user');
+  });
+
+  it('generates an application in the database, the same one every time', () => {
+    const database = databaseIn(buildMissionKeyBoxFs(MYSQL));
+
+    expect(database?.name.length).toBeGreaterThan(0);
+    expect(Object.keys(database?.tables ?? {}).length).toBeGreaterThan(0);
+    expect(databaseIn(buildMissionKeyBoxFs(MYSQL))).toEqual(database);
+  });
+
+  it('names the box own NPC as the application admin, and nobody off the box', () => {
+    // Drawn for the key box and not the gateway: a gateway's application would count the key box
+    // as a neighbour, and list somebody who has no account here.
+    const box = buildMissionKeyBoxFs(MYSQL);
+    const npc = fileAt(box, ['etc', 'passwd'])
+      .split('\n')
+      .find((line) => line.includes(':1000:1000:'))
+      ?.split(':')[0];
+
+    expect(databaseIn(box)?.tables['users']?.rows.map((row) => row['username'])).toEqual([npc]);
+  });
+
+  it('draws each contract its own application, so no two share a row of it', () => {
+    const passwordHashOf = (missionNumber: number) =>
+      databaseIn(buildMissionKeyBoxFs(missionNumber))?.tables['users']?.rows[0]?.['password_hash'];
+    const [first, second] = Array.from({ length: 5000 }, (_unused, index) => index + 2).filter(
+      (missionNumber) =>
+        missionShape(missionNumber).route === 'mysql' && passwordHashOf(missionNumber) !== undefined,
+    );
+    if (first === undefined || second === undefined) throw new Error('two contracts in range');
+
+    expect(passwordHashOf(first)).not.toBe(passwordHashOf(second));
+  });
+
+  it('keeps the table holding the word out of the box as it generates', () => {
+    expect(Object.keys(databaseIn(buildMissionKeyBoxFs(MYSQL))?.tables ?? {})).not.toContain(
+      'settings',
+    );
+  });
+
+  it('keeps the datadir root-only, since it holds the hashes a sweep has to work for', () => {
+    const datadir = nodeAt(buildMissionKeyBoxFs(MYSQL), ['var', 'lib', 'mysql', 'data.json']);
+
+    expect(datadir?.perms.read).toEqual(['root']);
+    expect(datadir?.perms.write).toEqual(['root']);
+    expect(datadir?.owner).toBe(DATADIR_OWNER);
+  });
+
+  it('keeps a mysql log on the database route, and says nothing else about a database', () => {
+    const box = buildMissionKeyBoxFs(MYSQL);
+
+    expect(fileAt(box, ['var', 'log', 'mysql.log'])).toBe('');
+    expect(nodeAt(box, ['etc', 'mysql.cnf'])).toBeUndefined();
+  });
+
+  it.each([
+    ['hydra', HYDRA],
+    ['msfconsole', MSF],
+    ['web', WEB],
+    ['ftp', FTP],
+  ] as const)('holds no database on the %s route', (_route, missionNumber) => {
+    const box = buildMissionKeyBoxFs(missionNumber);
+
+    expect(nodeAt(box, ['var', 'lib', 'mysql'])).toBeUndefined();
+    expect(nodeAt(box, ['var', 'log', 'mysql.log'])).toBeUndefined();
+    expect(readOpenPorts(box).some((port) => port.service === 'mysql')).toBe(false);
   });
 
   it('answers its own sshd, the hydra route reached through the forward', () => {

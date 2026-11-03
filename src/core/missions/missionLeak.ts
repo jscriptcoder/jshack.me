@@ -15,12 +15,19 @@
  * is otherwise readable by a guest, and the web door reads as the server, inside the document
  * root, so root-only stops nothing it serves. The ftp route's file is readable by a guest,
  * because the anonymous login that fetches it is one.
+ *
+ * On a database route the file is the whole datadir, the generated database with one table
+ * added. It stays root-only like any datadir, because the door reads it as the server and hands
+ * out only the rows an account may select.
  */
 
-import { FTP_PUBLIC_FILE, ROOT_FILE } from '../generation/baseFs.js';
+import { DATADIR_FILE, FTP_PUBLIC_FILE, ROOT_FILE } from '../generation/baseFs.js';
+import { buildMissionKeyBoxFs } from '../generation/missionKeyBoxFs.js';
 import { missionKeyBoxNumber } from '../generation/lanHostIdentity.js';
 import { md5 } from '../generation/md5.js';
 import { createPrng } from '../generation/prng.js';
+import { DATADIR_PATH, databaseIn } from '../mysql/datadir.js';
+import type { MysqlTable } from '../mysql/types.js';
 import { WEB_ROOT } from '../network/http.js';
 import { parseSecrets } from '../secrets/parseSecrets.js';
 import { ANONYMOUS_FTP_ROOT } from '../sessions/doorAdmission.js';
@@ -100,10 +107,37 @@ const LEAK_HOMES: Readonly<
 const leakPlaceOf = (
   missionNumber: number,
 ): { readonly path: string; readonly perms: FilePermissions } | null => {
-  const home = LEAK_HOMES[missionShape(missionNumber).route];
+  const { route } = missionShape(missionNumber);
+  if (route === 'mysql') return { path: DATADIR_PATH, perms: DATADIR_FILE };
+  const home = LEAK_HOMES[route];
   return home === undefined
     ? null
     : { path: `${home.directory}/${forgottenFileOf(missionNumber).name}`, perms: home.perms };
+};
+
+/** The table a word sits in on a database route. Its rows are fixed, and read as what they are:
+ *  a word somebody kept beside the other settings. */
+const settingsTable = (word: string): MysqlTable => ({
+  columns: [
+    { name: 'name', type: 'VARCHAR', nullable: false, key: 'PRI' },
+    { name: 'value', type: 'VARCHAR', nullable: false },
+  ],
+  rows: [
+    { name: 'site_mode', value: 'live' },
+    { name: 'maintenance', value: '0' },
+    { name: 'admin_pass', value: word },
+  ],
+});
+
+/** The datadir with the table added, which is the whole file: a door replaces the datadir and
+ *  never merges into it. */
+const databaseWithWord = (missionNumber: number, word: string): string => {
+  const database = databaseIn(buildMissionKeyBoxFs(missionNumber));
+  if (database === null) throw new MissionLeakUnavailableError();
+  return JSON.stringify({
+    ...database,
+    tables: { ...database.tables, settings: settingsTable(word) },
+  });
 };
 
 /** Where the forgotten file sits, drawn from the number, or null on a route with no leak.
@@ -122,9 +156,13 @@ export const missionLeakFile = (
 ): MissionFile | null => {
   const place = leakPlaceOf(missionNumber);
   if (place === null) return null;
+  const word = missionLeakWord(missionNumber, rawSecrets);
   return {
     ...place,
-    content: forgottenFileOf(missionNumber).render(missionLeakWord(missionNumber, rawSecrets)),
+    content:
+      missionShape(missionNumber).route === 'mysql'
+        ? databaseWithWord(missionNumber, word)
+        : forgottenFileOf(missionNumber).render(word),
   };
 };
 
