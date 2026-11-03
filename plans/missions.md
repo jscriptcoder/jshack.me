@@ -3,9 +3,8 @@
 **Status:** Slices 1 and 2 shipped and deployed. Slice 1 is v0.438.0, PR #746, merged
 2026-11-01. Slice 2 is v0.439.0, PR #747, merged 2026-11-03. Slice 2's migration
 (`20261102000000_hireme_contracts.sql`) is on `jshack-dev` and `jshack-prod`, and no account on
-either holds a client handle. **Next: slice 3, not yet planned.** It covers completion by mail:
-the client's inbox takes the key and a wallet address, and the operator mint pays the quoted
-amount, so a mailed key stops bouncing. Run `/plan` before branching.
+either holds a client handle. **Next: slice 3, planned below** (the client pays: the key mailed
+to the client's handle, the reply, the mint), on `feat/missions-client-pays`.
 
 Missions are the one legacy system v2 has not rebuilt. The groundwork is built: wallets and the
 operator mint, emailit.io, the hireme.io contractor boards (every board saying no work is
@@ -446,6 +445,50 @@ Parked: none.
       contract first". Gone: "That offer is no longer available." No job: "You have no current
       contract." Each under the button it answers, in hireme's `role="alert"` style.
 
+### Planning slice 3 (2026-11-03)
+
+33. **The client does not read quoted lines (owner, 2026-11-03).** `mail reply` quotes the
+    briefing, and the briefing's own example `ACCESS-XXXX-XXXX-XXXX` has a key's shape. The client
+    reads neither the key nor the wallet from a body line that starts with `>`: those lines are
+    the player quoting someone else. Where the player types the key, above or below the quote, no
+    longer matters, and a reply holding no key of its own gets the no-key reply. Rejected: first
+    found with the quote included (a key typed below the quote refused as wrong over the client's
+    own example) and skipping only the example (a key quoted from someone else's mail would count
+    as the sender's).
+
+34. **Defaults, applied with the slice 3 plan (the owner may overrule):**
+    - **Which contract a mail is about.** The client looks only at the sender's jobs with *this*
+      client (the client drawn from each job's number) in state `accepted` or `completed`. An
+      `abandoned` job is no contract: dropping and then mailing the right key pays nothing
+      (decision 5). The first row that fits answers:
+
+      | The mail | The reply | What changes |
+      | --- | --- | --- |
+      | No accepted job with this client, and the key is not one of the sender's completed jobs' with it | "We have no contract with you." | nothing |
+      | An accepted job with this client, and no key in the mail | "No key, no money. Send the key." | nothing |
+      | The accepted job's key, with a wallet | "Key received. 1,350 JSC sent to jsc…. Pleasure doing business." | completed, the pay minted to the wallet |
+      | The accepted job's key, no wallet | "Key received. You sent no wallet, so there is nothing to pay. No wallet, no money." | completed, nothing minted |
+      | The key of one of the sender's completed jobs with this client | "That job is already closed." | nothing |
+      | An accepted job with this client, and any other key | "That key opens nothing of ours." | nothing |
+
+    - **The reply is system mail** from `<client handle>@emailit.io` (always delivered, as the
+      briefing is), subject `Contract: <target company>`, or `No contract` on the first row.
+    - **`mail` prints what it prints for any send.** A mail to a client handle answers 200 once
+      the reply is in the inbox, so the command and the bundle do not change and the player reads
+      the answer with `mail`. A mail to a client handle never bounces again.
+    - **One rate rule.** The 20-an-hour count moves out of `email_send` into one helper that it
+      and the client's door both call, so a proof mail counts exactly as a send does (entry 21)
+      and the rule is written once. A failed or throttled login counts nothing, as before.
+    - **Completion is recorded by state alone**: `completed` and `closed_at`, no new column. The
+      mint's own ledger row records the payout (chainit shows it, entry 29); which wallet a job
+      paid is kept nowhere else.
+    - **A mint the ledger refuses** (the wallet would pass 9,007,199,254,740,991) takes the
+      completion back with it: the mail answers 500 `mail_failed`, the job stays accepted, and
+      nothing is mailed.
+    - **No secret, no proof.** With `MISSION_KEY_SECRET` unset, a mail to a client handle answers
+      500 `mission_secret_missing` before anything is counted or read (entry 24); mail between
+      players is untouched.
+
 ---
 
 ## Slice 1 — a mission exists
@@ -706,3 +749,117 @@ after each green; `mutation-testing` at the PR gate.
 Completion by mail, the reply, the mint and the slot refilling on completion (slice 3; until then
 a mailed key bounces, entry 31); `/etc/hireme/contracts` (slice 4). The routes that leak a login
 in a file stay their own epic.
+
+---
+
+## Slice 3 — the client pays
+
+**Branch:** `feat/missions-client-pays` · **Version:** 0.440.0 · **Class:** behavior change ·
+**Delivery:** independent PR against `main`
+
+**Goal.** A contractor mails the key to the client's handle in their own words with a wallet
+address, and the client answers in their inbox at once: the job is completed and the quoted pay is
+minted to that wallet, exactly once. A wrong key, no key, a dropped job and someone else's job
+each get a reply of their own and pay nothing. The board's slot frees for a new offer, and the
+mission's address keeps answering.
+
+**Actor and trigger.** A player logged in to emailit.io runs `mail send <client handle> …` or
+`mail reply <briefing>`, or anyone holding a contractor's `~/.mailrc` does it as them (decision
+7's hole).
+
+### What it builds
+
+- **Reading the proof** (server-only, `core/missions/`): the first key (`ACCESS-` and three
+  groups of four from the key's alphabet) and the first wallet (`jsc` + 40 hex) in the subject,
+  then the body, ignoring case and skipping body lines that start with `>` (entry 33). The key is
+  compared upper-cased and the wallet lower-cased, as the ledger stores it.
+- **The client's door** (server-only): `handleResolveMail`'s send hands a mail addressed to a
+  client handle to it instead of to `email_send`. It opens the sender's contracts, picks the
+  reply by entry 34's table from each job's terms and key (`missionKey` under
+  `MISSION_KEY_SECRET`), and either completes the job or mails the reply. It answers 200
+  `{ ok: true }` once the reply is in the inbox; a login refused, throttled or send-limited
+  answers as any send does, and nothing is mailed.
+- **The store** (migration). Each function is STRICT, with `EXECUTE` for `service_role` alone,
+  as slice 2's are:
+  - the send count moves out of `email_send` into one helper both call (entry 34); `email_send`
+    otherwise answers exactly as before;
+  - **open a proof** (`handle`, password md5, player key): the password check `email_send`
+    makes, then the send counted. It answers with the check's word, `send_limited`, or the
+    handle's jobs in `accepted` or `completed` (number and state);
+  - **complete** (`handle`, `number`, the wallet or empty, the pay, the reply), under the lock on
+    the handle's `email_accounts` row (entry 21). It answers `completed` when the number is the
+    handle's accepted job: in one transaction the row turns `completed` (`closed_at`),
+    `wallet_mint` credits the wallet with the pay when one was given, and the reply lands as
+    system mail; a refused mint raises and takes all of it back. It answers `already_done` when
+    the number is the handle's completed job, and `no_contract` otherwise; neither writes
+    anything, and the door then mails the matching reply (a second right mail racing the first
+    gets "That job is already closed.");
+  - **reply** (`handle`, the reply): the client's other answers, as system mail.
+- **The slot**: nothing new. The top-up already counts only `offered` and `accepted` (entry 32),
+  so a completed job's slot fills on the next board read.
+- **`scripts/hireme.ts`**: unchanged. It cannot complete a job (decision 18), and `show` already
+  prints the key, the client handle and the pay a test needs.
+
+### Acceptance criteria
+
+1. On an accepted job, a mail to its client handle that holds the key and a wallet, anywhere in
+   the subject or the body and in any case, answers as a delivered send. The inbox then holds the
+   client's reply from `<client handle>@emailit.io` naming the pay and the wallet, the wallet's
+   balance has risen by exactly the pay, and the wallet's history shows a mint of that amount.
+2. After it the job is completed: the next board read shows 3 offers and no current contract,
+   the address still answers `nmap`, and the contractor can accept another offer.
+3. The right key with no wallet completes the job and mints nothing, and the reply says there is
+   no wallet to pay.
+4. The same key mailed again after completion earns "That job is already closed." and mints
+   nothing.
+5. Two right mails sent at once mint once: one "Key received" reply and one "That job is already
+   closed." reply.
+6. A wrong key earns "That key opens nothing of ours." and a mail with no key earns "No key, no
+   money. Send the key."; neither changes the job, and the right key mailed next still pays.
+7. A key typed below the quote of `mail reply <briefing>` pays; a reply that only quotes the
+   briefing earns the no-key reply (entry 33).
+8. The right key mailed by a handle with no contract with this client earns "We have no contract
+   with you." and mints nothing, whether it comes from another player, a contractor of another
+   client, or the contractor after dropping the job.
+9. Whoever logs in as the contractor and mails the right key with their own wallet is paid to
+   that wallet (decision 7's hole, kept on purpose).
+10. A mail to a client handle with a wrong password answers `login_failed`, and with 20 sends
+    already in the hour answers `send_limited`; neither mails anything. Each proof mail counts as
+    one send.
+11. With `MISSION_KEY_SECRET` unset, a mail to a client handle answers 500
+    `mission_secret_missing` (handler unit test), and a mail to a player is delivered as before.
+12. Mail between players is unchanged: delivered, bounced, capped and limited exactly as before.
+13. The built main chunk holds no reply line, and its size is measured against the budget (no
+    bundled code is expected to change).
+
+### Evidence
+
+- **Unit (TDD)**: reading the proof (subject before body, the first of several, either case,
+  `>` lines skipped with the briefing's example in them, near misses such as eleven symbols, a
+  letter outside the key's alphabet and a wallet of 39 hex); the client's door over every row of
+  entry 34's table against an injected store (each word, a store failure, a word nobody taught
+  it, as `contracts.test.ts` does); the mail handler's routing (a client handle to the door, any
+  other handle to `email_send`, the missing secret).
+- **Wire-check** `scripts/testMissionPay.ts` vs `vercel dev` + local supabase, through the real
+  `/api/network` `resolveMail`: AC 1–10, with the job accepted through the real `POST /accept`,
+  the key derived as `hireme.ts show` derives it, balances and history read through
+  `/api/wallet`, the race fired as two sends together, and the send limit met by seeding the
+  hour's count with the service role. `testMailSend`, `testMailRead`, `testMissionBoard` and
+  `testMissions` stay green (AC 12, and the send-count helper's preservation evidence).
+- **Mutation gate** at PR readiness on the proof reader, the client's door and the changed mail
+  handler.
+- **Bundle**: `npm run build`, `scripts/checkBudgets.ts` and a grep of the chunk (AC 13). The main
+  chunk has 490 B of headroom, and this slice adds nothing to the client.
+- **Ops, before the merge**: the migration on `jshack-dev` and `jshack-prod` (link, push, unlink
+  per project; the owner runs the prod push). No new env: `MISSION_KEY_SECRET` is set on both.
+- No browser run: the epic's close-out run covers it.
+
+**Required skills:** `tdd`, `testing` and `functional` for the proof reader and the client's
+door; `refactoring` after each green, and for moving the send count, a preservation change held
+green by `testMailSend`; `mutation-testing` at the PR gate.
+
+### Out of scope
+
+`/etc/hireme/contracts` (slice 4). Recognition for completed jobs (decision 8). Attachments and
+file exfiltration (decision 6). The close-out browser run and the valleynews `/dev` post
+(decision 20).
