@@ -1,7 +1,8 @@
 # Plan: the routes that leak a login
 
-**Status:** Grilled 2026-11-03. Nothing is built. **Next: slice 1, planned below** (the web route), on
-`feat/leak-web-route`. Slices 2–4 get their plans here as each starts.
+**Status:** Slice 1 (the web route) shipped at v0.442.0 and is verified on production; its as-built is below.
+**Next: slice 2, anonymous FTP**, v0.443.0, when the owner starts it. Slices 2–4 get their plans here as each
+starts.
 
 Contract networks ship with two ways onto the key box: `hydra` (a crackable root) and `msfconsole`
 (a critical hole). This epic adds four where a forgotten file or setting leaks root's password. A
@@ -56,8 +57,8 @@ under "missions — deferred".
    is the whole gate, and the default list already holds `.env`, `config.php`, `settings`, `notes.txt`,
    `todo.txt`, `readme.txt`, `backup`, `old` and `dump.sql`. The number draws one, so a plain sweep then
    `curl` finds it, with no list change and no bundle cost. Players learning to try `/.env` by hand is
-   fair, and each try is an `access.log` line. The file is root-owned like every published page, so a
-   guest shell cannot `cat` it but can `curl localhost`. Rejected: a path off the list with a pointer
+   fair, and each try is an `access.log` line. The file is root-only, unlike a generated page, which a
+   guest can read, so a guest shell cannot `cat` it but can `curl localhost`. Rejected: a path off the list with a pointer
    to it (a good harder template later; a player who only sweeps would think the job broken); a mix.
 
 7. **The server holds the words by reading `JSHACK_SECRETS` at runtime (2026-11-03).** A server-only
@@ -170,6 +171,27 @@ for the end of an epic), `docs/missions-architecture.md` updated with the routes
 and `docs/backlog.md` recording D2.6b closed, a `/dev` story on valleynews.io, and this plan retired.
 
 ### Slice 1: a contract can be a web route, where a sweep finds root's word in a forgotten file
+
+**As built (v0.442.0, PR #750, merged 2026-11-03).** The criteria below are met. Criterion 10's 500 has unit tests
+only, since a live check needs a server started without `JSHACK_SECRETS`. What a later slice should know:
+
+- **Where a later route plugs in:** `ROUTES` and the route's branch in `missionShape.ts`, and `missionFiles` in
+  `missionLeak.ts`, whose files every door lays in through `withMissionFiles` (`missionBoxFiles.ts`). The doors and the
+  write gate take `findMissionFiles` and `missionFilePathsOf`.
+- **The slice:** 13 words open 25.7% of Ridgemont's 1,263 uncrackable doors, measured, which is the quarter decision 4
+  asked for.
+- **Changed from the plan:** a file's wording is tied to its name rather than being a second draw, so a `.env` always
+  reads like a `.env`.
+- **Accepted, found while building:** everything under `/var/www` reaches any session's client, because anyone can
+  `curl` it. Someone reading the traffic can see the word without leaving an `access.log` line.
+- **The doors' secrets:** with `MISSION_KEY_SECRET` unset, a key box's web door answers 500 on any route that serves
+  web. With `JSHACK_SECRETS` unset, only web routes close.
+- **Bundle:** 297,806 B gz, which replaces decision 14's starting figure, against the same 298,175 B ceiling.
+- **Production (2026-11-03):** production had no reachable contract, so the check accepted web-route contract 9000004
+  on `kestrel`, a mailbox made for it. One fetch from a throwaway identity answered 200, and a word in the file matched
+  root's md5, so production reads `JSHACK_SECRETS` at runtime. The contract and its `access.log` row were then removed.
+- **Open, not from this slice:** `npm run build` fails locally on `checkBudgets`, findit's generated web taking about
+  1,100 ms against a 1,000 ms ceiling. `main` failed it too before this slice. It needs its own fix or an owner decision.
 
 **Value:** a contractor on a web-route job runs `gobuster`, reads a forgotten file with `curl`, works out
 that the word inside is a login, and reads the key as root. They keep the word.
