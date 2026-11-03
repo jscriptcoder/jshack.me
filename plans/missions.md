@@ -3,8 +3,11 @@
 **Status:** Slices 1 and 2 shipped and deployed. Slice 1 is v0.438.0, PR #746, merged
 2026-11-01. Slice 2 is v0.439.0, PR #747, merged 2026-11-03. Slice 2's migration
 (`20261102000000_hireme_contracts.sql`) is on `jshack-dev` and `jshack-prod`, and no account on
-either holds a client handle. **Next: slice 3, planned below** (the client pays: the key mailed
-to the client's handle, the reply, the mint), on `feat/missions-client-pays`.
+either holds a client handle. Slice 3 (the client pays: the key mailed to the client's handle,
+the reply, the mint) is v0.440.0, PR #748, in review; its migration
+(`20261103000000_hireme_completion.sql`) is on `jshack-dev` and `jshack-prod`. **Next: slice 4,
+planned below** (the root view: `/etc/hireme/contracts`), on `feat/missions-root-view`, branched
+once #748 has merged.
 
 Missions are the one legacy system v2 has not rebuilt. The groundwork is built: wallets and the
 operator mint, emailit.io, the hireme.io contractor boards (every board saying no work is
@@ -489,6 +492,30 @@ Parked: none.
       500 `mission_secret_missing` before anything is counted or read (entry 24); mail between
       players is untouched.
 
+### Planning slice 4 (2026-11-03)
+
+35. **Defaults, applied with the slice 4 plan (the owner may overrule):**
+    - **Active means accepted.** A line stands for a job in state `accepted` and for nothing
+      else: a completed or dropped job leaves the file on the next read, though its address
+      keeps answering (decision 15 lists what a root can still race for, and a closed job has
+      nothing left to take).
+    - **The line.** `<handle> <client handle> <mission address> <pay>`, the pay as the bare
+      number of JSC (`1350`), so every line splits into exactly four fields as the boards' list
+      splits into two. The client handle, the address and the pay are the ones the briefing
+      gave.
+    - **The order is the order of accepting**, earliest first, as the boards' list is in the
+      order they were applied for.
+    - **No job, no lines.** With no job active the file is there and empty, as the boards' list
+      is with no board.
+    - **Its own failure word.** A failed read of the missions table answers 500
+      `contracts_lookup_failed`, never an empty file; the boards' list and the contracts list
+      are read separately and either failing is a 500.
+    - **No secret needed.** The line holds the number's terms and address, never the key, so the
+      list is served with `MISSION_KEY_SECRET` unset.
+    - **Rewriting it changes nobody's job.** The file is laid in before the journal is replayed,
+      so a root who edits or removes it changes what the next root reads, and no board, mail or
+      mission (as the boards' list).
+
 ---
 
 ## Slice 1 — a mission exists
@@ -863,3 +890,80 @@ green by `testMailSend`; `mutation-testing` at the PR gate.
 `/etc/hireme/contracts` (slice 4). Recognition for completed jobs (decision 8). Attachments and
 file exfiltration (decision 6). The close-out browser run and the valleynews `/dev` post
 (decision 20).
+
+---
+
+## Slice 4 — the root view
+
+**Branch:** `feat/missions-root-view` · **Version:** 0.441.0 · **Class:** behavior change ·
+**Delivery:** independent PR against `main`, branched once #748 has merged (the version follows
+slice 3's, and the wire-check completes a job through slice 3's mail door; no code depends on it)
+
+**Goal.** A root on the boards' server reads `/etc/hireme/contracts` beside `/etc/hireme/boards`:
+every active job, who is working it, for which client, at which address and for how much. Below
+root, and on every other box, there is no such file and nothing of it on the wire.
+
+**Actor and trigger.** A player with a root session on `boards.hireme.io` (a root-tier CVE on
+`:80` or `:22`) runs `cat /etc/hireme/contracts`, or any read that walks the tree (`ls`, `grep`,
+`find`).
+
+### What it builds
+
+- **The contracts list** (server-only, `core/missions/`): given the accepted jobs (handle,
+  number, moment accepted), the box with `/etc/hireme/contracts` laid in as a root-only file, one
+  line per job by entry 35, the client handle and pay from the number's terms and the address
+  from the number. Pure: the box it is given is never changed.
+- **The read** (`resolveCrossPlayerFs`): beside the boards' list, a root session on the boards'
+  server is served the contracts list, read from the missions table before the journal is
+  replayed. Below root the table is not read; a failed read is 500 `contracts_lookup_failed`.
+- **The store**: `api/network.ts` gains the read of `hireme_missions` (handle, number,
+  `accepted_at`) where the state is `accepted`, with the service role. No migration.
+- **Docs**: `docs/hireme-architecture.md` §5 (what a root finds) and the glossary's "Boards'
+  server" row name the new file; `docs/handbook/14-tier-read-audit.md` adds it to the root-only
+  reads.
+
+### Acceptance criteria
+
+1. A root session on the boards' server reads `/etc/hireme/contracts` with one
+   `<handle> <client handle> <mission address> <pay>` line per accepted job, earliest accepted
+   first. Each line's client handle, address and pay are the ones its briefing gave, and its
+   address answers `nmap`.
+2. A job accepted since the last read is on the next read; a dropped job and a completed job are
+   gone from it, while the boards' list still holds both handles.
+3. With no job active the file is there and empty.
+4. `/etc/hireme/boards` reads exactly as before.
+5. A user session on the boards' server is served no `/etc/hireme`, and the response holds no
+   client handle and no mission address.
+6. A root session on emailit.io or hireme.io is served no `/etc/hireme/contracts`.
+7. A failed read of the missions table answers 500 `contracts_lookup_failed` (handler unit
+   test), never an empty file.
+8. A root who removes or rewrites the file finds their change on the next read, and the job is
+   untouched: its board still shows the current contract and the right key still pays.
+9. The built main chunk holds no client handle and no `/etc/hireme/contracts`, and its size is
+   measured against the budget (no bundled code is expected to change).
+
+### Evidence
+
+- **Unit (TDD)**: the contracts list (the line's four fields from a number's terms, the order by
+  accepting with two jobs given out of order, the empty list, a root-only file, the box it is
+  given unchanged); `resolveCrossPlayerFs` (root on the boards' server served both lists, a user
+  session there served neither and the table not read, root on another fixed site not served it,
+  a failed read 500, as the boards' list's tests do).
+- **Wire-check** `scripts/testMissionContracts.ts` vs `vercel dev` + local supabase, staged as
+  `testHiremeBoardRoot` stages its root and user sessions, with jobs accepted through the real
+  `POST /accept`, one dropped through the real `POST /drop` and one completed by mailing its key
+  through the real `resolveMail` (the key derived as `hireme.ts show` derives it, never printed):
+  AC 1–6 and 8. `testHiremeBoardRoot`, `testMissionBoard` and `testMissionPay` stay green.
+- **Mutation gate** at PR readiness on the contracts list and the handler's new lines.
+- **Bundle**: `npm run build`, `scripts/checkBudgets.ts` and a grep of the chunk (AC 9).
+- **Ops**: none. No migration and no new env.
+- No browser run: the epic's close-out run covers it.
+
+**Required skills:** `tdd`, `testing` and `functional` for the contracts list and the read;
+`refactoring` after each green; `mutation-testing` at the PR gate.
+
+### Out of scope
+
+Pending offers in the list (decision 15 rejected them). Completed and abandoned jobs in it (entry
+35). Any change to the boards' list, a board, the mail door or `scripts/hireme.ts`. The close-out
+browser run and the valleynews `/dev` post (decision 20).
