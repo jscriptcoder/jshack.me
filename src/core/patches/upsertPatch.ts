@@ -35,7 +35,7 @@ import {
   enforceRemoteWriteL2,
   type FindOccupantWorkstationByMachineId,
   type ListMachinePatches,
-  type MissionKeyPathOf,
+  type MissionFilePathsOf,
 } from './remoteWritePermission.js';
 import {
   DPKG_LOG_OWNER,
@@ -112,7 +112,7 @@ export type UpsertPatchDeps = RebootSequenceDeps & {
   readonly findOccupantWorkstationByMachineId: FindOccupantWorkstationByMachineId;
   /** The key path a contract key box carries, so a root's write to the key is permitted
    *  (the bare key box carries no such path). Absent off the mission wiring. */
-  readonly missionKeyPathOf?: MissionKeyPathOf;
+  readonly missionFilePathsOf?: MissionFilePathsOf;
   readonly upsertPatch: (row: PatchRow) => Promise<{ readonly error: unknown }>;
 };
 
@@ -271,7 +271,7 @@ export const handleUpsertPatch = async (
     session: access.session,
     listMachinePatches: deps.listMachinePatches,
     findOccupantWorkstationByMachineId: deps.findOccupantWorkstationByMachineId,
-    ...(deps.missionKeyPathOf ? { missionKeyPathOf: deps.missionKeyPathOf } : {}),
+    ...(deps.missionFilePathsOf ? { missionFilePathsOf: deps.missionFilePathsOf } : {}),
   });
   if (!permitted.ok) {
     return { status: permitted.status, body: { error: permitted.error } };

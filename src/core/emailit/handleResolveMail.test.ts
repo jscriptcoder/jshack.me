@@ -92,6 +92,7 @@ const makeDeps = (
     }),
     listOccupantsByEssid: async () => ({ data: [], error: null }),
     listLeasesByEssid: async () => ({ data: [], error: null }),
+    findMissionFiles: async () => ({ data: [], error: null }),
     openInbox,
     openMessage,
     sendMessage,

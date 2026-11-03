@@ -67,6 +67,11 @@ import { appendMachineLog, type AppendLog } from '../patches/appendMachineLog.js
 import { asGameTime } from '../types.js';
 import { resolveCallerVantageOn, type CallerVantageDeps } from '../sessions/callerVantage.js';
 import type { HttpFetchOccupant } from './resolveHttpFetch.js';
+import {
+  MISSION_FILES_MISSING,
+  withMissionFiles,
+  type FindMissionFiles,
+} from './missionBoxFiles.js';
 import type { Directory } from '../filesystem/types.js';
 import type { OwnerPatchRow } from './materializeWorkstationFs.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
@@ -93,6 +98,8 @@ export type OccupantWebTargetDeps = CallerVantageDeps & {
   readonly findPatches: (query: {
     readonly machine_id: string;
   }) => Promise<{ readonly data: readonly OwnerPatchRow[] | null; readonly error: unknown }>;
+  /** What the server lays onto a contract's key box, which a shell on its network reaches. */
+  readonly findMissionFiles: FindMissionFiles;
 };
 
 export type ResolveOccupantFetchDeps = OccupantWebTargetDeps & {
@@ -250,9 +257,15 @@ const replayedGeneratedBox = async (
     readonly sourceIp: string;
   },
 ): Promise<ReachedBox | HandlerResponse> => {
+  const laidFs = await withMissionFiles(deps.findMissionFiles, {
+    essid: box.essid,
+    machineId: box.machineId,
+    baseFs: box.baseFs,
+  });
+  if (laidFs === null) return MISSION_FILES_MISSING;
   const patches = await deps.findPatches({ machine_id: box.machineId });
   if (patches.error) return PATCHES_FAILED;
-  const fs = materializeMachineFs(box.baseFs, patches.data);
+  const fs = materializeMachineFs(laidFs, patches.data);
   if (!canBoot(fs).ok) return UNREACHABLE;
   return {
     fs,

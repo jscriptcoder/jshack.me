@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+import { createFsView } from '../filesystem/fsView.js';
+import { asAbsPath } from '../types.js';
 import {
   handleResolveCrossPlayerFs,
   type ActiveSession,
@@ -86,7 +88,10 @@ type LastEssidResult = { data: string | null; error: unknown };
 type SpoolResult = { data: readonly SpoolAccount[] | null; error: unknown };
 type BoardsResult = { data: readonly Board[] | null; error: unknown };
 type ContractsResult = { data: readonly ActiveContract[] | null; error: unknown };
-type MissionKeyFileResult = { data: { path: string; content: string } | null; error: unknown };
+type MissionFilesResult = {
+  data: readonly { path: string; content: string }[] | null;
+  error: unknown;
+};
 
 const NEO_BOARD = '194.12.40.7';
 
@@ -134,7 +139,7 @@ const makeDeps = (
     spool?: () => Promise<SpoolResult>;
     boards?: () => Promise<BoardsResult>;
     contracts?: () => Promise<ContractsResult>;
-    missionKeyFile?: () => Promise<MissionKeyFileResult>;
+    missionFiles?: () => Promise<MissionFilesResult>;
   } = {},
 ) => {
   // Whose box this is — and, by saying it is on a WiFi at all, whether it is reachable.
@@ -159,9 +164,9 @@ const makeDeps = (
   const findContracts = vi.fn<() => Promise<ContractsResult>>(
     over.contracts ?? (async () => ({ data: CONTRACTS, error: null })),
   );
-  const findMissionKeyFile = vi.fn<
-    (query: { essid: string; machine_id: string }) => Promise<MissionKeyFileResult>
-  >(over.missionKeyFile ?? (async () => ({ data: null, error: null })));
+  const findMissionFiles = vi.fn<
+    (query: { essid: string; machine_id: string }) => Promise<MissionFilesResult>
+  >(over.missionFiles ?? (async () => ({ data: [], error: null })));
   const deps: ResolveCrossPlayerFsDeps = {
     nonceStore: freshStore,
     findOccupantWorkstationByMachineId,
@@ -171,7 +176,7 @@ const makeDeps = (
     findMailSpool,
     findBoards,
     findContracts,
-    findMissionKeyFile,
+    findMissionFiles,
   };
   return {
     deps,
@@ -182,7 +187,7 @@ const makeDeps = (
     findMailSpool,
     findBoards,
     findContracts,
-    findMissionKeyFile,
+    findMissionFiles,
   };
 };
 
@@ -1221,6 +1226,8 @@ describe("handleResolveCrossPlayerFs on the boards' server, whose contracts are 
 const MISSION_ESSID = 'mission-66051';
 const MISSION_KEY = 'ACCESS-H3LD-2K9Q-7VXW';
 const MISSION_KEY_PATH = '/root/.config/vault/key';
+const MISSION_LEAK_PATH = '/var/www/html/notes.txt';
+const MISSION_LEAK = 'the server password is still hunter, change it!\n';
 
 /** The key box of a contract network, found from the caller's session the way any box the
  *  network makes is. The number's one machine host is the key box. */
@@ -1237,8 +1244,11 @@ const onKeyBox = (userType: 'root' | 'user' | 'guest', over: Parameters<typeof m
     occupant: async () => ({ data: null, error: null }),
     session: async () => ({ data: { userType, essid: MISSION_ESSID }, error: null }),
     patches: async () => ({ data: [], error: null }),
-    missionKeyFile: async () => ({
-      data: { path: MISSION_KEY_PATH, content: `${MISSION_KEY}\n` },
+    missionFiles: async () => ({
+      data: [
+        { path: MISSION_KEY_PATH, content: `${MISSION_KEY}\n` },
+        { path: MISSION_LEAK_PATH, content: MISSION_LEAK },
+      ],
       error: null,
     }),
     ...over,
@@ -1249,7 +1259,7 @@ describe('handleResolveCrossPlayerFs on a contract key box, whose key the server
 
   it('lays the key into the box for a root session, where root alone can read it', async () => {
     const id = generateIdentity();
-    const { deps, findMissionKeyFile } = onKeyBox('root');
+    const { deps, findMissionFiles } = onKeyBox('root');
 
     const result = await handleResolveCrossPlayerFs(envelope(id, missionKeyBox()), deps);
     const tree = treeOf(result);
@@ -1258,7 +1268,7 @@ describe('handleResolveCrossPlayerFs on a contract key box, whose key the server
     expect(result.status).toBe(200);
     expect(keyFile?.kind === 'file' ? keyFile.content : null).toBe(`${MISSION_KEY}\n`);
     expect(keyFile?.perms.read).toEqual(['root']);
-    expect(findMissionKeyFile).toHaveBeenCalledWith({
+    expect(findMissionFiles).toHaveBeenCalledWith({
       essid: MISSION_ESSID,
       machine_id: missionKeyBox(),
     });
@@ -1279,10 +1289,57 @@ describe('handleResolveCrossPlayerFs on a contract key box, whose key the server
     },
   );
 
+  it('shows a root the forgotten file, and a root removing it sticks', async () => {
+    const id = generateIdentity();
+    const leakSegments = MISSION_LEAK_PATH.split('/').filter((segment) => segment !== '');
+    const { deps } = onKeyBox('root');
+    const removed = onKeyBox('root', {
+      patches: async () => ({
+        data: [
+          {
+            path: MISSION_LEAK_PATH,
+            content: null,
+            owner: 'root',
+            permissions: null,
+            node_type: null,
+            updated_at: '2026-11-03T00:00:00.000Z',
+            writer_key: id.publicKeyHex,
+          },
+        ],
+        error: null,
+      }),
+    });
+
+    const before = treeOf(await handleResolveCrossPlayerFs(envelope(id, missionKeyBox()), deps));
+    const after = treeOf(
+      await handleResolveCrossPlayerFs(envelope(id, missionKeyBox()), removed.deps),
+    );
+    const leak = get(before, ...leakSegments);
+
+    expect(leak?.kind === 'file' ? leak.content : null).toBe(MISSION_LEAK);
+    expect(get(after, ...leakSegments)).toBeUndefined();
+    expect(get(after, ...keyPathSegments)?.kind).toBe('file');
+  });
+
+  // Everything under the document root reaches a session's client, because anybody can
+  // `curl` it anyway. What the root-only perms decide is whether its shell can `cat` it.
+  it.each(['user', 'guest'] as const)(
+    'refuses a %s shell reading the forgotten file off the disk',
+    async (userType) => {
+      const id = generateIdentity();
+      const { deps } = onKeyBox(userType);
+
+      const result = await handleResolveCrossPlayerFs(envelope(id, missionKeyBox()), deps);
+      const read = createFsView(treeOf(result), { userType }).read(asAbsPath(MISSION_LEAK_PATH));
+
+      expect(read.ok).toBe(false);
+    },
+  );
+
   it('answers 500 mission_secret_missing when the deployment secret is unset', async () => {
     const id = generateIdentity();
     const { deps } = onKeyBox('root', {
-      missionKeyFile: async () => ({ data: null, error: 'mission_secret_missing' }),
+      missionFiles: async () => ({ data: null, error: 'mission_secret_missing' }),
     });
 
     const result = await handleResolveCrossPlayerFs(envelope(id, missionKeyBox()), deps);

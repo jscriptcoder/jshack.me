@@ -85,20 +85,21 @@ type ResolvedBase = { readonly fs: Directory | null; readonly error: unknown };
  *  network generates (pure), else a foreign player's workstation via occupancy (D6),
  *  else `fs: null` (unresolvable → fail closed). `error` surfaces a lookup
  *  failure so the caller 500s rather than issuing a false deny. */
-/** The key path a contract's key box carries, or `null` for any other box. Only the
- *  PATH, never the key: the permission question is answered by the path's root-only perms,
- *  not its content, so the write gate need not read the deployment secret. Injected,
- *  because the path pool is server-only and this module ships in the client bundle. */
-export type MissionKeyPathOf = (query: {
+/** The paths of the files the server lays onto a contract's key box, and none for any other
+ *  box. Only the PATHS, never what they hold: the permission question is answered by their
+ *  root-only perms, not their content, so the write gate need not read a deployment secret.
+ *  Injected, because the path pools are server-only and this module ships in the client
+ *  bundle. */
+export type MissionFilePathsOf = (query: {
   readonly essid: string;
   readonly machine_id: string;
-}) => string | null;
+}) => readonly string[];
 
 const resolveTargetBaseFs = async (args: {
   readonly machineId: string;
   readonly session: SessionTier;
   readonly findOccupantWorkstationByMachineId: FindOccupantWorkstationByMachineId;
-  readonly missionKeyPathOf?: MissionKeyPathOf;
+  readonly missionFilePathsOf?: MissionFilePathsOf;
 }): Promise<ResolvedBase> => {
   // A box the session's own network makes: the access point's gateway, a LAN host, a
   // gateway at any depth, and the machine on each layer a gateway fronts. One resolver for
@@ -108,18 +109,16 @@ const resolveTargetBaseFs = async (args: {
   // whole seed its tree needs.
   const networkFs = networkBaseFsForMachineId(args.session.essid, args.machineId);
   if (networkFs !== null) {
-    // On a contract key box, lay a root-only file at the key path the server would lay the
-    // key into, so a root's `rm` of it resolves and is permitted (the bare key box carries
-    // no such path). An empty file suffices: the gate reads only its perms, not its
-    // content, and the removal the handler records is keyed to the path.
-    const keyPath = args.missionKeyPathOf?.({
-      essid: args.session.essid,
-      machine_id: args.machineId,
-    });
-    const laid =
-      keyPath === undefined || keyPath === null
-        ? networkFs
-        : withFiles(networkFs, [[keyPath, file('', ROOT_FILE)]]);
+    // On a contract key box, lay a root-only file at each path the server would lay a file
+    // into, so a root's `rm` of one resolves and is permitted (the bare key box carries no
+    // such path). An empty file suffices: the gate reads only its perms, not its content,
+    // and the removal the handler records is keyed to the path.
+    const laidPaths =
+      args.missionFilePathsOf?.({ essid: args.session.essid, machine_id: args.machineId }) ?? [];
+    const laid = withFiles(
+      networkFs,
+      laidPaths.map((path) => [path, file('', ROOT_FILE)] as const),
+    );
     return { fs: laid, error: null };
   }
   // Not a machine the session's own network generates, so it is another player's
@@ -152,7 +151,7 @@ export const enforceRemoteWriteL2 = async (args: {
   readonly session: SessionTier | null;
   readonly listMachinePatches: ListMachinePatches;
   readonly findOccupantWorkstationByMachineId: FindOccupantWorkstationByMachineId;
-  readonly missionKeyPathOf?: MissionKeyPathOf;
+  readonly missionFilePathsOf?: MissionFilePathsOf;
 }): Promise<L2Outcome> => {
   if (args.session === null) return { ok: true, tree: null };
 
@@ -163,7 +162,7 @@ export const enforceRemoteWriteL2 = async (args: {
     machineId: args.machineId,
     session: args.session,
     findOccupantWorkstationByMachineId: args.findOccupantWorkstationByMachineId,
-    ...(args.missionKeyPathOf ? { missionKeyPathOf: args.missionKeyPathOf } : {}),
+    ...(args.missionFilePathsOf ? { missionFilePathsOf: args.missionFilePathsOf } : {}),
   });
   if (base.error) return { ok: false, status: 500, error: 'permission_check_failed' };
   if (base.fs === null) return { ok: false, status: 403, error: 'permission_denied' };

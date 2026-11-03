@@ -35,7 +35,7 @@ import {
   enforceRemoteWriteL2,
   type FindOccupantWorkstationByMachineId,
   type ListMachinePatches,
-  type MissionKeyPathOf,
+  type MissionFilePathsOf,
 } from './remoteWritePermission.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
 import type { PatchRow } from './upsertPatch.js';
@@ -57,7 +57,7 @@ export type RemovePatchDeps = {
   readonly findOccupantWorkstationByMachineId: FindOccupantWorkstationByMachineId;
   /** The key path a contract key box carries, so a root's `rm` of the key is permitted
    *  (the bare key box carries no such path). Absent off the mission wiring. */
-  readonly missionKeyPathOf?: MissionKeyPathOf;
+  readonly missionFilePathsOf?: MissionFilePathsOf;
   /** Delete the row at `path` AND every row beneath it (`path/...`). */
   readonly deletePatchTree: (query: PatchTreeQuery) => Promise<{ readonly error: unknown }>;
   /** Record the `content: null` deletion marker (the tombstone). */
@@ -109,7 +109,7 @@ export const handleRemovePatch = async (
     session: access.session,
     listMachinePatches: deps.listMachinePatches,
     findOccupantWorkstationByMachineId: deps.findOccupantWorkstationByMachineId,
-    ...(deps.missionKeyPathOf ? { missionKeyPathOf: deps.missionKeyPathOf } : {}),
+    ...(deps.missionFilePathsOf ? { missionFilePathsOf: deps.missionFilePathsOf } : {}),
   });
   if (!permitted.ok) {
     return { status: permitted.status, body: { error: permitted.error } };

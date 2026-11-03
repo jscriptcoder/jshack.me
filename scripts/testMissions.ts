@@ -304,7 +304,8 @@ const main = async () => {
     accepted.includes(address) && accepted.includes(String(HYDRA_NUMBER)),
     accepted,
   );
-  const forward = missionShape(HYDRA_NUMBER).forward;
+  const [forward] = missionShape(HYDRA_NUMBER).forwards;
+  if (forward === undefined) throw new Error('a hydra contract has a forward');
   const scanAfter = await post(NETWORK, signRequest(owner, 'resolvePublicScan', { target: address }));
   const ports = portsOf(scanAfter.body);
   check(
@@ -343,7 +344,8 @@ const main = async () => {
 
   // === 5. THE HYDRA ROUTE CRACKS ROOT ON THE KEY BOX, AND SSH LANDS THERE. ===
   const hydraAddress = missionAddressForNumber(HYDRA_NUMBER)!;
-  const hydraForward = missionShape(HYDRA_NUMBER).forward;
+  const [hydraForward] = missionShape(HYDRA_NUMBER).forwards;
+  if (hydraForward === undefined) throw new Error('a hydra contract has a forward');
   const hydraRootPassword = plaintextFor(missionShape(HYDRA_NUMBER).keyBoxRootHash);
   await seedWordlist([hydraRootPassword]);
   const cracked = await post(SESSIONS, signRequest(owner, 'hydraCrack', {
@@ -406,7 +408,8 @@ const main = async () => {
 
   // === 7. THE MSFCONSOLE ROUTE OPENS THE PINNED HOLE AND LANDS ROOT ON THE KEY BOX. ===
   const msfAddress = missionAddressForNumber(MSF_NUMBER)!;
-  const msfForward = missionShape(MSF_NUMBER).forward;
+  const [msfForward] = missionShape(MSF_NUMBER).forwards;
+  if (msfForward === undefined) throw new Error('an msfconsole contract has a forward');
   const msfKeyBox = keyBoxIdOf(MSF_NUMBER);
   const exploited = await post(SESSIONS, signRequest(owner, 'exploitCreateSession', {
     session_id: `msf-root-${RUN}`,

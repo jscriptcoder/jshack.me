@@ -187,6 +187,7 @@ const makeDeps = ({
     }),
     findWorkstationLease: async () => ({ data: null, error: null }),
     listLeasesByEssid: async () => ({ data: BOTH_LEASES, error: null }),
+    findMissionFiles: async () => ({ data: [], error: null }),
     ...over,
     findPatches,
     listOccupantsByEssid,

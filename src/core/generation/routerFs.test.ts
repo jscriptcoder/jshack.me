@@ -1,4 +1,5 @@
 import { ownAgentCommunity } from '../snmp/ownAgent.js';
+import { isMissionNumber, missionEssid } from '../missions/missionNetwork.js';
 import { describe, expect, it } from 'vitest';
 import type { Directory, FileNode } from '../filesystem/types.js';
 import {
@@ -1063,17 +1064,33 @@ describe('the gateway of a contract network', () => {
     expect(readOpenPorts(gateway()).some((openPort) => openPort.service === 'ssh')).toBe(true);
   });
 
-  it('forwards its one port onto the key box', () => {
+  it('forwards both of a web route\'s doors onto the key box', () => {
+    const webNumber = Array.from({ length: 5000 }, (_unused, index) => index + 66051).find(
+      (candidate) => isMissionNumber(candidate) && missionShape(candidate).route === 'web',
+    );
+    if (webNumber === undefined) throw new Error('no web route contract in the range');
+    const essid = missionEssid(webNumber);
+    const keyBoxIp = `${generateHomeLan(essid).subnet}.${missionShape(webNumber).keyBoxOctet}`;
+
+    const rules = fileAt(buildApGatewayBaseFs(essid), ['etc', 'iptables'], 'rules.v4');
+
+    expect(parseForwardRules(rules)).toEqual([
+      { publicPort: 80, internalIp: keyBoxIp, internalPort: 80 },
+      { publicPort: 2222, internalIp: keyBoxIp, internalPort: 22 },
+    ]);
+  });
+
+  it('forwards every port its shape names onto the key box', () => {
     const shape = missionShape(MISSION_NUMBER);
     const rules = fileAt(gateway(), ['etc', 'iptables'], 'rules.v4');
 
-    expect(parseForwardRules(rules)).toEqual([
-      {
-        publicPort: shape.forward.publicPort,
+    expect(parseForwardRules(rules)).toEqual(
+      shape.forwards.map((forward) => ({
+        publicPort: forward.publicPort,
         internalIp: `${subnet()}.${shape.keyBoxOctet}`,
-        internalPort: shape.forward.internalPort,
-      },
-    ]);
+        internalPort: forward.internalPort,
+      })),
+    );
   });
 
   it('sits on the safe releases the shape pins, firmware included', () => {

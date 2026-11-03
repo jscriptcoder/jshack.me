@@ -75,6 +75,19 @@ import {
 } from '../rideit/pages.js';
 import { TOWNS } from '../generation/world.js';
 import { sessionTable } from '../../test/factories/sessionTable.js';
+import { missionKeyPath } from '../missions/missionSecret.js';
+import {
+  missionFilesWithNoPools,
+  servedMissionFiles,
+  WEB_ROUTE_ADDRESS,
+  WEB_ROUTE_ESSID,
+  WEB_ROUTE_GATEWAY,
+  WEB_ROUTE_KEY_BOX,
+  WEB_ROUTE_LEAK_PATH,
+  WEB_ROUTE_LEAK_REQUEST,
+  WEB_ROUTE_NUMBER,
+  WEB_ROUTE_WORD,
+} from '../../test/factories/webRouteContract.js';
 
 /**
  * `handleResolveHttpFetch` is the credential-free cross-player door: a fetch carries no
@@ -238,6 +251,7 @@ type FetchOverrides = {
   postThread?: PostThread;
   postComment?: PostComment;
   board?: Partial<Omit<BoardDeps, 'findBalance'>>;
+  findMissionFiles?: ResolveHttpFetchDeps['findMissionFiles'];
 };
 
 const makeDeps = (over: FetchOverrides = {}) => {
@@ -349,6 +363,8 @@ const makeDeps = (over: FetchOverrides = {}) => {
     findPatches,
     listOccupantsByEssid,
     listLeasesByEssid,
+    // Default: nothing the server lays in. Only a contract's key box ever holds any.
+    findMissionFiles: over.findMissionFiles ?? (async () => ({ data: [], error: null })),
     now: () => FETCH_TIME,
     appendLog,
     findHomeNetworkByOwnerKey,
@@ -590,6 +606,107 @@ describe("an institution's website, served from a machine nobody owns", () => {
     const response = await handleResolveHttpFetch(envelope(), deps);
 
     expect(response).toEqual({ status: 200, body: { ok: true, content: '<h1>defaced</h1>', server: 'nginx' } });
+  });
+});
+
+describe('a forgotten file on a contract network', () => {
+  const contract = {
+    lookup: async () => ({
+      data: { router_machine_id: WEB_ROUTE_GATEWAY, essid: WEB_ROUTE_ESSID },
+      error: null,
+    }),
+    listOccupantsByEssid: async () => ({ data: [], error: null }),
+    listLeasesByEssid: async () => ({ data: [], error: null }),
+    findMissionFiles: servedMissionFiles,
+  };
+  const asking = (path: string, port = HTTP_DEFAULT_PORT) =>
+    envelope({ target: WEB_ROUTE_ADDRESS, port, path });
+  const contentOf = (body: Record<string, unknown>): string =>
+    typeof body['content'] === 'string' ? body['content'] : '';
+
+  it('is served through the forward to anybody who asks, with the word in it', async () => {
+    const { deps } = makeDeps(contract);
+
+    const response = await handleResolveHttpFetch(asking(WEB_ROUTE_LEAK_REQUEST), deps);
+
+    expect(response.status).toBe(200);
+    // Through a boolean: a failing `toContain` would print the word.
+    expect(contentOf(response.body).includes(WEB_ROUTE_WORD)).toBe(true);
+    expect(response.body['server']).toBe('nginx');
+  });
+
+  it('leaves the line on the key box, under the network own key', async () => {
+    const { deps, appendLog } = makeDeps(contract);
+
+    await handleResolveHttpFetch(asking(WEB_ROUTE_LEAK_REQUEST), deps);
+
+    expect(appendLog).toHaveBeenCalledTimes(1);
+    expect(appendLog.mock.calls[0]?.[0]).toMatchObject({
+      machine_id: WEB_ROUTE_KEY_BOX,
+      path: ACCESS_LOG_PATH,
+      writer_key: apGatewayLogWriterKey(WEB_ROUTE_ESSID),
+    });
+  });
+
+  it('is gone for the next visitor once a root has removed it', async () => {
+    const { deps } = makeDeps({
+      ...contract,
+      patches: patchesByMachine({
+        [WEB_ROUTE_KEY_BOX]: [
+          journalRow({ path: WEB_ROUTE_LEAK_PATH, content: null, nodeType: null }),
+        ],
+      }),
+    });
+
+    expect(await handleResolveHttpFetch(asking(WEB_ROUTE_LEAK_REQUEST), deps)).toEqual({
+      status: 404,
+      body: { error: 'not_found' },
+    });
+  });
+
+  it('never serves the key, which the server lays on the same box', async () => {
+    const { deps } = makeDeps(contract);
+    const keyPath = missionKeyPath(WEB_ROUTE_NUMBER);
+
+    for (const request of [keyPath, `/../../..${keyPath}`, `/%2e%2e/%2e%2e/%2e%2e${keyPath}`]) {
+      expect(await handleResolveHttpFetch(asking(request), deps), request).toEqual({
+        status: 404,
+        body: { error: 'not_found' },
+      });
+    }
+  });
+
+  it('refuses the forward onto sshd, which serves no web', async () => {
+    const { deps } = makeDeps(contract);
+
+    expect(await handleResolveHttpFetch(asking('/', 2222), deps)).toEqual({
+      status: 404,
+      body: { error: 'host_unreachable' },
+    });
+  });
+
+  it('answers 500 and serves nothing when the deployment holds no pools', async () => {
+    const { deps } = makeDeps({ ...contract, findMissionFiles: missionFilesWithNoPools });
+
+    expect(await handleResolveHttpFetch(asking(WEB_ROUTE_LEAK_REQUEST), deps)).toEqual({
+      status: 500,
+      body: { error: 'mission_secret_missing' },
+    });
+  });
+
+  it('leaves every other network serving when the deployment holds no pools', async () => {
+    const PUBLISHER = 'CAMPUS-GUEST-OPEN';
+    const { deps } = makeDeps({
+      lookup: async () => ({
+        data: { router_machine_id: computeApGatewayId(PUBLISHER), essid: PUBLISHER },
+        error: null,
+      }),
+      listOccupantsByEssid: async () => ({ data: [], error: null }),
+      listLeasesByEssid: async () => ({ data: [], error: null }),
+      findMissionFiles: missionFilesWithNoPools,
+    });
+
+    expect((await handleResolveHttpFetch(envelope(), deps)).status).toBe(200);
   });
 });
 
