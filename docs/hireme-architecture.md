@@ -4,9 +4,10 @@ How a player gets a contractor board: `hireme.io`, a fixed site where a player a
 emailit.io address and is mailed a private address of their own, which `curl` or `lynx` opens.
 This is the shipped model of the hireme epic, complete at **v0.422.0** (three slices,
 v0.420.0–v0.422.0, PRs #719, #721 and #722). It is the front door for missions, built before
-missions exist: every board says so. Jobs, claiming them and payment are **not** here; they wait
-for the missions grill (see "What missions add"). The grill record and slice plans were retired on
-close-out. When this doc and the code disagree, the code wins — fix the doc.
+missions existed. Jobs on the board, claiming them and payment are **not** here: they are the
+missions epic's ([`missions-architecture.md`](./missions-architecture.md), see "What missions
+add"). The grill record and slice plans were retired on close-out. When this doc and the code
+disagree, the code wins — fix the doc.
 
 ## The one idea the design turns on
 
@@ -102,11 +103,12 @@ server** answers at every board's address.
   and a root-only `/etc/hireme`. It has no address of its own, no domain anybody can `curl` and
   no findit listing; it answers at every held address.
 - **The board is answered at `/`** for a GET, any query ignored, from a function: the handle
-  holding the address asked (`payload.target`), then `boardPage(handle)`: title
-  `hireme.io - contractor board`, "Welcome back, neo.", then "Contractor board — no contracts
-  available yet. New work is coming soon.", the handle escaped. A root's `index.html` never
-  replaces a board. Another path is a file from the box's empty web root, so a 404; a POST is the
-  usual 405. No handle on the second read is `host_unreachable`; a failed read is a 500
+  holding the address asked (`payload.target`), then the board page: title
+  `hireme.io - contractor board`, "Welcome back, neo.", the handle escaped, then the current
+  contract and the offers (since v0.439.0; [`missions-architecture.md`](./missions-architecture.md)
+  §5, where `POST /accept` and `POST /drop` are answered too). A root's `index.html` never
+  replaces a board. Another path is a file from the box's empty web root, so a 404; any other POST
+  is the usual 405. No handle on the second read is `host_unreachable`; a failed read is a 500
   `board_lookup_failed` with no log line.
 - **The log line names the board read.** Every address lands on one box and one `access.log`, so
   there the request is recorded in absolute form, `"GET http://194.12.40.7/ HTTP/1.1"`, with the
@@ -185,11 +187,11 @@ ceiling at v0.422.0, with no raise.
 
 ## What missions add
 
-Left for the missions grill, on top of this without changing the machines, the addresses or the
-lookup: job templates and per-handle instances (a table keyed by handle, so a job a player
-completes leaves their board, not anyone else's); how a job is claimed and completed, and whether
-somebody holding a leaked address can claim one; the wallet and payout step (the operator mint);
-and what the root view adds. A second, darknet operator stays open as later content.
+The missions epic (v0.438.0–v0.441.0) built on this without changing the machines, the addresses
+or the lookup: offers on every board, accept and drop, the briefing by mail, the 195 contract
+networks, the client paying a mailed key through the mint, and `/etc/hireme/contracts` beside the
+boards' list. As-built: [`missions-architecture.md`](./missions-architecture.md). A second,
+darknet operator stays open as later content (`backlog.md`, "missions — deferred").
 
 ## Key files
 

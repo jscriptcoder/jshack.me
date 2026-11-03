@@ -52,19 +52,26 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
     20-an-hour cap is what bounds it. Page it if a thread ever grows long enough to need it.
   - Reporting and blocking are owed before multiplayer is announced, as for mail (above).
 
-- **hireme — the missions it waits for.** The contractor boards shipped at v0.422.0 (as-built:
-  [`hireme-architecture.md`](./hireme-architecture.md)), every board saying no work is available
-  yet. Left for the missions grill, all on top of the machines, the addresses and the lookup as
-  they are:
-  - **Job templates and per-handle instances**, a table keyed by handle, so a job a player
-    completes leaves their own board and nobody else's. Places posting vacancies that say how they
-    run (the old `hireit.io` idea) fit here.
-  - **How a job is claimed and completed**, and whether somebody holding a leaked address can
-    claim one.
-  - **The wallet and the payout**, through the operator mint, paying whoever completes the job and
-    names a wallet.
-  - **What the root view adds**, beyond each handle's address.
-  - A second, darknet operator stays open as later content.
+- **missions — deferred.** Contract work shipped at v0.441.0 (as-built:
+  [`missions-architecture.md`](./missions-architecture.md)): one template, exfiltrate a key, on a
+  two-box network with a hydra or msfconsole route. Left for later:
+  - **The routes that leak a working login in a file** (a forgotten web file, anonymous FTP, a
+    guessable SNMP community, a database row): the next small epic, starting with a grill. Such a
+    file cannot be generated in the bundle from the public seed, so like the key it is written by
+    the server from the server-only secret, before the journal is replayed.
+  - **Decoy services.** The plan drew up to two per box on guest-at-most releases; as built the key
+    box runs only the route's service. `missionShape`'s `keyBoxServices` is where they go.
+  - **More templates**: deep chains and switches, more hops, the library route (one library pinned
+    to a critical release), a job that cares about stealth, deadlines. Each carries its own pay
+    range above exfiltrate's 500–2,000 JSC.
+  - **File exfiltration** (bring a file home and send it back), once emailit.io can carry one.
+  - **Recognition for completed jobs**, the other half of a mission reward; completions are only
+    in `hireme_missions` today.
+  - **Places posting vacancies** that say how they run (the old `hireit.io` idea), and a second,
+    darknet operator.
+  - **Look-alike offers.** An offer's line shows only client, kind, pay and pitch, so two jobs read
+    alike about once in 620 boards (seen in the close-out run). Showing the target company would
+    tell them apart, if it matters.
 
 - **valleynews — follow-ups deferred.** The paper shipped at v0.424.0 (as-built:
   [`valleynews-architecture.md`](./valleynews-architecture.md)), every story hand-written and
@@ -98,7 +105,7 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
     - ✅ **A jobs board**: built as hireme.io at v0.420.0–v0.422.0 (#719, #721, #722), each
       player's own contractor board behind a private address; as-built
       [`hireme-architecture.md`](./hireme-architecture.md). Places posting vacancies that say how
-      they run is missions content, under "hireme — the missions it waits for".
+      they run is missions content, under "missions — deferred".
     - **Reviews** (`rateit.io`): star ratings and comments on mapit's places, cheap to generate
       from the place data ("The Wi-Fi password is on the menu, lol").
   - **Ties to systems that already exist:**

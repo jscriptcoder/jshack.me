@@ -413,6 +413,30 @@ server lays the key in `findMissionKeyFile`). This is how `scripts/testMissions.
 how the prod secret was checked on 2026-11-01 — a well-formed `ACCESS-` token back means the
 secret is bound; it needs the supabase creds, not the secret itself.
 
+### Then: the whole job through the board, to a payout
+
+Verified 2026-11-03 (v0.441.0), the epic's close-out: alice applied, accepted, rooted and was paid;
+bob, handed the address, rooted the same box and was refused. No operator staging: the board
+posts the offers itself.
+
+| # | Command | Trap |
+|---|---|---|
+| 1 | `su root` → `apt install mailutils` / `lynx` / `nmap` / `metasploit` / `wallet`, one each → `exit` → `wallet init` | None of them is preinstalled. Note the `jsc…` address `wallet init` prints: the proof mail needs it |
+| 2 | `curl -d "handle=<h>&password=<pw>" http://emailit.io/signup`, then `mail login` | `mail login` asks `Address:` then `Password:` on two prompts; type each as its own command. The poller sees `:` as a prompt, so it works |
+| 3 | `curl -d "email=<h>" http://hireme.io/apply`, then `mail`, `mail read 2` | The bare handle is enough. The board's address is only in that mail |
+| 4 | Pick the offer offline BEFORE accepting | The board never shows an address. Read the numbers: `select number, ref from hireme_missions where handle = '<h>' and state = 'offered'` (local psql), then `missionShape(n).route` and `missionKeyPath(n)` per number. All three were msfconsole on the run, but a hydra one needs `plaintextFor(missionShape(n).keyBoxRootHash)` |
+| 5 | `lynx http://<board>/`, the cursor opens on the FIRST `[ Accept ]`; `Enter` | Read `[aria-current="true"]`'s `textContent` before `Enter`. `ArrowDown` from there reaches the next offer's `[ Accept ]` directly. `curl -d "offer=<ref>" http://<board>/accept` is the same door without lynx |
+| 6 | `q`, then `mail` and `mail read <n>` for `Contract: <target>` | The briefing comes from `<client>@emailit.io` and gives the 195 address |
+| 7 | `msfconsole <address> <forward port>` → `cat <key path>` → `exit` | The forward's port is `missionShape(n).forward.publicPort`: `80` or `21` on the run, not always 80. `cat` is paced (above) |
+| 8 | `mail reply <briefing n>`, type `ACCESS-… jsc…` on the top line, `^O`, `^X` | The caret lands at the END of the quote: see [driving-the-terminal.md](driving-the-terminal.md), "Composing mail". Lines starting `>` are never read, so the key must be typed, not quoted |
+| 9 | `mail`, `mail read <n>`, `wallet balance` | The reply is instant: "Key received. <pay> JSC sent to jsc…", and the balance is the pay |
+
+A second player who mails the right key gets "We have no contract with you." (subject `No
+contract`); the same key again from the contractor gets "That job is already closed." and no mint.
+`curl -d "confirm=yes" http://<board>/drop` drops a job and the client mails one line. An offer
+line shows only client, pay and pitch, so two different offers can read alike; tell them apart by
+ref, never by the words.
+
 **Clean up.** `hireme.ts drop <handle>` only ABANDONS the contract — the network stays reachable
 for good by design. True removal is a service-role `delete()` of the `hireme_missions` row (plus
 the mailbox and the key box / gateway `patches` rows a run leaves), the way the wire-check's

@@ -18,8 +18,8 @@ This file holds what every run needs. Read the reference for your scenario befor
 
 | You need to… | Read |
 | --- | --- |
-| Open sessions, wait for the prompt, type commands, read output, edit in nano | [`references/driving-the-terminal.md`](references/driving-the-terminal.md) |
-| Get a new player connected, then onto a service, a deep layer, a generated machine, a phone, or the AP gateway | [`references/reaching-a-state.md`](references/reaching-a-state.md) |
+| Open sessions, wait for the prompt, type commands, read output, edit in nano, compose mail | [`references/driving-the-terminal.md`](references/driving-the-terminal.md) |
+| Get a new player connected, then onto a service, a deep layer, a generated machine, a phone, the AP gateway, or a contract job through to its payout | [`references/reaching-a-state.md`](references/reaching-a-state.md) |
 | Run a second player, two players on one network, or two terminals of one player | [`references/two-players.md`](references/two-players.md) |
 | Work out a seeded password offline, or read the local database | [`references/offline-secrets.md`](references/offline-secrets.md) |
 | Publish a page, get on findit/chainit, show a site defaced and restored | [`references/fixed-sites.md`](references/fixed-sites.md) |

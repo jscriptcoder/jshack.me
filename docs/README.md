@@ -11,7 +11,7 @@ plan deletion and isn't trapped in anyone's local notes.
 | **`docs/handbook/`**         | **The maintainer's handbook**: the whole system explained for a new engineer, one chapter per subsystem | Versioned with the code; updated in the same PR as the behaviour |
 | **`docs/*.md`** (here)       | **As-built** architecture, invariants, and operational gotchas for the shipped system       | Versioned with the code; durable |
 | `docs/legacy/rewrite-blueprint/` | **Design intent** — the blueprint written while planning the rewrite, a snapshot of legacy | Historical reference; frozen |
-| `docs/mission-ideas/`        | **Legacy mission design + scenario catalog** — input to the missions rebuild                | Reference until missions ship    |
+| `docs/mission-ideas/`        | **Legacy mission design + scenario catalog** — input to the missions rebuild                | Reference for further templates  |
 | `docs/legacy/`               | **The retired React app's design docs**; its source is at git tag `legacy-final`            | Historical reference; frozen     |
 | `plans/`                     | PR-sized implementation plans + epic story-splits (the `planning`/`story-splitting` skills) | **Deleted on completion**        |
 | `~/.claude` memory           | Working-style feedback, preferences, short-lived resume/status pointers                     | Author-local; not team docs      |
@@ -59,6 +59,9 @@ disagree, the code wins; fix the doc.
 - [tutorials-architecture.md](./tutorials-architecture.md) — the in-game tutorials: the home
   `README`, hackademy.io's ten chapters and example scripts, the rules every chapter keeps, the
   tests that hold them, and how to add a chapter (the in-game tutorials epic, shipped).
+- [missions-architecture.md](./missions-architecture.md) — contract work: offers on a hireme.io
+  board, the 195 contract networks generated from a number, the key from a server-only secret,
+  the client paying a mailed key, and the root view (the missions epic, shipped).
 - [e2e-shared-network-verification.md](./e2e-shared-network-verification.md) — two-player
   browser journeys against a local stack, and a coverage map.
 - [legacy/rewrite-blueprint/](./legacy/rewrite-blueprint/README.md) — the design-intent blueprint for the rewrite

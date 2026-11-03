@@ -1199,8 +1199,8 @@ agreed order:
     staged user-tier shell on the boards' server with `/etc/hireme` hidden and both reads in
     `access.log` (no release had a root-tier hole on game day 101, so the root view rests on its
     wire-check); the restore. No defect. As built:
-    [`hireme-architecture.md`](./hireme-architecture.md); what jobs need is in `backlog.md` under
-    "hireme — the missions it waits for".
+    [`hireme-architecture.md`](./hireme-architecture.md); the jobs came with the missions epic
+    (entries 38 and 39).
 29. ✅ **The valley's paper at valleynews.io (v0.423.0–v0.424.0, PRs #723 and #724,
     2026-10-21).** One site where everything is announced: the valley's news, the developer's notes and real-world security news, in three
     labelled sections, every story hand-written and posted by the operator from a story file.
@@ -1429,9 +1429,29 @@ agreed order:
     `cat` read the `ACCESS-` key matching the offline-derived value — and a minimal prod key-door
     check that read a well-formed, distinct key from production, confirming the Production secret
     is bound. The e2e skill gained a mission recipe (`reaching-a-state.md`, commit `35441224`).
-    `plans/missions.md` stays live for the rest of the epic. **Pick up here (2026-11-01):**
-    missions slice 2 — offers, accept and drop on the board, the briefing, reserved client
-    handles, and pay (see `plans/missions.md`, "Out of scope" of slice 1).
+
+39. ✅ **Missions — the board hires, the client pays, the root view (v0.439.0–v0.441.0, PRs
+    #747–#749, merged 2026-11-03).** The rest of the missions epic; as-built
+    [`missions-architecture.md`](./missions-architecture.md). Slice 2 (v0.439.0): every board
+    carries three offers (client, job, pay of 500–2,000 JSC, a pitch, never the address), posted
+    lazily on a read and turned over each on its own 24 hours; `POST /accept` mails a briefing
+    with the address from the client's reserved emailit.io handle, the board then shows the
+    current contract, and `POST /drop` abandons it. Slice 3 (v0.440.0): a mail to a client
+    handle is read by its shape (the first `ACCESS-` key and `jsc` wallet, quoted lines skipped)
+    and answered at once; the right key from the contractor completes the job and mints the pay
+    in one transaction, once; anyone else gets "We have no contract with you." Slice 4
+    (v0.441.0): a root on the boards' server reads `/etc/hireme/contracts`, every accepted job
+    and who works it. Migrations `20261102000000_hireme_contracts.sql` and
+    `20261103000000_hireme_completion.sql` reached jshack-dev and jshack-prod before their
+    merges; no new env. Each slice's mutation gate left only equivalents; the main chunk stayed at
+    297,685 B gz. **Close-out (2026-11-03):** one browser run with two players in different
+    towns — alice applied, accepted through the lynx form, rooted the key box and was paid 1,650
+    JSC once; bob, handed the address, rooted the same box and was told there was no contract;
+    an accept and drop by `curl -d` refilled the slot. No defect. The root view rests on its
+    wire-check, re-run against the same server. Announced on valleynews.io `/dev` (story 16).
+    The plan was retired on close-out; what is left is in `backlog.md` under "missions —
+    deferred". **Pick up here (2026-11-03):** the routes that leak a login in a file, the next
+    small epic, start with a grill; or the owner's choice from `backlog.md`.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

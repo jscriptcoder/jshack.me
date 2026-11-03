@@ -95,6 +95,23 @@ agent-browser snapshot -i                              # interactive refs (@e1, 
   than counting `\n` in `innerText`. Had I trusted the rendered count I would have recorded a false
   "verified" — or chased a bug that was not there.
 
+## Composing mail
+
+Verified 2026-11-03 (v0.441.0).
+
+- **`mail send <to> <subject> "<body>"` OPENS NANO at the terminal.** Only a script takes the body
+  as an argument; typed at the prompt, every word after the recipient becomes the SUBJECT and an
+  empty buffer opens. A helper that then types the next command waits on an `<input>` that is not
+  there, or worse, types into the buffer. Send as `mail send <to> <subject>`, type the body into
+  the textarea, then `^O` and `^X` as for any nano file (below). The subject is read by the
+  missions client too, so a key in the subject still counts.
+- **`mail reply <n>` leaves the caret at the END of the quoted original after a `click`.** A
+  `keyboard type` then lands under the quote. Put the caret at the top first:
+  `eval "(() => { const ta = document.querySelector('textarea'); ta.focus(); ta.setSelectionRange(0, 0); })()"`,
+  then type, then read `.value` back. Click again before `^O`/`^X` (below); the click moves the
+  caret, but the text is already in.
+- **A sent mail prints nothing.** The prompt simply returns after `^X`; read `mail` for the answer.
+
 ## Terminal and editor DOM quirks
 
 - The command line is a single `<input>` that auto-focuses on mount and re-grabs focus on any
