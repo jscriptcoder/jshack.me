@@ -2,7 +2,7 @@
 
 **Status:** Slice 1 (the web route) shipped at v0.442.0 and is verified on production. Slice 2 (anonymous FTP) shipped at
 v0.443.0 and slice 3 (the database route) at v0.444.0, neither with a production check planned. Their as-builts are below.
-**Next: slice 4**, which gets its plan here when it starts.
+**Next: slice 4**, planned below, and then the close-out.
 
 Contract networks ship with two ways onto the key box: `hydra` (a crackable root) and `msfconsole`
 (a critical hole). This epic adds four where a forgotten file or setting leaks root's password. A
@@ -526,3 +526,113 @@ runtime, and this file reaches a door the same way.
 wire-checks pass, and the mutation gate leaves only equivalents. The owner approves each commit.
 
 **Slice complete when:** the PR merges and this plan records the as-built.
+
+### Slice 4: a contract can be an SNMP route, where a guessed or cracked community reads root's word in a walk
+
+**Value:** a contractor on an SNMP-route job sees `161` and `2222` in a scan, gets silence from a plain `snmpwalk`, guesses a community or
+cracks one with `hydra`, finds a word in the device's `sysContact`, works out that it is a login, and reads the key as root. They keep the word.
+
+**Path:** `missionShape` draws the route, two forwards and the read-write community's hash → `routerFs` writes both forwards into the
+gateway's `rules.v4` → the key box builder runs `snmpd` on a safe release and writes the hashed community, with no `/etc/snmp/snmpd.conf` →
+`hydra <address> snmp` sweeps that hash → the server lays `snmpd.conf` onto the box at the SNMP doors, holding the read-only community and the
+word → `snmpwalk <address> <community>` prints the word as `sysContact` → `ssh -p 2222` logs in against the unchanged `/etc/passwd` → the
+existing key file and reply → the existing payout.
+
+**Class:** behavior change. **Delivery:** independent PR against `main`, branch `feat/leak-snmp-route`.
+
+**Required implementation skills:** `tdd`, `testing`, `functional`, `typescript-strict`, `refactoring` where it applies,
+and `mutation-testing` at the PR gate.
+
+**What the trace settled, against decision 12 and the note above:**
+
+- **A forward to `:161` should reach the agent, by reading the code. The wire-check proves it live.** A contract gateway is built with
+  `hasSnmp: false`, so `machineServing` takes the forward rather than a gateway's own agent, and `generatedForwardTarget` only asks whether the
+  key box listens on the port. A scan labels a forward with the target's service, so it should print `161/udp`.
+- **Both SNMP doors need the lay-in, and `hydra` doesn't.** `snmpWalk` reads the word and the read-only community from the file. `snmpSet` judges
+  the same community, and if it read the base, a walk would accept a community that a set answered with silence, which `snmpAgent.ts` exists to
+  prevent. `hydra`'s `secretOn` reads only the hash in `/var/lib/snmp/snmpd.conf`, which is in the base.
+- **The base holds no `/etc/snmp/snmpd.conf`.** `withFiles` makes the parent directory when it lays the file, so neither the word nor the community
+  reaches the bundle.
+- **The file also reaches anyone who once held a session.** `/etc/snmp/snmpd.conf` is on the externally-observable list, so a caller whose session
+  closed can still read it, and with it the word. On a box the network makes, that read needs a row the caller once held, so someone who never held a
+  session gets nothing. This goes a little past decision 12, which accepted a guest shell reading it, and gives nothing to a stranger.
+- **`inputPort` needs no seeded file.** `withInputDeny` builds from empty content, and `listensOn` honours the key box's filter, so a deny on `22`
+  closes `:2222`.
+- **`forward` on a key box may be accepted and do nothing.** `frontedSegment` returns a subnet for any box rather than null, so such a write may land.
+  `machineServing` reads only the gateway's rules, so nothing routes by it. The wire-check holds that a scan doesn't change.
+- **A hole on the safe release lands a guest at most.** `snmp` has 6 safe releases out of 14 (3 low, 3 medium). A guest can then read the word,
+  which decision 12 accepted, and the FTP route already works that way.
+- **`snmpwalk` needs `apt install snmp` first.** That is the existing gate. `hydra` doesn't need the package.
+
+**What it builds:**
+
+- **The shape:** `snmp` joins `ROUTES`, still the third draw on the topology stream. `snmpd` on a safe release, forwards `161` and `:2222`, and root
+  from `LEAKABLE_HASHES`, as the other leak routes do. A new `keyBoxCommunityHash` field holds the read-write community's hash from `crackableHash` on
+  this route, and is null on the others.
+- **The key box:** on this route, `/var/lib/snmp/snmpd.conf` from `formatSnmpdState`, root-only as on any device, and a seeded `/var/log/snmpd.log`. The
+  pidfile and binaries come through the existing `keyBoxServices` path. No `/etc/iptables/rules.v4`, since a key box carries only what its shape says.
+- **The file, on the server only:** `missionLeakFile` on this route answers with `SNMPD_CONF_PATH`, `SNMPD_CONF_PERMISSIONS` and fixed content. The
+  community comes from `monitor` or `netops`, drawn on the `mission-leak-` stream, and the pool sits in `missionLeak.ts`:
+
+  ```
+  # /etc/snmp/snmpd.conf — SNMP agent configuration
+  rocommunity <community>
+  syscontact helpdesk: the server password is still <word>, change it!
+  ```
+
+- **The doors:** `api/sessions.ts` passes `findMissionFiles` for `snmpWalk` and `snmpSet`. A box whose files can't be made answers 500
+  `mission_secret_missing`, through the same `reachBox` arms as the database doors.
+- **The manual:** `snmpwalk`'s `Every agent answers to "public"` is no longer true, so it becomes `Most agents answer to "public"`. The comments that make
+  the same claim change too. The Hackademy's `public reads` stays, since it describes the tier rather than every device.
+- **The operator:** `show` needs no code, since it prints whatever `missionLeakPath` and `forwards` hold. It doesn't print the community.
+
+**Bundle:** 95 B remain, so this slice will go over. Under decision 14 the build measures the real cost, and the owner approves the raise before the commit.
+
+**Acceptance criteria (for the owner to confirm before any code):**
+
+1. Across numbers, routes draw about a sixth each. A number's address, key and key path are the same whichever route it draws.
+2. On an SNMP route, `nmap <address>` shows `161/udp` and `2222`, and the gateway's `rules.v4` holds both forwards.
+3. `snmpwalk <address>` answers `Timeout: No Response`, as does a community the box doesn't hold, and each leaves an authentication failure in
+   `/var/log/snmpd.log` on the key box.
+4. `snmpwalk <address> <community>` with the box's read-only community answers at the read-only tier. `sysContact` holds the word, nothing in the walk says
+   `root`, and the walk leaves a success line in `snmpd.log`.
+5. `hydra <address> snmp` finds the read-write community on every SNMP route and never the read-only one, and the sweep leaves lines in `snmpd.log`. A walk with
+   that community answers at the read-write tier and also shows the word.
+6. `ssh root@<address> -p 2222` with that word opens a root shell that can read the key, and mailing the key to the client pays as on any route.
+7. Appending the word to `passwords.txt` makes `hydra` find root on `:2222`. Without it, `hydra` finds no root on `:2222`. `msfconsole` finds no root through
+   `:161` on this route.
+8. A guest shell on the key box can `cat /etc/snmp/snmpd.conf` and run `snmpwalk localhost <community>`, and can't read `/var/lib/snmp/snmpd.conf`. A caller
+   whose session closed can still read the file, and one who never held a session gets nothing.
+9. `snmpset` with the read-only community is refused as `notWritable` and writes nothing. With the read-write community, `inputPort.22=deny` closes `:2222` and
+   `permit` reopens it, and `inputPort.161=deny` silences later walks. A `forward` write on the key box opens nothing on the gateway.
+10. After a root changes `syscontact`, a later walk no longer shows the word. After a root's `rm` of the file, the read-only community gets silence and the
+    read-write one still answers. After `systemctl stop snmpd`, every walk gets silence. The key file is unaffected by any of these.
+11. The box as generated holds no `/etc/snmp/snmpd.conf`, no word and no read-only community. `checkSecrets` passes on a built `dist/`.
+12. With `JSHACK_SECRETS` unset, `snmpwalk` and `snmpset` to an SNMP route's key box answer 500 and show no word, and `hydra` still sweeps, as on the database
+    route. Other routes and boxes on other networks are unaffected.
+13. Every existing guarantee in `missionShape.test.ts` holds across all six routes: nothing but the route climbs, and an SNMP route's root is a slice word. Its
+    read-write community is on the default list. No other route's key box runs `snmpd` or holds a community.
+14. `show` prints the route, both forwards, the path and the word. The PR states its gzipped cost and the raise the owner approved.
+
+**RED:** start from `missionShape.test.ts` and `missionKeyBoxFs.test.ts` (the draw, the forwards, the hash, the state file, no config), then `missionLeak.test.ts`
+(the file, its permissions, the word, the community, fail-closed), then a new `src/core/sessions/snmpMissionRoute.test.ts`, one in-memory journal through the real
+`hydra`, walk and set handlers, as `mysqlMissionRoute.test.ts` does, then `resolveCrossPlayerFs.test.ts` (who reads the file) and `snmpwalk.test.ts` (the manual).
+`hiremeOrders.test.ts` gets one case for this route.
+
+**GREEN:** the least that passes each, in that order. **REFACTOR:** assess after each green. Tests with a fixed contract number may change route when `ROUTES` grows;
+those that need a route should search for one, through a new `src/test/factories/snmpRouteContract.ts`.
+
+**Wire-check:** a new `scripts/testMissionSnmp.ts` against `vercel dev` and local supabase, driving a real accept: the scan, the silent walk, the walk with the
+community, the sweep and the walk with what it found, the `snmpd.log` lines, the walk over `localhost`, the word's login, the key, the payout, the set refused and the
+set accepted, `:2222` closing and reopening, the `forward` write, `syscontact` changed and the `rm`. Run every `testMission*` script, since this slice re-rolls the
+contract fixtures, and the `testSnmp*` scripts and `testHopDataDoors`, since their reach changed.
+
+**PRE-PR mutation:** scoped to `missionLeak.ts`, `missionShape.ts` and the changed lines of `missionKeyBoxFs.ts`, one file at a time.
+
+**Deploy:** no migration, no new variable, and no production check: slice 1 already proved production reads `JSHACK_SECRETS` at runtime, and this file reaches a door
+the same way.
+
+**PR-ready when:** the criteria are met with their tests, `npm run typecheck`, `npm run lint` and the full test suite pass, the wire-checks pass, and the mutation gate
+leaves only equivalents. The owner approves each commit.
+
+**Slice complete when:** the PR merges and this plan records the as-built. The close-out above follows.
