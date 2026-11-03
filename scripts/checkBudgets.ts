@@ -52,8 +52,9 @@ import {
  *  content's part was 150 KB until every town beyond Ridgemont wrote landmarks of its own:
  *  their 43 rows add 1,205 B, rounded up to 2,000; then the missions slice (the 195 block
  *  and its address codec, the mission branch in `generateHomeLan`, the key-box FS builder,
- *  and the whois 195 record) added 510 B, rounded up to 1,000. */
-const BUNDLE_CEILING_BYTES = 298_175;
+ *  and the whois 195 record) added 510 B, rounded up to 1,000; then the database route (its
+ *  shape and the database a key box generates) added 269 B, rounded up to 300. */
+const BUNDLE_CEILING_BYTES = 298_475;
 
 /** About a tenth of that before world content, so a loaded machine's noise cannot fail
  *  the check while a content change that makes boxes ten times dearer still does. */

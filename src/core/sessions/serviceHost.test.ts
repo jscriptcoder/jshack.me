@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest';
+import { DATADIR_PATH, databaseIn } from '../mysql/datadir.js';
+import { LOOPBACK_IPV4 } from '../network/interfaces.js';
+import {
+  DATABASE_ROUTE_ESSID,
+  DATABASE_ROUTE_KEY_BOX,
+  DATABASE_ROUTE_KEY_BOX_IP,
+} from '../../test/factories/databaseRouteContract.js';
+import {
+  missionFilesWithNoPools,
+  servedMissionFiles,
+} from '../../test/factories/webRouteContract.js';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
-import { reachServiceHost, type ServiceHostLookup } from './serviceHost.js';
+import { reachServiceHost, type ServiceHostLookup, type ServiceHostReach } from './serviceHost.js';
 import { derivedPublicIpByEssid } from '../logging/crossPlayerSourceIp.js';
 import { generateIdentity } from '../identity/identity.js';
 import { generateHomeLan, type LanHost } from '../generation/generateHomeLan.js';
@@ -137,6 +148,66 @@ const apGatewayOn = (
 };
 
 const AP_GATEWAY = apGatewayOn(ESSID);
+
+describe('reaching a contract key box from a shell on its own network', () => {
+  const overLoopback = (lookup: ServiceHostLookup) =>
+    reachHost(lookup, {
+      essid: DATABASE_ROUTE_ESSID,
+      targetIp: LOOPBACK_IPV4,
+      service: SERVICE_CATALOG.mysql.service,
+      port: SERVICE_CATALOG.mysql.defaultPort,
+      actorKey: ATTACKER.publicKeyHex,
+      callerMachineId: DATABASE_ROUTE_KEY_BOX,
+      ownLanSourceIp: DATABASE_ROUTE_KEY_BOX_IP,
+    });
+
+  const tablesReached = (reach: ServiceHostReach): readonly string[] =>
+    reach.ok ? Object.keys(databaseIn(reach.reached.hostFs)?.tables ?? {}) : [];
+
+  it('lays the server files on for a door that reads them', async () => {
+    const reach = await overLoopback(makeLookup({ findMissionFiles: servedMissionFiles }));
+
+    expect(reach.ok).toBe(true);
+    expect(tablesReached(reach)).toContain('settings');
+  });
+
+  it('lets the journal win over what it laid on', async () => {
+    const reach = await overLoopback(
+      makeLookup({
+        findMissionFiles: servedMissionFiles,
+        findPatches: async () => ({ data: [patchRow(DATADIR_PATH, null)], error: null }),
+      }),
+    );
+
+    expect(reach.ok && databaseIn(reach.reached.hostFs)).toBeNull();
+  });
+
+  it('leaves the box as generated for a door that passes none', async () => {
+    const reach = await overLoopback(makeLookup());
+
+    expect(reach.ok).toBe(true);
+    expect(tablesReached(reach)).not.toContain('settings');
+  });
+
+  it('refuses when a secret the box needs is unset', async () => {
+    expect(await overLoopback(makeLookup({ findMissionFiles: missionFilesWithNoPools }))).toEqual({
+      ok: false,
+      refusal: { status: 500, body: { error: 'mission_secret_missing' } },
+    });
+  });
+
+  it('leaves a box on an ordinary network open when the secrets are unset', async () => {
+    const reach = await reachHost(makeLookup({ findMissionFiles: missionFilesWithNoPools }), {
+      essid: ESSID,
+      targetIp: OWN_LAN.host.ip,
+      service: OWN_LAN.service,
+      port: OWN_LAN.port,
+      actorKey: ATTACKER.publicKeyHex,
+    });
+
+    expect(reach.ok).toBe(true);
+  });
+});
 
 describe('reaching a generated box on the caller own LAN', () => {
   it("reaches the box without inventing a source address, filed under the network's own key", async () => {

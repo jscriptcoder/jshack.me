@@ -42,10 +42,7 @@ export const generatedLanBox = async (
   const host = generateHomeLan(essid).hosts.find((candidate) => candidate.ip === ip);
   if (host === undefined) return { kind: 'absent' };
   const { machineId, baseFs } = resolveLanHostIdentity(host, essid);
-  const laidFs =
-    findMissionFiles === undefined
-      ? baseFs
-      : await withMissionFiles(findMissionFiles, { essid, machineId, baseFs });
+  const laidFs = await withMissionFiles(findMissionFiles, { essid, machineId, baseFs });
   if (laidFs === null) return { kind: 'error', cause: 'mission_files' };
   const patches = await findPatches({ machine_id: machineId });
   if (patches.error) return { kind: 'error', cause: 'patches' };

@@ -37,6 +37,7 @@ import { canBoot } from '../boot/bootFiles.js';
 import { apGatewayLogWriterKey } from '../logging/apGatewayLogWriter.js';
 import { frontedSegment } from './frontedSegment.js';
 import { generatedLanBox } from './generatedLanBox.js';
+import { MISSION_FILES_MISSING, type FindMissionFiles } from './missionBoxFiles.js';
 import type { Directory } from '../filesystem/types.js';
 import { networkAt } from '../generation/world.js';
 import { computeApGatewayId } from '../identity/router.js';
@@ -101,6 +102,10 @@ export type ResolvePublicTargetDeps = {
   readonly listLeasesByEssid: (
     essid: string,
   ) => Promise<{ readonly data: readonly LanLeaseRow[] | null; readonly error: unknown }>;
+  /** The files the server lays onto a generated box. A door that reads the file holding a
+   *  contract's word passes it, and one asking only what the box runs or who logs in to it
+   *  leaves it out, so losing a secret closes no more than it has to. */
+  readonly findMissionFiles?: FindMissionFiles;
 };
 
 /** The box behind the public IP: which tree to read, the machine id a session lands
@@ -247,9 +252,18 @@ const generatedForwardTarget = async (
   network: ApNetworkLookup,
   forwarded: { readonly internalIp: string; readonly internalPort: number },
 ): Promise<PublicTargetResult> => {
-  const box = await generatedLanBox(deps.findPatches, network.essid, forwarded.internalIp);
+  const box = await generatedLanBox(
+    deps.findPatches,
+    network.essid,
+    forwarded.internalIp,
+    deps.findMissionFiles,
+  );
   if (box.kind === 'error') {
-    return { ok: false, status: 500, error: 'patches_lookup_failed' };
+    return {
+      ok: false,
+      status: 500,
+      error: box.cause === 'mission_files' ? MISSION_FILES_MISSING.body.error : 'patches_lookup_failed',
+    };
   }
   // Filtered for the same reason an occupant's box is: the box terminates the forwarded
   // traffic, so its own filter governs, and a silence it chose must answer as one it

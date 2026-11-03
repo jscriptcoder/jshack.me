@@ -7,6 +7,8 @@ import { UNCRACKABLE_HASHES } from '../generation/passwordPools.js';
 import { FIXED_BOXES } from '../generation/fixedSites.js';
 import { buildFixedSiteFs } from '../generation/fixedSiteFs.js';
 import { accountIn } from '../sessions/passwdAccount.js';
+import { md5 } from '../generation/md5.js';
+import { DEFAULT_WORDLIST } from '../wordlist/defaultWordlist.js';
 import { LEAKABLE_HASHES, SHUT_HASHES, fixedBoxRootHash } from './leakablePool.js';
 
 /** A spread of contract numbers whose last octet is a host octet (2–254). */
@@ -40,16 +42,16 @@ describe('missionShape', () => {
     expect(shape.keyBoxOctet).toBeLessThanOrEqual(254);
   });
 
-  it('draws every route about a quarter of the time', () => {
+  it('draws every route about a fifth of the time', () => {
     const counts = SAMPLE_NUMBERS.reduce<Record<string, number>>((tally, missionNumber) => {
       const { route } = missionShape(missionNumber);
       return { ...tally, [route]: (tally[route] ?? 0) + 1 };
     }, {});
 
-    expect(Object.keys(counts).sort()).toEqual(['ftp', 'hydra', 'msfconsole', 'web']);
+    expect(Object.keys(counts).sort()).toEqual(['ftp', 'hydra', 'msfconsole', 'mysql', 'web']);
     for (const count of Object.values(counts)) {
-      expect(count / SAMPLE_NUMBERS.length).toBeGreaterThan(0.2);
-      expect(count / SAMPLE_NUMBERS.length).toBeLessThan(0.3);
+      expect(count / SAMPLE_NUMBERS.length).toBeGreaterThan(0.15);
+      expect(count / SAMPLE_NUMBERS.length).toBeLessThan(0.25);
     }
   });
 
@@ -161,7 +163,50 @@ describe('missionShape', () => {
     }
   });
 
-  it.each(['web', 'ftp'] as const)(
+  it('gives the database route mysqld on a safe release, reached through :3306 beside :2222', () => {
+    // The table is the way in, so the daemon is a door to read through and not a hole to fall
+    // through. :2222 is what the word logs in by, since a database cannot log anybody in.
+    for (const missionNumber of SAMPLE_NUMBERS) {
+      const shape = missionShape(missionNumber);
+      if (shape.route !== 'mysql') continue;
+
+      const [databaseService] = shape.keyBoxServices;
+      expect(databaseService?.service, `service for ${missionNumber}`).toBe('mysql');
+      expect(databaseService?.program).toBe('mysqld');
+      expect(databaseService?.port).toBe(3306);
+      expect(shape.keyBoxVersions[databaseService?.package ?? '']).toBe(databaseService?.version);
+      expect(shape.forwards).toEqual([
+        { publicPort: 3306, internalPort: 3306 },
+        { publicPort: 2222, internalPort: 22 },
+      ]);
+    }
+  });
+
+  it('puts the database application account on the default list, and its root out of reach', () => {
+    // The application account is the way into the table, so a sweep with the list every player
+    // starts with has to find it. A shared list of leaked words must never open database root,
+    // or the route could be walked around without a sweep.
+    const listed = DEFAULT_WORDLIST.map((word) => md5(word));
+    for (const missionNumber of SAMPLE_NUMBERS) {
+      const shape = missionShape(missionNumber);
+      if (shape.route !== 'mysql') continue;
+
+      expect(listed, `account of ${missionNumber}`).toContain(shape.keyBoxDatabase?.accountHash);
+      expect(SHUT_HASHES, `database root of ${missionNumber}`).toContain(
+        shape.keyBoxDatabase?.rootHash,
+      );
+    }
+  });
+
+  it('draws no database on any other route', () => {
+    for (const missionNumber of SAMPLE_NUMBERS) {
+      const shape = missionShape(missionNumber);
+      if (shape.route === 'mysql') continue;
+      expect(shape.keyBoxDatabase, `${shape.route} route ${missionNumber}`).toBeNull();
+    }
+  });
+
+  it.each(['web', 'ftp', 'mysql'] as const)(
     'spreads %s route roots across the whole slice, so a farmed list really is 13 words',
     (route) => {
       const roots = SAMPLE_NUMBERS.map((missionNumber) => missionShape(missionNumber))
@@ -176,7 +221,7 @@ describe('missionShape', () => {
     for (const missionNumber of SAMPLE_NUMBERS) {
       const shape = missionShape(missionNumber);
       expect(SHUT_HASHES, `gateway of ${missionNumber}`).toContain(shape.gatewayAdminHash);
-      if (shape.route === 'web' || shape.route === 'ftp') {
+      if (shape.route === 'web' || shape.route === 'ftp' || shape.route === 'mysql') {
         expect(LEAKABLE_HASHES, `${shape.route} root of ${missionNumber}`).toContain(
           shape.keyBoxRootHash,
         );

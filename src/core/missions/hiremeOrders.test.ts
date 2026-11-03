@@ -142,6 +142,22 @@ describe('showReport', () => {
     ).toBe(true);
   });
 
+  it('prints both forwards, the datadir and the word on a database route', () => {
+    const number = Array.from({ length: 4000 }, (_unused, index) => index * 256 + 2).find(
+      (candidate) => missionShape(candidate).route === 'mysql',
+    )!;
+    const lines = showReport(number, SECRET, RAW_SECRETS).split('\n');
+
+    expect(lines).toContain('  Route:    mysql');
+    expect(lines).toContain('  Forward:  :3306 -> key box :3306');
+    expect(lines).toContain('  Forward:  :2222 -> key box :22');
+    expect(lines).toContain('  Leak:     /var/lib/mysql/data.json');
+    // Through a boolean: a failing `toContain` would print the word.
+    expect(
+      lines.includes(`  Word:     ${plaintextFor(missionShape(number).keyBoxRootHash)}`),
+    ).toBe(true);
+  });
+
   it('says so when it cannot read the word, and still prints the rest', () => {
     const lines = showReport(WEB_ROUTE_NUMBER, SECRET, undefined).split('\n');
 

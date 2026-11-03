@@ -27,6 +27,10 @@
  *
  * The ftp route also carries what its door reads and lands in: a config letting `anonymous`
  * in, and an empty `/srv/ftp/pub`. No other key box says anything of the kind.
+ *
+ * The database route carries a generated application behind exactly two accounts, so the
+ * route's one way in is the only one, and no config, since no door reads it. The server's copy
+ * of this datadir adds the table holding the word, so the one here never says it.
  */
 
 import {
@@ -40,6 +44,7 @@ import { createLibraryEntries, SYSTEM_LIBRARIES } from './libraries.js';
 import { withPackageManifest } from '../packages/packageManifest.js';
 import {
   bootDir,
+  DATADIR_FILE,
   dir,
   file,
   generatePasswd,
@@ -63,11 +68,21 @@ import { binariesForService } from '../packages/aptPackages.js';
 import { ACCESS_LOG_PERMISSIONS } from '../logging/accessLog.js';
 import { AUTH_LOG_PERMISSIONS } from '../logging/authLog.js';
 import { KERN_LOG_PERMISSIONS } from '../logging/kernLog.js';
+import { MYSQL_LOG_PERMISSIONS } from '../logging/mysqlLog.js';
 import { VSFTPD_LOG_PERMISSIONS } from '../logging/vsftpdLog.js';
 import { createPrng } from './prng.js';
 import { CRACK_CHANCE, drawPasswordHash } from './passwordPools.js';
+import { generateApplication } from './generateDatabase.js';
+import { generateHomeLan } from './generateHomeLan.js';
+import { MYSQL_USERNAMES } from './pools/database.js';
 import { usernamePool } from './pools/usernames.js';
-import { missionShape, type MissionService } from '../missions/missionShape.js';
+import { missionEssid } from '../missions/missionNetwork.js';
+import {
+  missionShape,
+  type MissionDatabase,
+  type MissionService,
+} from '../missions/missionShape.js';
+import type { MysqlDatabase } from '../mysql/types.js';
 import type { Directory, FileEntry, FileNode } from '../filesystem/types.js';
 
 const pidfile = (content: string, owner: string): FileEntry =>
@@ -80,6 +95,33 @@ const DEFAULT_PAGE = '<html><body><h1>It works!</h1></body></html>';
 /** What the ftp route's daemon is configured to do. It names no `anon_root`, because the
  *  door reads only whether `anonymous` is let in. */
 const ANONYMOUS_FTP_CONFIG = 'listen=YES\nlisten_port=21\nanonymous_enable=YES\nlocal_enable=YES\n';
+
+/** The database as it generates. Its application is on a stream of its own, so nothing about
+ *  it can move a draw the box's accounts make. */
+const keyBoxDatabase = (
+  missionNumber: number,
+  drawn: MissionDatabase,
+  account: string,
+  applicationAccount: string,
+): MysqlDatabase => {
+  const essid = missionEssid(missionNumber);
+  const host = generateHomeLan(essid).hosts.find((candidate) => candidate.kind === 'machine');
+  if (host === undefined) throw new Error(`no key box on contract ${missionNumber}`);
+  const application = generateApplication({
+    appSeed: `mission-database-${missionNumber}`,
+    essid,
+    host,
+    account,
+    role: undefined,
+  });
+  return {
+    ...application,
+    credentials: [
+      { username: 'root', passwordHash: drawn.rootHash, userType: 'root' },
+      { username: applicationAccount, passwordHash: drawn.accountHash, userType: 'user' },
+    ],
+  };
+};
 
 export const buildMissionKeyBoxFs = (missionNumber: number): Directory => {
   const shape = missionShape(missionNumber);
@@ -136,7 +178,12 @@ export const buildMissionKeyBoxFs = (missionNumber: number): Directory => {
 
   const servesWeb = runningServices.some(({ service }) => service === 'http');
   const servesFtp = runningServices.some(({ service }) => service === 'ftp');
+  const servesDatabase = runningServices.some(({ service }) => service === 'mysql');
   const lettingAnonymousIn = shape.route === 'ftp';
+  const database =
+    shape.keyBoxDatabase === null
+      ? null
+      : keyBoxDatabase(missionNumber, shape.keyBoxDatabase, username, prng.pick(MYSQL_USERNAMES));
 
   const tree = dir(
     {
@@ -188,12 +235,26 @@ export const buildMissionKeyBoxFs = (missionNumber: number): Directory => {
       ),
       var: dir(
         {
+          ...(database === null
+            ? {}
+            : {
+                lib: dir(
+                  {
+                    mysql: dir(
+                      { 'data.json': file(JSON.stringify(database), DATADIR_FILE) },
+                      TRAVERSABLE_DIR,
+                    ),
+                  },
+                  TRAVERSABLE_DIR,
+                ),
+              }),
           log: dir(
             {
               'access.log': file('', ACCESS_LOG_PERMISSIONS),
               'auth.log': file('', AUTH_LOG_PERMISSIONS),
               'kern.log': file('', KERN_LOG_PERMISSIONS),
               ...(servesFtp ? { 'vsftpd.log': file('', VSFTPD_LOG_PERMISSIONS) } : {}),
+              ...(servesDatabase ? { 'mysql.log': file('', MYSQL_LOG_PERMISSIONS) } : {}),
             },
             TRAVERSABLE_DIR,
           ),

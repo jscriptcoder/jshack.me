@@ -32,6 +32,7 @@ import { handleHydraCrack } from '../src/core/sessions/hydraCrack.js';
 // (hydraCrackPublic/hydraCrackInnerGateway folded into the single hydraCrack reach)
 import { handleMysqlConnect } from '../src/core/sessions/mysqlConnect.js';
 import { handleMysqlStatement } from '../src/core/sessions/mysqlStatement.js';
+import { missionFilesForBox } from '../src/core/missions/missionLeak.js';
 import { handleRedisConnect } from '../src/core/sessions/redisConnect.js';
 import { handleRedisStatement } from '../src/core/sessions/redisStatement.js';
 import { handleSnmpSet } from '../src/core/sessions/snmpSet.js';
@@ -159,6 +160,15 @@ const findMissionStateVia =
  *  contract's 195 address read from the missions table, every other address derived from
  *  the world. Every door to a public address finds its network through this, so none can
  *  reach a board or a mission another cannot. */
+// The files only the server can write onto a contract's key box, for the two doors that read
+// the table one of them holds. With a secret that box needs unset, the database is unavailable
+// rather than a copy with the table missing.
+const findMissionFiles = (query: { readonly essid: string; readonly machine_id: string }) =>
+  missionFilesForBox(query, {
+    keySecret: process.env.MISSION_KEY_SECRET,
+    rawSecrets: process.env.JSHACK_SECRETS,
+  });
+
 const networkByPublicIpVia = (spec: QuerySpec) =>
   networkByPublicIp({
     findBoardHandle: findBoardHandleVia(spec),
@@ -795,6 +805,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
       findPatches: findPatchesVia({ supabase, label: 'mysql target journal lookup' }),
+      findMissionFiles,
       appendLog: appendLogVia({ supabase, label: 'mysql log append' }),
       findNetworkByPublicIp: networkByPublicIpVia({ supabase, label: 'board lookup' }),
       findPublicIpByEssid: derivedPublicIpByEssid,
@@ -831,6 +842,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
       findPatches: findPatchesVia({ supabase, label: 'mysql statement journal lookup' }),
+      findMissionFiles,
       appendLog: appendLogVia({ supabase, label: 'mysql statement log append' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'mysql datadir upsert' }),
       findNetworkByPublicIp: networkByPublicIpVia({ supabase, label: 'board lookup' }),

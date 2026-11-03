@@ -77,6 +77,7 @@ import { segmentsReachedFrom } from '../generation/lanTopology.js';
 import { deniedPortsFor, resolveDeepScanHosts } from '../scan/deepScanHosts.js';
 import { resolveInnerGatewayTarget } from '../network/resolveInnerGatewayTarget.js';
 import { materializeMachineFs, type OwnerPatchRow } from '../network/materializeMachineFs.js';
+import { MISSION_FILES_MISSING, withMissionFiles } from '../network/missionBoxFiles.js';
 import { canBoot } from '../boot/bootFiles.js';
 import { portsOpenToNetwork } from '../network/portsOpenToNetwork.js';
 import { readOpenPorts } from '../services/pidfile.js';
@@ -492,12 +493,20 @@ export const reachBox = async (
   const host = generateHomeLan(target.essid).hosts.find((candidate) => candidate.ip === address);
   if (host !== undefined) {
     const { machineId, baseFs } = resolveLanHostIdentity(host, target.essid);
+    // A shell on a contract's key box reaches its database by this arm, over `localhost`, and
+    // has to find what the same door finds from the world.
+    const laidFs = await withMissionFiles(deps.findMissionFiles, {
+      essid: target.essid,
+      machineId,
+      baseFs,
+    });
+    if (laidFs === null) return { ok: false, refusal: MISSION_FILES_MISSING };
     return openJournaledBox(deps, {
       // A generated box on the caller's own LAN, under the ESSID the request carried.
       essid: target.essid,
       hostname: host.hostname,
       machineId,
-      rebuild: (patches) => materializeMachineFs(baseFs, patches),
+      rebuild: (patches) => materializeMachineFs(laidFs, patches),
       localIp: address,
       reachedPort: target.port,
       // The address the caller's standing box is seen at on this LAN, derived from the
