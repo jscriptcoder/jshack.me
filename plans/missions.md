@@ -1,11 +1,13 @@
 # Plan: missions
 
-**Status:** Slices 1, 2 and 3 shipped and deployed. Slice 1 is v0.438.0, PR #746, merged
+**Status:** All four slices shipped and deployed. Slice 1 is v0.438.0, PR #746, merged
 2026-11-01. Slice 2 is v0.439.0, PR #747, merged 2026-11-03. Slice 3 is v0.440.0, PR #748, merged
-2026-11-03. Slice 2's migration (`20261102000000_hireme_contracts.sql`) and slice 3's
-(`20261103000000_hireme_completion.sql`) are on `jshack-dev` and `jshack-prod`, and no account on
-either holds a client handle. **Next: slice 4, planned below** (the root view:
-`/etc/hireme/contracts`), on `feat/missions-root-view`.
+2026-11-03. Slice 4 is v0.441.0, PR #749, merged 2026-11-03. Slice 2's migration
+(`20261102000000_hireme_contracts.sql`) and slice 3's (`20261103000000_hireme_completion.sql`) are
+on `jshack-dev` and `jshack-prod`; slice 4 has none. No account on either holds a client handle.
+**Next: the close-out** (decision 20): one browser run over all four slices, two players, one
+working a job and one handed the leaked address, then a valleynews `/dev` post announcing contract
+work.
 
 Missions are the one legacy system v2 has not rebuilt. The groundwork is built: wallets and the
 operator mint, emailit.io, the hireme.io contractor boards (every board saying no work is
@@ -963,6 +965,11 @@ root, and on every other box, there is no such file and nothing of it on the wir
 - **Bundle**: `npm run build`, `scripts/checkBudgets.ts` and a grep of the chunk (AC 9).
 - **Ops**: none. No migration and no new env.
 - No browser run: the epic's close-out run covers it.
+- **As built (2026-11-03)**: unit suite 332 files and 10,062 tests. Wire-checks:
+  `testMissionContracts` 11/11 (new), `testHiremeBoardRoot` 13/13, `testMissionBoard` 19/19,
+  `testMissionPay` 15/15, `testMissions` 19/19. Mutation: 55 killed, 1 survived (equivalent: the
+  empty-read fallback swapped for a one-string array still lays no line). Main chunk unchanged at
+  297,685 B gz against a 298,175 B ceiling. No migration and no new env.
 
 **Required skills:** `tdd`, `testing` and `functional` for the contracts list and the read;
 `refactoring` after each green; `mutation-testing` at the PR gate.
