@@ -1,9 +1,8 @@
 # Plan: the routes that leak a login
 
 **Status:** Slice 1 (the web route) shipped at v0.442.0 and is verified on production. Slice 2 (anonymous FTP) shipped at
-v0.443.0, with no production check planned. Their as-builts are below.
-**Now: slice 3, the database route**, v0.444.0, planned below, with its criteria awaiting the owner's confirmation.
-Slice 4 gets its plan here when it starts.
+v0.443.0 and slice 3 (the database route) at v0.444.0, neither with a production check planned. Their as-builts are below.
+**Next: slice 4**, which gets its plan here when it starts.
 
 Contract networks ship with two ways onto the key box: `hydra` (a crackable root) and `msfconsole`
 (a critical hole). This epic adds four where a forgotten file or setting leaks root's password. A
@@ -404,6 +403,31 @@ the wire-checks pass, and the mutation gate leaves only equivalents. The owner a
 **Slice complete when:** the PR merges and this plan records the as-built.
 
 ### Slice 3: a contract can be a database route, where a cracked login reads root's word from a table
+
+**As built (v0.444.0, PR #752, merged 2026-11-03).** The criteria below are met, with three limits on the evidence: criterion
+10's 500 has unit tests only, as in slices 1 and 2, because the live server ran with its secrets set. The `show` test was never
+seen failing, because `show` needed no code. `mysql` at the real prompt waits for the close-out browser run, since the wire-check
+calls the endpoints directly and not through the command. What a later slice should know:
+
+- **Where a later route plugs in:** `ROUTES` and `LEAK_ROUTE_DOORS` in `missionShape.ts`, as before. `LEAK_HOMES` no longer covers
+  every leak route: a database route's file is the whole datadir, so `leakPlaceOf` and `missionLeakFile` each branch on the route.
+- **A door that reads a server-laid file** passes `findMissionFiles` in `api/sessions.ts`, which now has its own local copy. Both the
+  forward and own-LAN arms of `reachBox` honour it, and `withMissionFiles` hands the base back when a door passes none. The hidden-layer
+  arms don't lay files in, since a contract network has no hidden layer. Only `mysqlConnect` and `mysqlStatement` pass it today, so a
+  door in `api/sessions.ts` that reads a slice 4 file must add it too.
+- **Changed from the plan:** the door tests are in a new `src/core/sessions/mysqlMissionRoute.test.ts`, one in-memory journal through
+  the real `hydra`, login and statement handlers, and not spread across the existing door test files. The application account's hash
+  field is `keyBoxDatabase.accountHash`, and its name is drawn on the `mission-keybox-` stream. The application has its own
+  `mission-database-` stream.
+- **Measured:** the application account was on the default list on all 7,976 database routes among numbers 2 to 39,999, now pinned
+  by a test over a sample.
+- **Mutation:** on the changed lines, 68 killed, 2 survived and 1 uncovered, all on guards that can't be reached (a contract with no key
+  box or no datadir). Full-file runs left survivors in older code this slice didn't change, and they were left alone.
+- **Bundle:** 298,380 B gz, up 269 B. The owner approved raising the ceiling by 300 B to 298,475 B, so **95 B remain**, and slice 4 will
+  need its own raise under decision 14.
+- **Open, not from this slice:** findit's generated web took 648–1,378 ms in `checkBudgets` this time, against the 1,000 ms ceiling. One
+  full build failed on it at 1,378 ms, and the next two passed. One standalone `checkBudgets` run also exited 1 with the bundle and findit
+  both OK, and its log was overwritten, so which budget failed is unknown. The budget question stays with the owner.
 
 **Value:** a contractor on a database-route job sees `3306` and `2222` in a scan, cracks the application account with
 `hydra`, finds a `settings` table holding a word, works out that it is a login, and reads the key as root. They keep the word.
