@@ -1,8 +1,9 @@
 # Plan: the routes that leak a login
 
 **Status:** Slice 1 (the web route) shipped at v0.442.0 and is verified on production. Slice 2 (anonymous FTP) shipped at
-v0.443.0 and slice 3 (the database route) at v0.444.0, neither with a production check planned. Their as-builts are below.
-**Next: slice 4**, planned below, and then the close-out.
+v0.443.0, slice 3 (the database route) at v0.444.0 and slice 4 (the SNMP route) at v0.445.0, none of them with a production
+check planned. Their as-builts are below.
+**Next: the close-out**, described under Slices. All four routes have shipped.
 
 Contract networks ship with two ways onto the key box: `hydra` (a crackable root) and `msfconsole`
 (a critical hole). This epic adds four where a forgotten file or setting leaks root's password. A
@@ -528,6 +529,31 @@ wire-checks pass, and the mutation gate leaves only equivalents. The owner appro
 **Slice complete when:** the PR merges and this plan records the as-built.
 
 ### Slice 4: a contract can be an SNMP route, where a guessed or cracked community reads root's word in a walk
+
+**As built (v0.445.0, PR #753, merged 2026-11-04).** The criteria below are met, with four limits on the evidence: criterion 12's 500 and
+the read by a caller whose session ended have unit tests only. The read by someone who never held a session is checked live. The `show`
+test was never seen failing, because `show` needed no code. `rules.v4` holding both forwards is proven through the scan and the shape, not
+by reading the file. `snmpwalk` at the real prompt waits for the close-out browser run, since the wire-check calls the endpoints directly.
+What the close-out should know:
+
+- **Changed from the plan:** no bundle raise, so criterion 14's raise doesn't apply. `/var/lib` on a key box is now always built, since
+  the package manifest creates the directory on every box and the guard for an empty one could never matter. `RAW_SECRETS` in
+  `webRouteContract.ts` is now exported as `DEPLOYMENT_SECRETS`, for the new `snmpRouteContract.ts`.
+- **`forward` on a key box:** the write lands and a scan shows no new port, as the trace predicted. The wire-check aims it inside the
+  segment `frontedSegment` names and requires `ok`, so the check isn't passing on a refusal.
+- **RED for the doors:** the door tests passed from the start because the handlers already forward the dependency. The real RED for the
+  `api/sessions.ts` wiring was the wire-check, at 28/35 with the read-only walk and set answering 404.
+- **Wire-checks:** 277/277 across 16 scripts.
+- **Mutation:** on the changed lines the first run was 51 killed, 4 survived. One was a real gap, a web or FTP file turning into an agent
+  config. Two were the config's header and closing newline. Tests now kill those three. The fourth was the `/var/lib` guard, now removed.
+  A scoped rerun left no survivors in `missionLeak.ts` or `missionKeyBoxFs.ts`.
+- **Bundle:** 298,461 B gz, up 81 B, against the 298,475 B ceiling, so **14 B remain**.
+- **Open, not from this slice:** the `msfconsole` checks in `testMissionFtp`, `testMissionLeak` and `testMissionMysql` read only `userType`,
+  but a hole that opens no shell reports `tier`, so they can pass without testing anything. `testMissionSnmp` reads both. The same line is in
+  `testDeepChainReach`, `testDeepSwitchChain`, `testGatewayBrickLanAlive` and `testInnerGatewayReach`, not yet checked for this. The findit
+  budget passed at 691 ms this time, and its question stays with the owner.
+- **For the close-out's browser run:** `get` at the real `ftp>` prompt, `mysql` and `snmpwalk` at their real prompts have only been called
+  through the endpoints so far. `snmpwalk` needs `apt install snmp` first.
 
 **Value:** a contractor on an SNMP-route job sees `161` and `2222` in a scan, gets silence from a plain `snmpwalk`, guesses a community or
 cracks one with `hydra`, finds a word in the device's `sysContact`, works out that it is a login, and reads the key as root. They keep the word.
