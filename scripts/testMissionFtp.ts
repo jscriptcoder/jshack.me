@@ -486,10 +486,12 @@ const main = async () => {
       parent_session_id: null,
     }),
   );
-  const exploitTier = (exploited.body as { userType?: string } | null)?.userType;
+  // A shell names what it landed as `userType`, and an effect that opens no shell names it `tier`.
+  const exploitBody = exploited.body as { userType?: string; tier?: string } | null;
+  const exploitTier = exploitBody?.userType ?? exploitBody?.tier;
   check(
     'msfconsole through :21 finds no root',
-    exploitTier !== 'root',
+    exploited.status === 200 && exploitTier !== undefined && exploitTier !== 'root',
     `status ${exploited.status} tier ${exploitTier ?? '-'}`,
   );
   await sr.from('sessions').delete().eq('session_id', `msf-${RUN}`);

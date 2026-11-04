@@ -204,12 +204,6 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   load. One standalone run also exited 1 with both budgets reported OK, and its log was lost. It
   needs a fix or a decision on the ceiling.
 
-- **Some wire-checks read `msfconsole`'s answer too narrowly.** A hole that opens no shell reports
-  `tier` and no `userType`, and these read only `userType`, so a check that no root came through can
-  pass without testing anything: `testMissionFtp`, `testMissionLeak`, `testMissionMysql`. The shape's
-  unit tests still pin safe releases there, and `testMissionSnmp` reads both. The same line is in
-  `testDeepChainReach`, `testDeepSwitchChain`, `testGatewayBrickLanAlive` and `testInnerGatewayReach`,
-  not yet checked for this.
 
 - **The e2e skill's `type-command.sh` could not type a command holding `"` — RESOLVED
   2026-10-20.** `agent-browser eval` always prints the value as a JSON string, so every `"` inside
