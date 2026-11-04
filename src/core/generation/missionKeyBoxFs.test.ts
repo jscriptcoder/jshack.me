@@ -7,6 +7,7 @@ import { liveCve } from '../cve/liveCve.js';
 import { UNCRACKABLE_HASHES } from './passwordPools.js';
 import { MYSQL_USERNAMES } from './pools/database.js';
 import { databaseIn, DATADIR_OWNER } from '../mysql/datadir.js';
+import { readRwCommunityHash, readSnmpdState } from '../snmp/rwCommunity.js';
 import type { Directory, FileNode } from '../filesystem/types.js';
 
 /** The first sampled contract number whose route is `route`. */
@@ -22,6 +23,7 @@ const MSF = numberWithRoute('msfconsole');
 const WEB = numberWithRoute('web');
 const FTP = numberWithRoute('ftp');
 const MYSQL = numberWithRoute('mysql');
+const SNMP = numberWithRoute('snmp');
 
 const fileAt = (fs: Directory, segments: readonly string[]): string => {
   let node: FileNode = fs;
@@ -186,12 +188,56 @@ describe('the key box of a contract network', () => {
     ['msfconsole', MSF],
     ['web', WEB],
     ['ftp', FTP],
+    ['snmp', SNMP],
   ] as const)('holds no database on the %s route', (_route, missionNumber) => {
     const box = buildMissionKeyBoxFs(missionNumber);
 
     expect(nodeAt(box, ['var', 'lib', 'mysql'])).toBeUndefined();
     expect(nodeAt(box, ['var', 'log', 'mysql.log'])).toBeUndefined();
     expect(readOpenPorts(box).some((port) => port.service === 'mysql')).toBe(false);
+  });
+
+  it('runs snmpd and sshd on the snmp route, with the client a shell walks by', () => {
+    const box = buildMissionKeyBoxFs(SNMP);
+
+    expect(readOpenPorts(box).map((port) => port.service).sort()).toEqual(['snmp', 'ssh']);
+    expect(nodeAt(box, ['usr', 'bin', 'snmpwalk'])?.kind).toBe('file');
+    expect(nodeAt(box, ['usr', 'bin', 'snmpset'])?.kind).toBe('file');
+    expect(nodeAt(box, ['usr', 'sbin', 'snmpd'])?.kind).toBe('file');
+  });
+
+  it('holds the read-write community as the shape draws it, for root alone', () => {
+    const box = buildMissionKeyBoxFs(SNMP);
+    const state = nodeAt(box, ['var', 'lib', 'snmp', 'snmpd.conf']);
+
+    expect(readRwCommunityHash(box)).toBe(missionShape(SNMP).keyBoxCommunityHash);
+    expect(state?.perms.read).toEqual(['root']);
+    expect(state?.perms.write).toEqual(['root']);
+  });
+
+  it('keeps an agent log on the snmp route', () => {
+    expect(fileAt(buildMissionKeyBoxFs(SNMP), ['var', 'log', 'snmpd.log'])).toBe('');
+  });
+
+  it('keeps the read-only community and the word out of the box as it generates', () => {
+    const box = buildMissionKeyBoxFs(SNMP);
+
+    expect(nodeAt(box, ['etc', 'snmp'])).toBeUndefined();
+    expect(nodeAt(box, ['etc', 'iptables'])).toBeUndefined();
+  });
+
+  it.each([
+    ['hydra', HYDRA],
+    ['msfconsole', MSF],
+    ['web', WEB],
+    ['ftp', FTP],
+    ['mysql', MYSQL],
+  ] as const)('runs no agent and holds no community on the %s route', (_route, missionNumber) => {
+    const box = buildMissionKeyBoxFs(missionNumber);
+
+    expect(readSnmpdState(box)).toBe('');
+    expect(nodeAt(box, ['var', 'log', 'snmpd.log'])).toBeUndefined();
+    expect(readOpenPorts(box).some((port) => port.service === 'snmp')).toBe(false);
   });
 
   it('answers its own sshd, the hydra route reached through the forward', () => {

@@ -177,6 +177,13 @@ describe('walking a device with a community that reads its port table', () => {
   });
 });
 
+describe('the manual', () => {
+  it('says most agents answer to public rather than all of them, since some do not', () => {
+    expect(snmpwalk.manual?.description).toContain('Most agents answer to "public"');
+    expect(snmpwalk.manual?.description).not.toContain('Every agent');
+  });
+});
+
 describe('walking a device that does not answer', () => {
   it('times out in the words a real agent’s silence produces', async () => {
     const result = await run(onLan({ walk: async () => ({ ok: false }) }), [GATEWAY_IP]);

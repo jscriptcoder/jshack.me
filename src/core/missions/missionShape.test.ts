@@ -42,16 +42,23 @@ describe('missionShape', () => {
     expect(shape.keyBoxOctet).toBeLessThanOrEqual(254);
   });
 
-  it('draws every route about a fifth of the time', () => {
+  it('draws every route about a sixth of the time', () => {
     const counts = SAMPLE_NUMBERS.reduce<Record<string, number>>((tally, missionNumber) => {
       const { route } = missionShape(missionNumber);
       return { ...tally, [route]: (tally[route] ?? 0) + 1 };
     }, {});
 
-    expect(Object.keys(counts).sort()).toEqual(['ftp', 'hydra', 'msfconsole', 'mysql', 'web']);
+    expect(Object.keys(counts).sort()).toEqual([
+      'ftp',
+      'hydra',
+      'msfconsole',
+      'mysql',
+      'snmp',
+      'web',
+    ]);
     for (const count of Object.values(counts)) {
-      expect(count / SAMPLE_NUMBERS.length).toBeGreaterThan(0.15);
-      expect(count / SAMPLE_NUMBERS.length).toBeLessThan(0.25);
+      expect(count / SAMPLE_NUMBERS.length).toBeGreaterThan(0.12);
+      expect(count / SAMPLE_NUMBERS.length).toBeLessThan(0.22);
     }
   });
 
@@ -206,7 +213,44 @@ describe('missionShape', () => {
     }
   });
 
-  it.each(['web', 'ftp', 'mysql'] as const)(
+  it('gives the snmp route an agent on a safe release, reached through :161 beside :2222', () => {
+    // The file is the way in, so the agent is a door to read through and not a hole to fall
+    // through. :2222 is what the word logs in by, since an agent cannot log anybody in.
+    for (const missionNumber of SAMPLE_NUMBERS) {
+      const shape = missionShape(missionNumber);
+      if (shape.route !== 'snmp') continue;
+
+      const [agent] = shape.keyBoxServices;
+      expect(agent?.service, `service for ${missionNumber}`).toBe('snmp');
+      expect(agent?.program).toBe('snmpd');
+      expect(agent?.port).toBe(161);
+      expect(shape.keyBoxVersions[agent?.package ?? '']).toBe(agent?.version);
+      expect(shape.forwards).toEqual([
+        { publicPort: 161, internalPort: 161 },
+        { publicPort: 2222, internalPort: 22 },
+      ]);
+    }
+  });
+
+  it('puts the read-write community on the default list, so a sweep always finds one', () => {
+    const listed = DEFAULT_WORDLIST.map((word) => md5(word));
+    for (const missionNumber of SAMPLE_NUMBERS) {
+      const shape = missionShape(missionNumber);
+      if (shape.route !== 'snmp') continue;
+
+      expect(listed, `community of ${missionNumber}`).toContain(shape.keyBoxCommunityHash);
+    }
+  });
+
+  it('draws no community on any other route', () => {
+    for (const missionNumber of SAMPLE_NUMBERS) {
+      const shape = missionShape(missionNumber);
+      if (shape.route === 'snmp') continue;
+      expect(shape.keyBoxCommunityHash, `${shape.route} route ${missionNumber}`).toBeNull();
+    }
+  });
+
+  it.each(['web', 'ftp', 'mysql', 'snmp'] as const)(
     'spreads %s route roots across the whole slice, so a farmed list really is 13 words',
     (route) => {
       const roots = SAMPLE_NUMBERS.map((missionNumber) => missionShape(missionNumber))
@@ -221,7 +265,12 @@ describe('missionShape', () => {
     for (const missionNumber of SAMPLE_NUMBERS) {
       const shape = missionShape(missionNumber);
       expect(SHUT_HASHES, `gateway of ${missionNumber}`).toContain(shape.gatewayAdminHash);
-      if (shape.route === 'web' || shape.route === 'ftp' || shape.route === 'mysql') {
+      if (
+        shape.route === 'web' ||
+        shape.route === 'ftp' ||
+        shape.route === 'mysql' ||
+        shape.route === 'snmp'
+      ) {
         expect(LEAKABLE_HASHES, `${shape.route} root of ${missionNumber}`).toContain(
           shape.keyBoxRootHash,
         );

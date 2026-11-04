@@ -26,6 +26,7 @@ import type { ActiveContract } from '../missions/contractsList.js';
 import { BOARD_SERVER_NETWORK, EMAILIT_NETWORK, HIREME_NETWORK } from '../generation/fixedSites.js';
 import { FTP_PUBLIC_FILE, MAIL_SPOOL_FILE, ROOT_FILE } from '../generation/baseFs.js';
 import type { MissionFile } from '../missions/missionLeak.js';
+import { SNMPD_CONF_PERMISSIONS } from '../snmp/conf.js';
 
 /**
  * `handleResolveCrossPlayerFs` is the cross-player READ (Story 2, slices 2c+2d):
@@ -1254,6 +1255,56 @@ const onKeyBox = (userType: 'root' | 'user' | 'guest', over: Parameters<typeof m
     }),
     ...over,
   });
+
+describe('handleResolveCrossPlayerFs on an agent config the server lays onto a key box', () => {
+  const CONFIG_PATH = '/etc/snmp/snmpd.conf';
+  const CONFIG = 'rocommunity monitor\nsyscontact helpdesk: the password is still hunter\n';
+  const withConfig = {
+    missionFiles: async () => ({
+      data: [{ path: CONFIG_PATH, content: CONFIG, perms: SNMPD_CONF_PERMISSIONS }],
+      error: null,
+    }),
+  };
+  const configIn = (tree: Directory): string | null =>
+    contentOf(tree, 'etc', 'snmp', 'snmpd.conf');
+
+  it('hands a guest session the config, which its shell can read', async () => {
+    const id = generateIdentity();
+    const { deps } = onKeyBox('guest', withConfig);
+
+    const tree = treeOf(await handleResolveCrossPlayerFs(envelope(id, missionKeyBox()), deps));
+
+    expect(configIn(tree)).toBe(CONFIG);
+    expect(createFsView(tree, { userType: 'guest' }).read(asAbsPath(CONFIG_PATH)).ok).toBe(true);
+  });
+
+  it('still serves the config to a caller whose session on the box has ended', async () => {
+    const id = generateIdentity();
+    const { deps } = onKeyBox('guest', {
+      ...withConfig,
+      session: async () => ({ data: null, error: null }),
+      lastEssid: async () => ({ data: MISSION_ESSID, error: null }),
+    });
+
+    const tree = treeOf(await handleResolveCrossPlayerFs(envelope(id, missionKeyBox()), deps));
+
+    expect(configIn(tree)).toBe(CONFIG);
+  });
+
+  it('serves nothing to a caller who has never held a session on the box', async () => {
+    const id = generateIdentity();
+    const { deps } = onKeyBox('guest', {
+      ...withConfig,
+      session: async () => ({ data: null, error: null }),
+      lastEssid: async () => ({ data: null, error: null }),
+    });
+
+    expect(await handleResolveCrossPlayerFs(envelope(id, missionKeyBox()), deps)).toEqual({
+      status: 404,
+      body: { error: 'host_unreachable' },
+    });
+  });
+});
 
 describe('handleResolveCrossPlayerFs on a contract key box, whose key the server lays in', () => {
   const keyPathSegments = MISSION_KEY_PATH.split('/').filter((segment) => segment !== '');

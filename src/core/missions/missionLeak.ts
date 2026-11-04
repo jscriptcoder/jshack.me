@@ -19,6 +19,9 @@
  * On a database route the file is the whole datadir, the generated database with one table
  * added. It stays root-only like any datadir, because the door reads it as the server and hands
  * out only the rows an account may select.
+ *
+ * On an snmp route the file is the agent's config, readable by any tier like every such config.
+ * It holds the read-only community as well as the word, so neither reaches the bundle.
  */
 
 import { DATADIR_FILE, FTP_PUBLIC_FILE, ROOT_FILE } from '../generation/baseFs.js';
@@ -31,6 +34,7 @@ import type { MysqlTable } from '../mysql/types.js';
 import { WEB_ROOT } from '../network/http.js';
 import { parseSecrets } from '../secrets/parseSecrets.js';
 import { ANONYMOUS_FTP_ROOT } from '../sessions/doorAdmission.js';
+import { SNMPD_CONF_PATH, SNMPD_CONF_PERMISSIONS } from '../snmp/conf.js';
 import type { FilePermissions } from '../filesystem/types.js';
 import { LEAKABLE_HASHES } from './leakablePool.js';
 import { missionKey, missionKeyPath, requireMissionSecret } from './missionSecret.js';
@@ -109,6 +113,7 @@ const leakPlaceOf = (
 ): { readonly path: string; readonly perms: FilePermissions } | null => {
   const { route } = missionShape(missionNumber);
   if (route === 'mysql') return { path: DATADIR_PATH, perms: DATADIR_FILE };
+  if (route === 'snmp') return { path: SNMPD_CONF_PATH, perms: SNMPD_CONF_PERMISSIONS };
   const home = LEAK_HOMES[route];
   return home === undefined
     ? null
@@ -140,6 +145,28 @@ const databaseWithWord = (missionNumber: number, word: string): string => {
   });
 };
 
+/** What an snmp route's agent answers a read-only walk to, in place of `public`. Short and
+ *  common enough for a player to guess. A sweep never finds one: it attacks only the read-write
+ *  community. */
+const GUESSABLE_COMMUNITIES = ['monitor', 'netops'] as const;
+
+/** The agent's whole config. The word is its contact, which a walk prints at either tier. */
+const agentConfig = (missionNumber: number, word: string): string =>
+  [
+    '# /etc/snmp/snmpd.conf — SNMP agent configuration',
+    `rocommunity ${createPrng(`mission-leak-${missionNumber}`).pick(GUESSABLE_COMMUNITIES)}`,
+    `syscontact helpdesk: the server password is still ${word}, change it!`,
+    '',
+  ].join('\n');
+
+/** What the file holds on this route, given the word. */
+const leakContent = (missionNumber: number, word: string): string => {
+  const { route } = missionShape(missionNumber);
+  if (route === 'mysql') return databaseWithWord(missionNumber, word);
+  if (route === 'snmp') return agentConfig(missionNumber, word);
+  return forgottenFileOf(missionNumber).render(word);
+};
+
 /** Where the forgotten file sits, drawn from the number, or null on a route with no leak.
  *  The path alone needs no secret, so the write gate can ask for it. */
 export const missionLeakPath = (missionNumber: number): string | null =>
@@ -156,14 +183,7 @@ export const missionLeakFile = (
 ): MissionFile | null => {
   const place = leakPlaceOf(missionNumber);
   if (place === null) return null;
-  const word = missionLeakWord(missionNumber, rawSecrets);
-  return {
-    ...place,
-    content:
-      missionShape(missionNumber).route === 'mysql'
-        ? databaseWithWord(missionNumber, word)
-        : forgottenFileOf(missionNumber).render(word),
-  };
+  return { ...place, content: leakContent(missionNumber, missionLeakWord(missionNumber, rawSecrets)) };
 };
 
 /** Every file the server lays onto this contract's key box. A route with no leak never

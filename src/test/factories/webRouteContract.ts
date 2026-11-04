@@ -22,7 +22,7 @@ import {
   WIFI_PASSWORDS,
 } from '../passwords.js';
 
-const RAW_SECRETS = JSON.stringify({
+export const DEPLOYMENT_SECRETS = JSON.stringify({
   UNCRACKABLE_PASSWORDS,
   CRACKABLE_PASSWORDS,
   COMMON_PASSWORDS,
@@ -57,7 +57,7 @@ export const servedMissionFiles = (query: {
   readonly essid: string;
   readonly machine_id: string;
 }): ReturnType<typeof missionFilesForBox> =>
-  missionFilesForBox(query, { keySecret: KEY_SECRET, rawSecrets: RAW_SECRETS });
+  missionFilesForBox(query, { keySecret: KEY_SECRET, rawSecrets: DEPLOYMENT_SECRETS });
 
 /** The server's lay-in, on a deployment whose `JSHACK_SECRETS` is unset. */
 export const missionFilesWithNoPools = (query: {
