@@ -3,7 +3,9 @@
 How a player takes paid work: a contract offered on their hireme.io board, accepted with a form,
 briefed by mail, worked on a network of its own and paid by mailing the client the key. This is
 the shipped model of the missions epic, complete at **v0.441.0** (four slices, v0.438.0–v0.441.0,
-PRs #746–#749, 2026-11-01 to 2026-11-03). It sits on top of the contractor boards
+PRs #746–#749, 2026-11-01 to 2026-11-03), with the routes that leak a login added by the epic
+that followed (four slices, v0.442.0–v0.445.0, PRs #750–#753, 2026-11-03 to 2026-11-04). It sits
+on top of the contractor boards
 ([`hireme-architecture.md`](./hireme-architecture.md)), emailit.io
 ([`email-architecture.md`](./email-architecture.md)) and the wallet
 ([`wallet-architecture.md`](./wallet-architecture.md)) without changing their machines,
@@ -71,33 +73,40 @@ clock:
 
 - **Two boxes**: a **gateway** at `.1` and a **key box** at a drawn octet, named from a
   target-stem pool (`halden-gw`, `halden-files`; `core/missions/pools.ts`).
-- **One guaranteed route**, drawn per number:
+- **One guaranteed route**, a flat draw over the six in `ROUTES`:
   - **hydra**: a crackable `root` (a word from the crackable pool) on the key box's sshd,
     reached through a public `:2222` forwarded to its `:22`;
   - **msfconsole**: a service on the key box pinned to a release whose hole is `critical`,
-    reached through a forward of its own port.
+    reached through a forward of its own port;
+  - **web, ftp, mysql, snmp**: the four that leak `root`'s password from a door on `:80`, `:21`,
+    `:3306` or `:161`, with `:2222` to log in with it ("The routes that leak a login", below).
 - **The gateway is passed through, not broken.** It has router firmware as every gateway does, an
-  admin password from the uncrackable pool, and one forward in `rules.v4`: the route's port to
-  the key box.
+  admin password from the uncrackable pool, and the route's forwards in `rules.v4`: one on hydra
+  and msfconsole, two on a leak route.
 - **The key box is built by a mission builder of its own**, not by `buildRemoteHostFs`'s role
   draws, so nothing the world scatters on an NPC (a database login, a backup, a backdoor) opens a
-  way in nobody guaranteed. Its `root` is uncrackable on the msfconsole route; `guest` and the
-  NPC user keep the world's odds, shells to look around in that cannot climb.
+  way in nobody guaranteed. Its `root` is uncrackable on the msfconsole and leak routes; `guest`
+  and the NPC user keep the world's odds, shells to look around in that cannot climb.
 - **Nothing but the route climbs, by what each hole grants, never by when it publishes.**
   **Every** package on both boxes that is not the route (sshd, vsftpd, the firmware and the
   libraries included) is pinned to a release whose one hole is `low` or `medium`: a guest shell at
   most, which cannot read the root-only key, so `msfconsole --local` finds no climb
   (`safeBaseVersions`, `safeFirmwareVersions`). A release whose hole has not published is never
   used for this: the generator cannot know what it will grant. The gateway's admin and, on the
-  msfconsole route, the key box's `root` are the doors that stay shut. **No decoy services are
-  drawn yet**: the key box runs the route's service (or, on the hydra route, only its sshd), and
-  `keyBoxServices` and `show`'s `Services:` line are where decoys will appear.
+  msfconsole route, the key box's `root` are the doors that stay shut. A leak route's door sits on
+  a safe release too, so `msfconsole` finds no root through it. **No decoy services are drawn
+  yet**: the key box runs the route's service (or, on the hydra route, only its sshd), and
+  `keyBoxServices` and `show`'s `Services:` line are where decoys will appear. So a scan tells the
+  route: `2222` alone is hydra, `80` or `21` alone is msfconsole, and `80`, `21`, `3306` or `161`
+  with `2222` is a leak. Decoys blurring that would re-roll every network.
 - **`MISSION_ROUTE_DAY = 111`.** A route release is one whose `critical` hole published on or
   before that day. The clock only moves forward, so every route stays open for good, and
   `liveCve` keeps a published hole live on every box still on its release. A test walks every
   service package's timeline and fails if the template could draw a route package without such a
   release. Moving the cutoff changes the network of every existing number: free until launch,
-  never after it without a plan for the contracts already accepted.
+  never after it without a plan for the contracts already accepted. Growing `ROUTES` is the same:
+  it re-rolls every number's route, though never its address, key or key path, so a key already
+  read still pays.
 
 **Whoever roots a box can close its route** for later visitors (`apt upgrade`, `passwd`, `rm` of
 the key), as anywhere in the world. The guardian's rounds and `guardian.ts restore` never touch a
@@ -112,10 +121,12 @@ job.
   `MISSION_KEY_SECRET` (`missionKey`, `core/missions/missionSecret.ts`). It lives in no table.
 - **The key file** sits at a path drawn from a pool of believable places (`/etc/contract/access.key`,
   `/root/.config/vault/key`, `/var/backups/vault.key`, …; `missionKeyPath`), mode 600, owned by
-  root. The server lays it into the key box **before the journal is replayed**, at the two sites
-  that build a network box from its id: the read (`resolveCrossPlayerFs`, through
-  `findMissionKeyFile`, at every tier, the read filter keeping it off the wire below root) and the
-  write gate (`remoteWritePermission`). So a root's `rm` of the key sticks for the next reader.
+  root. The server lays it into the key box **before the journal is replayed** (`withMissionFiles`,
+  `core/network/missionBoxFiles.ts`), at each door that builds the box from its id: the read
+  (`resolveCrossPlayerFs`, through `findMissionFiles`, at every tier, the read filter keeping it off
+  the wire below root), the web, database and SNMP doors, and the write gate
+  (`remoteWritePermission`, through `missionFilePathsOf`). So a root's `rm` of the key sticks for
+  the next reader.
 - **The secret is one per deployment, never rotated, and fails closed.** It is set for Preview
   (`jshack-dev`), Production (`jshack-prod`) and `.env.development.local`, each value different,
   so a key read on dev never pays on prod. Rotating it changes every contract's key at once,
@@ -124,8 +135,66 @@ job.
   the server and `scripts/hireme.ts show` read it, and nothing prints it: only `show`'s derived
   key.
 - **The modules that know the secret or the prose are server-only by discipline**: imported
-  from `api/` and `scripts/` alone (`missionSecret.ts`, `missionTerms.ts`, `clientMail.ts`,
-  `contractsList.ts`, `hireme/contractBoard.ts`, `hireme/contracts.ts`).
+  from `api/` and `scripts/` alone (`missionSecret.ts`, `missionLeak.ts`, `missionTerms.ts`,
+  `clientMail.ts`, `contractsList.ts`, `hireme/contractBoard.ts`, `hireme/contracts.ts`).
+
+## The routes that leak a login
+
+On a leak route a forgotten file or setting gives away `root`'s password, and the player keeps the
+word. **That closes the gap the credential layer had left open (D2.6b):** cracking only ever taught a
+player words their list already held. A leaked word comes from the uncrackable pool, so
+`defaultWordlist.test.ts`'s "covers the uncrackable pool not at all" is what gives it its value, and
+appended to `passwords.txt` it lets `hydra` open doors it could not before.
+
+| Route | Forwards | The player does | The word is in |
+| ----- | -------- | --------------- | -------------- |
+| web | `80`, `2222` | `gobuster http://<address>`, then `curl` | a file under `/var/www/html`, root-only, its name already on the default list |
+| ftp | `21`, `2222` | `ftp <address> anonymous`, any password, then `get` | a file in `/srv/ftp/pub`, readable by a guest |
+| mysql | `3306`, `2222` | `hydra <address> mysql`, then `SELECT` | a `settings` table, in the root-only datadir |
+| snmp | `161`, `2222` | guess a community, or `hydra <address> snmp`, then `snmpwalk` | `syscontact` in `/etc/snmp/snmpd.conf`, world-readable |
+
+Then every route is the same: `ssh root@<address> -p 2222` with the word, the key, the reply, the pay.
+
+- **The word opens `root` directly**, because the key is root-only and nothing but the route climbs.
+  A file shows the word and never names the account: working out that it is a login, and whose, by hand
+  or by `hydra`, is the job. Every wrong try is an `auth.log` line.
+- **The words are a fixed slice of the uncrackable pool** (`LEAKABLE_HASHES`,
+  `core/missions/leakablePool.ts`), because a word is kept and can be shared, and accepting and dropping
+  a job costs nothing. So over enough jobs a player holds every word that can leak. 13 words open 25.7%
+  of Ridgemont's 1,263 uncrackable doors, measured, which is the cap: about a quarter of the world's NPC
+  doors can fall to a shared list, and that is accepted.
+- **No door that should stay shut holds a slice word.** The slice comes from positions no fixed box's
+  root holds, and a mission gateway and the msfconsole root draw from `SHUT_HASHES`, the rest of the
+  pool, as database root does on the mysql route. A test fails if any of them lands on one, which also
+  catches a pool rotation. A workstation's root is what its owner chose, so no word touches a player.
+- **The bundle holds hashes and the server holds the words.** `missionLeak.ts` reads `JSHACK_SECRETS` at
+  runtime with `parseSecrets`, so there is no new variable and the words a deployment hands out cannot
+  drift from the hashes it ships. It refuses any hash outside the slice, so no bug in a caller can turn it
+  into a lookup for the shut words. Unset, a door that needs the file answers 500
+  `mission_secret_missing`, and `hydra`, which sweeps what is in the base, still works. Everything the
+  word sits in is built on the server: the file, the table's rows, `snmpd.conf`, and with it the read-only
+  community (`monitor` or `netops`, the second hinted by the `netops@corp.local` contact on ordinary
+  devices).
+- **Each file is laid in like the key**, before the journal replays, by the doors that read it, so a root's
+  `rm` or edit sticks and any root can close a route. A database route lays in the whole datadir, so a
+  statement's write-back carries the table through the journal, and the application account can `DELETE`
+  the row. The other way to close one without root: whoever holds the read-write community can `snmpset`
+  the key box's filter and shut `:2222` for good. `forward` on a key box lands and does nothing.
+- **Anonymous FTP is a real login, switched on by the box's config.** Only an ftp route's key box carries
+  `anonymous_enable=YES`, and the door reads the file (`core/sessions/doorAdmission.ts`), so a root who
+  sets it to `NO` closes it. No account joins `/etc/passwd`, and `ssh` as `anonymous` fails.
+- **An SNMP route's agent refuses `public`**, so `snmpwalk <address>` gets silence, which is why the manual
+  says most agents answer to it. `/etc/snmp/snmpd.conf` is on the externally observable list, so a caller
+  whose session closed can still read it. Someone who never held a session gets nothing.
+- **Pay does not change**, and offers show no route, so pay gives no hint of one.
+- **Accepted:** everything under `/var/www` reaches any session's client, because anyone can `curl` it, so
+  someone reading the traffic can see the web route's word without leaving an `access.log` line. A guest
+  shell can read the ftp and SNMP files, and `curl localhost` the web one.
+
+**To add a route:** `ROUTES` and `LEAK_ROUTE_DOORS` in `missionShape.ts`, `leakPlaceOf` and `leakContent` in
+`missionLeak.ts`, and `findMissionFiles` at any door in `api/sessions.ts` that reads the file. Two harder
+templates were left for later: a user login then a second leak for root, and a path off the default list
+with a pointer to it.
 
 ## 4. The table and its states
 
@@ -260,9 +329,9 @@ tsx scripts/hireme.ts …`, never needed in play (orders parsed in `core/mission
   with an active job or no mailbox); prints the address. `--number` is how a dev gets a network
   with given axes: search for a number that has them.
 - `post <handle>` burns the board's offers and posts three fresh ones now.
-- `show <address>` prints the client, target, pay, route, forward, the key box's services, the
-  key path and the key. It
-  reads the secret from the env; only its derived key is ever printed.
+- `show <address>` prints the client, target, pay, route, forwards, the key box's services, the
+  key path and the key, and on a leak route the file's path and the word. It reads the secrets
+  from the env; only its derived key and that word are ever printed.
 - `drop <handle>` abandons the active job.
 
 It cannot complete a job: completion only happens through `mail`, so every test of a payout goes
@@ -273,8 +342,9 @@ of its row and the patches it left, as the wire-checks' cleanup does.
 
 The client carries the 195 block in `isPublicIp`, the `whois` record and the network's shape.
 The key, its paths, the terms, the board, the briefing, the replies and the root view are built
-on the server only. Slice 1 raised the main chunk's ceiling by owner decision to 298,175 B; slices
-2–4 left it at 297,685 B gzipped.
+on the server only. The leak routes added the slice's hashes and the route shapes. The owner raised
+the main chunk's ceiling to 298,175 B and then 298,475 B, and it stands at 298,461 B gzipped, which
+leaves 14 B: the next feature needs another raise or the lazy-loading in `backlog.md`.
 
 ## 10. Proving it
 
@@ -292,7 +362,9 @@ on the server only. Slice 1 raised the main chunk's ceiling by owner decision to
   offers, the turnover by back-dating `posted_at`, accept and drop with both races fired
   together); `testMissionPay.ts` (15: every reply, the race paying once, the hole, the send
   limit); `testMissionContracts.ts` (11: the root view, through real accepts, a drop and a
-  completion).
+  completion); one per leak route, each from the scan to the payout and each way a route closes:
+  `testMissionLeak.ts` (16), `testMissionFtp.ts` (27), `testMissionMysql.ts` (28),
+  `testMissionSnmp.ts` (35).
 - **Mutation**: every slice's scoped run left no survivor but equivalents.
 - **One browser run at the epic's close-out** (2026-11-03, v0.441.0), two players in headed
   browsers, each in a different town. alice signed up on emailit.io, applied with `curl -d`, read
@@ -308,24 +380,38 @@ on the server only. Slice 1 raised the main chunk's ceiling by owner decision to
   `nmap` still reached the closed job's network. No defect. The root view rests on its
   wire-check, re-run against the same server (11/11). The contract work was announced on
   valleynews.io `/dev` (story 16).
+- **One browser run at the leak routes' close-out** (2026-11-04, v0.445.0), one player from a
+  town network, the four jobs accepted in turn through the operator. Web: `nmap` showed `22`,
+  `80`, `2222`, `gobuster` found `/dump.sql`, and `curl` printed the word. FTP: at the real `ftp>`
+  prompt an anonymous login, `ls`, `cd pub`, `get`, `quit`, `cat`. Database: `hydra` found the
+  application account, and at the real `mysql>` prompt `SHOW TABLES` and `SELECT * FROM settings`
+  showed the word. SNMP: `161/udp` in the scan, silence for a plain walk, a wrong name and one of
+  the two guessable communities, `READ-ONLY` for the other, then `hydra` found the read-write
+  community and a walk with it showed the word and the port table. On each, the word logged in as
+  root over `:2222`, `cat` read the key, and a mail of it got "Key received", the wallet going
+  1,650, 2,800, 3,300, 5,050 JSC. No defect. The closures, the guest shell, `snmpset` and the
+  `msfconsole` refusals rest on the wire-checks. Announced on valleynews.io `/dev` (story 17).
+  Words and keys were masked on every read of the screen, so the run's record holds neither.
 
 ## What follows
 
-Deferred, in `backlog.md` under "missions — deferred": the routes that leak a working login in a
-file (web, FTP, SNMP, a database row), the next small epic, which reuses the server-written file
-the key already uses; decoy services on the boxes (planned for slice 1, not built); further
-templates (deep chains, switches, the library route, stealth, deadlines); file exfiltration, which
+Deferred, in `backlog.md` under "missions — deferred": decoy services on the boxes (planned for
+slice 1, not built); further templates (deep chains, switches, the library route, stealth,
+deadlines, a harder leak); file exfiltration, which
 needs attachments; recognition for completed jobs; a second, darknet operator.
 
 ## Key files
 
 - **Server**: `supabase/migrations/20261101000000_hireme_missions.sql`,
   `20261102000000_hireme_contracts.sql`, `20261103000000_hireme_completion.sql`;
-  `api/network.ts` (the board doors, `findMissionKeyFile`, `findContracts`, the client's door's
-  store) and `api/sessions.ts` (the lookup at each door).
-- **missions** (`core/missions/`): `missionNetwork.ts`, `missionShape.ts`, `pools.ts` (bundle);
-  `missionSecret.ts`, `missionTerms.ts`, `clientMail.ts`, `contractsList.ts`, `hiremeOrders.ts`
-  (server and scripts).
+  `api/network.ts` (the board doors, `findMissionFiles`, `findContracts`, the client's door's
+  store), `api/sessions.ts` (the lookup at each door, `findMissionFiles` for the database and SNMP
+  doors) and `api/patches.ts` (`missionFilePathsOf`).
+- **missions** (`core/missions/`): `missionNetwork.ts`, `missionShape.ts`, `pools.ts`,
+  `leakablePool.ts` (bundle); `missionSecret.ts`, `missionLeak.ts`, `missionTerms.ts`,
+  `clientMail.ts`, `contractsList.ts`, `hiremeOrders.ts` (server and scripts).
+- **The lay-in and the doors**: `core/network/missionBoxFiles.ts`, `core/sessions/doorAdmission.ts`,
+  `core/generation/missionKeyBoxFs.ts`.
 - **hireme**: `core/hireme/boards.ts` (the lookup), `contractBoard.ts`, `contracts.ts`.
 - **Wiring**: `core/network/resolveHttpFetch.ts`, `core/network/resolveCrossPlayerFs.ts`,
   `core/patches/remoteWritePermission.ts`, `core/emailit/handleResolveMail.ts`,

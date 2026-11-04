@@ -379,7 +379,7 @@ const n = 100000; // missionShape(n).route === 'msfconsole', address 195.1.134.1
 const essid = missionEssid(n);                         // mission-100000 (CANNOT be joined — 403)
 const keyBox = generateHomeLan(essid).hosts.find((h) => h.kind === 'machine')!;
 machineIdForLanHost(keyBox, essid);                    // key box id, e.g. halden-files-...
-missionShape(n).forward;                               // msf: {80,80}; hydra: {2222,22}
+missionShape(n).forwards;                              // msf: [{80,80}]; hydra: [{2222,22}]; a leak route has two
 missionKeyPath(n);                                     // e.g. /etc/contract/access.key
 missionKey(n, process.env.MISSION_KEY_SECRET!);        // the exact ACCESS- token `cat` must print
 ```
@@ -427,7 +427,7 @@ posts the offers itself.
 | 4 | Pick the offer offline BEFORE accepting | The board never shows an address. Read the numbers: `select number, ref from hireme_missions where handle = '<h>' and state = 'offered'` (local psql), then `missionShape(n).route` and `missionKeyPath(n)` per number. All three were msfconsole on the run, but a hydra one needs `plaintextFor(missionShape(n).keyBoxRootHash)` |
 | 5 | `lynx http://<board>/`, the cursor opens on the FIRST `[ Accept ]`; `Enter` | Read `[aria-current="true"]`'s `textContent` before `Enter`. `ArrowDown` from there reaches the next offer's `[ Accept ]` directly. `curl -d "offer=<ref>" http://<board>/accept` is the same door without lynx |
 | 6 | `q`, then `mail` and `mail read <n>` for `Contract: <target>` | The briefing comes from `<client>@emailit.io` and gives the 195 address |
-| 7 | `msfconsole <address> <forward port>` → `cat <key path>` → `exit` | The forward's port is `missionShape(n).forward.publicPort`: `80` or `21` on the run, not always 80. `cat` is paced (above) |
+| 7 | `msfconsole <address> <forward port>` → `cat <key path>` → `exit` | The forward's port is `missionShape(n).forwards[0].publicPort`: `80` or `21` on the run, not always 80. `cat` is paced (above) |
 | 8 | `mail reply <briefing n>`, type `ACCESS-… jsc…` on the top line, `^O`, `^X` | The caret lands at the END of the quote: see [driving-the-terminal.md](driving-the-terminal.md), "Composing mail". Lines starting `>` are never read, so the key must be typed, not quoted |
 | 9 | `mail`, `mail read <n>`, `wallet balance` | The reply is instant: "Key received. <pay> JSC sent to jsc…", and the balance is the pay |
 
@@ -441,3 +441,24 @@ ref, never by the words.
 for good by design. True removal is a service-role `delete()` of the `hireme_missions` row (plus
 the mailbox and the key box / gateway `patches` rows a run leaves), the way the wire-check's
 `cleanup()` does it.
+
+### Then: a route that leaks a login
+
+Verified 2026-11-04 (v0.445.0), one player working all four, paid each time. Find a number per
+route with `missionShape(n).route`, and `missionLeakPath(n)` names the file. `missionLeakWord(n,
+process.env.JSHACK_SECRETS)` gives the word, so **write words and keys to a scratch file and mask
+them on every read of the screen**: they must not reach a transcript. Compare before you slice
+the text, because a word cut in half by `slice(-n)` isn't masked. `hireme.ts accept` mails no
+briefing and holds one job per handle, so finish or drop each job before the next.
+
+| Route | Commands | Trap |
+| --- | --- | --- |
+| web | `gobuster http://<address>`, `curl http://<address>/<file>` | `gobuster <address>` answers `(3) URL rejected`: it needs the scheme. `gobuster` isn't preinstalled |
+| ftp | `ftp <address> anonymous`, any password, `cd pub`, `get <file> <local>`, `quit`, `cat <local>` | You land in `/srv/ftp`, so `ls` shows only `pub`. There's no remote `cat` |
+| mysql | `hydra <address> mysql`, `mysql <address> <account>`, its password, `SELECT * FROM settings`, `exit` | `hydra` isn't preinstalled either. Root's word is the `admin_pass` row |
+| snmp | `snmpwalk <address> monitor`, or `netops`, or `hydra <address> snmp` then `snmpwalk <address> <found>` | A plain walk and the wrong name both answer `Timeout: No Response`, which is the route working. The package is `snmp` |
+
+Then every route: `ssh root@<address> -p 2222`, the word at `password:`, `cat <key path>` (paced),
+`exit`. To mail the key without a briefing: `mail send <client>@emailit.io <subject>`, click the
+textarea, type `ACCESS-… jsc…`, `^O`, `^X`. The reply's subject is `Contract: <target>`, and a client's
+handle is `missionTerms(n).client.handle`.

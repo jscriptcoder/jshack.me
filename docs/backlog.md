@@ -54,13 +54,13 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
 
 - **missions — deferred.** Contract work shipped at v0.441.0 (as-built:
   [`missions-architecture.md`](./missions-architecture.md)): one template, exfiltrate a key, on a
-  two-box network with a hydra or msfconsole route. Left for later:
-  - **The routes that leak a working login in a file** (a forgotten web file, anonymous FTP, a
-    guessable SNMP community, a database row): the next small epic, starting with a grill. Such a
-    file cannot be generated in the bundle from the public seed, so like the key it is written by
-    the server from the server-only secret, before the journal is replayed.
+  two-box network with six routes, four of them leaking a login since v0.445.0. Left for later:
   - **Decoy services.** The plan drew up to two per box on guest-at-most releases; as built the key
-    box runs only the route's service. `missionShape`'s `keyBoxServices` is where they go.
+    box runs only the route's service. `missionShape`'s `keyBoxServices` is where they go. A scan
+    tells the route today, and decoys would blur that, but they re-roll every network, so they may
+    need a plan for live players.
+  - **Harder leaks.** A user login then a second leak for root, at higher pay; a path off the default
+    list with a pointer to it. Each adds a server-written file to `missionFiles`.
   - **More templates**: deep chains and switches, more hops, the library route (one library pinned
     to a critical release), a job that cares about stealth, deadlines. Each carries its own pay
     range above exfiltrate's 500–2,000 JSC.
@@ -187,7 +187,21 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   `BUNDLE_CEILING_BYTES` (`scripts/checkBudgets.ts`). Content was cut twice to make room, and
   talkit raised the ceiling's code part by 2,000 B instead (285,135 B of 286,975 B at
   v0.414.0). The lasting fix is to load lynx, nano or hackademy's pages on demand. It is its own
-  piece of work, since box generation is synchronous.
+  piece of work, since box generation is synchronous. **At v0.445.0 it stands at 298,461 B of
+  298,475 B, so 14 B remain** and the next feature with client code needs a raise or this.
+
+- **findit's budget in `checkBudgets` is flaky locally, and it's the owner's call.** Generating
+  findit's web took 648–1,378 ms across the leak-route slices, against a 1,000 ms ceiling, and 691 ms
+  at v0.445.0. Builds failed on it now and then with nothing touching it, most likely on machine
+  load. One standalone run also exited 1 with both budgets reported OK, and its log was lost. It
+  needs a fix or a decision on the ceiling.
+
+- **Some wire-checks read `msfconsole`'s answer too narrowly.** A hole that opens no shell reports
+  `tier` and no `userType`, and these read only `userType`, so a check that no root came through can
+  pass without testing anything: `testMissionFtp`, `testMissionLeak`, `testMissionMysql`. The shape's
+  unit tests still pin safe releases there, and `testMissionSnmp` reads both. The same line is in
+  `testDeepChainReach`, `testDeepSwitchChain`, `testGatewayBrickLanAlive` and `testInnerGatewayReach`,
+  not yet checked for this.
 
 - **The e2e skill's `type-command.sh` could not type a command holding `"` — RESOLVED
   2026-10-20.** `agent-browser eval` always prints the value as a JSON string, so every `"` inside
@@ -1353,25 +1367,13 @@ decision, not a gap.
   file the data doors write, so hydra had to move with them or a login and a sweep would have
   split one log the moment the reach changed. The rule that follows: the unit that must agree
   is `(machine_id, path)`, not the vantage.
-- **D2.6b — harvestable plaintext loot, the missing input to wordlist growth. POSTPONED by owner
-  decision 2026-08-12**, in favour of parity breadth; the harvest route can arrive with the CVE
-  phase (decision 6 names `password_reset`) rather than as bespoke loot content. Hidden credentials
-  are still wanted later, as content. The gap itself is unchanged and still open: the progression
-  the credential layer was built around does not close, because appending a word works (#377) but
-  nothing in the generated world hands a player a word they could not already crack (full reasoning
-  in `project-status.md`'s D2 block). What it needs is a file on a reachable box holding a
-  **plaintext** drawn from the UNCRACKABLE pool — a `credentials.txt`, a config with `password=`, a
-  note. Two constraints, both already load-bearing: it must be **uncrackable-pool** or the harvest
-  is a no-op, which is what makes `defaultWordlist.test.ts`'s "covers the uncrackable pool NOT AT
-  ALL" the assertion that gives the loot its value; and it must sit behind a **tier gate** or a
-  guest walk-in reads it, the same reason `/etc/passwd` is `read: ['root','user']`. This also makes
-  `john` genuinely non-redundant, by the route D2.5's grounding named second — a plaintext file, not
-  a hash file, since a hash file would still hold a hash of one of the two pools.
-  **Whatever closes this, `/etc/passwd` does not**: it yields an md5, and `john` against that hash
-  only returns words already in the caller's wordlist — the closed loop itself, not a way out of it.
-  So the CVE phase must ship a route producing a plaintext the player did not hold, or the
-  progression stays inert however many doors parity adds. The three loot designs worked out before
-  the postponement are recorded in the parity epic's "Next action" so the option set survives.
+- **D2.6b — harvestable plaintext loot. CLOSED at v0.445.0** by the routes that leak a login
+  ([`missions-architecture.md`](./missions-architecture.md)). A contract's forgotten file or setting
+  hands a player a word from the uncrackable pool, and appended to `passwords.txt` it lets `hydra`
+  open doors it could not before, so the progression the credential layer was built around now
+  closes. The harvest is capped: 13 words open about a quarter of the world's uncrackable NPC doors,
+  and no fixed box or shut mission door holds one. Hidden credentials elsewhere in the world, outside
+  contracts, are still welcome as content.
 - **Neon themes deferred.** Known limits of the block cursor, found in Chromium and left as they
   are: the drawn line wraps where the invisible input scrolls, so a click on a wrapped second line
   places the caret by the input's single-line layout; a selection made with Shift and the arrows is

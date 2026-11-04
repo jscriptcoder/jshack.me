@@ -327,7 +327,7 @@ still know before touching it:
   D2.5 (v0.115.0), both follow-ups (v0.116.0, v0.118.0), D2.4 all five slices (v0.119.0 →
   v0.122.0), and D2.6a (#377). Its split file was deleted on close-out — everything durable from it
   lives in this doc, and the one piece of unbuilt work it named (**D2.6b**, harvestable
-  plaintext loot) is a content story in `backlog.md`. PRs #351, #352,
+  plaintext loot) was closed at v0.445.0 by the routes that leak a login. PRs #351, #352,
   #354, #356, #357, #358, #359, #362, #370, #371, #372, #373, #374, #375, #376, #377.
 
   **hydra now reaches every target `ssh` does**, which was the point of D2.4: its own LAN, a
@@ -425,8 +425,8 @@ still know before touching it:
     it with the same list that just failed. So cracking teaches a player only words they hold, and
     coverage cannot grow. WPA keys are not a back door: `generateWifi` draws from a separate
     encoded `WIFI_PASSWORDS` pool, so an `aircrack-ng` key opens **zero** ssh doors. Closing the loop
-    needs generated loot carrying an uncrackable-pool **plaintext** behind a tier gate (D2.6b,
-    `backlog.md`) — the same shape of finding as D2.5's "`john` cracks nothing hydra has not", and
+    needs generated loot carrying an uncrackable-pool **plaintext** (D2.6b, closed at v0.445.0
+    by the routes that leak a login) — the same shape of finding as D2.5's "`john` cracks nothing hydra has not", and
     the same cause: every credential path is closed over one pool pair.
   - **hydra and `ssh` cannot disagree** — both resolve the same `/etc/passwd`, server-side,
     through the same reachability rules. A crack from a locally regenerated baseline would hand
@@ -1450,8 +1450,24 @@ agreed order:
     an accept and drop by `curl -d` refilled the slot. No defect. The root view rests on its
     wire-check, re-run against the same server. Announced on valleynews.io `/dev` (story 16).
     The plan was retired on close-out; what is left is in `backlog.md` under "missions —
-    deferred". **Pick up here (2026-11-03):** the routes that leak a login in a file, the next
-    small epic, start with a grill; or the owner's choice from `backlog.md`.
+    deferred".
+
+40. ✅ **Missions — the routes that leak a login (v0.442.0–v0.445.0, PRs #750–#753, merged
+    2026-11-03 to 2026-11-04).** As-built: the section of that name in
+    [`missions-architecture.md`](./missions-architecture.md). A contract now draws one of six
+    routes. On the four new ones a forgotten file or setting gives away `root`'s password: a web
+    file found by `gobuster` (v0.442.0), a file behind an anonymous FTP login (v0.443.0), a
+    `settings` table behind a crackable database account (v0.444.0), and `syscontact` on an SNMP
+    agent that refuses `public` (v0.445.0). The player keeps the word, which **closes D2.6b**. The
+    13 leakable words open 25.7% of Ridgemont's uncrackable doors and no fixed box. The server reads
+    them from `JSHACK_SECRETS` at runtime; the bundle holds hashes. No migration and no new
+    variable. The bundle ceiling went to 298,475 B, and 298,461 B is used. Each slice's mutation gate
+    left only equivalents or unreachable guards, and production was checked once, on slice 1.
+    **Close-out (2026-11-04):** one browser run worked all four jobs from the scan to the payout,
+    including `get` at the real `ftp>` prompt, the real `mysql>` prompt and `snmpwalk`. No defect.
+    Announced on valleynews.io `/dev` (story 17). The plan was retired on close-out. **Pick up here
+    (2026-11-04):** the owner's choice from `backlog.md`. With 14 B of bundle left, lazy-loading
+    comes before any feature that adds client code, or that feature asks for a raise.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
