@@ -22,6 +22,7 @@ import { createFsView } from '../filesystem/fsView.js';
 import { asAbsPath } from '../types.js';
 import { DATADIR_FILE, ROOT_FILE } from '../generation/baseFs.js';
 import { DATADIR_PATH, databaseIn } from '../mysql/datadir.js';
+import { parseSnmpdConf, SNMPD_CONF_PATH, SNMPD_CONF_PERMISSIONS } from '../snmp/conf.js';
 import { parseMysqlDatabase } from '../mysql/types.js';
 import {
   COMMON_PASSWORDS,
@@ -205,6 +206,65 @@ describe('missionLeakFile', () => {
     );
   });
 
+  it('is the agent config on an snmp route, readable by any tier and written by root', () => {
+    for (const missionNumber of numbersWithRoute('snmp')) {
+      const leak = missionLeakFile(missionNumber, RAW_SECRETS);
+
+      expect(missionLeakPath(missionNumber)).toBe(SNMPD_CONF_PATH);
+      expect(leak?.path).toBe(SNMPD_CONF_PATH);
+      expect(leak?.perms).toEqual(SNMPD_CONF_PERMISSIONS);
+    }
+  });
+
+  it('holds the word of the box root as the contact, and never names the account', () => {
+    for (const missionNumber of numbersWithRoute('snmp')) {
+      const word = plaintextFor(missionShape(missionNumber).keyBoxRootHash);
+      const content = missionLeakFile(missionNumber, RAW_SECRETS)?.content ?? '';
+
+      expect(parseSnmpdConf(content).sysContact.includes(word), `${missionNumber}`).toBe(true);
+      expect(/root/i.test(content), `${missionNumber}`).toBe(false);
+    }
+  });
+
+  it('reads as a config: a header, its two directives and a closing newline', () => {
+    const lines = (missionLeakFile(firstWithRoute('snmp'), RAW_SECRETS)?.content ?? '').split('\n');
+
+    expect(lines).toHaveLength(4);
+    expect(lines[0]).toBe('# /etc/snmp/snmpd.conf — SNMP agent configuration');
+    expect(lines[3]).toBe('');
+  });
+
+  it.each(['web', 'ftp'] as const)('keeps the agent config off a %s route', (route) => {
+    for (const missionNumber of numbersWithRoute(route)) {
+      const content = missionLeakFile(missionNumber, RAW_SECRETS)?.content ?? '';
+
+      expect(parseSnmpdConf(content).roCommunity, `${missionNumber}`).toBeNull();
+    }
+  });
+
+  it('answers to monitor or netops and never to public, so a default walk gets silence', () => {
+    const communities = numbersWithRoute('snmp').map(
+      (missionNumber) =>
+        parseSnmpdConf(missionLeakFile(missionNumber, RAW_SECRETS)?.content ?? '').roCommunity,
+    );
+
+    expect([...new Set(communities)].sort()).toEqual(['monitor', 'netops']);
+  });
+
+  it('is the same config for the same number', () => {
+    const missionNumber = firstWithRoute('snmp');
+
+    expect(missionLeakFile(missionNumber, RAW_SECRETS)).toEqual(
+      missionLeakFile(missionNumber, RAW_SECRETS),
+    );
+  });
+
+  it('refuses the config when the deployment holds no pools', () => {
+    expect(() => missionLeakFile(firstWithRoute('snmp'), undefined)).toThrow(
+      MissionLeakUnavailableError,
+    );
+  });
+
   it('does not exist on a route with no leak', () => {
     for (const route of ['hydra', 'msfconsole'] as const) {
       const missionNumber = firstWithRoute(route);
@@ -333,7 +393,7 @@ describe('missionFilesForBox', () => {
 
 describe('missionFilePaths', () => {
   it('names the same files the server lays in, from the number alone', () => {
-    for (const route of ['hydra', 'msfconsole', 'web', 'ftp', 'mysql'] as const) {
+    for (const route of ['hydra', 'msfconsole', 'web', 'ftp', 'mysql', 'snmp'] as const) {
       const missionNumber = firstWithRoute(route);
       const laid = missionFiles(missionNumber, { keySecret: KEY_SECRET, rawSecrets: RAW_SECRETS });
 
@@ -388,6 +448,14 @@ describe('who can read what the server lays onto a key box', () => {
 
     expect(readableBy(tree, 'guest', DATADIR_PATH)).toBe(false);
     expect(readableBy(tree, 'root', DATADIR_PATH)).toBe(true);
+  });
+
+  it('lets a guest read the agent config on an snmp route, and not the community hash', async () => {
+    const tree = await laidBox(firstWithRoute('snmp'));
+
+    expect(readableBy(tree, 'guest', SNMPD_CONF_PATH)).toBe(true);
+    expect(readableBy(tree, 'guest', '/var/lib/snmp/snmpd.conf')).toBe(false);
+    expect(readableBy(tree, 'root', '/var/lib/snmp/snmpd.conf')).toBe(true);
   });
 
   it('lets only root change the file in pub', () => {

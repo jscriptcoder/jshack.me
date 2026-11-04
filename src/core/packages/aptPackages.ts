@@ -196,7 +196,7 @@ export const APT_PACKAGES: readonly AptPackage[] = [
       {
         path: SNMPD_CONF_PATH,
         // The same for every box too, and for a reason the filter's does not share:
-        // the read-only community is `public` on every device in the world because
+        // the read-only community an install ships with is `public` on every box because
         // that string is not a secret in real SNMP either. Nothing here is drawn.
         content: () => SNMPD_CONF_SEED,
         permissions: SNMPD_CONF_PERMISSIONS,

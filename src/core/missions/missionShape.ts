@@ -6,7 +6,7 @@
  * address can work the same shape out, which is what lets every hop command compute the
  * LAN locally the way it does for any network.
  *
- * Five ways in, drawn one per contract:
+ * Six ways in, drawn one per contract:
  *  - `hydra`: the key box's `root` has a crackable password, its sshd reached through the
  *    gateway's forward. No release hole is the way in, so sshd sits on a safe release like
  *    everything else.
@@ -24,6 +24,10 @@
  *    table with `root`'s password in it, which the server lays in. Database root stays shut,
  *    so the account has to be swept for. The word logs in through the forward to `:2222`, and
  *    the daemon sits on a safe release: the table is the way in.
+ *  - `snmp`: the key box's agent answers to a read-only community somebody can guess and a
+ *    read-write one a sweep finds, and its config, which the server lays in, gives `root`'s
+ *    password as the device's contact. The word logs in through the forward to `:2222`, and
+ *    the agent sits on a safe release: the config is the way in.
  *
  * Everything that is NOT the way in sits on a release whose hole grants a guest shell at
  * most (`low` or `medium`): the gateway's firmware (so the gateway is passed through, not
@@ -50,7 +54,7 @@ export const MISSION_ROUTE_DAY = 111;
 
 /** Each route equally likely. Adding one re-rolls every contract's route, though never
  *  its address, key or key path. */
-const ROUTES = ['hydra', 'msfconsole', 'web', 'ftp', 'mysql'] as const;
+const ROUTES = ['hydra', 'msfconsole', 'web', 'ftp', 'mysql', 'snmp'] as const;
 
 export type MissionRoute = (typeof ROUTES)[number];
 
@@ -88,6 +92,8 @@ export type MissionShape = {
   readonly keyBoxRootHash: string;
   /** The hashes guarding the key box's database, on the one route that has one. */
   readonly keyBoxDatabase: MissionDatabase | null;
+  /** The hash of the read-write community a sweep finds, on the one route running an agent. */
+  readonly keyBoxCommunityHash: string | null;
   /** The gateway's `root` ("admin") password hash — always uncrackable and never one a
    *  file can leak, so the gateway is a box the route passes through rather than one to
    *  break into. */
@@ -136,12 +142,19 @@ const DATABASE_SERVER: RouteCandidate = {
   port: 3306,
 };
 
+const SNMP_AGENT: RouteCandidate = {
+  service: 'snmp',
+  package: 'snmp',
+  program: 'snmpd',
+  port: 161,
+};
+
 const MSFCONSOLE_ROUTE_CANDIDATES: readonly RouteCandidate[] = [WEB_SERVER, FTP_SERVER];
 
 /** The door holding the file, on each route where a file gives `root`'s word away. */
 const LEAK_ROUTE_DOORS: Readonly<
   Record<Exclude<MissionRoute, 'hydra' | 'msfconsole'>, RouteCandidate>
-> = { web: WEB_SERVER, ftp: FTP_SERVER, mysql: DATABASE_SERVER };
+> = { web: WEB_SERVER, ftp: FTP_SERVER, mysql: DATABASE_SERVER, snmp: SNMP_AGENT };
 
 /** The forward a word logs in through: the public :2222 onto the key box's own sshd. */
 const SSH_FORWARD: MissionForward = { publicPort: 2222, internalPort: 22 };
@@ -223,6 +236,7 @@ export const missionShape = (missionNumber: number): MissionShape => {
   let forwards: readonly MissionForward[];
   let keyBoxRootHash: string;
   let keyBoxDatabase: MissionDatabase | null = null;
+  let keyBoxCommunityHash: string | null = null;
 
   if (route === 'msfconsole') {
     const candidate = versionPrng.pick(MSFCONSOLE_ROUTE_CANDIDATES);
@@ -248,6 +262,7 @@ export const missionShape = (missionNumber: number): MissionShape => {
         rootHash: versionPrng.pick(SHUT_HASHES),
       };
     }
+    if (route === 'snmp') keyBoxCommunityHash = crackableHash(versionPrng);
   }
 
   const gatewayAdminHash = versionPrng.pick(SHUT_HASHES);
@@ -259,6 +274,7 @@ export const missionShape = (missionNumber: number): MissionShape => {
     route,
     keyBoxRootHash,
     keyBoxDatabase,
+    keyBoxCommunityHash,
     gatewayAdminHash,
     gatewayVersions,
     keyBoxServices,

@@ -33,7 +33,7 @@ import type { Command, CommandResult } from './types.js';
 
 const USAGE = 'usage: snmpwalk <host>[:<port>] [community]';
 
-/** The community every agent answers a read-only walk to, and the one a player gets
+/** The community most agents answer a read-only walk to, and the one a player gets
  *  without asking. Real SNMP's own default, and the actual joke of the protocol: the
  *  read-only string is not a secret and never was. Defaulting it makes the first walk
  *  free, which is what turns `161/udp` on a scan into something a player tries. */
@@ -122,7 +122,7 @@ export const snmpwalk: Command = {
       'devices on the network you are on — your own at home, or the network of a box ' +
       'you have a shell on. No login ' +
       'and no account: an agent answers to a COMMUNITY STRING, which belongs to the ' +
-      'device rather than to a person. Every agent answers to "public", which is what ' +
+      'device rather than to a person. Most agents answer to "public", which is what ' +
       'this uses when you name none, and "public" returns identity only: the name, the ' +
       'platform, a contact and the addresses the device holds. A READ-WRITE community ' +
       'returns its port table as well, and one of those has to be recovered with ' +

@@ -158,6 +158,22 @@ describe('showReport', () => {
     ).toBe(true);
   });
 
+  it('prints both forwards, the agent config and the word on an snmp route', () => {
+    const number = Array.from({ length: 4000 }, (_unused, index) => index * 256 + 2).find(
+      (candidate) => missionShape(candidate).route === 'snmp',
+    )!;
+    const lines = showReport(number, SECRET, RAW_SECRETS).split('\n');
+
+    expect(lines).toContain('  Route:    snmp');
+    expect(lines).toContain('  Forward:  :161 -> key box :161');
+    expect(lines).toContain('  Forward:  :2222 -> key box :22');
+    expect(lines).toContain('  Leak:     /etc/snmp/snmpd.conf');
+    // Through a boolean: a failing `toContain` would print the word.
+    expect(
+      lines.includes(`  Word:     ${plaintextFor(missionShape(number).keyBoxRootHash)}`),
+    ).toBe(true);
+  });
+
   it('says so when it cannot read the word, and still prints the rest', () => {
     const lines = showReport(WEB_ROUTE_NUMBER, SECRET, undefined).split('\n');
 

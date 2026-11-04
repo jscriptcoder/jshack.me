@@ -31,6 +31,9 @@
  * The database route carries a generated application behind exactly two accounts, so the
  * route's one way in is the only one, and no config, since no door reads it. The server's copy
  * of this datadir adds the table holding the word, so the one here never says it.
+ *
+ * The snmp route carries the hashed read-write community a sweep attacks. Its agent config is
+ * the server's alone, since that holds both the word and the community a walk can guess.
  */
 
 import {
@@ -69,9 +72,11 @@ import { ACCESS_LOG_PERMISSIONS } from '../logging/accessLog.js';
 import { AUTH_LOG_PERMISSIONS } from '../logging/authLog.js';
 import { KERN_LOG_PERMISSIONS } from '../logging/kernLog.js';
 import { MYSQL_LOG_PERMISSIONS } from '../logging/mysqlLog.js';
+import { SNMPD_LOG_PERMISSIONS } from '../logging/snmpdLog.js';
 import { VSFTPD_LOG_PERMISSIONS } from '../logging/vsftpdLog.js';
 import { createPrng } from './prng.js';
 import { CRACK_CHANCE, drawPasswordHash } from './passwordPools.js';
+import { formatSnmpdState, SNMPD_STATE_PERMISSIONS } from '../snmp/rwCommunity.js';
 import { generateApplication } from './generateDatabase.js';
 import { generateHomeLan } from './generateHomeLan.js';
 import { MYSQL_USERNAMES } from './pools/database.js';
@@ -179,11 +184,32 @@ export const buildMissionKeyBoxFs = (missionNumber: number): Directory => {
   const servesWeb = runningServices.some(({ service }) => service === 'http');
   const servesFtp = runningServices.some(({ service }) => service === 'ftp');
   const servesDatabase = runningServices.some(({ service }) => service === 'mysql');
+  const runsAgent = runningServices.some(({ service }) => service === 'snmp');
   const lettingAnonymousIn = shape.route === 'ftp';
   const database =
     shape.keyBoxDatabase === null
       ? null
       : keyBoxDatabase(missionNumber, shape.keyBoxDatabase, username, prng.pick(MYSQL_USERNAMES));
+  const varLibEntries: Record<string, FileNode> = {
+    ...(database === null
+      ? {}
+      : {
+          mysql: dir({ 'data.json': file(JSON.stringify(database), DATADIR_FILE) }, TRAVERSABLE_DIR),
+        }),
+    ...(shape.keyBoxCommunityHash === null
+      ? {}
+      : {
+          snmp: dir(
+            {
+              'snmpd.conf': file(
+                formatSnmpdState(shape.keyBoxCommunityHash),
+                SNMPD_STATE_PERMISSIONS,
+              ),
+            },
+            TRAVERSABLE_DIR,
+          ),
+        }),
+  };
 
   const tree = dir(
     {
@@ -235,19 +261,7 @@ export const buildMissionKeyBoxFs = (missionNumber: number): Directory => {
       ),
       var: dir(
         {
-          ...(database === null
-            ? {}
-            : {
-                lib: dir(
-                  {
-                    mysql: dir(
-                      { 'data.json': file(JSON.stringify(database), DATADIR_FILE) },
-                      TRAVERSABLE_DIR,
-                    ),
-                  },
-                  TRAVERSABLE_DIR,
-                ),
-              }),
+          lib: dir(varLibEntries, TRAVERSABLE_DIR),
           log: dir(
             {
               'access.log': file('', ACCESS_LOG_PERMISSIONS),
@@ -255,6 +269,7 @@ export const buildMissionKeyBoxFs = (missionNumber: number): Directory => {
               'kern.log': file('', KERN_LOG_PERMISSIONS),
               ...(servesFtp ? { 'vsftpd.log': file('', VSFTPD_LOG_PERMISSIONS) } : {}),
               ...(servesDatabase ? { 'mysql.log': file('', MYSQL_LOG_PERMISSIONS) } : {}),
+              ...(runsAgent ? { 'snmpd.log': file('', SNMPD_LOG_PERMISSIONS) } : {}),
             },
             TRAVERSABLE_DIR,
           ),
