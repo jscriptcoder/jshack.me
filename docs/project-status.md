@@ -1466,8 +1466,8 @@ agreed order:
     **Close-out (2026-11-04):** one browser run worked all four jobs from the scan to the payout,
     including `get` at the real `ftp>` prompt, the real `mysql>` prompt and `snmpwalk`. No defect.
     Announced on valleynews.io `/dev` (story 17). The plan was retired on close-out. **Pick up here
-    (2026-11-04):** the owner's choice from `backlog.md`. With 14 B of bundle left, lazy-loading
-    comes before any feature that adds client code, or that feature asks for a raise.
+    (2026-11-04):** the owner's choice from `backlog.md`. With 14 B of bundle left, a feature that
+    adds client code raises the ceiling; lazy-loading is low priority (owner, 2026-11-04).
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

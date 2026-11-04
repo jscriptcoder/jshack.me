@@ -182,13 +182,21 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   twin in `resolveOccupantFetch.test.ts` now flip a bit through `withForgedSignature`
   (`src/test/factories/signedEnvelope.ts`). If it fails again, the cause is something else.
 
-- **Lazy-load a large client piece so features stop meeting the bundle ceiling.** Every command
-  and screen is in the main chunk, so each feature's client code counts against
-  `BUNDLE_CEILING_BYTES` (`scripts/checkBudgets.ts`). Content was cut twice to make room, and
-  talkit raised the ceiling's code part by 2,000 B instead (285,135 B of 286,975 B at
-  v0.414.0). The lasting fix is to load lynx, nano or hackademy's pages on demand. It is its own
-  piece of work, since box generation is synchronous. **At v0.445.0 it stands at 298,461 B of
-  298,475 B, so 14 B remain** and the next feature with client code needs a raise or this.
+- **Lazy-loading the client: low priority (owner, 2026-11-04).** The bundle's size is not a problem,
+  so a feature that needs room raises `BUNDLE_CEILING_BYTES` (`scripts/checkBudgets.ts`). At
+  v0.445.0 it stands at 298,461 B of 298,475 B. If this is ever picked up, these gzipped figures were
+  measured at v0.445.0 by building with each piece split out; none of the splits was run:
+  - lynx saves 4,248 B, nano 703 B and msfconsole 4,533 B. Hackademy's pages save nothing alone,
+    because only `fixedSiteFs`, a box builder, imports them.
+  - The box builders save 22,303 B alone, because `mysql/ownDatabase` and `redis/ownStore` still hold
+    the pools in the main chunk through small helpers. Cutting `databaseApp`, `generateRedisStore` and
+    `generateDatabase` too saves 125,764 B and leaves about 128 KB in lazy chunks.
+  - Most players would fetch that 128 KB anyway at their first `ssh`. A hop's tree is served by the
+    server, and the client call sites build a box only to read its open ports and machine id, so
+    a ports-only builder might drop the content from the client altogether. It is unproven:
+    `readOpenPorts` reads pidfiles and the package manifest off the tree, so it needs those without
+    the content.
+  - zod holds 25,387 B and cannot be lazy-loaded, because schemas are built at module load.
 
 - **findit's budget in `checkBudgets` is flaky locally, and it's the owner's call.** Generating
   findit's web took 648–1,378 ms across the leak-route slices, against a 1,000 ms ceiling, and 691 ms
