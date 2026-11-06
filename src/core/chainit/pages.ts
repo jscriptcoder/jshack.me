@@ -13,6 +13,7 @@
  */
 
 import { escapeHtml } from '../findit/page.js';
+import { writeAmount } from '../wallet/amount.js';
 import type { TransferRecord } from '../wallet/handleWalletHistory.js';
 import { historyLine, ledgerTime } from '../wallet/historyLine.js';
 
@@ -78,7 +79,7 @@ export const addressPage = (
     lookedUp: address,
     body: [
       `<pre>${[
-        `${address}  ${balance} JSC`,
+        `${address}  ${writeAmount(balance)}`,
         '',
         ...(transfers.length === 0
           ? ['No transfers.']
@@ -127,7 +128,7 @@ export const recentPage = (transfers: readonly TransferRecord[]): string =>
     caption: 'The latest 20 transfers on the chain, newest first.',
     lines: transfers.map(
       ({ from, to, amount, at }) =>
-        `${ledgerTime(at)}  ${amount} JSC  ${from === null ? 'coinbase' : addressLink(from)} -> ${addressLink(to)}`,
+        `${ledgerTime(at)}  ${writeAmount(amount)}  ${from === null ? 'coinbase' : addressLink(from)} -> ${addressLink(to)}`,
     ),
     none: 'No transfers.',
   });
@@ -140,7 +141,7 @@ export const richPage = (holdings: readonly Holding[]): string =>
     caption: 'The 20 richest addresses, largest first.',
     lines: holdings.map(
       ({ address, balance }, place) =>
-        `${String(place + 1).padStart(2)}  ${addressLink(address)}  ${balance} JSC`,
+        `${String(place + 1).padStart(2)}  ${addressLink(address)}  ${writeAmount(balance)}`,
     ),
     none: 'Nobody holds any JSC.',
   });

@@ -4548,7 +4548,7 @@ describe('a wallet at the terminal asks the ledger', () => {
 
     const printed = await printedBy(`wallet balance ${ADDRESS}`);
 
-    expect(printed).toContain(`${ADDRESS}  250 JSC`);
+    expect(printed).toContain(`${ADDRESS}  §250`);
     expect(askedOfTheLedger).toEqual([{ action: 'balance', address: ADDRESS }]);
   });
 
@@ -4631,12 +4631,12 @@ describe('a wallet at the terminal asks the ledger', () => {
 
     expect(printed).toEqual(
       expect.arrayContaining([
-        `2026-10-11 14:09  -500 JSC  to ${THIEF}`,
-        '2026-10-11 14:02  +500 JSC  from coinbase',
+        `2026-10-11 14:09  -§500  to ${THIEF}`,
+        '2026-10-11 14:02  +§500  from coinbase',
       ]),
     );
-    expect(printed.indexOf(`2026-10-11 14:09  -500 JSC  to ${THIEF}`)).toBeLessThan(
-      printed.indexOf('2026-10-11 14:02  +500 JSC  from coinbase'),
+    expect(printed.indexOf(`2026-10-11 14:09  -§500  to ${THIEF}`)).toBeLessThan(
+      printed.indexOf('2026-10-11 14:02  +§500  from coinbase'),
     );
     expect(askedOfTheLedger).toEqual([{ action: 'history', address: ADDRESS }]);
   });
@@ -4711,7 +4711,7 @@ describe('a wallet at the terminal asks the ledger', () => {
 
     const printed = await printedBy(`wallet send ${ADDRESS} 200`);
 
-    expect(printed).toContain(`sent 200 JSC to ${ADDRESS}`);
+    expect(printed).toContain(`sent §200 to ${ADDRESS}`);
     expect(balanceReads).toEqual([{ action: 'balance', address: own }]);
     expect(transfers).toHaveLength(1);
     // The ledger's own handler is the judge of who signed: it takes the transfer

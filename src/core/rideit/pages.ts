@@ -15,6 +15,7 @@
 import { escapeHtml } from '../findit/page.js';
 import { RIDEIT_DOMAIN } from '../generation/fixedSites.js';
 import { TOWNS } from '../generation/world.js';
+import { writeAmount } from '../wallet/amount.js';
 import { RIDE_FARE } from './fare.js';
 
 const DESCRIPTION = 'Coach and rail tickets to every town in Harrow Valley. One fare, any town.';
@@ -43,7 +44,7 @@ export const RIDEIT_FRONT_PAGE = page(
   'rideit.io - coach and rail tickets across the valley',
   [
     '<p>Travel by coach and rail to every town in Harrow Valley.',
-    `One fare to anywhere: ${RIDE_FARE} JSC.</p>`,
+    `One fare to anywhere: ${writeAmount(RIDE_FARE)}.</p>`,
     '<h2>Where we go</h2>',
     '<ul>',
     ...TOWNS.map((town) => `<li>${escapeHtml(town.name)}</li>`),
@@ -54,7 +55,7 @@ export const RIDEIT_FRONT_PAGE = page(
 );
 
 /** How much of the fare has arrived, out of the whole of it. */
-const paidOf = (paid: number): string => `${paid} of ${RIDE_FARE} JSC`;
+const paidOf = (paid: number): string => `${writeAmount(paid)} of ${writeAmount(RIDE_FARE)}`;
 
 /** The booking form for one reader: the fare, the address their next trip is paid to and
  *  how much has arrived there, then every town in the world's order, each boarding for
@@ -68,7 +69,7 @@ export const ticketPage = ({
 }): string =>
   page('rideit.io - book a ticket', [
     '<h2>Book a ticket</h2>',
-    `<p>One fare to anywhere: ${RIDE_FARE} JSC, paid to this ticket's own address:</p>`,
+    `<p>One fare to anywhere: ${writeAmount(RIDE_FARE)}, paid to this ticket's own address:</p>`,
     `<p>${address}</p>`,
     `<p>Paid so far: ${paidOf(paid)}.</p>`,
     '<table>',

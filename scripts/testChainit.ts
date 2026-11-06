@@ -251,7 +251,7 @@ const main = async () => {
   check(
     'a funded address shows its balance and wallet history’s lines, newest first',
     funded.status === 200 &&
-      fundedPage.includes(`${FUNDED}  460 JSC`) &&
+      fundedPage.includes(`${FUNDED}  §460`) &&
       transfers.length === 2 &&
       linesAt.every((at, index) => at > -1 && (index === 0 || at > (linesAt[index - 1] ?? -1))),
     `status ${funded.status}; ${expectedLines.length} line(s) at ${JSON.stringify(linesAt)}`,
@@ -265,7 +265,7 @@ const main = async () => {
   const busyLines = busyPage.split('\n').filter((line) => line.includes('from coinbase')).length;
   check(
     `an address with ${BUSY_MINTS} transfers shows the latest 20`,
-    busyLines === 20 && busyPage.includes(`+${BUSY_MINTS} JSC  from coinbase`),
+    busyLines === 20 && busyPage.includes(`+§${BUSY_MINTS}  from coinbase`),
     `${busyLines} line(s)`,
   );
 
@@ -277,8 +277,8 @@ const main = async () => {
     .eq('address', UNSEEN)
     .maybeSingle();
   check(
-    'an address the ledger has never seen shows 0 JSC and no transfers, and gains no row',
-    unseenPage.includes(`${UNSEEN}  0 JSC`) &&
+    'an address the ledger has never seen shows §0 and no transfers, and gains no row',
+    unseenPage.includes(`${UNSEEN}  §0`) &&
       unseenPage.includes('No transfers.') &&
       unseenRow === null,
     `row ${JSON.stringify(unseenRow)}`,
@@ -315,7 +315,7 @@ const main = async () => {
       recentLines.length === 20 &&
       sentOn !== undefined &&
       recentLines[0] ===
-        `${ledgerTime(sentOn.at)}  ${emptiedAmount} JSC  ${linked(EMPTIED)} -> ${linked(PAID)}`,
+        `${ledgerTime(sentOn.at)}  §${emptiedAmount.toLocaleString('en-US')}  ${linked(EMPTIED)} -> ${linked(PAID)}`,
     `status ${recent.status}; ${recentLines.length} line(s); ${recentLines[0] ?? '(none)'}`,
   );
   const mintedTo = recentLines
@@ -338,9 +338,9 @@ const main = async () => {
       richLines.length <= 20 &&
       JSON.stringify(richLines.slice(0, 3)) ===
         JSON.stringify([
-          ` 1  ${linked(TIED[0] ?? '')}  ${tiedBalance} JSC`,
-          ` 2  ${linked(TIED[1] ?? '')}  ${tiedBalance} JSC`,
-          ` 3  ${linked(PAID)}  ${emptiedAmount + 40} JSC`,
+          ` 1  ${linked(TIED[0] ?? '')}  §${tiedBalance.toLocaleString('en-US')}`,
+          ` 2  ${linked(TIED[1] ?? '')}  §${tiedBalance.toLocaleString('en-US')}`,
+          ` 3  ${linked(PAID)}  §${(emptiedAmount + 40).toLocaleString('en-US')}`,
         ]),
     `status ${rich.status}; ${JSON.stringify(richLines.slice(0, 3))}`,
   );
@@ -368,7 +368,7 @@ const main = async () => {
   const afterForgery = contentOf((await lookUp(FUNDED)).body);
   check(
     'a planted /var/www/html/address changes nothing the explorer says',
-    afterForgery.includes(`${FUNDED}  460 JSC`) && !afterForgery.includes('FORGED'),
+    afterForgery.includes(`${FUNDED}  §460`) && !afterForgery.includes('FORGED'),
     afterForgery.slice(0, 60),
   );
   const recentAfterForgery = contentOf((await fetchPath('/recent')).body);
@@ -414,7 +414,7 @@ const main = async () => {
     'guardian.ts restore chainit.io brings back the front page, the lookups and the views',
     restored.status === 0 &&
       afterRestore.status === 200 &&
-      contentOf(afterRestore.body).includes(`${FUNDED}  460 JSC`) &&
+      contentOf(afterRestore.body).includes(`${FUNDED}  §460`) &&
       contentOf(frontAfterRestore.body) === CHAINIT_FRONT_PAGE &&
       viewsAfterRestore.every((view) => view.status === 200),
     `restore exit ${restored.status}; lookup ${afterRestore.status}; views ${viewsAfterRestore

@@ -140,7 +140,7 @@ describe('the ledger seam', () => {
 
   it('is loud when left unwired, refusing to make up a balance', () => {
     // A read that answered on its own would print coins no ledger ever held, and
-    // "0 JSC" is exactly what a real answer looks like.
+    // "§0" is exactly what a real answer looks like.
     expect(() => seedEnv().wallet.balance(address)).toThrow('wallet.balance is not wired');
   });
 

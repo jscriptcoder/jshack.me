@@ -4,6 +4,7 @@
  * differently.
  */
 
+import { writeAmount } from './amount.js';
 import type { TransferRecord } from './handleWalletHistory.js';
 
 /** When a transfer was made, to the minute, as the wallet prints it: `2026-10-11 22:07`.
@@ -23,7 +24,8 @@ export const historyLine = (
   writeAddress: (other: string) => string = (other) => other,
 ): string => {
   const when = ledgerTime(at);
+  const coins = writeAmount(amount);
   return to === address
-    ? `${when}  +${amount} JSC  from ${from === null ? 'coinbase' : writeAddress(from)}`
-    : `${when}  -${amount} JSC  to ${writeAddress(to)}`;
+    ? `${when}  +${coins}  from ${from === null ? 'coinbase' : writeAddress(from)}`
+    : `${when}  -${coins}  to ${writeAddress(to)}`;
 };

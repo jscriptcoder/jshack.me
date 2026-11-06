@@ -214,7 +214,7 @@ describe('showReport', () => {
 
     expect(report).toContain(`${terms.client.company} (${terms.client.handle}@emailit.io)`);
     expect(report).toContain(terms.targetCompany);
-    expect(report).toContain(`${terms.pay} JSC`);
+    expect(report).toContain(`§${terms.pay.toLocaleString('en-US')}`);
   });
 
   it('prints the report line by line, a key box with no services saying so', () => {
@@ -226,7 +226,7 @@ describe('showReport', () => {
         `Contract ${HYDRA} at ${missionAddressForNumber(HYDRA)} (essid ${missionEssid(HYDRA)})`,
         `  Client:   ${terms.client.company} (${terms.client.handle}@emailit.io)`,
         `  Target:   ${terms.targetCompany}, ${shape.stem}-gw / ${shape.stem}-files`,
-        `  Pay:      ${terms.pay} JSC`,
+        `  Pay:      §${terms.pay.toLocaleString('en-US')}`,
         '  Route:    hydra',
         ...shape.forwards.map(
           (forward) => `  Forward:  :${forward.publicPort} -> key box :${forward.internalPort}`,

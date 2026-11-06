@@ -294,7 +294,7 @@ check(
 );
 check(
   'it names the database before it writes and the new balance after',
-  first.stdout === `Minting 500 JSC to ${MINTED} on ${HOST}\n${MINTED}  500 JSC\n`,
+  first.stdout === `Minting §500 to ${MINTED} on ${HOST}\n${MINTED}  §500\n`,
   `stdout=${show(first.stdout)}`,
 );
 const second = mint([MINTED, '500']);
@@ -302,7 +302,7 @@ const afterSecond = await balanceOf(MINTED);
 check(
   'minting again raises the balance by the amount again',
   second.status === 0 &&
-    second.stdout.endsWith(`${MINTED}  1000 JSC\n`) &&
+    second.stdout.endsWith(`${MINTED}  §1,000\n`) &&
     show(afterSecond.body) === show({ balance: 1000, nextSequence: 0 }),
   `exit=${second.status} stdout=${show(second.stdout)} body=${show(afterSecond.body)}`,
 );
@@ -332,7 +332,7 @@ const tooMuchRows = await transfersTo(NEARLY_FULL);
 check(
   'a mint that would pass the largest balance exits 1 and says it was refused',
   tooMuch.status === 1 &&
-    tooMuch.stderr === `mint refused: ${NEARLY_FULL} would hold more than ${LARGEST} JSC\n`,
+    tooMuch.stderr === `mint refused: ${NEARLY_FULL} would hold more than §${LARGEST.toLocaleString('en-US')}\n`,
   `exit=${tooMuch.status} stderr=${show(tooMuch.stderr)}`,
 );
 check(

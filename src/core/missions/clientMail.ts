@@ -30,8 +30,8 @@
 
 import { z } from 'zod';
 import { EMAILIT_DOMAIN } from '../generation/fixedSites.js';
-import { payOf } from '../hireme/contractBoard.js';
 import type { ContractMail } from '../hireme/contracts.js';
+import { writeAmount } from '../wallet/amount.js';
 import { missionKey } from './missionSecret.js';
 import { missionTerms, type MissionClient, type MissionTerms } from './missionTerms.js';
 
@@ -197,7 +197,7 @@ export const answerClientMail = async ({
       terms,
       wallet === null
         ? NO_WALLET
-        : `Key received. ${payOf(terms.pay)} sent to ${wallet}. Pleasure doing business.`,
+        : `Key received. ${writeAmount(terms.pay)} sent to ${wallet}. Pleasure doing business.`,
     ),
   });
   const outcome = completeOutcomeSchema.safeParse(completed.data);

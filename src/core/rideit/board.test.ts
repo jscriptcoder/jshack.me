@@ -173,21 +173,21 @@ describe('answerBoard: where a ride goes', () => {
 
 describe('answerBoard: the fare', () => {
   it.each([
-    ['nothing has', new Map<string, number>(), 'The fare has not arrived: 0 of 25 JSC.'],
+    ['nothing has', new Map<string, number>(), 'The fare has not arrived: §0 of §25.'],
     [
       'one coin short has',
       new Map([[tripAddress(PLAYER, 2), RIDE_FARE - 1]]),
-      'The fare has not arrived: 24 of 25 JSC.',
+      'The fare has not arrived: §24 of §25.',
     ],
     [
       'only the last trip’s fare has',
       new Map([[tripAddress(PLAYER, 1), RIDE_FARE]]),
-      'The fare has not arrived: 0 of 25 JSC.',
+      'The fare has not arrived: §0 of §25.',
     ],
     [
       'only another player’s fare has',
       new Map([[tripAddress('bob-key', 2), RIDE_FARE]]),
-      'The fare has not arrived: 0 of 25 JSC.',
+      'The fare has not arrived: §0 of §25.',
     ],
   ])(
     'refuses a boarding when %s arrived, says how much, and changes nothing',
@@ -239,7 +239,7 @@ describe('answerBoard: the fare', () => {
     const again = await board(boardFor(FIRST_TOWN), deps);
 
     expect(again?.left).toBe(false);
-    expect(textOf(again!.page)).toContain('The fare has not arrived: 0 of 25 JSC.');
+    expect(textOf(again!.page)).toContain('The fare has not arrived: §0 of §25.');
     expect(store.current()).toEqual({ town: SECOND_TOWN, trips: 1 });
   });
 });
@@ -424,7 +424,7 @@ describe('answerTicket', () => {
     const page = await ticket(deps);
 
     expect(textOf(page!)).toContain(tripAddress(PLAYER, 0));
-    expect(textOf(page!)).toContain('Paid so far: 0 of 25 JSC.');
+    expect(textOf(page!)).toContain('Paid so far: §0 of §25.');
   });
 
   it('quotes a traveller the address of the trip after the ones they have taken, and what arrived', async () => {
@@ -439,7 +439,7 @@ describe('answerTicket', () => {
     const page = await ticket(deps);
 
     expect(textOf(page!)).toContain(`$ wallet send ${tripAddress(PLAYER, 3)} 25`);
-    expect(textOf(page!)).toContain('Paid so far: 10 of 25 JSC.');
+    expect(textOf(page!)).toContain('Paid so far: §10 of §25.');
     expect(findBalance.mock.calls).toEqual([[tripAddress(PLAYER, 3)]]);
   });
 

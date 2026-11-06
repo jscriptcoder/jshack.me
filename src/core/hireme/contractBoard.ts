@@ -17,6 +17,7 @@
  */
 
 import { escapeHtml } from '../findit/page.js';
+import { writeAmount } from '../wallet/amount.js';
 import { hiremePage } from './pages.js';
 import type { MissionTerms } from '../missions/missionTerms.js';
 
@@ -41,9 +42,6 @@ export type ContractBoard = {
   readonly notice?: BoardNotice;
 };
 
-/** A contract's pay as every page and mail reads it: "1,350 JSC". */
-export const payOf = (pay: number): string => `${pay.toLocaleString('en-US')} JSC`;
-
 const alert = (message: string): string => `<p role="alert">${escapeHtml(message)}</p>`;
 
 const isUnderOffer = (notice: BoardNotice | undefined, ref: string): notice is BoardNotice =>
@@ -57,7 +55,7 @@ const hasItsButton = (board: ContractBoard, notice: BoardNotice): boolean =>
 
 const currentContract = (board: ContractBoard, current: MissionTerms): readonly string[] => [
   '<h2>Current contract</h2>',
-  `<p>${escapeHtml(`${current.client.company} — ${current.targetCompany} — ${payOf(current.pay)}`)}</p>`,
+  `<p>${escapeHtml(`${current.client.company} — ${current.targetCompany} — ${writeAmount(current.pay)}`)}</p>`,
   '<form action="/drop" method="post">',
   '<input type="hidden" name="confirm" value="yes">',
   '<p><input type="submit" value="Drop contract"></p>',
@@ -70,7 +68,7 @@ const currentContract = (board: ContractBoard, current: MissionTerms): readonly 
 ];
 
 const offerBlock = (board: ContractBoard, { ref, terms }: BoardOffer): readonly string[] => [
-  `<p>${escapeHtml(`${terms.client.company} — ${terms.kind} — ${payOf(terms.pay)}`)}</p>`,
+  `<p>${escapeHtml(`${terms.client.company} — ${terms.kind} — ${writeAmount(terms.pay)}`)}</p>`,
   `<p>${escapeHtml(terms.pitch)}</p>`,
   `<p>Ref: ${escapeHtml(ref)}</p>`,
   '<form action="/accept" method="post">',

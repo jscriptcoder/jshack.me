@@ -11,3 +11,9 @@ export const readAmount = (text: string): number | null => {
   const amount = Number(text);
   return Number.isSafeInteger(amount) ? amount : null;
 };
+
+/** An amount of coins as every screen prints it: `§1,650`. The sign is the coin's,
+ *  chosen because the game's terminal fonts draw it beside their own digits; the
+ *  comma groups thousands so a pay and a balance read alike. Only output takes this
+ *  form; what a player types is still the bare digits `readAmount` reads. */
+export const writeAmount = (amount: number): string => `§${amount.toLocaleString('en-US')}`;

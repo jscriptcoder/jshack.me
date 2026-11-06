@@ -20,6 +20,7 @@ import { missionLeakPath, missionLeakWord } from './missionLeak.js';
 import { missionKey, missionKeyPath } from './missionSecret.js';
 import { missionAddressForNumber, missionEssid } from './missionNetwork.js';
 import { missionTerms } from './missionTerms.js';
+import { writeAmount } from '../wallet/amount.js';
 
 export type MissionOrder =
   | { readonly verb: 'accept'; readonly handle: string; readonly number: number | null }
@@ -94,7 +95,7 @@ export const showReport = (
     `Contract ${missionNumber} at ${address} (essid ${missionEssid(missionNumber)})`,
     `  Client:   ${terms.client.company} (${terms.client.handle}@${EMAILIT_DOMAIN})`,
     `  Target:   ${terms.targetCompany}, ${shape.stem}-gw / ${shape.stem}-files`,
-    `  Pay:      ${terms.pay} JSC`,
+    `  Pay:      ${writeAmount(terms.pay)}`,
     `  Route:    ${shape.route}`,
     ...shape.forwards.map(
       (forward) => `  Forward:  :${forward.publicPort} -> key box :${forward.internalPort}`,

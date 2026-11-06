@@ -80,15 +80,15 @@ describe('the offers on a board', () => {
   it('shows each offer as its client, the kind of job and the pay, then the pitch', () => {
     const text = textOf(render(getBoard({ offers: [getOffer()] })));
 
-    expect(text).toContain('Copper Systems — retrieve an access key — 1,350 JSC');
+    expect(text).toContain('Copper Systems — retrieve an access key — §1,350');
     expect(text).toContain('A rival is sitting on something of ours. We want the key to it.');
   });
 
   it('quotes pay with a thousands separator only where there are thousands', () => {
     const text = textOf(render(getBoard()));
 
-    expect(text).toContain('— 500 JSC');
-    expect(text).toContain('— 2,000 JSC');
+    expect(text).toContain('— §500');
+    expect(text).toContain('— §2,000');
   });
 
   it('gives every offer its own Accept form, posting the offer by its ref', () => {
@@ -140,7 +140,7 @@ describe('the current contract on a board', () => {
     const text = textOf(page);
 
     expect(text).toContain('Current contract');
-    expect(text).toContain('Orchard Labs — Halden Logistics — 1,800 JSC');
+    expect(text).toContain('Orchard Labs — Halden Logistics — §1,800');
     expect(text.indexOf('Current contract')).toBeLessThan(text.indexOf('Offers'));
   });
 
@@ -215,7 +215,7 @@ describe('what a form just did, said on the board', () => {
 describe('how a board reads, top to bottom', () => {
   const readingOf = (page: Document): string => textOf(page).replace(/\s+/g, ' ').trim();
   const offerReading = [
-    'Copper Systems — retrieve an access key — 1,350 JSC',
+    'Copper Systems — retrieve an access key — §1,350',
     'A rival is sitting on something of ours. We want the key to it.',
     'Ref: k7q2',
   ];
@@ -239,7 +239,7 @@ describe('how a board reads, top to bottom', () => {
       [
         'Welcome back, neo.',
         'Current contract',
-        'Copper Systems — Halden Logistics — 1,350 JSC',
+        'Copper Systems — Halden Logistics — §1,350',
         'Or from a terminal:',
         '$ curl -d "confirm=yes" http://194.12.34.56/drop',
         'Offers',
