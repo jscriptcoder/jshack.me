@@ -1465,9 +1465,32 @@ agreed order:
     left only equivalents or unreachable guards, and production was checked once, on slice 1.
     **Close-out (2026-11-04):** one browser run worked all four jobs from the scan to the payout,
     including `get` at the real `ftp>` prompt, the real `mysql>` prompt and `snmpwalk`. No defect.
-    Announced on valleynews.io `/dev` (story 17). The plan was retired on close-out. **Pick up here
-    (2026-11-04):** the owner's choice from `backlog.md`. With 14 B of bundle left, a feature that
-    adds client code raises the ceiling; lazy-loading is low priority (owner, 2026-11-04).
+    Announced on valleynews.io `/dev` (story 17). The plan was retired on close-out.
+
+41. ✅ **JSC amounts read `§1,650` (v0.446.0, PR #755, merged 2026-11-07).** Every amount the game
+    prints goes through one formatter, `writeAmount` (`core/wallet/amount.ts`, beside its inverse
+    `readAmount`): the coin sign `§` (U+00A7) before the number, no space, thousands grouped with a
+    comma. That covers `wallet balance`/`send`/`history`, chainit.io's address page, `/recent` and
+    `/rich`, hireme's board lines and the client's "Key received. §1,350 sent to …" reply,
+    rideit.io's fare and `§10 of §25`, and the operator's `mintCoins.ts` and `hireme.ts show`
+    report; `payOf` is gone. Before it the wallet, chainit and rideit printed `1650` and hireme
+    `1,350`. Owner's choices, grilled 2026-11-06: `§` because both terminal fonts draw it (the neon
+    look loads only Share Tech Mono's latin subset, so `Ɉ`, `◊`, `Ħ` and the like came from a
+    fallback face, and `Ɉ` read as a `3`), and it reads as money like `$`; before the amount; a
+    comma everywhere. Input is unchanged (`wallet send` takes bare digits and refuses `§250` and
+    `1,650`), JSC stays the coin's name in prose, `/etc/hireme/contracts` keeps the bare number,
+    and mail already in an inbox keeps "JSC". The briefing mail never quoted the pay; the `Pay:`
+    line the plan placed there is the operator's report. The bundle grew 23 B and the ceiling went
+    to 298,575 B. Evidence: unit tests (10,262), five wire-checks (177/177: `testWallet`,
+    `testChainit`, `testMissionBoard`, `testMissionPay`, `testTravel`), mutation 49 killed / 0
+    survived on the changed lines. **Close-out (2026-11-07):** one browser run in the default neon
+    theme on a fresh Wexcombe player: `mintCoins` printed `Minting §1,650`, `wallet send`, `balance`
+    and `history` printed `sent §10`, `§1,640`, `-§10` and `+§1,650`, and `lynx` showed the same on
+    chainit.io, `§25` and `§0 of §25` on rideit.io and `§1,100`, `§850`, `§1,850` on a hireme board,
+    every `§` drawn by Share Tech Mono itself (`document.fonts.check` true). No defect. As-built:
+    [`wallet-architecture.md`](./wallet-architecture.md), "How an amount is printed". The plan was
+    retired on close-out. **Pick up here (2026-11-07):** the owner's choice from `backlog.md`.
+    Lazy-loading stays low priority; a feature that adds client code raises the bundle ceiling.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
