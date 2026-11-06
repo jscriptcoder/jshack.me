@@ -32,6 +32,16 @@ are whole numbers it prices anything from $1 up. The operator's usual 500 JSC mi
 $500 stake; rideit.io's fare (`RIDE_FARE`, `core/rideit/fare.ts`) is 25 JSC, inside what a
 real regional coach or train across a county costs ($10–$40).
 
+**How an amount is printed: `§1,650`.** Since v0.446.0 every amount the game prints goes
+through one formatter, `writeAmount` (`core/wallet/amount.ts`): the coin sign `§` (U+00A7)
+before the number with no space, thousands grouped with a comma. `§` was picked because both
+terminal fonts draw it themselves (the neon look loads only Share Tech Mono's latin subset,
+`U+0000`–`00FF`, so most currency-looking signs would come from a fallback face beside the
+digits), and it reads as money the way `$` does. JSC stays the coin's name in prose ("the JSC
+block explorer", "not enough JSC"). Input is unchanged: `readAmount` takes bare digits, so
+`wallet send` refuses `§25` and `1,650` as amounts. `/etc/hireme/contracts` keeps the bare
+number so each line splits into four fields.
+
 **The first thing JSC buys: a ride.** Since v0.432.0 a boarding at rideit.io costs the fare,
 paid with an ordinary `wallet send` to an address made for the traveller and their next
 trip: `jsc` + the first 40 hex of `sha256("rideit-trip-<identity key>-<trips taken>")`
@@ -124,10 +134,10 @@ wallet init | balance [address] | history [address] | send <address> <amount>
   `address: <address>` then `wallet: <path>` and nothing else (no backup warning — decision
   13). Refuses when a wallet is already in place. Needs no network.
 - **`balance [address]`** / **`history [address]`** read the public ledger, unsigned. With
-  no argument they answer for the wallet in place. `balance` prints `<address>  <n> JSC`;
+  no argument they answer for the wallet in place. `balance` prints `<address>  §<n>`;
   `history` prints the latest **20** transfers, newest first, one line each:
-  `2026-10-11 22:07  +500 JSC  from coinbase` (a mint), `… +N JSC  from <address>`
-  (incoming), `… -N JSC  to <address>` (outgoing). Direction is `to === address`. An address
+  `2026-10-11 22:07  +§500  from coinbase` (a mint), `… +§N  from <address>`
+  (incoming), `… -§N  to <address>` (outgoing). Direction is `to === address`. An address
   with no transfers prints nothing and exits 0; the manual states the 20 limit.
 - **`send <address> <amount>`** signs a transfer with the wallet key and posts it. Refuses an
   over-balance amount, a non-positive-whole amount, non-address text, and a send to its own
@@ -226,9 +236,9 @@ chain-wide views. Three paths are answered by `CHAINIT_VIEWS` in
 
 | Path           | What it shows                                                                                                                                                                                                                                                                                                                          |
 | -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/address?a=…` | `wallet balance`'s line, then the latest 20 transfers in `wallet history`'s words (`historyLine`), each address at the other end a link. An unseen address is `0 JSC` and `No transfers.` and writes nothing; anything that is not an address after trimming (uppercase included) is `Not a JSC address: "…"` with the form re-filled. |
-| `/recent`      | The latest 20 transfers on the whole chain, by `id`, newest first: `2026-10-16 09:12  500 JSC  <from> -> <to>`, both ends links, `coinbase` for a mint, UTC.                                                                                                                                                                           |
-| `/rich`        | The 20 largest balances above zero, largest first, equal ones by address: ` 1  <address>  12000 JSC`. An emptied address keeps its row at zero and drops off.                                                                                                                                                                          |
+| `/address?a=…` | `wallet balance`'s line, then the latest 20 transfers in `wallet history`'s words (`historyLine`), each address at the other end a link. An unseen address is `§0` and `No transfers.` and writes nothing; anything that is not an address after trimming (uppercase included) is `Not a JSC address: "…"` with the form re-filled.    |
+| `/recent`      | The latest 20 transfers on the whole chain, by `id`, newest first: `2026-10-16 09:12  §500  <from> -> <to>`, both ends links, `coinbase` for a mint, UTC.                                                                                                                                                                              |
+| `/rich`        | The 20 largest balances above zero, largest first, equal ones by address: ` 1  <address>  §12,000`. An emptied address keeps its row at zero and drops off.                                                                                                                                                                            |
 
 Only a GET of exactly those paths is a view: `/address/`, `/recent/` and `/rich.html` are files,
 a query string on `/recent` or `/rich` is ignored (and logged), and a POST is the 405 every server

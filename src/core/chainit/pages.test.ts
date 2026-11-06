@@ -112,10 +112,10 @@ describe('an address page', () => {
       transfer(),
     ]);
     expect(ledgerText(page)).toEqual([
-      `${OURS}  460 JSC`,
+      `${OURS}  §460`,
       '',
-      `2026-10-16 10:01  -40 JSC  to ${THEIRS}`,
-      '2026-10-16 09:12  +500 JSC  from coinbase',
+      `2026-10-16 10:01  -§40  to ${THEIRS}`,
+      '2026-10-16 09:12  +§500  from coinbase',
     ]);
   });
 
@@ -125,7 +125,7 @@ describe('an address page', () => {
   });
 
   it('says so plainly when the address has done nothing', () => {
-    expect(ledgerText(addressPage(OURS, 0, []))).toEqual([`${OURS}  0 JSC`, '', 'No transfers.']);
+    expect(ledgerText(addressPage(OURS, 0, []))).toEqual([`${OURS}  §0`, '', 'No transfers.']);
   });
 
   it('keeps the address in the form, so the next lookup starts from the last one', () => {
@@ -161,8 +161,8 @@ describe('the latest transfers', () => {
       transfer(),
     ]);
     expect(ledgerText(page)).toEqual([
-      `2026-10-16 10:01  40 JSC  ${OURS} -> ${THEIRS}`,
-      `2026-10-16 09:12  500 JSC  coinbase -> ${OURS}`,
+      `2026-10-16 10:01  §40  ${OURS} -> ${THEIRS}`,
+      `2026-10-16 09:12  §500  coinbase -> ${OURS}`,
     ]);
   });
 
@@ -192,7 +192,7 @@ describe('the latest transfers', () => {
 describe('the richest addresses', () => {
   it('ranks each address with what it holds, in the order the ledger handed them over', () => {
     const page = richPage([holding({ address: THEIRS }), holding({ balance: 460 })]);
-    expect(ledgerText(page)).toEqual([` 1  ${THEIRS}  12000 JSC`, ` 2  ${OURS}  460 JSC`]);
+    expect(ledgerText(page)).toEqual([` 1  ${THEIRS}  §12,000`, ` 2  ${OURS}  §460`]);
   });
 
   it('pads the rank to two places, so the addresses line up past the ninth', () => {
@@ -200,8 +200,8 @@ describe('the richest addresses', () => {
       Array.from({ length: 10 }, (_slot, place) => holding({ address: nthAddress(place) })),
     );
     expect(ledgerText(page).slice(8)).toEqual([
-      ` 9  ${nthAddress(8)}  12000 JSC`,
-      `10  ${nthAddress(9)}  12000 JSC`,
+      ` 9  ${nthAddress(8)}  §12,000`,
+      `10  ${nthAddress(9)}  §12,000`,
     ]);
   });
 

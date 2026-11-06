@@ -23,6 +23,7 @@
 // touched.
 
 import { createClient } from '@supabase/supabase-js';
+import { writeAmount } from '../src/core/wallet/amount.js';
 import { exactCount } from '../src/core/wallet/exactCount.js';
 import { readMintOrder } from '../src/core/wallet/mintOrder.js';
 
@@ -42,7 +43,7 @@ if (!url || !serviceKey) {
 const sr = createClient(url, serviceKey, { auth: { persistSession: false } });
 
 const main = async () => {
-  console.log(`Minting ${order.amount} JSC to ${order.address} on ${new URL(url).host}`);
+  console.log(`Minting ${writeAmount(order.amount)} to ${order.address} on ${new URL(url).host}`);
 
   const minted = await sr.rpc('wallet_mint', {
     mint_to: order.address,
@@ -55,7 +56,7 @@ const main = async () => {
   // The ledger answers nothing, and writes nothing, when the credit would not fit.
   if (minted.data === null) {
     console.error(
-      `mint refused: ${order.address} would hold more than ${Number.MAX_SAFE_INTEGER} JSC`,
+      `mint refused: ${order.address} would hold more than ${writeAmount(Number.MAX_SAFE_INTEGER)}`,
     );
     process.exit(1);
   }
@@ -65,7 +66,7 @@ const main = async () => {
     console.error('minted, but the ledger did not answer with the new balance');
     process.exit(1);
   }
-  console.log(`${order.address}  ${held.data} JSC`);
+  console.log(`${order.address}  ${writeAmount(held.data)}`);
   process.exit(0);
 };
 

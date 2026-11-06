@@ -2417,11 +2417,11 @@ describe('chainit.io answers a lookup from the ledger', () => {
     expect(response.status).toBe(200);
     expect(response.body).toMatchObject({ ok: true, server: 'nginx' });
     const page = contentOf(response);
-    expect(page).toContain(`${OURS}  460 JSC`);
+    expect(page).toContain(`${OURS}  §460`);
     expect(page).toContain(
-      `2026-10-16 10:01  -40 JSC  to <a href="/address?a=${THEIRS}">${THEIRS}</a>`,
+      `2026-10-16 10:01  -§40  to <a href="/address?a=${THEIRS}">${THEIRS}</a>`,
     );
-    expect(page).toContain('2026-10-16 09:12  +500 JSC  from coinbase');
+    expect(page).toContain('2026-10-16 09:12  +§500  from coinbase');
     expect(findBalance).toHaveBeenCalledWith(OURS);
     // The history the wallet command reads, at the length it reads.
     expect(findTransfers).toHaveBeenCalledWith(OURS, 20);
@@ -2432,7 +2432,7 @@ describe('chainit.io answers a lookup from the ledger', () => {
 
     const page = contentOf(await handleResolveHttpFetch(lookUp(THEIRS), deps));
 
-    expect(page).toContain(`${THEIRS}  0 JSC`);
+    expect(page).toContain(`${THEIRS}  §0`);
     expect(page).toContain('No transfers.');
   });
 
@@ -2441,7 +2441,7 @@ describe('chainit.io answers a lookup from the ledger', () => {
 
     const page = contentOf(await handleResolveHttpFetch(lookUp(`  ${OURS} `), deps));
 
-    expect(page).toContain(`${OURS}  460 JSC`);
+    expect(page).toContain(`${OURS}  §460`);
     expect(findBalance).toHaveBeenCalledWith(OURS);
   });
 
@@ -2500,7 +2500,7 @@ describe('chainit.io answers a lookup from the ledger', () => {
 
     const page = contentOf(await handleResolveHttpFetch(lookUp(OURS), deps));
 
-    expect(page).toContain(`${OURS}  460 JSC`);
+    expect(page).toContain(`${OURS}  §460`);
     expect(page).not.toContain('FORGED');
   });
 
@@ -2545,7 +2545,7 @@ describe('chainit.io answers a lookup from the ledger', () => {
 
     const response = await handleResolveHttpFetch(lookUp(OURS), deps);
 
-    // Never `0 JSC`: an address the ledger could not read is not an address that holds nothing.
+    // Never `§0`: an address the ledger could not read is not an address that holds nothing.
     expect(response).toEqual({ status: 500, body: { error: 'ledger_lookup_failed' } });
     expect(accessLogOf(appendLog)).toBeUndefined();
   });
@@ -2656,8 +2656,8 @@ describe('chainit.io lists the whole chain from the ledger', () => {
     expect(response.body).toMatchObject({ ok: true, server: 'nginx' });
     expect(contentOf(response)).toContain(
       [
-        `2026-10-16 10:01  40 JSC  ${linked(OURS)} -> ${linked(THEIRS)}`,
-        `2026-10-16 09:12  500 JSC  coinbase -> ${linked(OURS)}`,
+        `2026-10-16 10:01  §40  ${linked(OURS)} -> ${linked(THEIRS)}`,
+        `2026-10-16 09:12  §500  coinbase -> ${linked(OURS)}`,
       ].join('\n'),
     );
     expect(findLatestTransfers).toHaveBeenCalledWith(20);
@@ -2670,7 +2670,7 @@ describe('chainit.io lists the whole chain from the ledger', () => {
 
     expect(response.status).toBe(200);
     expect(contentOf(response)).toContain(
-      [` 1  ${linked(OURS)}  460 JSC`, ` 2  ${linked(THEIRS)}  40 JSC`].join('\n'),
+      [` 1  ${linked(OURS)}  §460`, ` 2  ${linked(THEIRS)}  §40`].join('\n'),
     );
     expect(findLargestBalances).toHaveBeenCalledWith(20);
   });

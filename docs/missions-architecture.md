@@ -242,7 +242,7 @@ boards' server's fetch handler (`resolveHttpFetch.ts`); the doors and their word
   `core/missions/missionTerms.ts`): the client (a company and its handle, from ten), the target
   company (named on the shape's stem, so `halden-gw` belongs to Halden something), the pitch
   (black-hat or grey, from six), what the key opens, the kind of job and the pay, 500 to 2,000 JSC
-  rounded to 50 ("1,350 JSC"). An offer's line shows only client, kind, pay and pitch, so two
+  rounded to 50 ("§1,350"). An offer's line shows only client, kind, pay and pitch, so two
   different jobs can read alike (about once in 620 boards); the briefing tells them apart.
 - **Accepting** turns the offer `accepted` and mails the briefing as system mail, always
   delivered. While a job is active the board shows a **Current contract** block above the offers
@@ -286,7 +286,7 @@ boards' server's fetch handler (`resolveHttpFetch.ts`); the doors and their word
   | --------------------------------------------------------------- | ------------------------------------------------------------------------------------ | ------------------------- |
   | No accepted job with this client, and not a completed job's key | "We have no contract with you." (subject `No contract`)                              | nothing                   |
   | An accepted job, no key                                         | "No key, no money. Send the key."                                                    | nothing                   |
-  | The accepted job's key, with a wallet                           | "Key received. 1,350 JSC sent to jsc…. Pleasure doing business."                     | completed, the pay minted |
+  | The accepted job's key, with a wallet                           | "Key received. §1,350 sent to jsc…. Pleasure doing business."                        | completed, the pay minted |
   | The accepted job's key, no wallet                               | "Key received. You sent no wallet, so there is nothing to pay. No wallet, no money." | completed, nothing minted |
   | A completed job's key                                           | "That job is already closed."                                                        | nothing                   |
   | An accepted job, any other key                                  | "That key opens nothing of ours."                                                    | nothing                   |

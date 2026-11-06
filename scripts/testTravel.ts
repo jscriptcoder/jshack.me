@@ -272,9 +272,9 @@ check(
   `status=${ticket.status} buttons=${(contentOf(ticket.body).match(/value="Board"/g) ?? []).length}`,
 );
 check(
-  `it quotes the ${RIDE_FARE} JSC fare, paid to the traveller's first trip address, nothing arrived`,
+  `it quotes the §${RIDE_FARE} fare, paid to the traveller's first trip address, nothing arrived`,
   contentOf(ticket.body).includes(`$ wallet send ${tripTo(0)} ${RIDE_FARE}`) &&
-    contentOf(ticket.body).includes(`Paid so far: 0 of ${RIDE_FARE} JSC.`) &&
+    contentOf(ticket.body).includes(`Paid so far: §0 of §${RIDE_FARE}.`) &&
     !contentOf(ticket.body).includes(traveller.publicKeyHex),
   `quotes=${String(contentOf(ticket.body).match(/jsc[0-9a-f]{40}/)?.[0])}`,
 );
@@ -307,7 +307,7 @@ const unpaid = await boardFor(SECOND_TOWN);
 check(
   'a boarding with nothing paid is refused, says so, and says the player stayed',
   unpaid.status === 200 &&
-    contentOf(unpaid.body).includes(`The fare has not arrived: 0 of ${RIDE_FARE} JSC.`) &&
+    contentOf(unpaid.body).includes(`The fare has not arrived: §0 of §${RIDE_FARE}.`) &&
     field(unpaid.body, 'left') === false,
   `status=${unpaid.status} left=${String(field(unpaid.body, 'left'))}`,
 );
@@ -315,15 +315,15 @@ await pay(0, 10);
 const underpaid = await boardFor(SECOND_TOWN);
 const partTicket = await rideit('/ticket');
 check(
-  'a boarding with 10 JSC paid is refused with what has arrived',
+  'a boarding with §10 paid is refused with what has arrived',
   underpaid.status === 200 &&
-    contentOf(underpaid.body).includes(`The fare has not arrived: 10 of ${RIDE_FARE} JSC.`) &&
+    contentOf(underpaid.body).includes(`The fare has not arrived: §10 of §${RIDE_FARE}.`) &&
     field(underpaid.body, 'left') === false,
   `status=${underpaid.status} left=${String(field(underpaid.body, 'left'))}`,
 );
 check(
   'the ticket page shows the part payment, at the same address',
-  contentOf(partTicket.body).includes(`Paid so far: 10 of ${RIDE_FARE} JSC.`) &&
+  contentOf(partTicket.body).includes(`Paid so far: §10 of §${RIDE_FARE}.`) &&
     contentOf(partTicket.body).includes(tripTo(0)),
   `paid=${String(contentOf(partTicket.body).match(/Paid so far: [^<]*/)?.[0])}`,
 );
@@ -375,7 +375,7 @@ const reused = await boardFor(THIRD_TOWN);
 const nextTicket = await rideit('/ticket');
 check(
   'boarding again on the spent fare is refused, and moves nobody',
-  contentOf(reused.body).includes(`The fare has not arrived: 0 of ${RIDE_FARE} JSC.`) &&
+  contentOf(reused.body).includes(`The fare has not arrived: §0 of §${RIDE_FARE}.`) &&
     field(reused.body, 'left') === false &&
     (await locationOf(traveller.publicKeyHex))?.trips === 1,
   `left=${String(field(reused.body, 'left'))}`,
@@ -384,7 +384,7 @@ check(
   "the ticket page now quotes the next trip's address, with nothing arrived",
   contentOf(nextTicket.body).includes(`$ wallet send ${tripTo(1)} ${RIDE_FARE}`) &&
     !contentOf(nextTicket.body).includes(tripTo(0)) &&
-    contentOf(nextTicket.body).includes(`Paid so far: 0 of ${RIDE_FARE} JSC.`),
+    contentOf(nextTicket.body).includes(`Paid so far: §0 of §${RIDE_FARE}.`),
   `quotes=${String(contentOf(nextTicket.body).match(/jsc[0-9a-f]{40}/)?.[0])}`,
 );
 check(

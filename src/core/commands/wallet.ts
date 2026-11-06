@@ -28,7 +28,7 @@ import {
 import { vantageOf } from '../network/vantage.js';
 import { homeDirectory } from '../sessions/homeDirectory.js';
 import { asAbsPath, type AbsPath, type UserType } from '../types.js';
-import { readAmount } from '../wallet/amount.js';
+import { readAmount, writeAmount } from '../wallet/amount.js';
 import { historyLine } from '../wallet/historyLine.js';
 import {
   formatWalletFile,
@@ -196,7 +196,7 @@ const balance = async (env: CommandEnv, named: readonly string[]): Promise<Comma
 
   const held = await env.wallet.balance(address);
   if (!held.ok) return refusal(NO_ANSWER);
-  return said(`${address}  ${held.balance} JSC`);
+  return said(`${address}  ${writeAmount(held.balance)}`);
 };
 
 const history = async (env: CommandEnv, named: readonly string[]): Promise<CommandResult> => {
@@ -241,7 +241,7 @@ const send = async (env: CommandEnv, named: readonly string[]): Promise<CommandR
     amount,
     sequence: held.nextSequence,
   });
-  if (made.ok) return said(`sent ${amount} JSC to ${to}`);
+  if (made.ok) return said(`sent ${writeAmount(amount)} to ${to}`);
   if (made.error === 'network_error') return refusal(NO_ANSWER);
   if (made.error === 'insufficient_balance') {
     return refusal(`wallet: not enough JSC at ${key.address}`);

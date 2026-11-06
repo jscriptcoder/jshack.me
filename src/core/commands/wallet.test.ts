@@ -557,7 +557,7 @@ describe('wallet balance — what an address holds', () => {
 
     expect(result).toEqual({
       kind: 'sync',
-      lines: [{ kind: 'text', content: `${SOMEBODY}  250 JSC` }],
+      lines: [{ kind: 'text', content: `${SOMEBODY}  §250` }],
       exitCode: 0,
     });
     expect(asked).toEqual([SOMEBODY]);
@@ -568,16 +568,16 @@ describe('wallet balance — what an address holds', () => {
 
     const result = await wallet.execute(env, ['balance', SOMEBODY], NO_FLAGS);
 
-    expect(textLines(result)).toEqual([`${SOMEBODY}  0 JSC`]);
+    expect(textLines(result)).toEqual([`${SOMEBODY}  §0`]);
     expect(exitCodeOf(result)).toBe(0);
   });
 
-  it('prints the largest balance the ledger holds as plain digits', async () => {
+  it('prints the largest balance the ledger holds in full, its thousands grouped', async () => {
     const { env } = ledgerEnv({ held: { [SOMEBODY]: Number.MAX_SAFE_INTEGER } });
 
     const result = await wallet.execute(env, ['balance', SOMEBODY], NO_FLAGS);
 
-    expect(textLines(result)).toEqual([`${SOMEBODY}  9007199254740991 JSC`]);
+    expect(textLines(result)).toEqual([`${SOMEBODY}  §9,007,199,254,740,991`]);
   });
 
   it('asks from a box the shell hopped to, whatever the player’s own card is doing', async () => {
@@ -589,7 +589,7 @@ describe('wallet balance — what an address holds', () => {
 
     const result = await wallet.execute(env, ['balance', SOMEBODY], NO_FLAGS);
 
-    expect(textLines(result)).toEqual([`${SOMEBODY}  7 JSC`]);
+    expect(textLines(result)).toEqual([`${SOMEBODY}  §7`]);
     expect(asked).toEqual([SOMEBODY]);
   });
 });
@@ -619,7 +619,7 @@ describe('wallet balance — the wallet in place', () => {
 
       expect(result).toEqual({
         kind: 'sync',
-        lines: [{ kind: 'text', content: `${address}  500 JSC` }],
+        lines: [{ kind: 'text', content: `${address}  §500` }],
         exitCode: 0,
       });
       expect(asked).toEqual([address]);
@@ -636,7 +636,7 @@ describe('wallet balance — the wallet in place', () => {
 
     const result = await wallet.execute(env, ['balance'], NO_FLAGS);
 
-    expect(textLines(result)).toEqual([`${addressOfKey(SOME_KEY)}  0 JSC`]);
+    expect(textLines(result)).toEqual([`${addressOfKey(SOME_KEY)}  §0`]);
     expect(asked).toEqual([addressOfKey(SOME_KEY)]);
   });
 
@@ -833,9 +833,9 @@ describe('wallet history — what an address has done', () => {
     expect(result).toEqual({
       kind: 'sync',
       lines: [
-        { kind: 'text', content: `2026-10-11 14:09  -500 JSC  to ${SOMEBODY_ELSE}` },
-        { kind: 'text', content: `2026-10-11 14:05  +200 JSC  from ${SOMEBODY_ELSE}` },
-        { kind: 'text', content: '2026-10-11 14:02  +500 JSC  from coinbase' },
+        { kind: 'text', content: `2026-10-11 14:09  -§500  to ${SOMEBODY_ELSE}` },
+        { kind: 'text', content: `2026-10-11 14:05  +§200  from ${SOMEBODY_ELSE}` },
+        { kind: 'text', content: '2026-10-11 14:02  +§500  from coinbase' },
       ],
       exitCode: 0,
     });
@@ -862,10 +862,10 @@ describe('wallet history — what an address has done', () => {
 
     const result = await wallet.execute(env, ['history', SOMEBODY], NO_FLAGS);
 
-    expect(textLines(result)).toEqual(['2027-01-05 04:07  +1 JSC  from coinbase']);
+    expect(textLines(result)).toEqual(['2027-01-05 04:07  +§1  from coinbase']);
   });
 
-  it('prints the largest amount there is as plain digits, coming and going', async () => {
+  it('prints the largest amount there is in full, its thousands grouped, coming and going', async () => {
     const { env } = ledgerEnv({
       recorded: {
         [SOMEBODY]: [
@@ -888,8 +888,8 @@ describe('wallet history — what an address has done', () => {
     const result = await wallet.execute(env, ['history', SOMEBODY], NO_FLAGS);
 
     expect(textLines(result)).toEqual([
-      `2026-10-11 14:09  -9007199254740991 JSC  to ${SOMEBODY_ELSE}`,
-      `2026-10-11 14:05  +9007199254740991 JSC  from ${SOMEBODY_ELSE}`,
+      `2026-10-11 14:09  -§9,007,199,254,740,991  to ${SOMEBODY_ELSE}`,
+      `2026-10-11 14:05  +§9,007,199,254,740,991  from ${SOMEBODY_ELSE}`,
     ]);
   });
 
@@ -905,8 +905,8 @@ describe('wallet history — what an address has done', () => {
     const result = await wallet.execute(env, ['history', SOMEBODY], NO_FLAGS);
 
     expect(textLines(result)).toHaveLength(20);
-    expect(textLines(result)[0]).toBe('2026-10-11 14:02  +20 JSC  from coinbase');
-    expect(textLines(result)[19]).toBe('2026-10-11 14:02  +1 JSC  from coinbase');
+    expect(textLines(result)[0]).toBe('2026-10-11 14:02  +§20  from coinbase');
+    expect(textLines(result)[19]).toBe('2026-10-11 14:02  +§1  from coinbase');
   });
 
   it('asks from a box the shell hopped to, whatever the player’s own card is doing', async () => {
@@ -920,7 +920,7 @@ describe('wallet history — what an address has done', () => {
 
     const result = await wallet.execute(env, ['history', SOMEBODY], NO_FLAGS);
 
-    expect(textLines(result)).toEqual(['2026-10-11 14:02  +7 JSC  from coinbase']);
+    expect(textLines(result)).toEqual(['2026-10-11 14:02  +§7  from coinbase']);
     expect(listed).toEqual([SOMEBODY]);
   });
 
@@ -970,8 +970,8 @@ describe('wallet history — the wallet in place', () => {
     expect(result).toEqual({
       kind: 'sync',
       lines: [
-        { kind: 'text', content: `2026-10-11 14:09  -500 JSC  to ${SOMEBODY}` },
-        { kind: 'text', content: '2026-10-11 14:02  +500 JSC  from coinbase' },
+        { kind: 'text', content: `2026-10-11 14:09  -§500  to ${SOMEBODY}` },
+        { kind: 'text', content: '2026-10-11 14:02  +§500  from coinbase' },
       ],
       exitCode: 0,
     });
@@ -1132,7 +1132,7 @@ describe('wallet send — coins leaving the wallet in place', () => {
 
     expect(result).toEqual({
       kind: 'sync',
-      lines: [{ kind: 'text', content: `sent 200 JSC to ${SOMEBODY}` }],
+      lines: [{ kind: 'text', content: `sent §200 to ${SOMEBODY}` }],
       exitCode: 0,
     });
     expect(asked).toEqual([OWN]);
@@ -1157,8 +1157,8 @@ describe('wallet send — coins leaving the wallet in place', () => {
     const one = await wallet.execute(env, ['send', SOMEBODY, '1'], NO_FLAGS);
     const all = await wallet.execute(env, ['send', SOMEBODY, '9007199254740991'], NO_FLAGS);
 
-    expect(textLines(one)).toEqual([`sent 1 JSC to ${SOMEBODY}`]);
-    expect(textLines(all)).toEqual([`sent 9007199254740991 JSC to ${SOMEBODY}`]);
+    expect(textLines(one)).toEqual([`sent §1 to ${SOMEBODY}`]);
+    expect(textLines(all)).toEqual([`sent §9,007,199,254,740,991 to ${SOMEBODY}`]);
     expect(sent.map((order) => order.amount)).toEqual([1, Number.MAX_SAFE_INTEGER]);
   });
 
@@ -1199,7 +1199,7 @@ describe('wallet send — coins leaving the wallet in place', () => {
 
     const result = await wallet.execute(env, ['send', nobody, '200'], NO_FLAGS);
 
-    expect(textLines(result)).toEqual([`sent 200 JSC to ${nobody}`]);
+    expect(textLines(result)).toEqual([`sent §200 to ${nobody}`]);
     expect(asked).toEqual([OWN]);
     expect(sent.map((order) => order.to)).toEqual([nobody]);
   });
@@ -1209,7 +1209,7 @@ describe('wallet send — coins leaving the wallet in place', () => {
 
     const result = await wallet.execute(env, ['send', SOMEBODY, '200'], NO_FLAGS);
 
-    expect(textLines(result)).toEqual([`sent 200 JSC to ${SOMEBODY}`]);
+    expect(textLines(result)).toEqual([`sent §200 to ${SOMEBODY}`]);
     expect(sent).toHaveLength(1);
   });
 
@@ -1325,6 +1325,8 @@ describe('wallet send — what it refuses without asking the ledger', () => {
     ['a negative amount', '-5'],
     ['a leading zero', '0250'],
     ['an amount with its unit', '250JSC'],
+    ['an amount with its coin sign, as a balance prints it', '§250'],
+    ['an amount with its thousands grouped, as a balance prints it', '1,650'],
     ['a word', 'all'],
     ['an empty amount', ''],
   ])('takes %s for no amount', async (_label, text) => {

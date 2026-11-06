@@ -38,9 +38,9 @@ describe("rideit.io's front page", () => {
     expect(RIDEIT_FRONT_PAGE.endsWith('</body>\n</html>\n')).toBe(true);
   });
 
-  it('quotes one fare to anywhere, 25 JSC', () => {
+  it('quotes one fare to anywhere, §25', () => {
     expect(parsed(RIDEIT_FRONT_PAGE).querySelector('h1 + p')?.textContent).toBe(
-      'Travel by coach and rail to every town in Harrow Valley.\nOne fare to anywhere: 25 JSC.',
+      'Travel by coach and rail to every town in Harrow Valley.\nOne fare to anywhere: §25.',
     );
   });
 
@@ -94,13 +94,13 @@ describe("rideit.io's ticket page", () => {
 
   it('quotes the fare, the address it is paid to and how much has arrived, before the towns', () => {
     expect(TICKET_PAGE).toContain(
-      `<h2>Book a ticket</h2>\n<p>One fare to anywhere: 25 JSC, paid to this ticket's own address:</p>\n<p>${ADDRESS}</p>\n<p>Paid so far: 10 of 25 JSC.</p>\n<table>`,
+      `<h2>Book a ticket</h2>\n<p>One fare to anywhere: §25, paid to this ticket's own address:</p>\n<p>${ADDRESS}</p>\n<p>Paid so far: §10 of §25.</p>\n<table>`,
     );
   });
 
   it('says nothing has arrived at an address nobody paid', () => {
     expect(parsed(ticketPage({ address: ADDRESS, paid: 0 })).body.textContent).toContain(
-      'Paid so far: 0 of 25 JSC.',
+      'Paid so far: §0 of §25.',
     );
   });
 
@@ -179,7 +179,7 @@ describe("rideit.io's answers to a boarding", () => {
     expect(page.title).toBe('rideit.io - fare not paid');
     expect(page.querySelector('h1')?.textContent).toBe('rideit.io');
     expect(page.querySelector('h1 + p')?.textContent).toBe(
-      'The fare has not arrived: 10 of 25 JSC.',
+      'The fare has not arrived: §10 of §25.',
     );
     expect(page.querySelector('a')?.getAttribute('href')).toBe('/ticket');
   });

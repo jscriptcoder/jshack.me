@@ -31,7 +31,7 @@ const typedIn = (requestPath: string): string =>
 
 /**
  * The page for a lookup, or null when the ledger could not be read — never a page that
- * says `0 JSC` for an address nobody could read. Text that is not an address answers
+ * says `§0` for an address nobody could read. Text that is not an address answers
  * with the form to correct it, and the ledger is not asked.
  */
 export const answerAddress = async (

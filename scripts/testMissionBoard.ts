@@ -214,9 +214,9 @@ const main = async () => {
         (row) =>
           firstRefs.includes(row.ref ?? '') &&
           firstContent.includes(
-            `${missionTerms(row.number).client.company} — retrieve an access key — ${missionTerms(
+            `${missionTerms(row.number).client.company} — retrieve an access key — §${missionTerms(
               row.number,
-            ).pay.toLocaleString('en-US')} JSC`,
+            ).pay.toLocaleString('en-US')}`,
           ),
       ),
     `status ${firstRead.status}, ${firstRows.length} rows, refs [${firstRefs.join(',')}]`,
@@ -317,7 +317,7 @@ const main = async () => {
   check(
     'the board shows the current contract, its target and pay, two offers and no address',
     acceptedContent.includes(
-      `${takenTerms.client.company} — ${takenTerms.targetCompany} — ${takenTerms.pay.toLocaleString('en-US')} JSC`,
+      `${takenTerms.client.company} — ${takenTerms.targetCompany} — §${takenTerms.pay.toLocaleString('en-US')}`,
     ) &&
       refsOn(acceptedContent).length === 2 &&
       !/195\.\d/.test(acceptedContent),

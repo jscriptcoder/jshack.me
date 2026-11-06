@@ -115,7 +115,7 @@ const NO_CONTRACT: ContractMail = {
 };
 
 const paidLine = (wallet: string) =>
-  `Key received. ${TERMS.pay.toLocaleString('en-US')} JSC sent to ${wallet}. Pleasure doing business.`;
+  `Key received. §${TERMS.pay.toLocaleString('en-US')} sent to ${wallet}. Pleasure doing business.`;
 const NO_WALLET_LINE =
   'Key received. You sent no wallet, so there is nothing to pay. No wallet, no money.';
 const NO_KEY_LINE = 'No key, no money. Send the key.';

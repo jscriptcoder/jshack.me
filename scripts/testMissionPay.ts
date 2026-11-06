@@ -329,7 +329,7 @@ const main = async () => {
     mail(visitor, rightMail),
   ]);
   const payReplies = (await inboxOf(neo)).slice(inboxBeforePay);
-  const paidLine = `Key received. ${terms.pay.toLocaleString('en-US')} JSC sent to ${CONTRACTOR_WALLET}.`;
+  const paidLine = `Key received. §${terms.pay.toLocaleString('en-US')} sent to ${CONTRACTOR_WALLET}.`;
   check(
     'two right mails at once are both answered as sent: one pays, one is told it is closed',
     paidOnce.status === 200 &&
