@@ -204,15 +204,21 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   load. One standalone run also exited 1 with both budgets reported OK, and its log was lost. It
   needs a fix or a decision on the ceiling.
 
-- **`npx -y supabase start` fails on Supabase CLI 3.0.0 (found 2026-11-07).** The repo pins no CLI
-  version, so `npx -y supabase` resolves to the newest, and 3.0.0 refuses `supabase/config.toml`
-  before starting anything: `StartConfigLoadError: [inbucket] in supabase/config.toml is no longer
-  supported. Use [local_smtp] instead.` (the `[inbucket]` table is at line 99). Containers that
-  already exist are unaffected: after a Docker restart they came back on their own and every
-  wire-check and the browser run used them, so it bites only on a stack started from scratch.
-  Either fix: rename the table to `[local_smtp]` (check its keys against the 3.x docs, and that the
-  port the wire-checks read mail from does not move), or pin the CLI as a devDependency so `npx`
-  stops drifting. Dev and prod are hosted projects and do not read this file's local tables.
+- **`npx -y supabase start` failed on Supabase CLI 3.0.0 — RESOLVED 2026-11-07.** The repo pins no
+  CLI version, so `npx -y supabase` resolves to the newest, and 3.0.0 refused
+  `supabase/config.toml` before starting anything: `StartConfigLoadError: [inbucket] in
+  supabase/config.toml is no longer supported. Use [local_smtp] instead.` It bit only a stack
+  started from scratch, since existing containers come back on their own after a Docker restart.
+  The table is now `[local_smtp]`, whose keys are unchanged in a fresh 3.0.0 `supabase init`, and
+  `[auth.email]`/`[auth.sms]` say `enabled` where they said `enable_signup`, which 3.0.0 warned
+  becomes an error in v4. Nothing in the game uses Supabase Auth, so those two only silence the
+  warning. Proof: `supabase stop` then `npx -y supabase@3.0.0 start` brought the stack up on the
+  same ports (API 54421, mail UI 54424, which nothing reads), restored the database from its
+  backup with all 32 migrations applied, and `.env.development.local` still matched its keys. The
+  CLI stays unpinned: pinning adds a devDependency that downloads a binary on every install,
+  including Vercel's builds, to guard a local-only file, and a breaking CLI release announces itself
+  the way this one did, as a refusal naming the fix. Dev and prod are hosted projects and do not
+  read this file's local tables.
 
 
 - **The e2e skill's `type-command.sh` could not type a command holding `"` — RESOLVED
