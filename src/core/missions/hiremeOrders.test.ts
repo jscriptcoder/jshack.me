@@ -108,7 +108,8 @@ describe('showReport', () => {
       missionShape(candidate).route === 'hydra' && missionShape(candidate).storage === 'file',
   )!;
   const MSFCONSOLE = Array.from({ length: 4000 }, (_unused, index) => index * 256 + 2).find(
-    (candidate) => missionShape(candidate).route === 'msfconsole',
+    (candidate) =>
+      missionShape(candidate).route === 'msfconsole' && missionShape(candidate).storage === 'file',
   )!;
   const RAW_SECRETS = JSON.stringify({
     UNCRACKABLE_PASSWORDS,
@@ -250,7 +251,8 @@ describe('showReport', () => {
     expect(report).toContain(`§${terms.pay.toLocaleString('en-US')}`);
   });
 
-  it('prints the report line by line, a key box with no services saying so', () => {
+  it('prints the report line by line, every hydra service a decoy', () => {
+    // The hydra route runs no daemon of its own, so whatever listens beside its sshd is a decoy.
     const shape = missionShape(HYDRA);
     const terms = missionTerms(HYDRA);
 
@@ -261,11 +263,18 @@ describe('showReport', () => {
         `  Target:   ${terms.targetCompany}, ${shape.stem}-gw / ${shape.stem}-files`,
         `  Pay:      §${terms.pay.toLocaleString('en-US')}`,
         '  Route:    hydra',
-        ...shape.forwards.map(
-          (forward) => `  Forward:  :${forward.publicPort} -> key box :${forward.internalPort}`,
-        ),
+        '  Forward:  :2222 -> key box :22',
+        ...shape.forwards
+          .slice(1)
+          .map(
+            (forward) =>
+              `  Forward:  :${forward.publicPort} -> key box :${forward.internalPort} (decoy)`,
+          ),
         '  Services:',
-        '    (none beyond the route)',
+        ...shape.keyBoxServices.map(
+          (service) =>
+            `    ${service.service} (${service.package} ${service.version}) :${service.port} (decoy)`,
+        ),
         '  Storage:  file',
         `  Key path: ${missionKeyPath(HYDRA)}`,
         `  Key:      ${missionKey(HYDRA, SECRET)}`,
@@ -273,15 +282,39 @@ describe('showReport', () => {
     );
   });
 
-  it('lists each service on the key box with its release and port', () => {
-    const [service] = missionShape(MSFCONSOLE).keyBoxServices;
+  it('lists each service on the key box with its release and port, the route first', () => {
+    const shape = missionShape(MSFCONSOLE);
+    const [routeService, ...others] = shape.keyBoxServices;
     const lines = showReport(MSFCONSOLE, SECRET, undefined).split('\n');
 
     const storageLine = lines.findIndex((line) => line.startsWith('  Storage:'));
 
+    // The route's own service bears no tag; on a plain-file msfconsole contract every other
+    // one is a decoy.
+    expect(shape.storage).toBe('file');
+    expect(others.length).toBeGreaterThan(0);
     expect(lines.slice(lines.indexOf('  Services:') + 1, storageLine)).toEqual([
-      `    ${service!.service} (${service!.package} ${service!.version}) :${service!.port}`,
+      `    ${routeService!.service} (${routeService!.package} ${routeService!.version}) :${routeService!.port}`,
+      ...others.map(
+        (service) =>
+          `    ${service.service} (${service.package} ${service.version}) :${service.port} (decoy)`,
+      ),
     ]);
+  });
+
+  it('tags a decoy forward and never the route doors or the database the key is kept in', () => {
+    const number = Array.from({ length: 4000 }, (_unused, index) => index * 256 + 2).find(
+      (candidate) =>
+        missionShape(candidate).route === 'hydra' && missionShape(candidate).storage === 'database',
+    )!;
+    const shape = missionShape(number);
+    const lines = showReport(number, SECRET, undefined).split('\n');
+
+    expect(lines).toContain('  Forward:  :2222 -> key box :22');
+    expect(lines).toContain('  Forward:  :3306 -> key box :3306');
+    expect(
+      lines.filter((line) => line.endsWith('(decoy)') && line.includes('Forward:')),
+    ).toHaveLength(shape.decoys.length);
   });
 
   it('prints a different key under a different secret, as the two deployments do', () => {

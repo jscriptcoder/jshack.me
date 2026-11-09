@@ -32,3 +32,8 @@ export const TARGET_STEMS: readonly string[] = [
 export const GATEWAY_SUFFIX = 'gw';
 /** The suffix on the key box's hostname: the box the key sits on. */
 export const KEY_BOX_SUFFIX = 'files';
+
+/** What a key box's agent answers a read-only walk to, in place of `public`, on the snmp route
+ *  and behind an snmp decoy alike. Short and common enough for a player to guess. A sweep never
+ *  finds one: it attacks only the read-write community. */
+export const GUESSABLE_COMMUNITIES: readonly string[] = ['monitor', 'netops'];

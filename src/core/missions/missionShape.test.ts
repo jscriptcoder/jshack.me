@@ -19,6 +19,10 @@ import { md5 } from '../generation/md5.js';
 import { DEFAULT_WORDLIST } from '../wordlist/defaultWordlist.js';
 import { LEAKABLE_HASHES, SHUT_HASHES, fixedBoxRootHash } from './leakablePool.js';
 
+/** The forwards a contract has for its route and its storage, before any decoy. */
+const realForwards = (shape: MissionShape): readonly MissionForward[] =>
+  shape.forwards.slice(0, shape.forwards.length - shape.decoys.length);
+
 /** A spread of contract numbers whose last octet is a host octet (2–254). */
 const SAMPLE_NUMBERS = Array.from({ length: 2000 }, (_unused, index) => index * 8381 + 2).filter(
   (missionNumber) => missionNumber % 256 >= 2 && missionNumber % 256 <= 254,
@@ -97,6 +101,151 @@ describe('missionShape', () => {
     }
   });
 
+  describe('decoys', () => {
+    /** What a contract had before decoys: its route and storage, its names, the hashes on its
+     *  doors, its real forwards and the services behind them, and its database and community
+     *  where the route or the storage put them. A decoy draws on a stream of its own, so none
+     *  of it moves; a change would re-roll a contract somebody may already hold. */
+    const beforeDecoys = (shape: MissionShape): string => {
+      const real = realForwards(shape);
+      const forwardedPorts = real.map(({ internalPort }) => internalPort);
+      return md5(
+        JSON.stringify({
+          route: shape.route,
+          storage: shape.storage,
+          stem: shape.stem,
+          keyBoxOctet: shape.keyBoxOctet,
+          keyBoxRootHash: shape.keyBoxRootHash,
+          gatewayAdminHash: shape.gatewayAdminHash,
+          forwards: real,
+          services: shape.keyBoxServices.filter(({ port }) => forwardedPorts.includes(port)),
+          database:
+            shape.route === 'mysql' || shape.storage === 'database' ? shape.keyBoxDatabase : null,
+          community: shape.route === 'snmp' ? shape.keyBoxCommunityHash : null,
+        }),
+      );
+    };
+
+    /** One contract of every route and storage, and the digest of what it had before decoys,
+     *  taken from the generator as it stood then. */
+    const BEFORE_DECOYS: readonly (readonly [number, string])[] = [
+      [2, 'e36f71ab2944011b3cbb4eddfb44e868'], // hydra, gpg
+      [8383, '1a91fd58214e8396af8413401e11c739'], // ftp, file
+      [16764, '646ccb637762c304422bd9971fc3befc'], // mysql, database
+      [25145, '82ce6de46a91a30b00ea3035a7332fad'], // ftp, database
+      [41907, 'bf8c66bf1de205869667465a64a01786'], // snmp, file
+      [50288, '7267dc78e1fc632f631c363951dd4330'], // web, file
+      [58669, 'cb05365ca18db26904b0aad1db72edd1'], // web, gpg
+      [83812, '0b1c897db7b8604765a5d928d0a82fa0'], // snmp, gpg
+      [92193, '2c7418f13f45f6cc6783f384c0d089e7'], // msfconsole, database
+      [117336, 'bc52de232c69d51a7215e482cc453904'], // web, database
+      [125717, '49e62e4ace55181ab445f5cfafd49bfb'], // snmp, database
+      [134098, 'd5f4c3397a2aa98db5074a97f9b76f42'], // mysql, file
+      [209527, 'edbbe13c6e744a84e0fb468b77a27048'], // msfconsole, file
+      [217908, '336ca5ac3e27ac7b4221a209e62e4854'], // ftp, gpg
+      [226289, '2fda4ce88d9d688d6fc7d1807a8a6527'], // mysql, gpg
+      [243051, 'fdc080efe1512df31eba9c8dac360134'], // hydra, file
+      [326861, 'c16b8ce2c967bb6d3913f7631161be81'], // hydra, database
+      [435814, 'dc9971575f323c423e3cf2d6caf9e0d1'], // msfconsole, gpg
+    ];
+
+    /** The public port each decoy kind answers on. */
+    const DECOY_PORTS = [2222, 80, 21, 3306, 161];
+
+    it('moves nothing a contract already had, and adds its decoys after it', () => {
+      for (const [missionNumber, digest] of BEFORE_DECOYS) {
+        expect(beforeDecoys(missionShape(missionNumber)), `contract ${missionNumber}`).toBe(digest);
+      }
+    });
+
+    it('forwards three or four ports, each about half the time, whatever the route', () => {
+      const shapes = SAMPLE_NUMBERS.map(missionShape);
+      const countsByRoute = shapes.reduce<Record<string, ReadonlySet<number>>>(
+        (tally, shape) => ({
+          ...tally,
+          [shape.route]: new Set([...(tally[shape.route] ?? []), shape.forwards.length]),
+        }),
+        {},
+      );
+
+      for (const counts of Object.values(countsByRoute)) {
+        expect([...counts].sort()).toEqual([3, 4]);
+      }
+      const threes = shapes.filter((shape) => shape.forwards.length === 3).length;
+      expect(threes / shapes.length).toBeGreaterThan(0.4);
+      expect(threes / shapes.length).toBeLessThan(0.6);
+    });
+
+    it('opens each decoy on a public port some route uses, never one already forwarded', () => {
+      for (const shape of SAMPLE_NUMBERS.map(missionShape)) {
+        const label = `${shape.route} route ${shape.missionNumber}`;
+        const publicPorts = shape.forwards.map(({ publicPort }) => publicPort);
+
+        expect(new Set(publicPorts).size, label).toBe(publicPorts.length);
+        for (const { publicPort, internalPort } of shape.forwards.slice(
+          realForwards(shape).length,
+        )) {
+          expect(DECOY_PORTS, label).toContain(publicPort);
+          expect(internalPort, label).toBe(publicPort === 2222 ? 22 : publicPort);
+        }
+      }
+    });
+
+    it('runs a daemon behind every decoy but ssh, on a release that grants a guest at most', () => {
+      const decoyServices = { web: 'http', ftp: 'ftp', mysql: 'mysql', snmp: 'snmp' } as const;
+      for (const shape of SAMPLE_NUMBERS.map(missionShape)) {
+        const label = `${shape.route} route ${shape.missionNumber}`;
+        for (const decoy of shape.decoys) {
+          if (decoy === 'ssh') continue;
+          const running = shape.keyBoxServices.filter(
+            ({ service }) => service === decoyServices[decoy],
+          );
+
+          expect(running, `${decoy} decoy on ${label}`).toHaveLength(1);
+          expect(shape.keyBoxVersions[running[0]?.package ?? ''], label).toBe(running[0]?.version);
+          expect(['low', 'medium'], `${decoy} decoy on ${label}`).toContain(
+            pinnedSeverities({ [running[0]?.package ?? '']: running[0]?.version ?? '' })[0],
+          );
+        }
+      }
+    });
+
+    it('puts a database decoy behind a login a sweep finds and a root that stays shut', () => {
+      const listed = DEFAULT_WORDLIST.map((word) => md5(word));
+      const shapes = SAMPLE_NUMBERS.map(missionShape).filter((shape) =>
+        shape.decoys.includes('mysql'),
+      );
+
+      expect(shapes.length).toBeGreaterThan(0);
+      for (const shape of shapes) {
+        const label = `${shape.route} route ${shape.missionNumber}`;
+        expect(listed, label).toContain(shape.keyBoxDatabase?.accountHash);
+        expect(SHUT_HASHES, label).toContain(shape.keyBoxDatabase?.rootHash);
+      }
+    });
+
+    it('gives an agent decoy a read-write community no sweep finds', () => {
+      // A read-write community shuts a box's ports without root, so a decoy's stays shut.
+      const shapes = SAMPLE_NUMBERS.map(missionShape).filter((shape) =>
+        shape.decoys.includes('snmp'),
+      );
+
+      expect(shapes.length).toBeGreaterThan(0);
+      for (const shape of shapes) {
+        expect(SHUT_HASHES, `${shape.route} route ${shape.missionNumber}`).toContain(
+          shape.keyBoxCommunityHash,
+        );
+      }
+    });
+
+    it('draws every kind of decoy, so a scan can be any mix of them', () => {
+      const kinds = new Set(
+        SAMPLE_NUMBERS.flatMap((missionNumber) => missionShape(missionNumber).decoys),
+      );
+      expect([...kinds].sort()).toEqual(['ftp', 'mysql', 'snmp', 'ssh', 'web']);
+    });
+  });
+
   /** The first contract on this route keeping its key as `storage` says: a plain file unless
    *  told otherwise, since a database contract adds a door of its own beside the route's. */
   const firstWithRoute = (route: MissionRoute, storage: MissionStorage = 'file'): number => {
@@ -115,7 +264,7 @@ describe('missionShape', () => {
     const shape = missionShape(firstWithRoute('hydra'));
 
     expect(UNCRACKABLE_HASHES).not.toContain(shape.keyBoxRootHash);
-    expect(shape.forwards).toEqual([{ publicPort: 2222, internalPort: 22 }]);
+    expect(realForwards(shape)).toEqual([{ publicPort: 2222, internalPort: 22 }]);
   });
 
   it('forwards the msfconsole route straight onto the exposed service port', () => {
@@ -125,7 +274,7 @@ describe('missionShape', () => {
     const routeService = shape.keyBoxServices[0];
 
     expect(routeService).toBeDefined();
-    expect(shape.forwards).toEqual([
+    expect(realForwards(shape)).toEqual([
       { publicPort: routeService?.port, internalPort: routeService?.port },
     ]);
   });
@@ -204,7 +353,7 @@ describe('missionShape', () => {
       expect(webService?.service, `web service for ${missionNumber}`).toBe('http');
       expect(webService?.port).toBe(80);
       expect(shape.keyBoxVersions[webService?.package ?? '']).toBe(webService?.version);
-      expect(shape.forwards).toEqual([
+      expect(realForwards(shape)).toEqual([
         { publicPort: 80, internalPort: 80 },
         { publicPort: 2222, internalPort: 22 },
       ]);
@@ -222,7 +371,7 @@ describe('missionShape', () => {
       expect(ftpService?.service, `ftp service for ${missionNumber}`).toBe('ftp');
       expect(ftpService?.port).toBe(21);
       expect(shape.keyBoxVersions[ftpService?.package ?? '']).toBe(ftpService?.version);
-      expect(shape.forwards).toEqual([
+      expect(realForwards(shape)).toEqual([
         { publicPort: 21, internalPort: 21 },
         { publicPort: 2222, internalPort: 22 },
       ]);
@@ -241,7 +390,7 @@ describe('missionShape', () => {
       expect(databaseService?.program).toBe('mysqld');
       expect(databaseService?.port).toBe(3306);
       expect(shape.keyBoxVersions[databaseService?.package ?? '']).toBe(databaseService?.version);
-      expect(shape.forwards).toEqual([
+      expect(realForwards(shape)).toEqual([
         { publicPort: 3306, internalPort: 3306 },
         { publicPort: 2222, internalPort: 22 },
       ]);
@@ -264,10 +413,11 @@ describe('missionShape', () => {
     }
   });
 
-  it('draws no database on any other route, unless the key is kept in one', () => {
+  it('draws no database on any other route, unless the key is kept in one or a decoy runs one', () => {
     for (const missionNumber of SAMPLE_NUMBERS) {
       const shape = missionShape(missionNumber);
       if (shape.route === 'mysql' || shape.storage === 'database') continue;
+      if (shape.decoys.includes('mysql')) continue;
       expect(shape.keyBoxDatabase, `${shape.route} route ${missionNumber}`).toBeNull();
       expect(
         shape.keyBoxServices.some(({ service }) => service === 'mysql'),
@@ -320,7 +470,7 @@ describe('missionShape', () => {
       for (const shape of databaseContracts) {
         const routeForwards = ROUTE_FORWARDS[shape.route];
 
-        expect(shape.forwards, `${shape.route} route ${shape.missionNumber}`).toEqual(
+        expect(realForwards(shape), `${shape.route} route ${shape.missionNumber}`).toEqual(
           shape.route === 'mysql' ? routeForwards : [...routeForwards, DATABASE],
         );
       }
@@ -349,7 +499,7 @@ describe('missionShape', () => {
       expect(agent?.program).toBe('snmpd');
       expect(agent?.port).toBe(161);
       expect(shape.keyBoxVersions[agent?.package ?? '']).toBe(agent?.version);
-      expect(shape.forwards).toEqual([
+      expect(realForwards(shape)).toEqual([
         { publicPort: 161, internalPort: 161 },
         { publicPort: 2222, internalPort: 22 },
       ]);
@@ -366,10 +516,10 @@ describe('missionShape', () => {
     }
   });
 
-  it('draws no community on any other route', () => {
+  it('draws no community on any other route, unless a decoy runs an agent', () => {
     for (const missionNumber of SAMPLE_NUMBERS) {
       const shape = missionShape(missionNumber);
-      if (shape.route === 'snmp') continue;
+      if (shape.route === 'snmp' || shape.decoys.includes('snmp')) continue;
       expect(shape.keyBoxCommunityHash, `${shape.route} route ${missionNumber}`).toBeNull();
     }
   });

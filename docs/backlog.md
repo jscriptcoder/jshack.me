@@ -55,12 +55,13 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
 - **missions — deferred.** Contract work shipped at v0.441.0 (as-built:
   [`missions-architecture.md`](./missions-architecture.md)): one template, exfiltrate a key, on a
   two-box network with six routes, four of them leaking a login since v0.445.0, and the key kept in
-  a file, sealed with `gpg` or in a database table since v0.448.0 ("Where the key is stored").
-  Left for later:
-  - **Decoy services.** The plan drew up to two per box on guest-at-most releases; as built the key
-    box runs only the route's service. `missionShape`'s `keyBoxServices` is where they go. A scan
-    tells the route today, and decoys would blur that, but they re-roll every network, so they may
-    need a plan for live players.
+  a file, sealed with `gpg` or in a database table since v0.448.0 ("Where the key is stored"), and
+  decoy doors blurring the scan since v0.449.0 ("Decoys"). Left for later:
+  - **Believable filler behind the doors.** A real door and a decoy are both the stock build (the
+    `It works!` page, an empty `pub`, a `netops@corp.local` contact), which is what keeps them
+    alike. A company homepage, mundane files in `pub` or a business contact would make the network
+    read like a small business's, but only if real doors and decoys get the same filler together:
+    on decoys alone it would be a tell. Set aside in the decoys grill (2026-11-09).
   - **Harder leaks.** A user login then a second leak for root, at higher pay; a path off the default
     list with a pointer to it. Each adds a server-written file to `missionFiles`. For a database
     contract: a database login given away on the box (an app config, a `.my.cnf`), or a leak route

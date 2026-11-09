@@ -1086,10 +1086,10 @@ describe('the gateway of a contract network', () => {
     };
   };
 
-  it('forwards both of a web route\'s doors onto the key box', () => {
+  it('forwards both of a web route\'s doors onto the key box, ahead of its decoys', () => {
     const { keyBoxIp, rules } = forwardRulesOf(webNumberWith('file'));
 
-    expect(rules).toEqual([
+    expect(rules.slice(0, 2)).toEqual([
       { publicPort: 80, internalIp: keyBoxIp, internalPort: 80 },
       { publicPort: 2222, internalIp: keyBoxIp, internalPort: 22 },
     ]);
@@ -1098,7 +1098,7 @@ describe('the gateway of a contract network', () => {
   it('forwards the database after the route\'s doors when the key is kept in one', () => {
     const { keyBoxIp, rules } = forwardRulesOf(webNumberWith('database'));
 
-    expect(rules).toEqual([
+    expect(rules.slice(0, 3)).toEqual([
       { publicPort: 80, internalIp: keyBoxIp, internalPort: 80 },
       { publicPort: 2222, internalIp: keyBoxIp, internalPort: 22 },
       { publicPort: 3306, internalIp: keyBoxIp, internalPort: 3306 },
