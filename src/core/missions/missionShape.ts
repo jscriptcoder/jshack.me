@@ -29,6 +29,11 @@
  *    password as the device's contact. The word logs in through the forward to `:2222`, and
  *    the agent sits on a safe release: the config is the way in.
  *
+ * Where the key is kept is drawn beside the route. On `database` the key box runs mysqld on
+ * every route, behind a `:3306` forward and an application account a sweep finds, so the key
+ * is reached from outside as a database user. The route still roots the box, a second way to
+ * the same row.
+ *
  * Everything that is NOT the way in sits on a release whose hole grants a guest shell at
  * most (`low` or `medium`): the gateway's firmware (so the gateway is passed through, not
  * broken), every library (a `high` or `critical` library hole would hand a local root),
@@ -98,7 +103,8 @@ export type MissionShape = {
   /** The key box's `root` password hash: crackable on the hydra route, one a file can
    *  leak on a leak route, and one that stays shut on the msfconsole route. */
   readonly keyBoxRootHash: string;
-  /** The hashes guarding the key box's database, on the one route that has one. */
+  /** The hashes guarding the key box's database, on the database route and on every contract
+   *  that keeps its key in one. */
   readonly keyBoxDatabase: MissionDatabase | null;
   /** The hash of the read-write community a sweep finds, on the one route running an agent. */
   readonly keyBoxCommunityHash: string | null;
@@ -109,14 +115,15 @@ export type MissionShape = {
   /** Versions to pin on the gateway, package to version. Every firmware vendor is pinned
    *  safe, so whichever the gateway builder draws sits on a guest-at-most release. */
   readonly gatewayVersions: Readonly<Record<string, string>>;
-  /** The services the key box runs: the route's service (on every route but hydra) and any
-   *  decoys, each already on its chosen release. */
+  /** The services the key box runs: the route's service (on every route but hydra), then the
+   *  database on a contract keeping its key in one, each already on its chosen release. */
   readonly keyBoxServices: readonly MissionService[];
   /** Versions to pin on the key box, package to version — every service it runs and every
    *  library it carries. */
   readonly keyBoxVersions: Readonly<Record<string, string>>;
   /** The gateway's forwards onto the key box: one on a route with one door, and on a leak
-   *  route the door holding the file followed by `:2222`. */
+   *  route the door holding the file followed by `:2222`. A contract keeping its key in a
+   *  database adds `:3306` after them, unless the route's door already is. */
   readonly forwards: readonly MissionForward[];
 };
 
@@ -206,6 +213,13 @@ const crackableHash = (prng: Prng): string => {
   return hash;
 };
 
+/** A key box database's accounts: the application's crackable, so a sweep finds the way in,
+ *  and the database root shut, so no sweep or leaked word walks around it. */
+const databaseAccounts = (prng: Prng): MissionDatabase => ({
+  accountHash: crackableHash(prng),
+  rootHash: prng.pick(SHUT_HASHES),
+});
+
 /** Every library and the two daemons every box ships, each pinned to a safe release. */
 const safeBaseVersions = (prng: Prng): Record<string, string> => {
   const base: Record<string, string> = {};
@@ -267,12 +281,7 @@ export const missionShape = (missionNumber: number): MissionShape => {
     keyBoxVersions[door.package] = version;
     forwards = [{ publicPort: door.port, internalPort: door.port }, SSH_FORWARD];
     keyBoxRootHash = versionPrng.pick(LEAKABLE_HASHES);
-    if (route === 'mysql') {
-      keyBoxDatabase = {
-        accountHash: crackableHash(versionPrng),
-        rootHash: versionPrng.pick(SHUT_HASHES),
-      };
-    }
+    if (route === 'mysql') keyBoxDatabase = databaseAccounts(versionPrng);
     if (route === 'snmp') keyBoxCommunityHash = crackableHash(versionPrng);
   }
 
@@ -280,6 +289,20 @@ export const missionShape = (missionNumber: number): MissionShape => {
 
   // On a stream of its own, so adding it moved no contract's topology, route or hashes.
   const storage = createPrng(`mission-storage-${missionNumber}`).pick(STORAGES);
+
+  // A key in the database is reached from outside as a database user, so off the database
+  // route the box gains one, behind a forward of its own. Drawn after everything above, so a
+  // contract's way in reads the same whatever its storage.
+  if (storage === 'database' && keyBoxDatabase === null) {
+    const version = safeVersionOf(DATABASE_SERVER.package, versionPrng);
+    keyBoxServices.push({ ...DATABASE_SERVER, version });
+    keyBoxVersions[DATABASE_SERVER.package] = version;
+    forwards = [
+      ...forwards,
+      { publicPort: DATABASE_SERVER.port, internalPort: DATABASE_SERVER.port },
+    ];
+    keyBoxDatabase = databaseAccounts(versionPrng);
+  }
 
   return {
     missionNumber,

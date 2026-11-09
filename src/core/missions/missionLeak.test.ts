@@ -37,6 +37,7 @@ import { DATADIR_FILE, ROOT_FILE } from '../generation/baseFs.js';
 import { DATADIR_PATH, databaseIn } from '../mysql/datadir.js';
 import { parseSnmpdConf, SNMPD_CONF_PATH, SNMPD_CONF_PERMISSIONS } from '../snmp/conf.js';
 import { parseMysqlDatabase } from '../mysql/types.js';
+import { runStatement } from '../mysql/statements.js';
 import {
   COMMON_PASSWORDS,
   CRACKABLE_PASSWORDS,
@@ -424,10 +425,17 @@ describe('missionFilesForBox', () => {
 describe('missionFilePaths', () => {
   it('names the same files the server lays in, from the number alone', () => {
     for (const route of ['hydra', 'msfconsole', 'web', 'ftp', 'mysql', 'snmp'] as const) {
-      const missionNumber = firstWithRoute(route);
-      const laid = missionFiles(missionNumber, { keySecret: KEY_SECRET, rawSecrets: RAW_SECRETS });
+      for (const storage of ['file', 'gpg', 'database'] as const) {
+        const missionNumber = firstWithRoute(route, storage);
+        const laid = missionFiles(missionNumber, {
+          keySecret: KEY_SECRET,
+          rawSecrets: RAW_SECRETS,
+        });
 
-      expect(missionFilePaths(missionNumber), route).toEqual(laid.map((file) => file.path));
+        expect(missionFilePaths(missionNumber), `${route} ${storage}`).toEqual(
+          laid.map((file) => file.path),
+        );
+      }
     }
   });
 });
@@ -617,11 +625,147 @@ describe('a contract that keeps its key encrypted', () => {
   });
 });
 
-describe('a contract whose key the database will hold', () => {
-  it('keeps the key in a plain file until the database can hold it', () => {
-    const missionNumber = firstWithStorage('database');
+describe('a contract that keeps its key in its database', () => {
+  const HOLDING_BOTH = { keySecret: KEY_SECRET, rawSecrets: RAW_SECRETS };
 
-    expect(missionFilePaths(missionNumber)[0]).toBe(missionKeyPath(missionNumber));
+  const laidDatabase = (missionNumber: number) =>
+    parseMysqlDatabase(
+      missionFiles(missionNumber, HOLDING_BOTH).find((laid) => laid.path === DATADIR_PATH)
+        ?.content ?? '',
+    );
+
+  it('lays no key file, only the datadir, as root-only as the one it replaces', () => {
+    // Off the database route nothing else is laid, so the pools are never needed.
+    const missionNumber = firstWithRoute('hydra', 'database');
+
+    expect(
+      missionFiles(missionNumber, { keySecret: KEY_SECRET, rawSecrets: undefined }).map(
+        ({ path, perms }) => ({ path, perms }),
+      ),
+    ).toEqual([{ path: DATADIR_PATH, perms: DATADIR_FILE }]);
+  });
+
+  it('keeps the key in an api_keys row, among keys to other services', () => {
+    for (const missionNumber of numbersWithStorage('database').slice(0, 20)) {
+      const table = laidDatabase(missionNumber)?.tables['api_keys'];
+      const [stripe, sendgrid, portal, mapbox] = table?.rows ?? [];
+
+      expect(table?.columns).toEqual([
+        { name: 'id', type: 'INT', nullable: false, key: 'PRI' },
+        { name: 'service', type: 'VARCHAR', nullable: false },
+        { name: 'api_key', type: 'VARCHAR', nullable: false },
+      ]);
+      expect(table?.rows.map((row) => [row['id'], row['service']])).toEqual([
+        [1, 'stripe'],
+        [2, 'sendgrid'],
+        [3, 'portal'],
+        [4, 'mapbox'],
+      ]);
+      expect(portal?.['api_key']).toBe(missionKey(missionNumber, KEY_SECRET));
+      expect(String(stripe?.['api_key'])).toMatch(/^sk_live_[0-9a-f]{24}$/);
+      expect(String(sendgrid?.['api_key'])).toMatch(/^SG\.[0-9a-f]{22}$/);
+      expect(String(mapbox?.['api_key'])).toMatch(/^pk\.[0-9a-f]{32}$/);
+    }
+  });
+
+  it('draws the other services keys per contract, so no two databases read alike', () => {
+    const [first, second] = numbersWithStorage('database');
+    if (first === undefined || second === undefined) throw new Error('two database contracts');
+    const decoysOf = (missionNumber: number) =>
+      (laidDatabase(missionNumber)?.tables['api_keys']?.rows ?? [])
+        .filter((row) => row['service'] !== 'portal')
+        .map((row) => row['api_key']);
+
+    for (const [index, decoy] of decoysOf(first).entries()) {
+      expect(decoy).not.toBe(decoysOf(second)[index]);
+    }
+    expect(decoysOf(first)).toEqual(decoysOf(first));
+  });
+
+  it('adds only api_keys to the database the box generates, off the database route', () => {
+    const missionNumber = firstWithRoute('snmp', 'database');
+    const laid = laidDatabase(missionNumber);
+    const generated = databaseIn(buildMissionKeyBoxFs(missionNumber));
+    const { api_keys: _apiKeys, ...others } = laid?.tables ?? {};
+
+    expect(laid?.name).toBe(generated?.name);
+    expect(laid?.credentials).toEqual(generated?.credentials);
+    expect(others).toEqual(generated?.tables);
+  });
+
+  it('adds the key beside the word in the one datadir on the database route', () => {
+    const missionNumber = firstWithRoute('mysql', 'database');
+    const laid = laidDatabase(missionNumber);
+    const generated = databaseIn(buildMissionKeyBoxFs(missionNumber));
+    const { api_keys: _apiKeys, settings, ...others } = laid?.tables ?? {};
+    const word = plaintextFor(missionShape(missionNumber).keyBoxRootHash);
+
+    expect(missionFilePaths(missionNumber)).toEqual([DATADIR_PATH]);
+    expect(missionFiles(missionNumber, HOLDING_BOTH).map((laidFile) => laidFile.path)).toEqual([
+      DATADIR_PATH,
+    ]);
+    expect(laid?.tables['api_keys']?.rows[2]?.['api_key']).toBe(
+      missionKey(missionNumber, KEY_SECRET),
+    );
+    expect(settings?.rows[2]?.['value'] === word).toBe(true);
+    expect(others).toEqual(generated?.tables);
+  });
+
+  it('keeps the key out of the datadir on the database route when it is kept in a file', () => {
+    const missionNumber = firstWithRoute('mysql', 'file');
+
+    expect(Object.keys(laidDatabase(missionNumber)?.tables ?? {})).toContain('settings');
+    expect(Object.keys(laidDatabase(missionNumber)?.tables ?? {})).not.toContain('api_keys');
+  });
+
+  it('lays the datadir after the leak on a leak route with a file of its own', () => {
+    const missionNumber = firstWithRoute('web', 'database');
+
+    expect(missionFilePaths(missionNumber)).toEqual([missionLeakPath(missionNumber), DATADIR_PATH]);
+  });
+
+  it('fails closed when the key secret is missing', () => {
+    expect(() =>
+      missionFiles(firstWithRoute('hydra', 'database'), {
+        keySecret: undefined,
+        rawSecrets: RAW_SECRETS,
+      }),
+    ).toThrow(MissionSecretMissingError);
+  });
+
+  it.each(['mysql', 'hydra'] as const)(
+    'gives the key to the application account at the prompt on a %s route',
+    (route) => {
+      // The login a sweep finds is an ordinary account, not the database root, and it reads
+      // every table: that is the whole way to the key from outside.
+      const missionNumber = firstWithRoute(route, 'database');
+      const database = laidDatabase(missionNumber);
+      if (database === null) throw new Error('the datadir could not be read');
+      const application = database.credentials.find(({ userType }) => userType !== 'root');
+
+      const { output, failed } = runStatement({
+        database,
+        line: "SELECT api_key FROM api_keys WHERE service = 'portal'",
+        username: application?.username ?? '',
+        userType: application?.userType ?? 'guest',
+        sourceIp: '198.51.100.7',
+      });
+
+      expect(application?.userType).toBe('user');
+      expect(failed).toBe(false);
+      expect(output.some((line) => line.includes(missionKey(missionNumber, KEY_SECRET)))).toBe(
+        true,
+      );
+    },
+  );
+
+  it('fails closed on the database route when the pools are missing', () => {
+    expect(() =>
+      missionFiles(firstWithRoute('mysql', 'database'), {
+        keySecret: KEY_SECRET,
+        rawSecrets: undefined,
+      }),
+    ).toThrow(MissionLeakUnavailableError);
   });
 });
 

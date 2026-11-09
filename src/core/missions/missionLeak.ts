@@ -16,9 +16,9 @@
  * root, so root-only stops nothing it serves. The ftp route's file is readable by a guest,
  * because the anonymous login that fetches it is one.
  *
- * On a database route the file is the whole datadir, the generated database with one table
- * added. It stays root-only like any datadir, because the door reads it as the server and hands
- * out only the rows an account may select.
+ * On a database route the file is the whole datadir, the generated database with a `settings`
+ * table added. It stays root-only like any datadir, because the door reads it as the server and
+ * hands out only the rows an account may select.
  *
  * On an snmp route the file is the agent's config, readable by any tier like every such config.
  * It holds the read-only community as well as the word, so neither reaches the bundle.
@@ -27,7 +27,9 @@
  * it is sealed, root-only, beside where the plain key would be, and the passphrase is compiled
  * into a program in `/usr/local/bin`: binary-looking, so `grep` skips it and only `strings`
  * reads it, and readable by any tier like any program, which costs nothing while the sealed
- * key stays root-only.
+ * key stays root-only. On `database` no key file is laid: the key is a row of an `api_keys` table
+ * in the datadir, read from outside by the application account a sweep finds. The datadir is
+ * laid once with every table the contract adds, so on the database route it holds both.
  */
 
 import { DATADIR_FILE, FTP_PUBLIC_FILE, ROOT_FILE } from '../generation/baseFs.js';
@@ -147,16 +149,37 @@ const settingsTable = (word: string): MysqlTable => ({
   ],
 });
 
-/** The datadir with the table added, which is the whole file: a door replaces the datadir and
- *  never merges into it. */
-const databaseWithWord = (missionNumber: number, word: string): string => {
+/** The datadir with the tables added, which is the whole file: a laid file replaces the box's
+ *  and never merges into it. */
+const databaseWith = (
+  missionNumber: number,
+  tables: Readonly<Record<string, MysqlTable>>,
+): string => {
   const database = databaseIn(buildMissionKeyBoxFs(missionNumber));
   if (database === null) throw new MissionLeakUnavailableError();
-  return JSON.stringify({
-    ...database,
-    tables: { ...database.tables, settings: settingsTable(word) },
-  });
+  return JSON.stringify({ ...database, tables: { ...database.tables, ...tables } });
 };
+
+/** A key to another service, as the client's application would hold one: the service's own
+ *  prefix on a token drawn from the number, so no two contracts' tables read alike. */
+const otherServiceKey = (missionNumber: number, prefix: string, length: number): string =>
+  `${prefix}${md5(`${prefix}${missionNumber}`).slice(0, length)}`;
+
+/** The table the key sits in on a contract keeping it in its database, among the keys the
+ *  client's application holds to other services, none of them in the key's shape. */
+const apiKeysTable = (missionNumber: number, key: string): MysqlTable => ({
+  columns: [
+    { name: 'id', type: 'INT', nullable: false, key: 'PRI' },
+    { name: 'service', type: 'VARCHAR', nullable: false },
+    { name: 'api_key', type: 'VARCHAR', nullable: false },
+  ],
+  rows: [
+    { id: 1, service: 'stripe', api_key: otherServiceKey(missionNumber, 'sk_live_', 24) },
+    { id: 2, service: 'sendgrid', api_key: otherServiceKey(missionNumber, 'SG.', 22) },
+    { id: 3, service: 'portal', api_key: key },
+    { id: 4, service: 'mapbox', api_key: otherServiceKey(missionNumber, 'pk.', 32) },
+  ],
+});
 
 /** What an snmp route's agent answers a read-only walk to, in place of `public`. Short and
  *  common enough for a player to guess. A sweep never finds one: it attacks only the read-write
@@ -175,7 +198,7 @@ const agentConfig = (missionNumber: number, word: string): string =>
 /** What the file holds on this route, given the word. */
 const leakContent = (missionNumber: number, word: string): string => {
   const { route } = missionShape(missionNumber);
-  if (route === 'mysql') return databaseWithWord(missionNumber, word);
+  if (route === 'mysql') return databaseWith(missionNumber, { settings: settingsTable(word) });
   if (route === 'snmp') return agentConfig(missionNumber, word);
   return forgottenFileOf(missionNumber).render(word);
 };
@@ -212,11 +235,13 @@ const RUN_BREAK = String.fromCharCode(1);
 
 const sealedKeyPath = (missionNumber: number): string => `${missionKeyPath(missionNumber)}.gpg`;
 
-/** The file the key is in: the sealed one on a gpg contract, the plain one otherwise. */
-export const missionKeyFilePath = (missionNumber: number): string =>
-  missionShape(missionNumber).storage === 'gpg'
-    ? sealedKeyPath(missionNumber)
-    : missionKeyPath(missionNumber);
+/** The file the key is in: the sealed one on a gpg contract, the datadir on a database one,
+ *  the plain one otherwise. */
+export const missionKeyFilePath = (missionNumber: number): string => {
+  const { storage } = missionShape(missionNumber);
+  if (storage === 'database') return DATADIR_PATH;
+  return storage === 'gpg' ? sealedKeyPath(missionNumber) : missionKeyPath(missionNumber);
+};
 
 const vaultName = (missionNumber: number): string => `${missionShape(missionNumber).stem}-vault`;
 
@@ -243,17 +268,23 @@ const vaultProgram = (name: string, passphrase: string): string =>
     'GCC: (Debian 12.2.0-14) 12.2.0',
   ].join(RUN_BREAK);
 
-/** Where the key goes on this contract, from the number alone. */
-const keyFilePaths = (missionNumber: number): readonly string[] =>
-  missionShape(missionNumber).storage === 'gpg'
+/** Where the key goes on this contract, from the number alone: nowhere of its own on a
+ *  database contract, whose key is a row of the datadir. */
+const keyFilePaths = (missionNumber: number): readonly string[] => {
+  const { storage } = missionShape(missionNumber);
+  if (storage === 'database') return [];
+  return storage === 'gpg'
     ? [sealedKeyPath(missionNumber), vaultPath(missionNumber), ROOT_HISTORY_PATH]
     : [missionKeyPath(missionNumber)];
+};
 
 /** The key's files: the plain key, or the sealed key, the program holding its passphrase and
- *  the history that points at it. Until the database holds a key, a database contract keeps it in the plain file. */
+ *  the history that points at it, or none when the key is a row of the datadir. */
 const keyFiles = (missionNumber: number, secret: string): readonly MissionFile[] => {
+  const { storage } = missionShape(missionNumber);
+  if (storage === 'database') return [];
   const key = `${missionKey(missionNumber, secret)}\n`;
-  if (missionShape(missionNumber).storage !== 'gpg') {
+  if (storage === 'file') {
     return [{ path: missionKeyPath(missionNumber), content: key, perms: ROOT_FILE }];
   }
   const passphrase = missionPassphrase(missionNumber, secret);
@@ -268,15 +299,53 @@ const keyFiles = (missionNumber: number, secret: string): readonly MissionFile[]
   ];
 };
 
+/** Whether the server lays the datadir: on the database route, where it holds the word, and on
+ *  a contract keeping its key in it. Built once from every table either adds. */
+const laysDatadir = (missionNumber: number): boolean => {
+  const { route, storage } = missionShape(missionNumber);
+  return route === 'mysql' || storage === 'database';
+};
+
+/** The datadir as laid: the word's table on the database route, the key's on a contract
+ *  keeping it there, or both. */
+const datadirFile = (
+  missionNumber: number,
+  secret: string,
+  rawSecrets: string | undefined,
+): MissionFile => {
+  const { route, storage } = missionShape(missionNumber);
+  const tables = {
+    ...(route === 'mysql'
+      ? { settings: settingsTable(missionLeakWord(missionNumber, rawSecrets)) }
+      : {}),
+    ...(storage === 'database'
+      ? { api_keys: apiKeysTable(missionNumber, missionKey(missionNumber, secret)) }
+      : {}),
+  };
+  return { path: DATADIR_PATH, content: databaseWith(missionNumber, tables), perms: DATADIR_FILE };
+};
+
+/** The leak when it is a file of its own; on the database route the leak is the datadir. */
+const ownLeakFile = (missionNumber: number, rawSecrets: string | undefined): MissionFile | null =>
+  missionShape(missionNumber).route === 'mysql' ? null : missionLeakFile(missionNumber, rawSecrets);
+
+/** Where `ownLeakFile` lays it, from the number alone. */
+const ownLeakPath = (missionNumber: number): string | null =>
+  missionShape(missionNumber).route === 'mysql' ? null : missionLeakPath(missionNumber);
+
 /** Every file the server lays onto this contract's key box. A route with no leak never
  *  touches the pools, so a missing `JSHACK_SECRETS` closes only the boxes that need it. */
 export const missionFiles = (
   missionNumber: number,
   env: { readonly keySecret: string | undefined; readonly rawSecrets: string | undefined },
 ): readonly MissionFile[] => {
-  const keys = keyFiles(missionNumber, requireMissionSecret(env.keySecret));
-  const leak = missionLeakFile(missionNumber, env.rawSecrets);
-  return leak === null ? keys : [...keys, leak];
+  const secret = requireMissionSecret(env.keySecret);
+  const leak = ownLeakFile(missionNumber, env.rawSecrets);
+  return [
+    ...keyFiles(missionNumber, secret),
+    ...(leak === null ? [] : [leak]),
+    ...(laysDatadir(missionNumber) ? [datadirFile(missionNumber, secret, env.rawSecrets)] : []),
+  ];
 };
 
 /** The files for the box a door has reached: none unless it is a contract's key box, and an
@@ -300,7 +369,10 @@ export const missionFilesForBox = async (
 /** The paths `missionFiles` lays in, from the number alone: the write gate asks whether a
  *  tier may write one, which only root may on any of them, and needs no secret to ask. */
 export const missionFilePaths = (missionNumber: number): readonly string[] => {
-  const leakPath = missionLeakPath(missionNumber);
-  const keyPaths = keyFilePaths(missionNumber);
-  return leakPath === null ? keyPaths : [...keyPaths, leakPath];
+  const leakPath = ownLeakPath(missionNumber);
+  return [
+    ...keyFilePaths(missionNumber),
+    ...(leakPath === null ? [] : [leakPath]),
+    ...(laysDatadir(missionNumber) ? [DATADIR_PATH] : []),
+  ];
 };

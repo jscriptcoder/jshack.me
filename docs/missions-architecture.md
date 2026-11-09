@@ -170,13 +170,24 @@ contract's key.
 - **The passphrase** is `hv-XXXX-XXXX` in the key's alphabet, an HMAC-SHA256 under
   `MISSION_KEY_SECRET` of `passphrase:<n>` (`missionPassphrase`), a message of its own, so it shares
   nothing with the key and one job's passphrase says nothing about the next. Stored nowhere.
-- **`database`** keeps the key in a plain file for now; the next slice moves it into the key box's
-  database, read from outside with a database login.
-- A root's `rm` of the sealed key or the program sticks like the key's; the write gate lists all
-  three (`missionFilePaths`). With the secret unset, the doors answer 500 `mission_secret_missing`.
+- **`database`** (v0.448.0): no key file is laid. The key is the `portal` row of an `api_keys`
+  table in the key box's datadir (`/var/lib/mysql/data.json`), beside three keys to other services
+  (`sk_live_…`, `SG.…`, `pk.…`, drawn from the number) none of which is in the key's shape. It is
+  worked **from outside, as a database user**: on every route the key box runs `mysqld` on a safe
+  release, the gateway forwards `:3306` onto it after the route's own forwards (on the mysql route
+  that forward already is the door), and the database's application account is drawn from the
+  crackable pool while its root stays shut (`missionShape`, drawn after everything else so the
+  route reads the same whatever the storage). So `hydra <address> mysql`, `mysql <address> <user>`,
+  `SELECT * FROM api_keys` reaches the key with no shell. The route still roots the box, a second
+  way: a root reads the key out of `data.json`. The datadir is laid once with every table the
+  contract adds (`datadirFile`), so on the mysql route it holds both `settings` and `api_keys`.
+- A root's `rm` of the sealed key, the program or the datadir sticks like the key's; the write gate
+  lists them all (`missionFilePaths`). An application account's `DELETE` from `api_keys` sticks too;
+  `DROP` is database root's alone, which stays shut. With the secret unset, the doors answer 500
+  `mission_secret_missing`.
 
-**To add a storage:** `STORAGES` in `missionShape.ts`, and `keyFilePaths`, `keyFiles` and
-`missionKeyFilePath` in `missionLeak.ts`.
+**To add a storage:** `STORAGES` in `missionShape.ts` (and anything the box must run for it), and
+`keyFilePaths`, `keyFiles` and `missionKeyFilePath` in `missionLeak.ts`.
 
 ## The routes that leak a login
 

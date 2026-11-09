@@ -197,7 +197,7 @@ describe('showReport', () => {
     expect(report).toContain(missionKeyPath(HYDRA));
   });
 
-  const withStorage = (storage: 'file' | 'gpg'): number =>
+  const withStorage = (storage: 'file' | 'gpg' | 'database'): number =>
     Array.from({ length: 4000 }, (_unused, index) => index * 256 + 2).find(
       (candidate) => missionShape(candidate).storage === storage,
     )!;
@@ -216,6 +216,15 @@ describe('showReport', () => {
 
     expect(lines).toContain(`  Storage:  gpg, passphrase ${missionPassphrase(number, SECRET)}`);
     expect(lines).toContain(`  Key path: ${missionKeyPath(number)}.gpg`);
+    expect(lines).toContain(`  Key:      ${missionKey(number, SECRET)}`);
+  });
+
+  it('sends a database contract to the table in the datadir, with no key file', () => {
+    const number = withStorage('database');
+    const lines = showReport(number, SECRET, undefined).split('\n');
+
+    expect(lines).toContain('  Storage:  database, table api_keys');
+    expect(lines).toContain('  Key path: /var/lib/mysql/data.json');
     expect(lines).toContain(`  Key:      ${missionKey(number, SECRET)}`);
   });
 
