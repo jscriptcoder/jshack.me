@@ -519,6 +519,17 @@ describe('gpg — a file nobody else can read', () => {
     expect(exitCodeOf(result)).toBe(1);
   });
 
+  it('refuses an empty file rather than opening it to nothing', async () => {
+    // No checksum to compare, so without the length check every passphrase would
+    // "open" an empty file and print a successful decrypt of nothing.
+    const { env } = gpgEnv({ tree: boxWithVector('') });
+
+    const result = await gpg.execute(env, ['loot.gpg', 'hunter2'], DECRYPT);
+
+    expect(errorLines(result)).toEqual(['gpg: decryption failed: bad passphrase or corrupted data']);
+    expect(exitCodeOf(result)).toBe(1);
+  });
+
   it('abandons a decrypt when its prompt is abandoned', async () => {
     const { env } = gpgEnv({
       tree: boxWithVector(LEGACY_VECTOR),

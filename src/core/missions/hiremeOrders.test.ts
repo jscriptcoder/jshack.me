@@ -7,7 +7,7 @@ import {
 } from './hiremeOrders.js';
 import { missionLeakPath } from './missionLeak.js';
 import { missionShape } from './missionShape.js';
-import { missionKey, missionKeyPath } from './missionSecret.js';
+import { missionKey, missionKeyPath, missionPassphrase } from './missionSecret.js';
 import { missionAddressForNumber, missionEssid } from './missionNetwork.js';
 import { missionTerms } from './missionTerms.js';
 import {
@@ -101,9 +101,11 @@ describe('readMissionOrder', () => {
 
 describe('showReport', () => {
   const SECRET = 'operator-test-secret';
-  // One number per route, so the report is checked on both.
+  // One number per route, so the report is checked on both. The hydra one keeps its key in a
+  // plain file, so the whole report below reads as the simplest contract does.
   const HYDRA = Array.from({ length: 4000 }, (_unused, index) => index * 256 + 2).find(
-    (candidate) => missionShape(candidate).route === 'hydra',
+    (candidate) =>
+      missionShape(candidate).route === 'hydra' && missionShape(candidate).storage === 'file',
   )!;
   const MSFCONSOLE = Array.from({ length: 4000 }, (_unused, index) => index * 256 + 2).find(
     (candidate) => missionShape(candidate).route === 'msfconsole',
@@ -195,6 +197,28 @@ describe('showReport', () => {
     expect(report).toContain(missionKeyPath(HYDRA));
   });
 
+  const withStorage = (storage: 'file' | 'gpg'): number =>
+    Array.from({ length: 4000 }, (_unused, index) => index * 256 + 2).find(
+      (candidate) => missionShape(candidate).storage === storage,
+    )!;
+
+  it('says a plain-file contract keeps its key in a file, at the key path', () => {
+    const number = withStorage('file');
+    const lines = showReport(number, SECRET, undefined).split('\n');
+
+    expect(lines).toContain('  Storage:  file');
+    expect(lines).toContain(`  Key path: ${missionKeyPath(number)}`);
+  });
+
+  it('gives a gpg contract the passphrase, and the sealed file as the key path', () => {
+    const number = withStorage('gpg');
+    const lines = showReport(number, SECRET, undefined).split('\n');
+
+    expect(lines).toContain(`  Storage:  gpg, passphrase ${missionPassphrase(number, SECRET)}`);
+    expect(lines).toContain(`  Key path: ${missionKeyPath(number)}.gpg`);
+    expect(lines).toContain(`  Key:      ${missionKey(number, SECRET)}`);
+  });
+
   it('names the contract by its address and essid', () => {
     const report = showReport(HYDRA, SECRET, undefined);
 
@@ -233,6 +257,7 @@ describe('showReport', () => {
         ),
         '  Services:',
         '    (none beyond the route)',
+        '  Storage:  file',
         `  Key path: ${missionKeyPath(HYDRA)}`,
         `  Key:      ${missionKey(HYDRA, SECRET)}`,
       ].join('\n'),
@@ -243,7 +268,9 @@ describe('showReport', () => {
     const [service] = missionShape(MSFCONSOLE).keyBoxServices;
     const lines = showReport(MSFCONSOLE, SECRET, undefined).split('\n');
 
-    expect(lines.slice(lines.indexOf('  Services:') + 1, -2)).toEqual([
+    const storageLine = lines.findIndex((line) => line.startsWith('  Storage:'));
+
+    expect(lines.slice(lines.indexOf('  Services:') + 1, storageLine)).toEqual([
       `    ${service!.service} (${service!.package} ${service!.version}) :${service!.port}`,
     ]);
   });

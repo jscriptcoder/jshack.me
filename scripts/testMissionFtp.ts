@@ -113,7 +113,14 @@ const runHireme = (args: readonly string[]): string =>
 
 const ftpNumber = (from: number): number => {
   for (let candidate = from; candidate < from + 20000; candidate += 1) {
-    if (isMissionNumber(candidate) && missionShape(candidate).route === 'ftp') return candidate;
+    // A contract that keeps its key in a plain file, which is where this check reads it.
+    if (
+      isMissionNumber(candidate) &&
+      missionShape(candidate).route === 'ftp' &&
+      missionShape(candidate).storage === 'file'
+    ) {
+      return candidate;
+    }
   }
   throw new Error(`no ftp route number found from ${from}`);
 };
