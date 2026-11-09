@@ -55,8 +55,9 @@ import {
  *  and the whois 195 record) added 510 B, rounded up to 1,000; then the database route (its
  *  shape and the database a key box generates) added 269 B, rounded up to 300; then the
  *  coin sign (one formatter every printed amount goes through) added 23 B, rounded up to
- *  100. */
-const BUNDLE_CEILING_BYTES = 298_575;
+ *  100; then the decoys on a contract's network (their draw and the agent config a key box
+ *  generates for one) added 268 B, rounded up to 300. */
+const BUNDLE_CEILING_BYTES = 298_875;
 
 /** About a tenth of that before world content, so a loaded machine's noise cannot fail
  *  the check while a content change that makes boxes ten times dearer still does. */

@@ -23,11 +23,15 @@
  *
  * The services: sshd always (so the box answers a login once a route lands it, and so the
  * hydra and leak routes' forwards reach a real sshd), plus the one exposed service the shape
- * puts on the msfconsole route, on a critical release, and on a leak route, on a safe one, and
- * mysqld on a safe release on a contract keeping its key in a database.
+ * puts on the msfconsole route, on a critical release, and on a leak route, on a safe one,
+ * mysqld on a safe release on a contract keeping its key in a database, and each decoy's
+ * daemon on a safe release.
  *
- * The ftp route also carries what its door reads and lands in: a config letting `anonymous`
- * in, and an empty `/srv/ftp/pub`. No other key box says anything of the kind.
+ * A decoy is built exactly as the real door of its kind, minus what the server lays in, so
+ * nothing on its surface tells the two apart. A box running vsftpd, the ftp route's or a
+ * decoy's, carries what its door reads and lands in: a config letting `anonymous` in, and an
+ * empty `/srv/ftp/pub`. An snmp decoy carries its agent config, generated here because it
+ * holds no secret: a community somebody can guess and an ordinary contact.
  *
  * A box running a database (the database route, and a contract keeping its key in one) carries
  * a generated application behind exactly two accounts, so the sweep's one login is the only one,
@@ -35,7 +39,8 @@
  * holding the word and the key, so the one here says neither.
  *
  * The snmp route carries the hashed read-write community a sweep attacks. Its agent config is
- * the server's alone, since that holds both the word and the community a walk can guess.
+ * the server's alone, since that holds both the word and the community a walk can guess. An
+ * snmp decoy's read-write hash is one no sweep finds.
  */
 
 import {
@@ -79,6 +84,8 @@ import { VSFTPD_LOG_PERMISSIONS } from '../logging/vsftpdLog.js';
 import { createPrng } from './prng.js';
 import { CRACK_CHANCE, drawPasswordHash } from './passwordPools.js';
 import { formatSnmpdState, SNMPD_STATE_PERMISSIONS } from '../snmp/rwCommunity.js';
+import { SNMPD_CONF_PERMISSIONS } from '../snmp/conf.js';
+import { GUESSABLE_COMMUNITIES } from '../missions/pools.js';
 import { generateApplication } from './generateDatabase.js';
 import { generateHomeLan } from './generateHomeLan.js';
 import { MYSQL_USERNAMES } from './pools/database.js';
@@ -102,6 +109,16 @@ const DEFAULT_PAGE = '<html><body><h1>It works!</h1></body></html>';
 /** What the ftp route's daemon is configured to do. It names no `anon_root`, because the
  *  door reads only whether `anonymous` is let in. */
 const ANONYMOUS_FTP_CONFIG = 'listen=YES\nlisten_port=21\nanonymous_enable=YES\nlocal_enable=YES\n';
+
+/** An snmp decoy's agent config: a community somebody can guess, as on the snmp route, and the
+ *  contact an ordinary device states where the route's states the word. */
+const decoyAgentConfig = (community: string): string =>
+  [
+    '# /etc/snmp/snmpd.conf — SNMP agent configuration',
+    `rocommunity ${community}`,
+    'syscontact netops@corp.local',
+    '',
+  ].join('\n');
 
 /** The database as it generates. Its application is on a stream of its own, so nothing about
  *  it can move a draw the box's accounts make. */
@@ -187,11 +204,15 @@ export const buildMissionKeyBoxFs = (missionNumber: number): Directory => {
   const servesFtp = runningServices.some(({ service }) => service === 'ftp');
   const servesDatabase = runningServices.some(({ service }) => service === 'mysql');
   const runsAgent = runningServices.some(({ service }) => service === 'snmp');
-  const lettingAnonymousIn = shape.route === 'ftp';
+  const lettingAnonymousIn = servesFtp;
   const database =
     shape.keyBoxDatabase === null
       ? null
       : keyBoxDatabase(missionNumber, shape.keyBoxDatabase, username, prng.pick(MYSQL_USERNAMES));
+  // Drawn after every other draw on this stream, so it moved nothing a box already had.
+  const decoyAgent = shape.decoys.includes('snmp')
+    ? decoyAgentConfig(prng.pick(GUESSABLE_COMMUNITIES))
+    : null;
   const varLibEntries: Record<string, FileNode> = {
     ...(database === null
       ? {}
@@ -223,6 +244,14 @@ export const buildMissionKeyBoxFs = (missionNumber: number): Directory => {
           ...(lettingAnonymousIn
             ? { 'vsftpd.conf': file(ANONYMOUS_FTP_CONFIG, SERVICE_CONFIG_FILE) }
             : {}),
+          ...(decoyAgent === null
+            ? {}
+            : {
+                snmp: dir(
+                  { 'snmpd.conf': file(decoyAgent, SNMPD_CONF_PERMISSIONS) },
+                  TRAVERSABLE_DIR,
+                ),
+              }),
         },
         TRAVERSABLE_DIR,
       ),

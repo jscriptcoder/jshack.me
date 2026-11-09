@@ -96,10 +96,11 @@ export const showReport = (
   const shape = missionShape(missionNumber);
   const terms = missionTerms(missionNumber);
   const address = missionAddressForNumber(missionNumber);
-  const services =
-    shape.keyBoxServices.length === 0
-      ? '    (none beyond the route)'
-      : shape.keyBoxServices.map(serviceLine).join('\n');
+  // Decoys follow the real forwards, so the tail of the list is theirs; a service is a decoy's
+  // when it answers on a decoy's port.
+  const realForwardCount = shape.forwards.length - shape.decoys.length;
+  const decoyPorts = shape.forwards.slice(realForwardCount).map(({ internalPort }) => internalPort);
+  const decoyTag = (isDecoy: boolean): string => (isDecoy ? ' (decoy)' : '');
   return [
     `Contract ${missionNumber} at ${address} (essid ${missionEssid(missionNumber)})`,
     `  Client:   ${terms.client.company} (${terms.client.handle}@${EMAILIT_DOMAIN})`,
@@ -107,10 +108,14 @@ export const showReport = (
     `  Pay:      ${writeAmount(terms.pay)}`,
     `  Route:    ${shape.route}`,
     ...shape.forwards.map(
-      (forward) => `  Forward:  :${forward.publicPort} -> key box :${forward.internalPort}`,
+      (forward, index) =>
+        `  Forward:  :${forward.publicPort} -> key box :${forward.internalPort}` +
+        decoyTag(index >= realForwardCount),
     ),
     `  Services:`,
-    services,
+    ...shape.keyBoxServices.map(
+      (service) => serviceLine(service) + decoyTag(decoyPorts.includes(service.port)),
+    ),
     `  Storage:  ${storageDetail(missionNumber, secret)}`,
     `  Key path: ${missionKeyFilePath(missionNumber)}`,
     `  Key:      ${missionKey(missionNumber, secret)}`,

@@ -54,6 +54,7 @@ import {
   requireMissionSecret,
 } from './missionSecret.js';
 import { missionShape, type MissionRoute } from './missionShape.js';
+import { GUESSABLE_COMMUNITIES } from './pools.js';
 
 /** A file the server lays onto a key box before its journal replays. */
 export type MissionFile = {
@@ -180,11 +181,6 @@ const apiKeysTable = (missionNumber: number, key: string): MysqlTable => ({
     { id: 4, service: 'mapbox', api_key: otherServiceKey(missionNumber, 'pk.', 32) },
   ],
 });
-
-/** What an snmp route's agent answers a read-only walk to, in place of `public`. Short and
- *  common enough for a player to guess. A sweep never finds one: it attacks only the read-write
- *  community. */
-const GUESSABLE_COMMUNITIES = ['monitor', 'netops'] as const;
 
 /** The agent's whole config. The word is its contact, which a walk prints at either tier. */
 const agentConfig = (missionNumber: number, word: string): string =>

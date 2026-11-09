@@ -34,6 +34,11 @@
  * is reached from outside as a database user. The route still roots the box, a second way to
  * the same row.
  *
+ * Decoys come last, so the port list stops telling the route: the gateway forwards three or four
+ * ports, and the gap above the real ones is filled with doors of the kinds some route is won
+ * through, each built as the real door is but holding nothing (a database a sweep opens onto no
+ * word, an agent whose read-write community stays shut). Every route reaches every count.
+ *
  * Everything that is NOT the way in sits on a release whose hole grants a guest shell at
  * most (`low` or `medium`): the gateway's firmware (so the gateway is passed through, not
  * broken), every library (a `high` or `critical` library hole would hand a local root),
@@ -70,6 +75,16 @@ const STORAGES = ['file', 'gpg', 'database'] as const;
 
 export type MissionStorage = (typeof STORAGES)[number];
 
+/** The doors a decoy can be: every kind some route is won through, since a port that is never
+ *  a way in is dismissed at a glance and blurs nothing. */
+const DECOY_KINDS = ['ssh', 'web', 'ftp', 'mysql', 'snmp'] as const;
+
+export type MissionDecoy = (typeof DECOY_KINDS)[number];
+
+/** How many forwards a gateway has, decoys filling the gap above the real ones. A contract has
+ *  one to three real forwards, so every route reaches every count and the count says nothing. */
+const FORWARD_COUNTS = [3, 4] as const;
+
 /** One forward on the gateway: the public port it answers on, and the port it reaches on
  *  the key box. */
 export type MissionForward = {
@@ -103,10 +118,11 @@ export type MissionShape = {
   /** The key box's `root` password hash: crackable on the hydra route, one a file can
    *  leak on a leak route, and one that stays shut on the msfconsole route. */
   readonly keyBoxRootHash: string;
-  /** The hashes guarding the key box's database, on the database route and on every contract
-   *  that keeps its key in one. */
+  /** The hashes guarding the key box's database, on the database route, on every contract
+   *  that keeps its key in one, and behind a database decoy. */
   readonly keyBoxDatabase: MissionDatabase | null;
-  /** The hash of the read-write community a sweep finds, on the one route running an agent. */
+  /** The hash of the read-write community: one a sweep finds on the snmp route, and one no
+   *  sweep finds behind an snmp decoy. */
   readonly keyBoxCommunityHash: string | null;
   /** The gateway's `root` ("admin") password hash — always uncrackable and never one a
    *  file can leak, so the gateway is a box the route passes through rather than one to
@@ -116,15 +132,20 @@ export type MissionShape = {
    *  safe, so whichever the gateway builder draws sits on a guest-at-most release. */
   readonly gatewayVersions: Readonly<Record<string, string>>;
   /** The services the key box runs: the route's service (on every route but hydra), then the
-   *  database on a contract keeping its key in one, each already on its chosen release. */
+   *  database on a contract keeping its key in one, then the decoys' daemons, each already on
+   *  its chosen release. */
   readonly keyBoxServices: readonly MissionService[];
   /** Versions to pin on the key box, package to version — every service it runs and every
    *  library it carries. */
   readonly keyBoxVersions: Readonly<Record<string, string>>;
   /** The gateway's forwards onto the key box: one on a route with one door, and on a leak
    *  route the door holding the file followed by `:2222`. A contract keeping its key in a
-   *  database adds `:3306` after them, unless the route's door already is. */
+   *  database adds `:3306` after them, unless the route's door already is. The decoys'
+   *  forwards follow, bringing the count to three or four. */
   readonly forwards: readonly MissionForward[];
+  /** The doors that lead nowhere, in the order their forwards follow the real ones. Each is
+   *  built as the real door of its kind is, minus what the server lays in. */
+  readonly decoys: readonly MissionDecoy[];
 };
 
 /** A service that can be the msfconsole route: an exposed daemon with a `critical` release
@@ -176,6 +197,21 @@ const LEAK_ROUTE_DOORS: Readonly<
 
 /** The forward a word logs in through: the public :2222 onto the key box's own sshd. */
 const SSH_FORWARD: MissionForward = { publicPort: 2222, internalPort: 22 };
+
+/** The daemon behind each decoy, or none for `ssh`, whose forward reaches the sshd every key
+ *  box runs. */
+const DECOY_SERVICES: Readonly<Record<MissionDecoy, RouteCandidate | null>> = {
+  ssh: null,
+  web: WEB_SERVER,
+  ftp: FTP_SERVER,
+  mysql: DATABASE_SERVER,
+  snmp: SNMP_AGENT,
+};
+
+const decoyForward = (decoy: MissionDecoy): MissionForward => {
+  const service = DECOY_SERVICES[decoy];
+  return service === null ? SSH_FORWARD : { publicPort: service.port, internalPort: service.port };
+};
 
 /** The versions of `key`'s releases whose hole grants a guest shell at most. */
 const safeVersions = (key: string): readonly string[] =>
@@ -304,6 +340,26 @@ export const missionShape = (missionNumber: number): MissionShape => {
     keyBoxDatabase = databaseAccounts(versionPrng);
   }
 
+  // On a stream of its own and drawn last, so decoys moved nothing a contract already had.
+  const decoyPrng = createPrng(`mission-decoys-${missionNumber}`);
+  const forwardCount = decoyPrng.pick(FORWARD_COUNTS);
+  const unforwarded = DECOY_KINDS.filter(
+    (decoy) => !forwards.some(({ publicPort }) => publicPort === decoyForward(decoy).publicPort),
+  );
+  const decoys = decoyPrng.pickN(unforwarded, forwardCount - forwards.length);
+  forwards = [...forwards, ...decoys.map(decoyForward)];
+  for (const decoy of decoys) {
+    const service = DECOY_SERVICES[decoy];
+    if (service === null) continue;
+    const version = safeVersionOf(service.package, decoyPrng);
+    keyBoxServices.push({ ...service, version });
+    keyBoxVersions[service.package] = version;
+  }
+  // The door lets a sweep in as far as the real one would, onto a database holding nothing.
+  if (decoys.includes('mysql')) keyBoxDatabase = databaseAccounts(decoyPrng);
+  // A read-write community shuts the box's ports without root, so a decoy's never falls.
+  if (decoys.includes('snmp')) keyBoxCommunityHash = decoyPrng.pick(SHUT_HASHES);
+
   return {
     missionNumber,
     stem,
@@ -318,5 +374,6 @@ export const missionShape = (missionNumber: number): MissionShape => {
     keyBoxServices,
     keyBoxVersions,
     forwards,
+    decoys,
   };
 };

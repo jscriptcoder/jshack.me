@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { buildMissionKeyBoxFs } from './missionKeyBoxFs.js';
-import { missionShape, MISSION_ROUTE_DAY, type MissionRoute } from '../missions/missionShape.js';
+import {
+  missionShape,
+  MISSION_ROUTE_DAY,
+  type MissionDecoy,
+  type MissionRoute,
+} from '../missions/missionShape.js';
 import { readOpenPorts } from '../services/pidfile.js';
 import { parseDpkgVersions } from '../packages/dpkgStatus.js';
 import { liveCve } from '../cve/liveCve.js';
@@ -8,15 +13,38 @@ import { UNCRACKABLE_HASHES } from './passwordPools.js';
 import { MYSQL_USERNAMES } from './pools/database.js';
 import { databaseIn, DATADIR_OWNER } from '../mysql/datadir.js';
 import { readRwCommunityHash, readSnmpdState } from '../snmp/rwCommunity.js';
+import { parseSnmpdConf, readSnmpdConf, SNMPD_CONF_PERMISSIONS } from '../snmp/conf.js';
+import { SHUT_HASHES } from '../missions/leakablePool.js';
+import { missionLeakFile } from '../missions/missionLeak.js';
+import { SNMP_ROUTE_NUMBER } from '../../test/factories/snmpRouteContract.js';
+import { DEPLOYMENT_SECRETS } from '../../test/factories/webRouteContract.js';
 import type { Directory, FileNode } from '../filesystem/types.js';
 
-/** The first sampled contract number whose route is `route`. */
-const numberWithRoute = (route: MissionRoute): number => {
+/** The first sampled contract number whose route is `route`, running none of `without` as a
+ *  decoy and, when `without` names `mysql`, not keeping its key in a database either. */
+const numberWithRoute = (route: MissionRoute, without: readonly MissionDecoy[] = []): number => {
   for (let missionNumber = 2; missionNumber < 5000; missionNumber += 1) {
-    if (missionShape(missionNumber).route === route) return missionNumber;
+    const shape = missionShape(missionNumber);
+    if (shape.route !== route) continue;
+    if (without.some((decoy) => shape.decoys.includes(decoy))) continue;
+    if (without.includes('mysql') && shape.storage === 'database') continue;
+    return missionNumber;
   }
   throw new Error(`no ${route} contract in range`);
 };
+
+/** The first sampled contract number running `decoy` as a decoy. */
+const numberWithDecoy = (decoy: MissionDecoy): number => {
+  for (let missionNumber = 2; missionNumber < 5000; missionNumber += 1) {
+    if (missionShape(missionNumber).decoys.includes(decoy)) return missionNumber;
+  }
+  throw new Error(`no ${decoy} decoy in range`);
+};
+
+/** What a scan of the box finds listening: its own sshd and every service the shape names,
+ *  the route's and the decoys'. */
+const servicesNamedFor = (missionNumber: number): readonly string[] =>
+  ['ssh', ...missionShape(missionNumber).keyBoxServices.map(({ service }) => service)].sort();
 
 const HYDRA = numberWithRoute('hydra');
 const MSF = numberWithRoute('msfconsole');
@@ -59,20 +87,22 @@ describe('the key box of a contract network', () => {
     expect(passwd).toMatch(/^guest:[^:]*:1001:1001:/m);
   });
 
-  it('runs a web server and sshd on the web route, and holds no leak of its own', () => {
+  it('runs a web server and sshd on the web route, beside its decoys, and holds no leak of its own', () => {
     const box = buildMissionKeyBoxFs(WEB);
 
-    expect(readOpenPorts(box).map((port) => port.service).sort()).toEqual(['http', 'ssh']);
+    expect(readOpenPorts(box).map((port) => port.service).sort()).toEqual(servicesNamedFor(WEB));
+    expect(readOpenPorts(box).map((port) => port.service)).toContain('http');
     // The file is the server's to lay in: what the client computes must not hold it.
     expect(fileAt(box, ['var', 'www', 'html', 'index.html'])).toContain('It works!');
     const published = listTree(box).filter((path) => path.startsWith('var/www/html/'));
     expect(published).toEqual(['var/www/html/index.html']);
   });
 
-  it('runs an ftp server and sshd on the ftp route, and holds no leak of its own', () => {
+  it('runs an ftp server and sshd on the ftp route, beside its decoys, and holds no leak of its own', () => {
     const box = buildMissionKeyBoxFs(FTP);
 
-    expect(readOpenPorts(box).map((port) => port.service).sort()).toEqual(['ftp', 'ssh']);
+    expect(readOpenPorts(box).map((port) => port.service).sort()).toEqual(servicesNamedFor(FTP));
+    expect(readOpenPorts(box).map((port) => port.service)).toContain('ftp');
     // The directory is there for the door to land in; the file is the server's to lay in.
     expect(nodeAt(box, ['srv', 'ftp', 'pub'])?.kind).toBe('directory');
     expect(listTree(box).filter((path) => path.startsWith('srv/'))).toEqual([]);
@@ -91,26 +121,28 @@ describe('the key box of a contract network', () => {
     expect(fileAt(buildMissionKeyBoxFs(FTP), ['etc', 'vsftpd.conf'])).not.toMatch(/anon_root/);
   });
 
-  it.each([
-    ['hydra', HYDRA],
-    ['msfconsole', MSF],
-    ['web', WEB],
-  ] as const)('opens nothing to anonymous on the %s route', (_route, missionNumber) => {
-    const box = buildMissionKeyBoxFs(missionNumber);
+  it.each(['hydra', 'msfconsole', 'web'] as const)(
+    'opens nothing to anonymous on the %s route with no ftp decoy',
+    (route) => {
+      const box = buildMissionKeyBoxFs(numberWithRoute(route, ['ftp']));
 
-    expect(nodeAt(box, ['etc', 'vsftpd.conf'])).toBeUndefined();
-    expect(nodeAt(box, ['srv'])).toBeUndefined();
-  });
+      expect(nodeAt(box, ['etc', 'vsftpd.conf'])).toBeUndefined();
+      expect(nodeAt(box, ['srv'])).toBeUndefined();
+    },
+  );
 
   it('keeps a vsftpd log on any box running the daemon, and none on a box that is not', () => {
     expect(fileAt(buildMissionKeyBoxFs(FTP), ['var', 'log', 'vsftpd.log'])).toBe('');
-    expect(nodeAt(buildMissionKeyBoxFs(HYDRA), ['var', 'log', 'vsftpd.log'])).toBeUndefined();
+    expect(
+      nodeAt(buildMissionKeyBoxFs(numberWithRoute('hydra', ['ftp'])), ['var', 'log', 'vsftpd.log']),
+    ).toBeUndefined();
   });
 
-  it('runs mysqld and sshd on the database route, with the client a shell logs in by', () => {
+  it('runs mysqld and sshd on the database route, beside its decoys, with the client a shell logs in by', () => {
     const box = buildMissionKeyBoxFs(MYSQL);
 
-    expect(readOpenPorts(box).map((port) => port.service).sort()).toEqual(['mysql', 'ssh']);
+    expect(readOpenPorts(box).map((port) => port.service).sort()).toEqual(servicesNamedFor(MYSQL));
+    expect(readOpenPorts(box).map((port) => port.service)).toContain('mysql');
     expect(nodeAt(box, ['usr', 'bin', 'mysql'])?.kind).toBe('file');
     expect(nodeAt(box, ['usr', 'sbin', 'mysqld'])?.kind).toBe('file');
   });
@@ -183,24 +215,22 @@ describe('the key box of a contract network', () => {
     expect(nodeAt(box, ['etc', 'mysql.cnf'])).toBeUndefined();
   });
 
-  it.each([
-    ['hydra', HYDRA],
-    ['msfconsole', MSF],
-    ['web', WEB],
-    ['ftp', FTP],
-    ['snmp', SNMP],
-  ] as const)('holds no database on the %s route', (_route, missionNumber) => {
-    const box = buildMissionKeyBoxFs(missionNumber);
+  it.each(['hydra', 'msfconsole', 'web', 'ftp', 'snmp'] as const)(
+    'holds no database on the %s route with no database decoy or key',
+    (route) => {
+      const box = buildMissionKeyBoxFs(numberWithRoute(route, ['mysql']));
 
-    expect(nodeAt(box, ['var', 'lib', 'mysql'])).toBeUndefined();
-    expect(nodeAt(box, ['var', 'log', 'mysql.log'])).toBeUndefined();
-    expect(readOpenPorts(box).some((port) => port.service === 'mysql')).toBe(false);
-  });
+      expect(nodeAt(box, ['var', 'lib', 'mysql'])).toBeUndefined();
+      expect(nodeAt(box, ['var', 'log', 'mysql.log'])).toBeUndefined();
+      expect(readOpenPorts(box).some((port) => port.service === 'mysql')).toBe(false);
+    },
+  );
 
-  it('runs snmpd and sshd on the snmp route, with the client a shell walks by', () => {
+  it('runs snmpd and sshd on the snmp route, beside its decoys, with the client a shell walks by', () => {
     const box = buildMissionKeyBoxFs(SNMP);
 
-    expect(readOpenPorts(box).map((port) => port.service).sort()).toEqual(['snmp', 'ssh']);
+    expect(readOpenPorts(box).map((port) => port.service).sort()).toEqual(servicesNamedFor(SNMP));
+    expect(readOpenPorts(box).map((port) => port.service)).toContain('snmp');
     expect(nodeAt(box, ['usr', 'bin', 'snmpwalk'])?.kind).toBe('file');
     expect(nodeAt(box, ['usr', 'bin', 'snmpset'])?.kind).toBe('file');
     expect(nodeAt(box, ['usr', 'sbin', 'snmpd'])?.kind).toBe('file');
@@ -226,26 +256,26 @@ describe('the key box of a contract network', () => {
     expect(nodeAt(box, ['etc', 'iptables'])).toBeUndefined();
   });
 
-  it.each([
-    ['hydra', HYDRA],
-    ['msfconsole', MSF],
-    ['web', WEB],
-    ['ftp', FTP],
-    ['mysql', MYSQL],
-  ] as const)('runs no agent and holds no community on the %s route', (_route, missionNumber) => {
-    const box = buildMissionKeyBoxFs(missionNumber);
+  it.each(['hydra', 'msfconsole', 'web', 'ftp', 'mysql'] as const)(
+    'runs no agent and holds no community on the %s route with no agent decoy',
+    (route) => {
+      const box = buildMissionKeyBoxFs(numberWithRoute(route, ['snmp']));
 
-    expect(readSnmpdState(box)).toBe('');
-    expect(nodeAt(box, ['var', 'log', 'snmpd.log'])).toBeUndefined();
-    expect(readOpenPorts(box).some((port) => port.service === 'snmp')).toBe(false);
-  });
+      expect(readSnmpdState(box)).toBe('');
+      expect(readSnmpdConf(box)).toBe('');
+      expect(nodeAt(box, ['var', 'log', 'snmpd.log'])).toBeUndefined();
+      expect(readOpenPorts(box).some((port) => port.service === 'snmp')).toBe(false);
+    },
+  );
 
   it('answers its own sshd, the hydra route reached through the forward', () => {
     expect(readOpenPorts(buildMissionKeyBoxFs(HYDRA)).some((port) => port.service === 'ssh')).toBe(
       true,
     );
-    // The hydra key box exposes no other service of its own.
-    expect(readOpenPorts(buildMissionKeyBoxFs(HYDRA)).map((port) => port.service)).toEqual(['ssh']);
+    // Nothing else of its own listens there, only its decoys' daemons.
+    expect(readOpenPorts(buildMissionKeyBoxFs(HYDRA)).map((port) => port.service).sort()).toEqual(
+      servicesNamedFor(HYDRA),
+    );
   });
 
   it('runs the msfconsole route service on its critical release, reachable to a scan', () => {
@@ -289,6 +319,73 @@ describe('the key box of a contract network', () => {
     for (const log of ['access.log', 'auth.log', 'kern.log']) {
       expect(fileAt(fs, ['var', 'log', log])).toBe('');
     }
+  });
+});
+
+describe('a decoy on the key box', () => {
+  // Each is the real door of its kind as the box generates, minus what the server lays in, so
+  // working it is the only way to find it holds nothing.
+  it('serves the stock page behind a web decoy, and nothing else', () => {
+    const box = buildMissionKeyBoxFs(numberWithDecoy('web'));
+
+    expect(fileAt(box, ['var', 'www', 'html', 'index.html'])).toContain('It works!');
+    expect(listTree(box).filter((path) => path.startsWith('var/www/'))).toEqual([
+      'var/www/html/index.html',
+    ]);
+  });
+
+  it('lets anonymous into an empty pub behind an ftp decoy', () => {
+    const box = buildMissionKeyBoxFs(numberWithDecoy('ftp'));
+
+    expect(fileAt(box, ['etc', 'vsftpd.conf'])).toMatch(/^anonymous_enable=YES$/m);
+    expect(nodeAt(box, ['srv', 'ftp', 'pub'])?.kind).toBe('directory');
+    expect(listTree(box).filter((path) => path.startsWith('srv/'))).toEqual([]);
+    expect(fileAt(box, ['var', 'log', 'vsftpd.log'])).toBe('');
+  });
+
+  it('keeps a generated application behind a database decoy, with no word and no key', () => {
+    const missionNumber = numberWithDecoy('mysql');
+    const database = databaseIn(buildMissionKeyBoxFs(missionNumber));
+
+    expect(database?.credentials[1]?.passwordHash).toBe(
+      missionShape(missionNumber).keyBoxDatabase?.accountHash,
+    );
+    expect(Object.keys(database?.tables ?? {})).not.toContain('settings');
+    expect(Object.keys(database?.tables ?? {})).not.toContain('api_keys');
+  });
+
+  it('answers a guessable community behind an snmp decoy, with an ordinary contact', () => {
+    const box = buildMissionKeyBoxFs(numberWithDecoy('snmp'));
+    const conf = parseSnmpdConf(readSnmpdConf(box));
+
+    expect(['monitor', 'netops']).toContain(conf.roCommunity);
+    expect(conf.sysContact).toBe('netops@corp.local');
+    expect(nodeAt(box, ['etc', 'snmp', 'snmpd.conf'])?.perms).toEqual(SNMPD_CONF_PERMISSIONS);
+    expect(SHUT_HASHES).toContain(readRwCommunityHash(box));
+    expect(fileAt(box, ['var', 'log', 'snmpd.log'])).toBe('');
+  });
+
+  it('reads line for line like the snmp route config, but for its community and contact', () => {
+    // A header or a trailing newline the route's file lacks would tell a guest which is which.
+    const decoy = readSnmpdConf(buildMissionKeyBoxFs(numberWithDecoy('snmp'))).split('\n');
+    const route = (missionLeakFile(SNMP_ROUTE_NUMBER, DEPLOYMENT_SECRETS)?.content ?? '').split('\n');
+
+    expect(decoy).toHaveLength(route.length);
+    expect(decoy[0]).toBe(route[0]);
+    expect(decoy.at(-1)).toBe(route.at(-1));
+  });
+
+  it('draws both guessable communities across contracts', () => {
+    const communityOf = (missionNumber: number): string | null =>
+      parseSnmpdConf(readSnmpdConf(buildMissionKeyBoxFs(missionNumber))).roCommunity;
+    const communities = new Set(
+      Array.from({ length: 3000 }, (_unused, index) => index + 2)
+        .filter((missionNumber) => missionShape(missionNumber).decoys.includes('snmp'))
+        .slice(0, 40)
+        .map(communityOf),
+    );
+
+    expect([...communities].sort()).toEqual(['monitor', 'netops']);
   });
 });
 

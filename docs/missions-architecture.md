@@ -97,11 +97,8 @@ clock:
   (`safeBaseVersions`, `safeFirmwareVersions`). A release whose hole has not published is never
   used for this: the generator cannot know what it will grant. The gateway's admin and, on the
   msfconsole route, the key box's `root` are the doors that stay shut. A leak route's door sits on
-  a safe release too, so `msfconsole` finds no root through it. **No decoy services are drawn
-  yet**: the key box runs the route's service (or, on the hydra route, only its sshd), and
-  `keyBoxServices` and `show`'s `Services:` line are where decoys will appear. So a scan tells the
-  route: `2222` alone is hydra, `80` alone is msfconsole, and `80`, `21`, `3306` or `161`
-  with `2222` is a leak. Decoys blurring that would re-roll every network.
+  a safe release too, so `msfconsole` finds no root through it. Decoys (below) sit on safe
+  releases as well.
 - **`MISSION_ROUTE_DAY = 111`.** A route release is one whose `critical` hole published on or
   before that day. The clock only moves forward, so every route stays open for good, and
   `liveCve` keeps a published hole live on every box still on its release. A test walks every
@@ -116,6 +113,45 @@ the key), as anywhere in the world. The guardian's rounds and `guardian.ts resto
 mission box, which also keeps the old releases the routes rest on pinned. A wrecked network is
 left as it is: a contractor who already read the key still completes; one who did not drops the
 job.
+
+## Decoys
+
+Without them a scan told the route: `2222` alone was hydra, `80` alone msfconsole, a door beside
+`2222` a leak. Since v0.449.0 **every gateway forwards 3 or 4 ports**, each about half the time,
+and decoys fill the gap above the real forwards (the route's, then `:3306` on database storage).
+A contract has 1–3 real forwards, so every route reaches both counts and the count says nothing:
+`2222, 80, 21` could be hydra, msfconsole, a web leak or an ftp leak. With the gateway's own `22`
+a scan shows 4–5 ports.
+
+- **A decoy is a forward plus a real door, and opens no way in.** It is one of the five kinds some
+  route is won through (`MissionDecoy`, `missionShape.ts`), since a port that is never a way in
+  is dismissed at a glance: `ssh` (`:2222` onto the key box's own sshd, the forward alone, `root`
+  as the route drew it), `web` (`:80`), `ftp` (`:21`), `mysql` (`:3306`), `snmp` (`:161`). Never a
+  kind whose public port the contract already forwards, never one twice.
+- **It lets a player in as far as the real door of its kind, onto nothing.** It is the real
+  door's generated build minus what the server lays in, so the two cannot differ on the surface:
+  the stock `It works!` page with no forgotten file; `anonymous_enable=YES` and an empty
+  `/srv/ftp/pub`; the generated application behind a crackable account, with no `settings` and
+  no `api_keys`; an agent whose `/etc/snmp/snmpd.conf` (generated with the box, since it holds no
+  secret) answers a guessable read-only community (`GUESSABLE_COMMUNITIES`, `pools.ts`, shared with
+  the snmp route) with the contact `netops@corp.local`. The server lays nothing for a decoy.
+- **An snmp decoy's read-write community is from `SHUT_HASHES`.** The real snmp route's word comes
+  through the read-only walk, so the decoy matches it along that path. A crackable one would hand
+  anyone on about half of all contracts a root-free `snmpset inputPort.22=deny` that shuts
+  `:2222` for good.
+- **Every decoy daemon sits on a safe release**, so the 2,000-number shape test still proves
+  nothing but the route climbs. Accepted: a `:2222` or `:21` decoy lets `hydra` win a guest or
+  user shell where the route offered none, a shell that cannot read the root-only key.
+- **Drawn last, on a stream of its own** (`mission-decoys-<n>`), so no contract's topology, route,
+  hashes, key, key path, storage or pay moved; contracts accepted before v0.449.0 only gained
+  doors. A key box an snmp decoy configures draws its community last on `mission-keybox-<n>`.
+- **The forwards' order is not shuffled**: real first, decoys after. Only `rules.v4` shows it,
+  and the gateway's admin is shut and it runs no agent.
+- `show` tags each decoy forward and service `(decoy)`.
+
+**To add a decoy kind:** `DECOY_KINDS` and `DECOY_SERVICES` in `missionShape.ts`, and whatever
+the key box must carry for its door in `missionKeyBoxFs.ts`. A new route whose door is a new kind
+should add it here too, or the scan tells that route again.
 
 ## 3. The key and the secret
 
@@ -247,7 +283,8 @@ Then every route is the same: `ssh root@<address> -p 2222` with the word, the ke
   shell can read the ftp and SNMP files, and `curl localhost` the web one.
 
 **To add a route:** `ROUTES` and `LEAK_ROUTE_DOORS` in `missionShape.ts`, `leakPlaceOf` and `leakContent` in
-`missionLeak.ts`, and `findMissionFiles` at any door in `api/sessions.ts` that reads the file. Two harder
+`missionLeak.ts`, and `findMissionFiles` at any door in `api/sessions.ts` that reads the file. If the new
+route's door is a new kind, add it as a decoy kind too ("Decoys", above). Two harder
 templates were left for later: a user login then a second leak for root, and a path off the default list
 with a pointer to it.
 
@@ -420,7 +457,9 @@ leaves 14 B: the next feature needs another raise or the lazy-loading in `backlo
   limit); `testMissionContracts.ts` (11: the root view, through real accepts, a drop and a
   completion); one per leak route, each from the scan to the payout and each way a route closes:
   `testMissionLeak.ts` (16), `testMissionFtp.ts` (27), `testMissionMysql.ts` (28),
-  `testMissionSnmp.ts` (35).
+  `testMissionSnmp.ts` (35); and `testMissionDecoys.ts` (15: every decoy kind worked to its empty
+  end on two staged contracts, then the hydra route paid beside three decoys). The decoys' doors are
+  also proven in `decoyMissionDoors.test.ts`.
 - **Mutation**: every slice's scoped run left no survivor but equivalents.
 - **One browser run at the epic's close-out** (2026-11-03, v0.441.0), two players in headed
   browsers, each in a different town. alice signed up on emailit.io, applied with `curl -d`, read
@@ -451,8 +490,8 @@ leaves 14 B: the next feature needs another raise or the lazy-loading in `backlo
 
 ## What follows
 
-Deferred, in `backlog.md` under "missions — deferred": decoy services on the boxes (planned for
-slice 1, not built); further templates (deep chains, switches, the library route, stealth,
+Deferred, in `backlog.md` under "missions — deferred": believable filler behind real doors and
+decoys alike; further templates (deep chains, switches, the library route, stealth,
 deadlines, a harder leak); file exfiltration, which
 needs attachments; recognition for completed jobs; a second, darknet operator.
 

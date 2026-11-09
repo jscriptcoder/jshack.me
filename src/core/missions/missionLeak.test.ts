@@ -438,6 +438,19 @@ describe('missionFilePaths', () => {
       }
     }
   });
+
+  it('lays nothing in for a decoy, which is the real door as the box generates', () => {
+    // A decoy's agent config is the generated box's, so a root's edit of it is the box's own
+    // write and never one the server would lay over.
+    for (const missionNumber of SAMPLE_NUMBERS) {
+      const { route, decoys } = missionShape(missionNumber);
+      if (route === 'snmp' || !decoys.includes('snmp')) continue;
+
+      expect(missionFilePaths(missionNumber), `${route} ${missionNumber}`).not.toContain(
+        SNMPD_CONF_PATH,
+      );
+    }
+  });
 });
 
 describe('a contract that keeps its key encrypted', () => {
