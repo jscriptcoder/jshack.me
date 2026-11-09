@@ -75,6 +75,14 @@ const leakLines = (missionNumber: number, rawSecrets: string | undefined): reado
   return [`  Leak:     ${path}`, `  Word:     ${word ?? '(JSHACK_SECRETS is not set)'}`];
 };
 
+/** How the key is stored, with what the operator needs to reach it: the passphrase that opens
+ *  a sealed key, the table a database keeps it in. */
+const storageDetail = (missionNumber: number, secret: string): string => {
+  const { storage } = missionShape(missionNumber);
+  if (storage === 'gpg') return `gpg, passphrase ${missionPassphrase(missionNumber, secret)}`;
+  return storage === 'database' ? 'database, table api_keys' : storage;
+};
+
 /** The multi-line report `show <address>` prints for a contract number: the address and
  *  essid it answers at, the one guaranteed route, the gateway's forwards, the key box's
  *  services, and — the operator-only half — how the key is stored, the key and the file it
@@ -103,9 +111,7 @@ export const showReport = (
     ),
     `  Services:`,
     services,
-    shape.storage === 'gpg'
-      ? `  Storage:  gpg, passphrase ${missionPassphrase(missionNumber, secret)}`
-      : `  Storage:  ${shape.storage}`,
+    `  Storage:  ${storageDetail(missionNumber, secret)}`,
     `  Key path: ${missionKeyFilePath(missionNumber)}`,
     `  Key:      ${missionKey(missionNumber, secret)}`,
     ...leakLines(missionNumber, rawSecrets),

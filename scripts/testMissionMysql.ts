@@ -13,6 +13,10 @@
 //   - THE JOB PAYS AS ON ANY ROUTE: root reads the key, and mailing it mints the pay.
 //   - THE JOURNAL WINS: a change to another table keeps `settings`, a DELETE sticks, and a root's
 //     rm refuses the account. The key is untouched by any of it.
+//   - A KEY KEPT IN THE DATABASE, on the database route and on a hydra route, is worked from the
+//     player's own box: nmap shows :3306, the sweep finds the account, SELECT from api_keys gives
+//     the key `show` prints, and the mail pays. No key file is laid. On the hydra route a root
+//     also reads the key out of data.json, and a root's rm of it refuses the account.
 //
 // The word is compared and never printed. `show` prints it, so its output is checked and not
 // echoed. The password an account is swept with is treated the same way.
@@ -43,7 +47,11 @@ import {
   WORDLIST_PATH,
   formatWordlist,
 } from '../src/core/wordlist/defaultWordlist.js';
-import { missionShape } from '../src/core/missions/missionShape.js';
+import {
+  missionShape,
+  type MissionRoute,
+  type MissionStorage,
+} from '../src/core/missions/missionShape.js';
 import { missionKey, missionKeyPath } from '../src/core/missions/missionSecret.js';
 import { missionTerms } from '../src/core/missions/missionTerms.js';
 import {
@@ -111,21 +119,23 @@ const runHireme = (args: readonly string[]): string =>
     shell: true,
   }).trim();
 
-const databaseNumber = (from: number): number => {
+const numberWith = (route: MissionRoute, storage: MissionStorage, from: number): number => {
   for (let candidate = from; candidate < from + 20000; candidate += 1) {
-    // A contract that keeps its key in a plain file, which is where this check reads it.
     if (
       isMissionNumber(candidate) &&
-      missionShape(candidate).route === 'mysql' &&
-      missionShape(candidate).storage === 'file'
+      missionShape(candidate).route === route &&
+      missionShape(candidate).storage === storage
     ) {
       return candidate;
     }
   }
-  throw new Error(`no database route number found from ${from}`);
+  throw new Error(`no ${route} route ${storage} number found from ${from}`);
 };
 
-const DATABASE_NUMBER = databaseNumber(220000);
+// The first sections read the key from a plain file, so their contract keeps it in one.
+const DATABASE_NUMBER = numberWith('mysql', 'file', 220000);
+const KEPT_ON_DATABASE_ROUTE = numberWith('mysql', 'database', 220000);
+const KEPT_ON_HYDRA_ROUTE = numberWith('hydra', 'database', 220000);
 const ESSID = missionEssid(DATABASE_NUMBER);
 const ADDRESS = missionAddressForNumber(DATABASE_NUMBER) ?? '';
 const KEY_PATH = missionKeyPath(DATABASE_NUMBER);
@@ -174,12 +184,12 @@ type Login = { readonly username: string; readonly password: string };
 const ACCOUNT_LOGIN: Login = { username: ACCOUNT, password: ACCOUNT_PASSWORD };
 
 /** A database login, as the `mysql` command sends it from a workstation. */
-const connect = (login: Login) =>
+const connect = (login: Login, target: string = ADDRESS) =>
   post(
     SESSIONS,
     signRequest(contractor, 'mysqlConnect', {
       essid: homeEssid,
-      target_ip: ADDRESS,
+      target_ip: target,
       port: DATABASE_PORT,
       ...login,
     }),
@@ -188,14 +198,16 @@ const connect = (login: Login) =>
 /** One statement over the public door, returning its printed output as one string. */
 const statement = async (
   line: string,
+  login: Login = ACCOUNT_LOGIN,
+  target: string = ADDRESS,
 ): Promise<{ readonly status: number; readonly failed: unknown; readonly output: string }> => {
   const answer = await post(
     SESSIONS,
     signRequest(contractor, 'mysqlStatement', {
       essid: homeEssid,
-      target_ip: ADDRESS,
+      target_ip: target,
       port: DATABASE_PORT,
-      ...ACCOUNT_LOGIN,
+      ...login,
       statement: line,
     }),
   );
@@ -207,12 +219,12 @@ const statement = async (
   };
 };
 
-const hydra = (service: 'ssh' | 'mysql', port: number) =>
+const hydra = (service: 'ssh' | 'mysql', port: number, target: string = ADDRESS) =>
   post(
     SESSIONS,
     signRequest(contractor, 'hydraCrack', {
       essid: homeEssid,
-      target_ip: ADDRESS,
+      target_ip: target,
       service,
       caller_machine_id: WORKSTATION,
       port,
@@ -222,13 +234,18 @@ const hydra = (service: 'ssh' | 'mysql', port: number) =>
 let sshKnocks = 0;
 
 /** A login over the forward to the box's own sshd. */
-const sshToKeyBox = (caller: typeof contractor, username: string, password: string) => {
+const sshToKeyBox = (
+  caller: typeof contractor,
+  username: string,
+  password: string,
+  target: string = ADDRESS,
+) => {
   sshKnocks += 1;
   return post(
     SESSIONS,
     signRequest(caller, 'authCreateSessionPublic', {
       session_id: `ssh-${RUN}-${sshKnocks}`,
-      target: ADDRESS,
+      target,
       port: 2222,
       username,
       password,
@@ -239,10 +256,13 @@ const sshToKeyBox = (caller: typeof contractor, username: string, password: stri
   );
 };
 
-const readBox = async (caller: typeof contractor): Promise<Directory | null> => {
+const readBox = async (
+  caller: typeof contractor,
+  machineId: string = KEY_BOX,
+): Promise<Directory | null> => {
   const answer = await post(
     NETWORK,
-    signRequest(caller, 'resolveCrossPlayerFs', { machine_id: KEY_BOX }),
+    signRequest(caller, 'resolveCrossPlayerFs', { machine_id: machineId }),
   );
   return answer.status === 200
     ? deserializeTree((answer.body as { tree: SerializedDirectory }).tree)
@@ -271,11 +291,29 @@ const balanceOf = async (address: string): Promise<number> => {
   return (answer.body as { balance?: number } | null)?.balance ?? -1;
 };
 
+/** The key box and gateway of a contract, by number. */
+const boxesOf = (missionNumber: number) => {
+  const essid = missionEssid(missionNumber);
+  const host = generateHomeLan(essid).hosts.find((candidate) => candidate.kind === 'machine');
+  if (host === undefined) throw new Error('a contract network has a key box');
+  return { keyBox: machineIdForLanHost(host, essid), gateway: computeApGatewayId(essid) };
+};
+
+const KEPT_IN_DATABASE = [KEPT_ON_DATABASE_ROUTE, KEPT_ON_HYDRA_ROUTE] as const;
+const walletFor = (missionNumber: number): string =>
+  `jsc${md5(`${RUN}:${missionNumber}`)}${md5(String(missionNumber)).slice(0, 8)}`;
+
 const cleanup = async () => {
-  await sr.from('hireme_missions').delete().eq('number', DATABASE_NUMBER);
+  for (const missionNumber of [DATABASE_NUMBER, ...KEPT_IN_DATABASE]) {
+    await sr.from('hireme_missions').delete().eq('number', missionNumber);
+  }
   await sr.from('email_accounts').delete().eq('signed_up_by', contractor.publicKeyHex);
   await sr.from('email_sends').delete().eq('player_key', contractor.publicKeyHex);
-  for (const machineId of [KEY_BOX, GATEWAY, WORKSTATION]) {
+  const keptBoxes = KEPT_IN_DATABASE.flatMap((missionNumber) => {
+    const { keyBox, gateway } = boxesOf(missionNumber);
+    return [keyBox, gateway];
+  });
+  for (const machineId of [KEY_BOX, GATEWAY, WORKSTATION, ...keptBoxes]) {
     await sr.from('patches').delete().eq('machine_id', machineId);
   }
   for (const player of [contractor, visitor, shellPlayer]) {
@@ -283,8 +321,155 @@ const cleanup = async () => {
     await sr.from('home_network_occupants').delete().eq('owner_key', player.publicKeyHex);
     await sr.from('network_lan_leases').delete().eq('owner_key', player.publicKeyHex);
   }
-  await sr.from('wallet_transfers').delete().eq('to_address', WALLET_ADDRESS);
-  await sr.from('wallet_balances').delete().eq('address', WALLET_ADDRESS);
+  for (const address of [WALLET_ADDRESS, ...KEPT_IN_DATABASE.map(walletFor)]) {
+    await sr.from('wallet_transfers').delete().eq('to_address', address);
+    await sr.from('wallet_balances').delete().eq('address', address);
+  }
+};
+
+/** Works a contract that keeps its key in its database from the player's own box, as a database
+ *  user and never on a shell; on a route that roots the box, root reads it out of the datadir
+ *  too. The key is compared and never printed. */
+const workKeptInDatabase = async (missionNumber: number, index: number) => {
+  const shape = missionShape(missionNumber);
+  const label = `${shape.route} route, key in the database (${missionNumber})`;
+  const address = missionAddressForNumber(missionNumber) ?? '';
+  const key = missionKey(missionNumber, secret);
+  const { keyBox } = boxesOf(missionNumber);
+  const handle = `dbk${index}${RUN}`;
+  const wallet = walletFor(missionNumber);
+  console.log(`\n${label} at ${address}`);
+
+  const { error: mailboxError } = await sr.from('email_accounts').insert({
+    handle,
+    password_md5: md5('s3cret'),
+    signed_up_by: contractor.publicKeyHex,
+  });
+  if (mailboxError) throw new Error(`mailbox insert failed: ${mailboxError.message}`);
+  runHireme(['accept', handle, '--number', String(missionNumber)]);
+  const shown = runHireme(['show', address]);
+  check(
+    `${label}: show names the table and the key`,
+    shown.includes('Storage:  database, table api_keys') && shown.includes(`Key:      ${key}`),
+    '(output not echoed: it holds the key)',
+  );
+
+  const scan = await post(
+    NETWORK,
+    signRequest(contractor, 'resolvePublicScan', { target: address }),
+  );
+  check(
+    `${label}: nmap shows :3306 beside the route`,
+    scan.status === 200 && portsOf(scan.body).includes(DATABASE_PORT),
+    `status ${scan.status} ports=[${portsOf(scan.body).join(',')}]`,
+  );
+
+  const generated = databaseIn(buildMissionKeyBoxFs(missionNumber))?.credentials.find(
+    (credential) => credential.userType === 'user',
+  );
+  if (generated === undefined) throw new Error('a database has an application account');
+  const login: Login = {
+    username: generated.username,
+    password: plaintextFor(generated.passwordHash),
+  };
+  const swept = await hydra('mysql', DATABASE_PORT, address);
+  check(
+    `${label}: hydra <address> mysql finds the account and not database root`,
+    swept.status === 200 &&
+      crackedUsernames(swept.body).includes(login.username) &&
+      !crackedUsernames(swept.body).includes('root'),
+    `status ${swept.status} cracked ${crackedUsernames(swept.body).length}`,
+  );
+
+  const opened = await connect(login, address);
+  check(
+    `${label}: mysql <address> <account> opens`,
+    opened.status === 200,
+    `status ${opened.status}`,
+  );
+  const tables = await statement('SHOW TABLES', login, address);
+  check(
+    `${label}: SHOW TABLES lists api_keys${shape.route === 'mysql' ? ' and settings' : ''}`,
+    tables.status === 200 &&
+      tables.output.includes('api_keys') &&
+      tables.output.includes('settings') === (shape.route === 'mysql'),
+    `status ${tables.status}`,
+  );
+  const selected = await statement('SELECT * FROM api_keys', login, address);
+  check(
+    `${label}: SELECT * FROM api_keys gives the key show prints`,
+    selected.status === 200 && selected.output.includes(key),
+    `status ${selected.status}`,
+  );
+
+  const terms = missionTerms(missionNumber);
+  const mailed = await post(
+    NETWORK,
+    signRequest(contractor, 'resolveMail', {
+      op: 'send',
+      password: 's3cret',
+      subject: 'the job',
+      handle,
+      to: terms.client.handle,
+      body: `${key}\n${wallet}\n`,
+    }),
+  );
+  check(
+    `${label}: mailing the key pays`,
+    mailed.status === 200 && (await balanceOf(wallet)) === terms.pay,
+    `status ${mailed.status} balance ${await balanceOf(wallet)} (want ${terms.pay})`,
+  );
+
+  if (shape.route !== 'hydra') {
+    const deleted = await statement(
+      "DELETE FROM api_keys WHERE service = 'portal'",
+      login,
+      address,
+    );
+    const afterDelete = await statement('SELECT * FROM api_keys', login, address);
+    check(
+      `${label}: after the account's DELETE, a later visitor no longer finds the key`,
+      deleted.status === 200 && deleted.failed === false && !afterDelete.output.includes(key),
+      `delete ${deleted.status}, select ${afterDelete.status}`,
+    );
+    return;
+  }
+
+  // The hydra route roots the box: its root is crackable, and on the list every player has.
+  const rootSweep = await hydra('ssh', 2222, address);
+  check(
+    `${label}: hydra finds root on :2222`,
+    rootSweep.status === 200 && crackedUsernames(rootSweep.body).includes('root'),
+    `status ${rootSweep.status}`,
+  );
+  const rooted = await sshToKeyBox(
+    contractor,
+    'root',
+    plaintextFor(shape.keyBoxRootHash),
+    address,
+  );
+  check(`${label}: ssh root lands`, rooted.status === 200, `status ${rooted.status}`);
+  const asRoot = await readBox(contractor, keyBox);
+  check(
+    `${label}: that root reads the key out of data.json, and finds no key file`,
+    readFile(asRoot, 'root', DATADIR_PATH)?.includes(key) === true &&
+      readFile(asRoot, 'root', missionKeyPath(missionNumber)) === null,
+    DATADIR_PATH,
+  );
+  const removed = await post(
+    PATCHES,
+    signRequest(contractor, 'removePatch', {
+      machine_id: keyBox,
+      path: DATADIR_PATH,
+      owner: 'root',
+    }),
+  );
+  const afterRm = await connect(login, address);
+  check(
+    `${label}: after a root's rm of data.json, the account's login is refused`,
+    removed.status === 200 && afterRm.status === 401,
+    `rm ${removed.status}, login ${afterRm.status}`,
+  );
 };
 
 const main = async () => {
@@ -571,6 +756,11 @@ const main = async () => {
     readFile(await readBox(contractor), 'root', KEY_PATH)?.trim() === KEY,
     `key path ${KEY_PATH}`,
   );
+
+  // === 11. A KEY KEPT IN THE DATABASE, ON THE DATABASE ROUTE AND OFF IT. ===
+  for (const [index, missionNumber] of KEPT_IN_DATABASE.entries()) {
+    await workKeptInDatabase(missionNumber, index);
+  }
 
   await cleanup();
 

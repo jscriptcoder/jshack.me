@@ -23,14 +23,16 @@
  *
  * The services: sshd always (so the box answers a login once a route lands it, and so the
  * hydra and leak routes' forwards reach a real sshd), plus the one exposed service the shape
- * puts on the msfconsole route, on a critical release, and on a leak route, on a safe one.
+ * puts on the msfconsole route, on a critical release, and on a leak route, on a safe one, and
+ * mysqld on a safe release on a contract keeping its key in a database.
  *
  * The ftp route also carries what its door reads and lands in: a config letting `anonymous`
  * in, and an empty `/srv/ftp/pub`. No other key box says anything of the kind.
  *
- * The database route carries a generated application behind exactly two accounts, so the
- * route's one way in is the only one, and no config, since no door reads it. The server's copy
- * of this datadir adds the table holding the word, so the one here never says it.
+ * A box running a database (the database route, and a contract keeping its key in one) carries
+ * a generated application behind exactly two accounts, so the sweep's one login is the only one,
+ * and no config, since no door reads it. The server's copy of this datadir adds the tables
+ * holding the word and the key, so the one here says neither.
  *
  * The snmp route carries the hashed read-write community a sweep attacks. Its agent config is
  * the server's alone, since that holds both the word and the community a walk can guess.

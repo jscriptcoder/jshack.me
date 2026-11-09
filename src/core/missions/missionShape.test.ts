@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { MISSION_ROUTE_DAY, missionShape, type MissionRoute } from './missionShape.js';
+import {
+  MISSION_ROUTE_DAY,
+  missionShape,
+  type MissionForward,
+  type MissionRoute,
+  type MissionShape,
+  type MissionStorage,
+} from './missionShape.js';
 import { liveCve } from '../cve/liveCve.js';
 import { exploitOutcome } from '../cve/exploitEffect.js';
 import { packageTimeline } from '../cve/packageTimeline.js';
@@ -90,8 +97,13 @@ describe('missionShape', () => {
     }
   });
 
-  const firstWithRoute = (route: MissionRoute): number => {
-    const found = SAMPLE_NUMBERS.find((missionNumber) => missionShape(missionNumber).route === route);
+  /** The first contract on this route keeping its key as `storage` says: a plain file unless
+   *  told otherwise, since a database contract adds a door of its own beside the route's. */
+  const firstWithRoute = (route: MissionRoute, storage: MissionStorage = 'file'): number => {
+    const found = SAMPLE_NUMBERS.find((missionNumber) => {
+      const shape = missionShape(missionNumber);
+      return shape.route === route && shape.storage === storage;
+    });
     if (found === undefined) throw new Error(`no ${route} contract in the sample`);
     return found;
   };
@@ -186,7 +198,7 @@ describe('missionShape', () => {
     // hole to fall through: the forward to :2222 is what the word logs in by.
     for (const missionNumber of SAMPLE_NUMBERS) {
       const shape = missionShape(missionNumber);
-      if (shape.route !== 'web') continue;
+      if (shape.route !== 'web' || shape.storage === 'database') continue;
 
       const [webService] = shape.keyBoxServices;
       expect(webService?.service, `web service for ${missionNumber}`).toBe('http');
@@ -204,7 +216,7 @@ describe('missionShape', () => {
     // to fall through. :2222 is what tells a scan this route from an msfconsole route on :21.
     for (const missionNumber of SAMPLE_NUMBERS) {
       const shape = missionShape(missionNumber);
-      if (shape.route !== 'ftp') continue;
+      if (shape.route !== 'ftp' || shape.storage === 'database') continue;
 
       const [ftpService] = shape.keyBoxServices;
       expect(ftpService?.service, `ftp service for ${missionNumber}`).toBe('ftp');
@@ -252,12 +264,77 @@ describe('missionShape', () => {
     }
   });
 
-  it('draws no database on any other route', () => {
+  it('draws no database on any other route, unless the key is kept in one', () => {
     for (const missionNumber of SAMPLE_NUMBERS) {
       const shape = missionShape(missionNumber);
-      if (shape.route === 'mysql') continue;
+      if (shape.route === 'mysql' || shape.storage === 'database') continue;
       expect(shape.keyBoxDatabase, `${shape.route} route ${missionNumber}`).toBeNull();
+      expect(
+        shape.keyBoxServices.some(({ service }) => service === 'mysql'),
+        `${shape.route} route ${missionNumber}`,
+      ).toBe(false);
     }
+  });
+
+  describe('on a contract that keeps its key in its database', () => {
+    // The key is reached from outside, as a database user: whatever the route, the box runs the
+    // database behind a forward and an application login a sweep finds. The route still roots
+    // the box, which is a second way to the same row.
+    const databaseContracts: readonly MissionShape[] = SAMPLE_NUMBERS.map(missionShape).filter(
+      (shape) => shape.storage === 'database',
+    );
+
+    const SSH: MissionForward = { publicPort: 2222, internalPort: 22 };
+    const DATABASE: MissionForward = { publicPort: 3306, internalPort: 3306 };
+    const ROUTE_FORWARDS: Readonly<Record<MissionRoute, readonly MissionForward[]>> = {
+      hydra: [SSH],
+      msfconsole: [{ publicPort: 80, internalPort: 80 }],
+      web: [{ publicPort: 80, internalPort: 80 }, SSH],
+      ftp: [{ publicPort: 21, internalPort: 21 }, SSH],
+      mysql: [DATABASE, SSH],
+      snmp: [{ publicPort: 161, internalPort: 161 }, SSH],
+    };
+
+    it('meets every route', () => {
+      expect(new Set(databaseContracts.map(({ route }) => route))).toEqual(
+        new Set(['hydra', 'msfconsole', 'web', 'ftp', 'mysql', 'snmp']),
+      );
+    });
+
+    it('runs one mysqld, on a release whose hole grants a guest at most', () => {
+      for (const shape of databaseContracts) {
+        const label = `${shape.route} route ${shape.missionNumber}`;
+        const databases = shape.keyBoxServices.filter(({ service }) => service === 'mysql');
+
+        expect(databases, label).toHaveLength(1);
+        expect(databases[0]?.program, label).toBe('mysqld');
+        expect(databases[0]?.port, label).toBe(3306);
+        expect(shape.keyBoxVersions['mysql'], label).toBe(databases[0]?.version);
+        expect(['low', 'medium'], label).toContain(
+          pinnedSeverities({ mysql: databases[0]?.version ?? '' })[0],
+        );
+      }
+    });
+
+    it('forwards :3306 after the route own forwards, and only once on the database route', () => {
+      for (const shape of databaseContracts) {
+        const routeForwards = ROUTE_FORWARDS[shape.route];
+
+        expect(shape.forwards, `${shape.route} route ${shape.missionNumber}`).toEqual(
+          shape.route === 'mysql' ? routeForwards : [...routeForwards, DATABASE],
+        );
+      }
+    });
+
+    it('puts the application account on the default list, and its root out of reach', () => {
+      const listed = DEFAULT_WORDLIST.map((word) => md5(word));
+      for (const shape of databaseContracts) {
+        const label = `${shape.route} route ${shape.missionNumber}`;
+
+        expect(listed, label).toContain(shape.keyBoxDatabase?.accountHash);
+        expect(SHUT_HASHES, label).toContain(shape.keyBoxDatabase?.rootHash);
+      }
+    });
   });
 
   it('gives the snmp route an agent on a safe release, reached through :161 beside :2222', () => {
@@ -265,7 +342,7 @@ describe('missionShape', () => {
     // through. :2222 is what the word logs in by, since an agent cannot log anybody in.
     for (const missionNumber of SAMPLE_NUMBERS) {
       const shape = missionShape(missionNumber);
-      if (shape.route !== 'snmp') continue;
+      if (shape.route !== 'snmp' || shape.storage === 'database') continue;
 
       const [agent] = shape.keyBoxServices;
       expect(agent?.service, `service for ${missionNumber}`).toBe('snmp');

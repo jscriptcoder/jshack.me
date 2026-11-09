@@ -1064,19 +1064,44 @@ describe('the gateway of a contract network', () => {
     expect(readOpenPorts(gateway()).some((openPort) => openPort.service === 'ssh')).toBe(true);
   });
 
-  it('forwards both of a web route\'s doors onto the key box', () => {
-    const webNumber = Array.from({ length: 5000 }, (_unused, index) => index + 66051).find(
-      (candidate) => isMissionNumber(candidate) && missionShape(candidate).route === 'web',
+  /** The first web route contract in the range keeping its key as `storage` says. */
+  const webNumberWith = (storage: 'file' | 'database'): number => {
+    const found = Array.from({ length: 5000 }, (_unused, index) => index + 66051).find(
+      (candidate) =>
+        isMissionNumber(candidate) &&
+        missionShape(candidate).route === 'web' &&
+        missionShape(candidate).storage === storage,
     );
-    if (webNumber === undefined) throw new Error('no web route contract in the range');
-    const essid = missionEssid(webNumber);
-    const keyBoxIp = `${generateHomeLan(essid).subnet}.${missionShape(webNumber).keyBoxOctet}`;
+    if (found === undefined) throw new Error(`no web route ${storage} contract in the range`);
+    return found;
+  };
 
-    const rules = fileAt(buildApGatewayBaseFs(essid), ['etc', 'iptables'], 'rules.v4');
+  const forwardRulesOf = (missionNumber: number) => {
+    const essid = missionEssid(missionNumber);
+    return {
+      keyBoxIp: `${generateHomeLan(essid).subnet}.${missionShape(missionNumber).keyBoxOctet}`,
+      rules: parseForwardRules(
+        fileAt(buildApGatewayBaseFs(essid), ['etc', 'iptables'], 'rules.v4'),
+      ),
+    };
+  };
 
-    expect(parseForwardRules(rules)).toEqual([
+  it('forwards both of a web route\'s doors onto the key box', () => {
+    const { keyBoxIp, rules } = forwardRulesOf(webNumberWith('file'));
+
+    expect(rules).toEqual([
       { publicPort: 80, internalIp: keyBoxIp, internalPort: 80 },
       { publicPort: 2222, internalIp: keyBoxIp, internalPort: 22 },
+    ]);
+  });
+
+  it('forwards the database after the route\'s doors when the key is kept in one', () => {
+    const { keyBoxIp, rules } = forwardRulesOf(webNumberWith('database'));
+
+    expect(rules).toEqual([
+      { publicPort: 80, internalIp: keyBoxIp, internalPort: 80 },
+      { publicPort: 2222, internalIp: keyBoxIp, internalPort: 22 },
+      { publicPort: 3306, internalIp: keyBoxIp, internalPort: 3306 },
     ]);
   });
 
