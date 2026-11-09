@@ -1550,8 +1550,15 @@ agreed order:
     of their own, so no contract's route, hashes, key, storage or pay moved; accepted contracts
     only gained doors. `show` tags each decoy. Evidence: unit tests (10,320), wire-checks
     `testMissionDecoys` 15/15 and the eight existing mission checks 195/195, mutation 64/64
-    killed. The main-chunk ceiling rose to 298,875 B. **Pick up here (2026-11-09):** the
-    close-out browser run in `plans/decoy-services.md`, then retire the plan.
+    killed. The main-chunk ceiling rose to 298,875 B. **Close-out (2026-11-09, v0.449.0):** one
+    browser run on a fresh player on JARROW-CHEMISTS, contract 410091 staged with `hireme.ts
+    accept`: the msfconsole route behind mysql, ftp and snmp decoys. `nmap` showed `22`, `80`,
+    `3306`, `21` and `161`. ftp: `anonymous` landed, `pub` empty. snmp: `public` timed out,
+    `monitor` walked read-only with `netops@corp.local`, `hydra <address> snmp` found nothing.
+    mysql: `hydra` found the application account, the tables held no `settings` and no
+    `api_keys`. Then `msfconsole <address> 80` rooted the key box, `cat` read the key, and the
+    mailed key paid the contract's §700 once. No defect. The plan was retired on close-out. **Pick
+    up here (2026-11-09):** the owner's choice from `backlog.md`.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

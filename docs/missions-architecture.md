@@ -148,6 +148,15 @@ a scan shows 4–5 ports.
 - **The forwards' order is not shuffled**: real first, decoys after. Only `rules.v4` shows it,
   and the gateway's admin is shut and it runs no agent.
 - `show` tags each decoy forward and service `(decoy)`.
+- **Pay is unchanged.** Decoys land on every contract alike, so no job is harder than another.
+- **Rejected:** daemons on the key box with no forward (only a shell there sees them, and whoever
+  has one already found the route); a flat 0–2 decoys (two ports would still mostly mean hydra or
+  msfconsole); every gateway forwarding all five kinds (every scan alike, so players skip it);
+  decoys whose doors stay shut (one failed `hydra` rules each out, saving the player barely
+  anything over the old scan).
+- **Seen in the close-out run (2026-11-09):** the mysql decoy's `credentials` table shows a root
+  md5, the generated application's, neither the box's root nor in the default wordlist, so it is
+  a dead end like the rest of the decoy.
 
 **To add a decoy kind:** `DECOY_KINDS` and `DECOY_SERVICES` in `missionShape.ts`, and whatever
 the key box must carry for its door in `missionKeyBoxFs.ts`. A new route whose door is a new kind

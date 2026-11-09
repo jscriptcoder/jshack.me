@@ -462,3 +462,18 @@ Then every route: `ssh root@<address> -p 2222`, the word at `password:`, `cat <k
 `exit`. To mail the key without a briefing: `mail send <client>@emailit.io <subject>`, click the
 textarea, type `ACCESS-… jsc…`, `^O`, `^X`. The reply's subject is `Contract: <target>`, and a client's
 handle is `missionTerms(n).client.handle`.
+
+### Then: a contract with decoys
+
+Verified 2026-11-09 (v0.449.0), contract 410091: the msfconsole route behind mysql, ftp and snmp
+decoys, each worked to its empty end, then paid. Pick the number offline by
+`missionShape(n).route` and `missionShape(n).decoys` (every gateway forwards 3 or 4 ports, so
+hydra and msfconsole draw 2-3 decoys). Each decoy is worked exactly like the leak route of its
+kind (table above) and ends empty: `pub` holds nothing, the walk shows `netops@corp.local` and
+`hydra <address> snmp` finds no read-write community, and the database has no `settings` table.
+
+| Trap | |
+| --- | --- |
+| `apt install mysql-client` | There is no such package; `mysql` works without an install |
+| `SHOW DATABASES` | Answers a syntax error; `SHOW TABLES` lists the one database |
+| The masked read | A helper that masks the key must hand node a Windows path (`cygpath -w`): with `MSYS_NO_PATHCONV=1` set, a `/c/...` path never opens and the key prints unmasked |
