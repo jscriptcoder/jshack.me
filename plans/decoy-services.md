@@ -1,6 +1,6 @@
 # Plan: decoy services on a contract's network
 
-**Status:** Grilled 2026-11-09. Slice plan to follow. Nothing is built.
+**Status:** Grilled 2026-11-09. One slice planned 2026-11-09. Nothing is built.
 
 Today a public scan of a contract's address tells the route. Past the gateway's own `22`, `2222`
 alone is hydra, `80` alone is msfconsole, and `80`, `21`, `3306` or `161` beside `2222` is a leak
@@ -81,3 +81,125 @@ player is meant to work out. As-built context: [`docs/missions-architecture.md`]
    - **Accepted:** a `:2222` or `:21` decoy lets `hydra` win a guest or user shell on a route that
      offered none before. That shell cannot read the root-only key, as on the hydra and leak routes
      today.
+
+## Where a door is made today (found 2026-11-09)
+
+- `src/core/missions/missionShape.ts`: `missionShape(n)` builds `keyBoxServices`, `keyBoxVersions`,
+  `forwards`, `keyBoxDatabase` and `keyBoxCommunityHash` from the route (on `mission-versions-<n>`)
+  and then the storage (`mission-storage-<n>` picks it; a database storage's mysqld and `:3306`
+  draw last on the versions stream). `safeVersionOf`, `databaseAccounts` and `SHUT_HASHES` are
+  already there for a decoy to reuse.
+- `src/core/generation/missionKeyBoxFs.ts`: the key box's base reads its daemons, pidfiles, logs
+  and `/var/www` off `shape.keyBoxServices`, and its datadir off `shape.keyBoxDatabase`, so a web or
+  mysql decoy needs nothing new there. Two things key off something else: the ftp config and
+  `/srv/ftp/pub` off `shape.route === 'ftp'`, and the snmp state file off `keyBoxCommunityHash`. An
+  snmp decoy also needs an `/etc/snmp/snmpd.conf` in the base, which no key box has today (the snmp
+  route's is laid by the server).
+- `src/core/missions/missionLeak.ts`: the server lays the datadir only on the mysql route or a
+  database storage (`laysDatadir`), and `snmpd.conf` only on the snmp route (`leakPlaceOf`). So a
+  mysql or snmp decoy's door reads the generated base untouched, with nothing laid over it.
+  `GUESSABLE_COMMUNITIES` (`monitor`, `netops`) is private to this server-only module.
+- `src/core/snmp/conf.ts`: `SNMPD_CONF_SEED` is the ordinary device's config (`rocommunity public`,
+  `syscontact netops@corp.local`); `SNMPD_CONF_PATH` and `SNMPD_CONF_PERMISSIONS` are what the
+  decoy's file uses.
+- `src/core/generation/routerFs.ts`: `missionGatewayFs` writes every `shape.forwards` entry into
+  `rules.v4`, so the gateway needs no change.
+- `src/core/missions/hiremeOrders.ts`: `showReport` prints every forward and service from the shape.
+- Tests that pin today's exact forwards: `missionShape.test.ts` (`toEqual` per route) and
+  `missionKeyBoxFs.test.ts` (each route "runs X and sshd"). The wire-checks assert forwards with
+  `includes`, so a decoy does not break them.
+
+---
+
+## Slice 1 — decoys (v0.449.0)
+
+One PR, branch `feat/mission-decoys`. Every contract's gateway gains forwards and its key box gains
+daemons, so the `api/` doors serve new boxes and the wire-check runs before merge.
+
+**Acceptance criteria**
+
+- Every contract's gateway forwards **3 or 4** public ports, each about half the time, the gap above
+  its real forwards filled with decoys. Every route reaches both counts.
+- A decoy is one of `ssh` (`:2222` onto the key box's `:22`), `web` (`:80`), `ftp` (`:21`), `mysql`
+  (`:3306`) or `snmp` (`:161`), never one whose public port the contract already forwards, and no
+  kind twice. Each forward reaches the same port on the key box, as the route's do.
+- For every number: the route, `keyBoxRootHash`, `gatewayAdminHash`, the storage, the stem and the
+  key-box octet are what they were before this slice, and the route's own forwards come first and
+  unchanged (a decoy draws on `mission-decoys-<n>` alone).
+- Every decoy daemon's package sits on a `low` or `medium` release; the existing 2,000-number test
+  (no `critical` or `high` hole on either box but the route's) passes unchanged.
+- **web decoy:** nginx with the stock `It works!` page; `gobuster` through `:80` finds `index.html`
+  and nothing else.
+- **ftp decoy:** `anonymous_enable=YES` and an empty `/srv/ftp/pub`, so an anonymous login lands and
+  lists nothing.
+- **mysql decoy:** the generated application behind a crackable application account (on the default
+  list) and a database root from `SHUT_HASHES`; no `settings` and no `api_keys` table.
+- **snmp decoy:** `/etc/snmp/snmpd.conf` in the base, world-readable, `rocommunity` one of `monitor`
+  or `netops` and `syscontact netops@corp.local`; a read-write community hash from `SHUT_HASHES`.
+  `snmpwalk` with the guessable community answers `READ-ONLY` and prints that contact; `public`
+  gets silence; `hydra <address> snmp` finds nothing.
+- **ssh decoy:** the forward only; the key box's root is what the route drew (shut on msfconsole).
+- The server lays nothing for a decoy: `missionFiles` and `missionFilePaths` are unchanged for
+  every number.
+- `hireme.ts show` marks each decoy forward and service, so the operator can tell the route from
+  the blur.
+- The offer, pay, briefing, key, key path and `/etc/hireme/contracts` are unchanged.
+
+**Shape**
+
+- `missionShape`: a `DECOYS` table of the five kinds (its service record, or none for `ssh`, and its
+  forward). After everything else is drawn, a `mission-decoys-<n>` stream picks the total from
+  `[3, 4]`, then `total - forwards.length` kinds without repeats from those whose public port is not
+  yet forwarded, and draws each one's safe version. A mysql decoy fills `keyBoxDatabase` with
+  `databaseAccounts`; an snmp decoy fills `keyBoxCommunityHash` with a pick from `SHUT_HASHES` and
+  draws its read-only community. The shape gains `decoys`, the kinds drawn, which `showReport` and
+  the key box builder read. Decoys are appended to `keyBoxServices` and `forwards`.
+- `GUESSABLE_COMMUNITIES` moves from `missionLeak.ts` to `missions/pools.ts`, so the shape and the
+  leak draw from one list. A pure move in its own commit.
+- `missionKeyBoxFs.ts`: the ftp config and `/srv/ftp/pub` follow "runs vsftpd", not "is the ftp
+  route"; an snmp decoy gets its `snmpd.conf`. Everything else already follows the services.
+- `showReport`: a `(decoy)` tag on each decoy forward and service line.
+
+**TDD order (RED first, each at its public surface)**
+
+1. `missionShape`, over a sample: forward count is 3 or 4, near half each; every route meets both;
+   no public port twice; every decoy is one of the five; the route's forwards are a prefix of
+   `forwards`, unchanged.
+2. `missionShape`: nothing a contract already had moves (route, hashes, storage, stem, octet), and
+   the existing per-route `toEqual` tests become "begins with the route's forwards".
+3. `missionShape`: a mysql decoy's accounts (application crackable, root shut), an snmp decoy's
+   read-write hash in `SHUT_HASHES`, each decoy on a safe release.
+4. `buildMissionKeyBoxFs`: each decoy kind's box (stock page, anonymous config and empty `pub`,
+   datadir with no word's table, `snmpd.conf` with the guessable community and the ordinary
+   contact) and its pidfile and log.
+5. `missionFiles`/`missionFilePaths`: unchanged for decoy kinds over a sample.
+6. Commands at the doors on staged decoy numbers, through the remote-session harness the leak
+   routes' tests use: `snmpwalk` with the guessable community, `ftp` anonymous `ls`, `mysql` with
+   the cracked account and `SHOW TABLES`.
+7. `showReport`: the `(decoy)` tags.
+
+**Gates**
+
+- `npm run typecheck`, `npm run lint`, the full suite, `npm run build` with `checkBudgets` (raise the
+  ceiling if the build needs it).
+- Wire-check: a new `scripts/testMissionDecoys.ts`, staging numbers through `hireme.ts accept
+  --number` so that each decoy kind appears at least once, working each through the real `/api`
+  endpoints: `nmap` lists every forward; the web decoy's sweep finds only `index.html`; the ftp
+  decoy lets `anonymous` in to an empty `pub`; the mysql decoy's account cracks and its tables hold
+  no word or key; the snmp decoy walks `READ-ONLY` with the guessable community, is silent with
+  `public`, and `hydra` finds no read-write community; and the contract's own route still pays. The
+  existing mission wire-checks re-run green.
+- Mutation gate on the new and changed lines of `missionShape.ts`, `missionKeyBoxFs.ts` and
+  `hiremeOrders.ts`.
+- Version bump to v0.449.0 in `package.json` and `package-lock.json`.
+- One browser run at close-out: a contract with at least two decoys, scanned, each decoy worked to
+  its empty end, then the route worked to the payout.
+
+**Docs**
+
+- `missions-architecture.md`: §2's "No decoy services are drawn yet" and "a scan tells the route"
+  become the decoy rules (kinds, count, depth, the shut read-write community); "To add a route"
+  mentions `DECOYS` when the new route's door is a new kind.
+- `backlog.md`: the decoys item leaves "missions — deferred", and believable filler behind real
+  doors and decoys together joins it.
+- `project-status.md` gains the shipped item.
