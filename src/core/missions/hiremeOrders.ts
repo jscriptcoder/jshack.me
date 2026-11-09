@@ -16,8 +16,8 @@
 
 import { missionShape } from './missionShape.js';
 import { EMAILIT_DOMAIN } from '../generation/fixedSites.js';
-import { missionLeakPath, missionLeakWord } from './missionLeak.js';
-import { missionKey, missionKeyPath } from './missionSecret.js';
+import { missionKeyFilePath, missionLeakPath, missionLeakWord } from './missionLeak.js';
+import { missionKey, missionPassphrase } from './missionSecret.js';
 import { missionAddressForNumber, missionEssid } from './missionNetwork.js';
 import { missionTerms } from './missionTerms.js';
 import { writeAmount } from '../wallet/amount.js';
@@ -77,7 +77,8 @@ const leakLines = (missionNumber: number, rawSecrets: string | undefined): reado
 
 /** The multi-line report `show <address>` prints for a contract number: the address and
  *  essid it answers at, the one guaranteed route, the gateway's forwards, the key box's
- *  services, and — the operator-only half — the key and the path it sits at, and on a leak
+ *  services, and — the operator-only half — how the key is stored, the key and the file it
+ *  is in (with the passphrase that opens it on a gpg contract), and on a leak
  *  route the file and the word in it, all derived from the deployment's secrets. */
 export const showReport = (
   missionNumber: number,
@@ -102,7 +103,10 @@ export const showReport = (
     ),
     `  Services:`,
     services,
-    `  Key path: ${missionKeyPath(missionNumber)}`,
+    shape.storage === 'gpg'
+      ? `  Storage:  gpg, passphrase ${missionPassphrase(missionNumber, secret)}`
+      : `  Storage:  ${shape.storage}`,
+    `  Key path: ${missionKeyFilePath(missionNumber)}`,
     `  Key:      ${missionKey(missionNumber, secret)}`,
     ...leakLines(missionNumber, rawSecrets),
   ].join('\n');

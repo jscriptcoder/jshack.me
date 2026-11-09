@@ -22,6 +22,12 @@
  *
  * On an snmp route the file is the agent's config, readable by any tier like every such config.
  * It holds the read-only community as well as the word, so neither reaches the bundle.
+ *
+ * Where the key sits follows the contract's storage. On `file` it is the plain key. On `gpg`
+ * it is sealed, root-only, beside where the plain key would be, and the passphrase is compiled
+ * into a program in `/usr/local/bin`: binary-looking, so `grep` skips it and only `strings`
+ * reads it, and readable by any tier like any program, which costs nothing while the sealed
+ * key stays root-only.
  */
 
 import { DATADIR_FILE, FTP_PUBLIC_FILE, ROOT_FILE } from '../generation/baseFs.js';
@@ -36,8 +42,15 @@ import { parseSecrets } from '../secrets/parseSecrets.js';
 import { ANONYMOUS_FTP_ROOT } from '../sessions/doorAdmission.js';
 import { SNMPD_CONF_PATH, SNMPD_CONF_PERMISSIONS } from '../snmp/conf.js';
 import type { FilePermissions } from '../filesystem/types.js';
+import { encryptContent } from '../crypto/gpgCodec.js';
+import { binaryStub } from '../generation/binaries.js';
 import { LEAKABLE_HASHES } from './leakablePool.js';
-import { missionKey, missionKeyPath, requireMissionSecret } from './missionSecret.js';
+import {
+  missionKey,
+  missionKeyPath,
+  missionPassphrase,
+  requireMissionSecret,
+} from './missionSecret.js';
 import { missionShape, type MissionRoute } from './missionShape.js';
 
 /** A file the server lays onto a key box before its journal replays. */
@@ -186,19 +199,84 @@ export const missionLeakFile = (
   return { ...place, content: leakContent(missionNumber, missionLeakWord(missionNumber, rawSecrets)) };
 };
 
+/** A program on the box, as every program is: any tier reads and runs it, only root changes it. */
+const PROGRAM_FILE: FilePermissions = {
+  read: ['root', 'user', 'guest'],
+  write: ['root'],
+  execute: ['root', 'user', 'guest'],
+};
+
+/** Ends one readable run inside the program and starts the next, as the padding between a real
+ *  binary's strings does. Not NUL: a root's edit of the file goes to a TEXT column. */
+const RUN_BREAK = String.fromCharCode(1);
+
+const sealedKeyPath = (missionNumber: number): string => `${missionKeyPath(missionNumber)}.gpg`;
+
+/** The file the key is in: the sealed one on a gpg contract, the plain one otherwise. */
+export const missionKeyFilePath = (missionNumber: number): string =>
+  missionShape(missionNumber).storage === 'gpg'
+    ? sealedKeyPath(missionNumber)
+    : missionKeyPath(missionNumber);
+
+const vaultName = (missionNumber: number): string => `${missionShape(missionNumber).stem}-vault`;
+
+const vaultPath = (missionNumber: number): string => `/usr/local/bin/${vaultName(missionNumber)}`;
+
+/** Root's history, laid by the server because it names the key path, which never ships. */
+const ROOT_HISTORY_PATH = '/root/.bash_history';
+
+/** What root last did: sealed the key with the program, then removed the plain one. Points
+ *  at the program without saying the passphrase is in it. */
+const sealingHistory = (missionNumber: number): string => {
+  const keyPath = missionKeyPath(missionNumber);
+  return `${vaultName(missionNumber)} --seal ${keyPath}\nrm ${keyPath}\n`;
+};
+
+/** The program that sealed the key, its passphrase compiled in among its other strings. */
+const vaultProgram = (name: string, passphrase: string): string =>
+  [
+    binaryStub(name),
+    `usage: ${name} --seal <file> | --open <file.gpg>`,
+    'sealed %s -> %s.gpg',
+    'bad passphrase',
+    passphrase,
+    'GCC: (Debian 12.2.0-14) 12.2.0',
+  ].join(RUN_BREAK);
+
+/** Where the key goes on this contract, from the number alone. */
+const keyFilePaths = (missionNumber: number): readonly string[] =>
+  missionShape(missionNumber).storage === 'gpg'
+    ? [sealedKeyPath(missionNumber), vaultPath(missionNumber), ROOT_HISTORY_PATH]
+    : [missionKeyPath(missionNumber)];
+
+/** The key's files: the plain key, or the sealed key, the program holding its passphrase and
+ *  the history that points at it. Until the database holds a key, a database contract keeps it in the plain file. */
+const keyFiles = (missionNumber: number, secret: string): readonly MissionFile[] => {
+  const key = `${missionKey(missionNumber, secret)}\n`;
+  if (missionShape(missionNumber).storage !== 'gpg') {
+    return [{ path: missionKeyPath(missionNumber), content: key, perms: ROOT_FILE }];
+  }
+  const passphrase = missionPassphrase(missionNumber, secret);
+  return [
+    { path: sealedKeyPath(missionNumber), content: encryptContent(key, passphrase), perms: ROOT_FILE },
+    {
+      path: vaultPath(missionNumber),
+      content: vaultProgram(vaultName(missionNumber), passphrase),
+      perms: PROGRAM_FILE,
+    },
+    { path: ROOT_HISTORY_PATH, content: sealingHistory(missionNumber), perms: ROOT_FILE },
+  ];
+};
+
 /** Every file the server lays onto this contract's key box. A route with no leak never
  *  touches the pools, so a missing `JSHACK_SECRETS` closes only the boxes that need it. */
 export const missionFiles = (
   missionNumber: number,
   env: { readonly keySecret: string | undefined; readonly rawSecrets: string | undefined },
 ): readonly MissionFile[] => {
-  const key = {
-    path: missionKeyPath(missionNumber),
-    content: `${missionKey(missionNumber, requireMissionSecret(env.keySecret))}\n`,
-    perms: ROOT_FILE,
-  };
+  const keys = keyFiles(missionNumber, requireMissionSecret(env.keySecret));
   const leak = missionLeakFile(missionNumber, env.rawSecrets);
-  return leak === null ? [key] : [key, leak];
+  return leak === null ? keys : [...keys, leak];
 };
 
 /** The files for the box a door has reached: none unless it is a contract's key box, and an
@@ -223,6 +301,6 @@ export const missionFilesForBox = async (
  *  tier may write one, which only root may on any of them, and needs no secret to ask. */
 export const missionFilePaths = (missionNumber: number): readonly string[] => {
   const leakPath = missionLeakPath(missionNumber);
-  const keyPath = missionKeyPath(missionNumber);
-  return leakPath === null ? [keyPath] : [keyPath, leakPath];
+  const keyPaths = keyFilePaths(missionNumber);
+  return leakPath === null ? keyPaths : [...keyPaths, leakPath];
 };

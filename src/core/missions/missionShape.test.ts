@@ -63,6 +63,33 @@ describe('missionShape', () => {
     }
   });
 
+  it('keeps the key in a file, encrypted, or in a database, each about a third of the time', () => {
+    const counts = SAMPLE_NUMBERS.reduce<Record<string, number>>((tally, missionNumber) => {
+      const { storage } = missionShape(missionNumber);
+      return { ...tally, [storage]: (tally[storage] ?? 0) + 1 };
+    }, {});
+
+    expect(Object.keys(counts).sort()).toEqual(['database', 'file', 'gpg']);
+    for (const count of Object.values(counts)) {
+      expect(count / SAMPLE_NUMBERS.length).toBeGreaterThan(0.28);
+      expect(count / SAMPLE_NUMBERS.length).toBeLessThan(0.39);
+    }
+  });
+
+  it('draws where the key is kept without moving anything a contract already had', () => {
+    // An accepted contract keeps its network: the storage draw must not shift the topology,
+    // the route or the hashes drawn before it existed.
+    const before = [
+      [66051, 'hydra', 'corva', 87, '5fcfd41e547a12215b173ff47fdd3739'],
+      [2, 'hydra', 'sternco', 150, '0d107d09f5bbe40cade3de5c71e9e9b7'],
+      [1234567, 'msfconsole', 'oakridge', 207, '505828c63fbafed59bd2d0cec555a8b9'],
+      [9999999, 'hydra', 'northgate', 153, 'dfeaf10390e560aea745ccba53e044ed'],
+    ] as const;
+    for (const [missionNumber, route, stem, keyBoxOctet, keyBoxRootHash] of before) {
+      expect(missionShape(missionNumber)).toMatchObject({ route, stem, keyBoxOctet, keyBoxRootHash });
+    }
+  });
+
   const firstWithRoute = (route: MissionRoute): number => {
     const found = SAMPLE_NUMBERS.find((missionNumber) => missionShape(missionNumber).route === route);
     if (found === undefined) throw new Error(`no ${route} contract in the sample`);

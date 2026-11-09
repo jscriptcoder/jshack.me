@@ -141,6 +141,43 @@ job.
   from `api/` and `scripts/` alone (`missionSecret.ts`, `missionLeak.ts`, `missionTerms.ts`,
   `clientMail.ts`, `contractsList.ts`, `hireme/contractBoard.ts`, `hireme/contracts.ts`).
 
+## Where the key is stored
+
+A contract draws where its key box keeps the key, `file`, `gpg` or `database`, each one time in
+three (`missionShape(n).storage`, v0.447.0). It is drawn on a stream of its own
+(`mission-storage-<n>`), so adding it moved no contract's topology, route or hashes, and it is
+independent of the route: any of the six ways in meets any of the three. Pay, the offer and the
+briefing never say which, and completion is unchanged: the mailed key is compared with the
+contract's key.
+
+- **`file`** is the plain key file of §3.
+- **`gpg`**: the key is sealed. The server lays three files where the plain key would have been
+  (`keyFiles`, `core/missions/missionLeak.ts`):
+  - `<key path>.gpg`, root-only, the key encrypted with the codec `gpg -c` uses
+    (`core/crypto/gpgCodec.ts`), so `gpg -d <file> <passphrase>` opens it. Nothing sits at the plain
+    path.
+  - `/usr/local/bin/<stem>-vault`, a program the box's admin sealed the key with: a binary stub
+    (`binaryStub`) followed by a few readable runs, a usage line naming `--seal` and `--open`, two
+    messages, a compiler banner, and the passphrase. The runs are separated by U+0001, never NUL,
+    because a root's edit lands in a TEXT column. Any tier may read and run it, which costs nothing
+    while the sealed key stays root-only. It is the only thing in `/usr/local/bin`, which exists only
+    on a gpg box.
+  - `/root/.bash_history`, root-only: `<stem>-vault --seal <key path>` then `rm <key path>`. It
+    points at the program without saying the passphrase is in it. It is laid by the server and not
+    generated with the box, because it names the key path, whose pool never ships.
+- **Why `strings` is the way in:** `grep` skips any file that starts with the ELF magic, even under
+  `-r`, so a sweep for the passphrase finds nothing; `strings` prints it on a line of its own.
+- **The passphrase** is `hv-XXXX-XXXX` in the key's alphabet, an HMAC-SHA256 under
+  `MISSION_KEY_SECRET` of `passphrase:<n>` (`missionPassphrase`), a message of its own, so it shares
+  nothing with the key and one job's passphrase says nothing about the next. Stored nowhere.
+- **`database`** keeps the key in a plain file for now; the next slice moves it into the key box's
+  database, read from outside with a database login.
+- A root's `rm` of the sealed key or the program sticks like the key's; the write gate lists all
+  three (`missionFilePaths`). With the secret unset, the doors answer 500 `mission_secret_missing`.
+
+**To add a storage:** `STORAGES` in `missionShape.ts`, and `keyFilePaths`, `keyFiles` and
+`missionKeyFilePath` in `missionLeak.ts`.
+
 ## The routes that leak a login
 
 On a leak route a forgotten file or setting gives away `root`'s password, and the player keeps the
@@ -333,7 +370,8 @@ tsx scripts/hireme.ts …`, never needed in play (orders parsed in `core/mission
   with given axes: search for a number that has them.
 - `post <handle>` burns the board's offers and posts three fresh ones now.
 - `show <address>` prints the client, target, pay, route, forwards, the key box's services, the
-  key path and the key, and on a leak route the file's path and the word. It reads the secrets
+  storage (with the passphrase on a gpg contract), the file the key is in and the key, and on a
+  leak route the file's path and the word. It reads the secrets
   from the env; only its derived key and that word are ever printed.
 - `drop <handle>` abandons the active job.
 
@@ -414,7 +452,8 @@ needs attachments; recognition for completed jobs; a second, darknet operator.
   `leakablePool.ts` (bundle); `missionSecret.ts`, `missionLeak.ts`, `missionTerms.ts`,
   `clientMail.ts`, `contractsList.ts`, `hiremeOrders.ts` (server and scripts).
 - **The lay-in and the doors**: `core/network/missionBoxFiles.ts`, `core/sessions/doorAdmission.ts`,
-  `core/generation/missionKeyBoxFs.ts`.
+  `core/generation/missionKeyBoxFs.ts`, `core/crypto/gpgCodec.ts` (the cipher the server seals a
+  gpg contract's key with).
 - **hireme**: `core/hireme/boards.ts` (the lookup), `contractBoard.ts`, `contracts.ts`.
 - **Wiring**: `core/network/resolveHttpFetch.ts`, `core/network/resolveCrossPlayerFs.ts`,
   `core/patches/remoteWritePermission.ts`, `core/emailit/handleResolveMail.ts`,

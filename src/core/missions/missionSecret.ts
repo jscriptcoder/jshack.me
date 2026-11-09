@@ -66,6 +66,15 @@ export const missionKey = (missionNumber: number, secret: string): string => {
   return `ACCESS-${body.slice(0, 4)}-${body.slice(4, 8)}-${body.slice(8, 12)}`;
 };
 
+/** The passphrase a gpg contract's key is sealed with, compiled into the program beside it.
+ *  Hashed from a message of its own, never the key's, so the program's strings say nothing
+ *  of the key; and per contract, so one job's passphrase is no help on the next. */
+export const missionPassphrase = (missionNumber: number, secret: string): string => {
+  const digest = hmac(sha256, encodeUtf8(secret), encodeUtf8(`passphrase:${missionNumber}`));
+  const body = encodeAccessBody(digest);
+  return `hv-${body.slice(0, 4)}-${body.slice(4, 8)}`;
+};
+
 /** Believable root-only paths — a system directory a non-root shell cannot read, never a
  *  user's home. The slice-one pool; templates that name the file for the target company
  *  come with the briefings (decision 15). */

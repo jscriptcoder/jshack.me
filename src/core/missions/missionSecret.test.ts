@@ -3,6 +3,7 @@ import {
   MissionSecretMissingError,
   missionKey,
   missionKeyPath,
+  missionPassphrase,
   requireMissionSecret,
 } from './missionSecret.js';
 
@@ -39,6 +40,36 @@ describe('the key a contract hands out', () => {
     // number ships in the bundle, the key must not be derivable from it alone. A dev read
     // of a key must not work on prod, so the two deployments' secrets give different keys.
     expect(missionKey(66051, SECRET)).not.toBe(missionKey(66051, OTHER_SECRET));
+  });
+});
+
+describe('the passphrase a gpg contract seals its key with', () => {
+  it('is an hv- token of two unambiguous four-character groups', () => {
+    expect(missionPassphrase(66051, SECRET)).toMatch(
+      /^hv-[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$/,
+    );
+  });
+
+  it('is the same passphrase for the same number under the same secret', () => {
+    expect(missionPassphrase(66051, SECRET)).toBe(missionPassphrase(66051, SECRET));
+  });
+
+  it('is a different passphrase for a different number, so one job says nothing of the next', () => {
+    expect(missionPassphrase(66051, SECRET)).not.toBe(missionPassphrase(66052, SECRET));
+  });
+
+  it('is a different passphrase under a different secret', () => {
+    expect(missionPassphrase(66051, SECRET)).not.toBe(missionPassphrase(66051, OTHER_SECRET));
+  });
+
+  it('shares nothing with the key it seals', () => {
+    // Hashed from a message of its own: were it the key's digest, the passphrase would
+    // spell out the key's first eight symbols to whoever ran `strings` on the program.
+    for (const missionNumber of [2, 66051, 1234567]) {
+      const [, first = '', second = ''] = missionPassphrase(missionNumber, SECRET).split('-');
+      expect(missionKey(missionNumber, SECRET)).not.toContain(first);
+      expect(missionKey(missionNumber, SECRET)).not.toContain(second);
+    }
   });
 });
 

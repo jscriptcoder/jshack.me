@@ -12,6 +12,9 @@
 //   - A MISSION ESSID CANNOT BE JOINED, even with the lab flag on.
 //   - A SCAN FROM THE KEY BOX TRACES TO THE MISSION'S 195 ADDRESS.
 //   - DROP FREES THE HANDLE; a second accept while one is active is refused.
+//   - A GPG CONTRACT SEALS THE KEY: root finds the sealed file, the program holding the
+//     passphrase `show` prints and the history pointing at it, and no plain key; the
+//     passphrase opens the sealed file to the key; a guest is served none of the three.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testMissions.ts
@@ -28,7 +31,12 @@ import { computeApGatewayId } from '../src/core/identity/router.js';
 import { generateHomeLan } from '../src/core/generation/generateHomeLan.js';
 import { machineIdForLanHost } from '../src/core/generation/lanTopology.js';
 import { missionShape } from '../src/core/missions/missionShape.js';
-import { missionKey, missionKeyPath } from '../src/core/missions/missionSecret.js';
+import {
+  missionKey,
+  missionKeyPath,
+  missionPassphrase,
+} from '../src/core/missions/missionSecret.js';
+import { decryptContent } from '../src/core/crypto/gpgCodec.js';
 import {
   isMissionNumber,
   missionAddressForNumber,
@@ -118,17 +126,26 @@ const hiremeExpectingRefusal = (args: readonly string[]): { code: number; stderr
   }
 };
 
-/** The first contract number at or above `from` whose route is `route` — so each route is
- *  exercised on a real draw rather than a hand-picked fixture. */
-const numberForRoute = (route: 'hydra' | 'msfconsole', from: number): number => {
+/** The first contract number at or above `from` whose route is `route` and whose key is
+ *  stored as `storage` — so each is exercised on a real draw rather than a hand-picked
+ *  fixture. */
+const numberForRoute = (
+  route: 'hydra' | 'msfconsole',
+  storage: 'file' | 'gpg',
+  from: number,
+): number => {
   for (let candidate = from; candidate < from + 20000; candidate += 1) {
-    if (isMissionNumber(candidate) && missionShape(candidate).route === route) return candidate;
+    if (!isMissionNumber(candidate)) continue;
+    const shape = missionShape(candidate);
+    if (shape.route === route && shape.storage === storage) return candidate;
   }
-  throw new Error(`no ${route} number found from ${from}`);
+  throw new Error(`no ${route}/${storage} number found from ${from}`);
 };
 
-const HYDRA_NUMBER = numberForRoute('hydra', 100000);
-const MSF_NUMBER = numberForRoute('msfconsole', 100000);
+const HYDRA_NUMBER = numberForRoute('hydra', 'file', 100000);
+const MSF_NUMBER = numberForRoute('msfconsole', 'file', 100000);
+const GPG_NUMBER = numberForRoute('hydra', 'gpg', 100000);
+const MISSION_NUMBERS = [HYDRA_NUMBER, MSF_NUMBER, GPG_NUMBER];
 
 const keyBoxIdOf = (missionNumber: number): string => {
   const essid = missionEssid(missionNumber);
@@ -200,6 +217,7 @@ const owner = generateIdentity();
 const guestOp = generateIdentity();
 const RUN = Date.now().toString(36).slice(-6);
 const HANDLE = `alice${RUN}`.slice(0, 24);
+const GPG_HANDLE = `bob${RUN}`.slice(0, 24);
 
 // The operator's own box, where hydra runs and its wordlist lives. A declared crackable
 // network, so the server derives a source address for the sweep's trace.
@@ -247,9 +265,9 @@ const openMailbox = async (handle: string) => {
 };
 
 const cleanup = async () => {
-  await sr.from('hireme_missions').delete().in('number', [HYDRA_NUMBER, MSF_NUMBER]);
+  await sr.from('hireme_missions').delete().in('number', MISSION_NUMBERS);
   await sr.from('email_accounts').delete().eq('signed_up_by', owner.publicKeyHex);
-  for (const missionNumber of [HYDRA_NUMBER, MSF_NUMBER]) {
+  for (const missionNumber of MISSION_NUMBERS) {
     await sr.from('patches').delete().eq('machine_id', keyBoxIdOf(missionNumber));
     await sr.from('patches').delete().eq('machine_id', computeApGatewayId(missionEssid(missionNumber)));
   }
@@ -262,10 +280,12 @@ const cleanup = async () => {
 
 const main = async () => {
   console.log(`hydra number ${HYDRA_NUMBER} @ ${missionAddressForNumber(HYDRA_NUMBER)}, ` +
-    `msfconsole number ${MSF_NUMBER} @ ${missionAddressForNumber(MSF_NUMBER)}\n`);
+    `msfconsole number ${MSF_NUMBER} @ ${missionAddressForNumber(MSF_NUMBER)}, ` +
+    `gpg number ${GPG_NUMBER} @ ${missionAddressForNumber(GPG_NUMBER)}\n`);
 
   await cleanup();
   await openMailbox(HANDLE);
+  await openMailbox(GPG_HANDLE);
   await seedOpHome();
 
   // === 1. AN UNGIVEN 195 ADDRESS ANSWERS AS AN EMPTY ONE. ===
@@ -423,7 +443,7 @@ const main = async () => {
   check(
     'msfconsole opens the pinned hole and lands root on the key box',
     exploited.status === 200 && msfBody?.machine_id === msfKeyBox && msfBody.userType === 'root',
-    `status ${exploited.status} machine ${msfBody?.machine_id ?? '-'} tier ${msfBody?.userType ?? '-'}`,
+    `status ${exploited.status} body ${JSON.stringify(exploited.body)}`,
   );
   const scanMsf = await post(NETWORK, signRequest(owner, 'resolvePublicScan', { target: msfAddress }));
   check(
@@ -493,6 +513,90 @@ const main = async () => {
       !msfGatewayKern.includes('unknown'),
     `status ${scanFromKeyBox.status} traced 195=${msfGatewayKern.includes(hydraAddress)} ` +
       `last="${msfGatewayKern.trim().split('\n').at(-1) ?? ''}"`,
+  );
+
+  // === 10. A GPG CONTRACT SEALS THE KEY, AND THE PROGRAM BESIDE IT HOLDS THE PASSPHRASE. ===
+  runHireme(['accept', GPG_HANDLE, '--number', String(GPG_NUMBER)]);
+  const gpgAddress = missionAddressForNumber(GPG_NUMBER)!;
+  const gpgShape = missionShape(GPG_NUMBER);
+  const [gpgForward] = gpgShape.forwards;
+  if (gpgForward === undefined) throw new Error('a hydra contract has a forward');
+  const gpgRootPassword = plaintextFor(gpgShape.keyBoxRootHash);
+  await seedWordlist([gpgRootPassword]);
+  const gpgCracked = await post(SESSIONS, signRequest(owner, 'hydraCrack', {
+    essid: OP_ESSID,
+    target_ip: gpgAddress,
+    service: 'ssh',
+    caller_machine_id: OP_WS,
+    port: gpgForward.publicPort,
+  }));
+  const gpgKeyBox = keyBoxIdOf(GPG_NUMBER);
+  const gpgRooted = await post(SESSIONS, signRequest(owner, 'authCreateSessionPublic', {
+    session_id: `ssh-root-gpg-${RUN}`,
+    target: gpgAddress,
+    port: gpgForward.publicPort,
+    username: 'root',
+    password: crackedIn(gpgCracked.body).find((entry) => entry.username === 'root')?.password ?? '-',
+    parent_session_id: null,
+    source_ip: null,
+  }));
+  check(
+    'hydra and ssh land a root shell on a gpg contract key box',
+    gpgRooted.status === 200 &&
+      (gpgRooted.body as { machine_id?: string } | null)?.machine_id === gpgKeyBox,
+    `crack ${gpgCracked.status} ssh ${gpgRooted.status}`,
+  );
+
+  const plainPath = missionKeyPath(GPG_NUMBER);
+  const sealedPath = `${plainPath}.gpg`;
+  const programPath = `/usr/local/bin/${gpgShape.stem}-vault`;
+  const gpgKey = missionKey(GPG_NUMBER, secret);
+  const shownGpg = runHireme(['show', gpgAddress]);
+  const shownPassphrase = (shownGpg.match(/passphrase (hv-[0-9A-HJKMNP-TV-Z-]+)/) ?? ['', ''])[1];
+  const gpgAsRoot = await readBoxTree(owner, gpgKeyBox);
+  const sealed = contentAt(gpgAsRoot, sealedPath);
+  check(
+    '`show` prints the passphrase, and it opens the sealed key root finds to the key',
+    shownPassphrase === missionPassphrase(GPG_NUMBER, secret) &&
+      sealed !== null &&
+      decryptContent(sealed, shownPassphrase ?? '')?.trim() === gpgKey,
+    `show passphrase ${shownPassphrase ?? '-'}, sealed ${sealed === null ? 'missing' : 'present'}`,
+  );
+  check(
+    'root finds no plain key on a gpg contract',
+    contentAt(gpgAsRoot, plainPath) === null,
+    `plain key ${String(contentAt(gpgAsRoot, plainPath))}`,
+  );
+  check(
+    'root finds the program holding the passphrase, and a history pointing at it',
+    (contentAt(gpgAsRoot, programPath) ?? '').includes(shownPassphrase ?? '-') &&
+      (contentAt(gpgAsRoot, '/root/.bash_history') ?? '').includes(
+        `${gpgShape.stem}-vault --seal ${plainPath}`,
+      ),
+    `program ${contentAt(gpgAsRoot, programPath) === null ? 'missing' : 'present'}, ` +
+      `history ${JSON.stringify(contentAt(gpgAsRoot, '/root/.bash_history'))}`,
+  );
+  await seedSession(guestOp, gpgKeyBox, missionEssid(GPG_NUMBER), 'guest');
+  const gpgAsGuest = await readBoxTree(guestOp, gpgKeyBox);
+  check(
+    'a guest is served neither the sealed key nor the history, and may read the program',
+    contentAt(gpgAsGuest, sealedPath) === null &&
+      contentAt(gpgAsGuest, '/root/.bash_history') === null &&
+      contentAt(gpgAsGuest, programPath) !== null,
+    `guest sealed ${contentAt(gpgAsGuest, sealedPath) !== null}, ` +
+      `history ${contentAt(gpgAsGuest, '/root/.bash_history') !== null}, ` +
+      `program ${contentAt(gpgAsGuest, programPath) !== null}`,
+  );
+  const sealedRemoved = await post(PATCHES, signRequest(owner, 'removePatch', {
+    machine_id: gpgKeyBox,
+    path: sealedPath,
+    owner: 'root',
+  }));
+  const afterSealedRm = await readBoxTree(owner, gpgKeyBox);
+  check(
+    "a root's rm of the sealed key sticks for the next root reader",
+    sealedRemoved.status === 200 && contentAt(afterSealedRm, sealedPath) === null,
+    `rm status ${sealedRemoved.status}`,
   );
 
   await cleanup();

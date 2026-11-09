@@ -9,8 +9,21 @@ import {
   MissionLeakUnavailableError,
 } from './missionLeak.js';
 import { LEAKABLE_HASHES, SHUT_HASHES } from './leakablePool.js';
-import { missionKey, missionKeyPath, MissionSecretMissingError } from './missionSecret.js';
-import { missionShape, type MissionRoute } from './missionShape.js';
+import {
+  missionKey,
+  missionKeyPath,
+  missionPassphrase,
+  MissionSecretMissingError,
+} from './missionSecret.js';
+import { missionShape, type MissionRoute, type MissionStorage } from './missionShape.js';
+import { decryptContent } from '../crypto/gpgCodec.js';
+import { binaryStub } from '../generation/binaries.js';
+import { strings } from '../commands/strings.js';
+import { grep } from '../commands/grep.js';
+import { gpg } from '../commands/gpg.js';
+import { mockCommandEnv } from '../../test/factories/commandEnv.js';
+import type { CommandResult } from '../commands/types.js';
+import type { Directory } from '../filesystem/types.js';
 import { DEFAULT_DIRLIST } from '../network/defaultDirlist.js';
 import { generateHomeLan } from '../generation/generateHomeLan.js';
 import { machineIdForLanHost } from '../generation/lanTopology.js';
@@ -46,11 +59,28 @@ const SAMPLE_NUMBERS = Array.from({ length: 2000 }, (_unused, index) => index * 
   (missionNumber) => missionNumber % 256 >= 2 && missionNumber % 256 <= 254,
 );
 
-const numbersWithRoute = (route: MissionRoute): readonly number[] =>
-  SAMPLE_NUMBERS.filter((missionNumber) => missionShape(missionNumber).route === route);
+/** Contracts on this route that keep the key as `storage` says: a plain file unless told
+ *  otherwise, which is what every route's own tests are about. */
+const numbersWithRoute = (
+  route: MissionRoute,
+  storage: MissionStorage = 'file',
+): readonly number[] =>
+  SAMPLE_NUMBERS.filter((missionNumber) => {
+    const shape = missionShape(missionNumber);
+    return shape.route === route && shape.storage === storage;
+  });
 
-const firstWithRoute = (route: MissionRoute): number => {
-  const [found] = numbersWithRoute(route);
+const numbersWithStorage = (storage: MissionStorage): readonly number[] =>
+  SAMPLE_NUMBERS.filter((missionNumber) => missionShape(missionNumber).storage === storage);
+
+const firstWithStorage = (storage: MissionStorage): number => {
+  const [found] = numbersWithStorage(storage);
+  if (found === undefined) throw new Error(`no ${storage} contract in the sample`);
+  return found;
+};
+
+const firstWithRoute = (route: MissionRoute, storage: MissionStorage = 'file'): number => {
+  const [found] = numbersWithRoute(route, storage);
   if (found === undefined) throw new Error(`no ${route} contract in the sample`);
   return found;
 };
@@ -399,6 +429,199 @@ describe('missionFilePaths', () => {
 
       expect(missionFilePaths(missionNumber), route).toEqual(laid.map((file) => file.path));
     }
+  });
+});
+
+describe('a contract that keeps its key encrypted', () => {
+  const HOLDING_BOTH = { keySecret: KEY_SECRET, rawSecrets: RAW_SECRETS };
+
+  const sealedPathOf = (missionNumber: number): string => `${missionKeyPath(missionNumber)}.gpg`;
+  const programPathOf = (missionNumber: number): string =>
+    `/usr/local/bin/${missionShape(missionNumber).stem}-vault`;
+
+  const fileAt = (missionNumber: number, path: string) =>
+    missionFiles(missionNumber, HOLDING_BOTH).find((laid) => laid.path === path);
+
+  it('lays the key sealed beside where the plain key would be, root-only, and no plain key', () => {
+    for (const missionNumber of numbersWithStorage('gpg').slice(0, 20)) {
+      const laid = missionFiles(missionNumber, HOLDING_BOTH);
+      const sealed = fileAt(missionNumber, sealedPathOf(missionNumber));
+
+      expect(sealed?.perms).toEqual(ROOT_FILE);
+      expect(laid.map((file) => file.path)).not.toContain(missionKeyPath(missionNumber));
+      expect(
+        decryptContent(sealed?.content ?? '', missionPassphrase(missionNumber, KEY_SECRET)),
+      ).toBe(`${missionKey(missionNumber, KEY_SECRET)}\n`);
+    }
+  });
+
+  it('seals the key so that no other passphrase opens it', () => {
+    const missionNumber = firstWithStorage('gpg');
+    const sealed = fileAt(missionNumber, sealedPathOf(missionNumber));
+
+    expect(
+      decryptContent(sealed?.content ?? '', missionPassphrase(missionNumber + 1, KEY_SECRET)),
+    ).toBe(null);
+  });
+
+  it('lays a program named after the client, every tier may read and run it, only root change it', () => {
+    for (const missionNumber of numbersWithStorage('gpg').slice(0, 20)) {
+      const name = `${missionShape(missionNumber).stem}-vault`;
+      const program = fileAt(missionNumber, programPathOf(missionNumber));
+
+      expect(program?.perms).toEqual({
+        read: ['root', 'user', 'guest'],
+        write: ['root'],
+        execute: ['root', 'user', 'guest'],
+      });
+      expect(program?.content.startsWith(binaryStub(name))).toBe(true);
+      // A root's edit of it is stored in a TEXT column, which refuses the NUL byte.
+      expect(program?.content.includes(String.fromCharCode(0))).toBe(false);
+    }
+  });
+
+  it('lays the sealed key and the program, and nothing else', () => {
+    const missionNumber = firstWithRoute('hydra', 'gpg');
+
+    expect(missionFilePaths(missionNumber)).toEqual([
+      sealedPathOf(missionNumber),
+      programPathOf(missionNumber),
+      '/root/.bash_history',
+    ]);
+    expect(missionFiles(missionNumber, HOLDING_BOTH).map((file) => file.path)).toEqual(
+      missionFilePaths(missionNumber),
+    );
+  });
+
+  it('leaves root a history of sealing the key and removing the plain one, for root alone', () => {
+    // The key path is the server's, never the bundle's, so the history naming it is laid in
+    // here rather than generated with the box.
+    for (const missionNumber of numbersWithStorage('gpg').slice(0, 20)) {
+      const history = fileAt(missionNumber, '/root/.bash_history');
+      const keyPath = missionKeyPath(missionNumber);
+
+      expect(history).toEqual({
+        path: '/root/.bash_history',
+        content: `${missionShape(missionNumber).stem}-vault --seal ${keyPath}\nrm ${keyPath}\n`,
+        perms: ROOT_FILE,
+      });
+    }
+  });
+
+  it('lays the leak beside them on a leak route', () => {
+    const missionNumber = firstWithRoute('web', 'gpg');
+
+    expect(missionFilePaths(missionNumber)).toEqual([
+      sealedPathOf(missionNumber),
+      programPathOf(missionNumber),
+      '/root/.bash_history',
+      missionLeakPath(missionNumber),
+    ]);
+    expect(missionFiles(missionNumber, HOLDING_BOTH).map((file) => file.path)).toEqual(
+      missionFilePaths(missionNumber),
+    );
+  });
+
+  it('fails closed when the key secret is missing', () => {
+    expect(() =>
+      missionFiles(firstWithStorage('gpg'), { keySecret: undefined, rawSecrets: RAW_SECRETS }),
+    ).toThrow(MissionSecretMissingError);
+  });
+
+  describe('on the box, as root', () => {
+    const laidTree = async (missionNumber: number): Promise<Directory> => {
+      const tree = await withMissionFiles(
+        async () => ({ data: missionFiles(missionNumber, HOLDING_BOTH), error: null }),
+        {
+          essid: missionEssid(missionNumber),
+          machineId: 'key-box',
+          baseFs: buildMissionKeyBoxFs(missionNumber),
+        },
+      );
+      if (tree === null) throw new Error('the files could not be made');
+      return tree;
+    };
+
+    const asRoot = (tree: Directory) =>
+      mockCommandEnv({ fs: createFsView(tree, { userType: 'root', cwd: asAbsPath('/') }) });
+
+    const textOf = (result: CommandResult): readonly string[] =>
+      result.kind === 'sync'
+        ? result.lines.filter((line) => line.kind === 'text').map((line) => line.content)
+        : [];
+
+    const NO_FLAGS = new Map<string, string | true>();
+
+    it('gives the passphrase up to strings on a line of its own, beside a usage line', async () => {
+      const missionNumber = firstWithStorage('gpg');
+      const tree = await laidTree(missionNumber);
+
+      const lines = textOf(
+        await strings.execute(asRoot(tree), [programPathOf(missionNumber)], NO_FLAGS),
+      );
+
+      expect(lines).toContain(missionPassphrase(missionNumber, KEY_SECRET));
+      expect(lines.some((line) => line.includes('--seal') && line.includes('--open'))).toBe(true);
+    });
+
+    it('reads to strings as a small program would, the passphrase one line among its others', async () => {
+      const missionNumber = firstWithStorage('gpg');
+      const name = `${missionShape(missionNumber).stem}-vault`;
+      const tree = await laidTree(missionNumber);
+
+      const lines = textOf(
+        await strings.execute(asRoot(tree), [programPathOf(missionNumber)], NO_FLAGS),
+      );
+
+      expect(lines).toEqual([
+        '/lib64/ld-linux-x86-64.so.2',
+        'GLIBC_2.2.5',
+        name,
+        `usage: ${name} --seal <file> | --open <file.gpg>`,
+        'sealed %s -> %s.gpg',
+        'bad passphrase',
+        missionPassphrase(missionNumber, KEY_SECRET),
+        'GCC: (Debian 12.2.0-14) 12.2.0',
+      ]);
+    });
+
+    it('keeps the passphrase from a grep over the whole box', async () => {
+      const missionNumber = firstWithStorage('gpg');
+      const tree = await laidTree(missionNumber);
+
+      const lines = textOf(
+        await grep.execute(
+          asRoot(tree),
+          [missionPassphrase(missionNumber, KEY_SECRET), '/'],
+          NO_FLAGS,
+        ),
+      );
+
+      expect(lines).toEqual([]);
+    });
+
+    it('opens the sealed key with gpg -d and the passphrase', async () => {
+      const missionNumber = firstWithStorage('gpg');
+      const tree = await laidTree(missionNumber);
+
+      const lines = textOf(
+        await gpg.execute(
+          asRoot(tree),
+          [sealedPathOf(missionNumber), missionPassphrase(missionNumber, KEY_SECRET)],
+          new Map<string, string | true>([['-d', true]]),
+        ),
+      );
+
+      expect(lines).toEqual([missionKey(missionNumber, KEY_SECRET)]);
+    });
+  });
+});
+
+describe('a contract whose key the database will hold', () => {
+  it('keeps the key in a plain file until the database can hold it', () => {
+    const missionNumber = firstWithStorage('database');
+
+    expect(missionFilePaths(missionNumber)[0]).toBe(missionKeyPath(missionNumber));
   });
 });
 

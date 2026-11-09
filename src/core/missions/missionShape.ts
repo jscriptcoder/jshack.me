@@ -58,6 +58,13 @@ const ROUTES = ['hydra', 'msfconsole', 'web', 'ftp', 'mysql', 'snmp'] as const;
 
 export type MissionRoute = (typeof ROUTES)[number];
 
+/** Where the key box keeps the key, each equally likely: a root-only file, that file
+ *  encrypted with its passphrase compiled into a program beside it, or a row in the box's
+ *  database. Independent of the route: any way in meets any of the three. */
+const STORAGES = ['file', 'gpg', 'database'] as const;
+
+export type MissionStorage = (typeof STORAGES)[number];
+
 /** One forward on the gateway: the public port it answers on, and the port it reaches on
  *  the key box. */
 export type MissionForward = {
@@ -87,6 +94,7 @@ export type MissionShape = {
   readonly stem: string;
   readonly keyBoxOctet: number;
   readonly route: MissionRoute;
+  readonly storage: MissionStorage;
   /** The key box's `root` password hash: crackable on the hydra route, one a file can
    *  leak on a leak route, and one that stays shut on the msfconsole route. */
   readonly keyBoxRootHash: string;
@@ -270,11 +278,15 @@ export const missionShape = (missionNumber: number): MissionShape => {
 
   const gatewayAdminHash = versionPrng.pick(SHUT_HASHES);
 
+  // On a stream of its own, so adding it moved no contract's topology, route or hashes.
+  const storage = createPrng(`mission-storage-${missionNumber}`).pick(STORAGES);
+
   return {
     missionNumber,
     stem,
     keyBoxOctet,
     route,
+    storage,
     keyBoxRootHash,
     keyBoxDatabase,
     keyBoxCommunityHash,
