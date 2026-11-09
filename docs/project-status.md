@@ -1519,6 +1519,18 @@ agreed order:
     (`testMissions` 25/25 with a gpg contract, plus `testMissionLeak`, `testMissionFtp`,
     `testMissionMysql`, `testMissionSnmp`, `testMissionPay`, pinned to plain-file contracts), and
     the mutation gate. The browser run waits for the epic's close-out.
+44. ✅ **Where a contract keeps its key: in its database (v0.448.0, PR #759, merged 2026-11-09).**
+    Slice 2 of [`plans/key-storage.md`](../plans/key-storage.md); as-built: "Where the key is stored"
+    in [`missions-architecture.md`](./missions-architecture.md). A database contract lays no key
+    file: the key is the `portal` row of an `api_keys` table in the datadir, beside three keys to
+    other services. On every route the key box runs `mysqld` behind a `:3306` forward with a
+    crackable application login and a shut database root, so the key is reached from outside as a
+    database user; the route still roots the box, and a root reads the key out of `data.json`. The
+    datadir is laid once with every table the contract adds (`settings` and `api_keys` on the mysql
+    route). `show` prints `Storage:  database, table api_keys`. No migration, no new variable.
+    Evidence: unit tests, `testMissionMysql` 47/47 (a database contract on the mysql route and one
+    on the hydra route, worked from the player's own box), `testMissions` 25/25, and the mutation
+    gate. The bundle sits 5 B under its ceiling. The browser run waits for the epic's close-out.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

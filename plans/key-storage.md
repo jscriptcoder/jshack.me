@@ -2,7 +2,15 @@
 
 **Status:** Grilled 2026-11-09; slice 2 re-grilled 2026-11-09 (decision 6). Two slices planned.
 Slice 1 (v0.447.0) merged as #758 on 2026-11-09. Its wire-check found the
-msfconsole route's ftp draw unwinnable, fixed first in #757 (v0.446.1). Slice 2 is next.
+msfconsole route's ftp draw unwinnable, fixed first in #757 (v0.446.1). Slice 2 (v0.448.0) merged as
+#759 on 2026-11-09. The close-out browser run is next.
+
+**Slice 2 as built:** as planned. The key is the `portal` row of `api_keys`, beside `stripe`,
+`sendgrid` and `mapbox` keys drawn from the number. Off the mysql route the database is drawn after
+everything else in `missionShape`, so the route reads the same whatever the storage. `show` prints
+`Storage:  database, table api_keys`, and its key path is the datadir. `DROP TABLE` is database
+root's alone, which stays shut, so the job is closed by the account's `DELETE` or a box root's `rm`
+of the datadir; both are wire-checked.
 
 **Slice 1 as built:** as planned, except that root's `.bash_history` is laid by the server (it names
 the key path, which never ships), so the key box's base is unchanged and `/usr/local/bin` exists only
@@ -281,5 +289,4 @@ trimmed, a valleynews `/dev` note if the owner wants one, and this plan retired.
 
 - ~~Off the mysql route, the database's application account is shut too.~~ Closed by decision 6:
   the application login is the intended way to the key, from outside.
-- **Slice 1 treats `database` as `file`.** Merged alone, about a third of contracts play as plain
-  file jobs until slice 2. Free while prod has only test players.
+- ~~Slice 1 treats `database` as `file`.~~ Closed by slice 2.
