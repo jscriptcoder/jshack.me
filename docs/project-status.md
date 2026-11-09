@@ -1492,6 +1492,19 @@ agreed order:
     retired on close-out. **Pick up here (2026-11-07):** the owner's choice from `backlog.md`.
     Lazy-loading stays low priority; a feature that adds client code raises the bundle ceiling.
 
+42. ✅ **The msfconsole route always lands a shell (v0.446.1).** Found by slice 1 of "where a
+    contract keeps its key" (`plans/key-storage.md`): its wire-check moved to another msfconsole
+    number and `exploitCreateSession` answered `dir_list`. A hole's effect is fixed per release
+    (`exploitOutcome`), and the route pins the newest critical release of its service. nginx's
+    grants `shell_full`, but vsftpd's grants `dir_list` at root, and vsftpd's effect list holds no
+    shell at all. So every msfconsole contract that drew the ftp server, about half of them and 1 in
+    12 of all contracts since v0.438.0, listed the key box's directories as root and could never
+    read the key. The gateway forwards only that port. The route now draws only the web server, and
+    a shape test fails if any msfconsole contract's hole lands anything but a root `shell_full`.
+    This re-rolls the service of every msfconsole contract that had drawn ftp, which costs nothing
+    while prod has only test players. Evidence: the RED test (`expected 'dir_list' to be
+    'shell_full'`), the full suite, and the `testMissions.ts` wire-check.
+
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
 and that is expected. For the shipped systems, start from the three as-built docs named at the top
