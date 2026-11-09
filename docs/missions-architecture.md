@@ -77,7 +77,10 @@ clock:
   - **hydra**: a crackable `root` (a word from the crackable pool) on the key box's sshd,
     reached through a public `:2222` forwarded to its `:22`;
   - **msfconsole**: a service on the key box pinned to a release whose hole is `critical`,
-    reached through a forward of its own port;
+    reached through a forward of its own port. The hole has to land a root shell, because the
+    gateway forwards nothing else and a hole that only lists or reads files leaves the key out of
+    reach. So the service is always the web server: no vsftpd hole grants a shell, and until
+    v0.446.1 an ftp draw landed `dir_list` and the job could not be done;
   - **web, ftp, mysql, snmp**: the four that leak `root`'s password from a door on `:80`, `:21`,
     `:3306` or `:161`, with `:2222` to log in with it ("The routes that leak a login", below).
 - **The gateway is passed through, not broken.** It has router firmware as every gateway does, an
@@ -97,7 +100,7 @@ clock:
   a safe release too, so `msfconsole` finds no root through it. **No decoy services are drawn
   yet**: the key box runs the route's service (or, on the hydra route, only its sshd), and
   `keyBoxServices` and `show`'s `Services:` line are where decoys will appear. So a scan tells the
-  route: `2222` alone is hydra, `80` or `21` alone is msfconsole, and `80`, `21`, `3306` or `161`
+  route: `2222` alone is hydra, `80` alone is msfconsole, and `80`, `21`, `3306` or `161`
   with `2222` is a leak. Decoys blurring that would re-roll every network.
 - **`MISSION_ROUTE_DAY = 111`.** A route release is one whose `critical` hole published on or
   before that day. The clock only moves forward, so every route stays open for good, and

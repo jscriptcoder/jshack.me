@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MISSION_ROUTE_DAY, missionShape, type MissionRoute } from './missionShape.js';
 import { liveCve } from '../cve/liveCve.js';
+import { exploitOutcome } from '../cve/exploitEffect.js';
 import { packageTimeline } from '../cve/packageTimeline.js';
 import { FIRMWARE_VENDORS, firmwarePackageOf } from '../packages/packageVersions.js';
 import { UNCRACKABLE_HASHES } from '../generation/passwordPools.js';
@@ -111,6 +112,25 @@ describe('missionShape', () => {
       for (const severity of pinnedSeverities(others)) {
         expect(['low', 'medium'], `non-route pin for ${missionNumber}`).toContain(severity);
       }
+    }
+  });
+
+  it('gives the msfconsole route a hole that lands a root shell, the only way to read the key', () => {
+    // A critical hole that only lists directories or reads a file leaves the root-only key
+    // out of reach: the gateway forwards nothing but the hole's own port, so no shell means
+    // no way in at all.
+    for (const missionNumber of SAMPLE_NUMBERS) {
+      const shape = missionShape(missionNumber);
+      if (shape.route !== 'msfconsole') continue;
+
+      const [routeService] = shape.keyBoxServices;
+      const outcome = exploitOutcome(
+        routeService?.package ?? '',
+        routeService?.version ?? '',
+        MISSION_ROUTE_DAY,
+      );
+      expect(outcome?.effect, `route for ${missionNumber}`).toBe('shell_full');
+      expect(outcome?.tier, `route for ${missionNumber}`).toBe('root');
     }
   });
 

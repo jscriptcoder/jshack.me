@@ -427,7 +427,7 @@ posts the offers itself.
 | 4 | Pick the offer offline BEFORE accepting | The board never shows an address. Read the numbers: `select number, ref from hireme_missions where handle = '<h>' and state = 'offered'` (local psql), then `missionShape(n).route` and `missionKeyPath(n)` per number. All three were msfconsole on the run, but a hydra one needs `plaintextFor(missionShape(n).keyBoxRootHash)` |
 | 5 | `lynx http://<board>/`, the cursor opens on the FIRST `[ Accept ]`; `Enter` | Read `[aria-current="true"]`'s `textContent` before `Enter`. `ArrowDown` from there reaches the next offer's `[ Accept ]` directly. `curl -d "offer=<ref>" http://<board>/accept` is the same door without lynx |
 | 6 | `q`, then `mail` and `mail read <n>` for `Contract: <target>` | The briefing comes from `<client>@emailit.io` and gives the 195 address |
-| 7 | `msfconsole <address> <forward port>` → `cat <key path>` → `exit` | The forward's port is `missionShape(n).forwards[0].publicPort`: `80` or `21` on the run, not always 80. `cat` is paced (above) |
+| 7 | `msfconsole <address> <forward port>` → `cat <key path>` → `exit` | The forward's port is `missionShape(n).forwards[0].publicPort`, always `80` since v0.446.1 (an ftp draw could not be rooted). `cat` is paced (above) |
 | 8 | `mail reply <briefing n>`, type `ACCESS-… jsc…` on the top line, `^O`, `^X` | The caret lands at the END of the quote: see [driving-the-terminal.md](driving-the-terminal.md), "Composing mail". Lines starting `>` are never read, so the key must be typed, not quoted |
 | 9 | `mail`, `mail read <n>`, `wallet balance` | The reply is instant: "Key received. <pay> JSC sent to jsc…", and the balance is the pay |
 

@@ -149,7 +149,10 @@ const SNMP_AGENT: RouteCandidate = {
   port: 161,
 };
 
-const MSFCONSOLE_ROUTE_CANDIDATES: readonly RouteCandidate[] = [WEB_SERVER, FTP_SERVER];
+/** Only a service whose route release's hole lands a root shell: the gateway forwards just
+ *  that one port, so a hole that lists or reads files leaves the key out of reach. The ftp
+ *  server cannot be one, since no vsftpd hole grants a shell at all. */
+const MSFCONSOLE_ROUTE_CANDIDATES: readonly RouteCandidate[] = [WEB_SERVER];
 
 /** The door holding the file, on each route where a file gives `root`'s word away. */
 const LEAK_ROUTE_DOORS: Readonly<
