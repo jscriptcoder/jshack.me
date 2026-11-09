@@ -1539,9 +1539,19 @@ agreed order:
     row was the key, paid with no `ssh`. A database job on the msfconsole route: the same from
     outside, then root by the route read the key out of `data.json`, with no key file on the box.
     No defect. The key box ships without `gpg`, so a root there runs `apt install gpg` first; that
-    is left as the player's to find. The plan was retired on close-out. **Pick up here
-    (2026-11-09):** the owner's choice from `backlog.md`; the next feature that adds client code
-    raises the bundle ceiling.
+    is left as the player's to find. The plan was retired on close-out.
+45. ✅ **Decoy doors on a contract's network (v0.449.0, PR #760, merged 2026-11-09).** One slice;
+    as-built: "Decoys" in [`missions-architecture.md`](./missions-architecture.md). A scan used to
+    tell the route; now every gateway forwards 3 or 4 ports, decoys (`ssh`, `web`, `ftp`, `mysql`,
+    `snmp`) filling the gap above the real forwards, so neither the count nor the kinds say which
+    door is the way in. A decoy is the real door's generated build minus the server's lay-in: it
+    lets a player in as far as the real door would, onto nothing. An snmp decoy's read-write
+    community stays shut, so no decoy hands out a root-free way to shut `:2222`. Drawn on a stream
+    of their own, so no contract's route, hashes, key, storage or pay moved; accepted contracts
+    only gained doors. `show` tags each decoy. Evidence: unit tests (10,320), wire-checks
+    `testMissionDecoys` 15/15 and the eight existing mission checks 195/195, mutation 64/64
+    killed. The main-chunk ceiling rose to 298,875 B. **Pick up here (2026-11-09):** the
+    close-out browser run in `plans/decoy-services.md`, then retire the plan.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

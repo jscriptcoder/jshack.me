@@ -1,6 +1,24 @@
 # Plan: decoy services on a contract's network
 
-**Status:** Grilled 2026-11-09. One slice planned 2026-11-09. Nothing is built.
+**Status:** Grilled 2026-11-09. One slice planned 2026-11-09. **Slice 1 shipped (v0.449.0, PR #760,
+merged 2026-11-09)**; as-built in the "Decoys" section of `docs/missions-architecture.md`. Left: the
+close-out browser run (a contract with two or more decoys, each worked to its empty end, then the
+route worked to the payout), then retire this plan.
+
+**As built, beyond the plan:**
+- `show`'s `(none beyond the route)` line is gone: hydra always draws 2–3 decoys, none of them
+  `ssh`, so every key box now runs at least one daemon and the line could never print.
+- An snmp decoy's read-only community is drawn last on the key box's own stream
+  (`mission-keybox-<n>`), not in the shape, so the shape carries no community the snmp route keeps
+  server-side.
+- "Nothing moves" is proven by digests: 18 contracts, one per route and storage, hashed from the
+  generator before decoys (`BEFORE_DECOYS` in `missionShape.test.ts`), rather than a 250-line table.
+- The two mutation survivors were the snmp decoy config's header and trailing newline: a test now
+  holds it line for line to the snmp route's, since a different header would tell a guest which is
+  the decoy.
+- The main-chunk ceiling rose 300 B to 298,875 B (the slice added 268 B).
+- Evidence: 10,320 unit tests; wire-checks `testMissionDecoys` 15/15 plus the eight existing mission
+  checks (195/195); mutation 64 killed, 0 survived.
 
 Today a public scan of a contract's address tells the route. Past the gateway's own `22`, `2222`
 alone is hydra, `80` alone is msfconsole, and `80`, `21`, `3306` or `161` beside `2222` is a leak
