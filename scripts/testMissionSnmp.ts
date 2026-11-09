@@ -127,7 +127,7 @@ const snmpNumber = (from: number): number => {
     // A contract that keeps its key in a plain file, which is where this check reads it.
     if (
       isMissionNumber(candidate) &&
-      missionShape(candidate).route === 'snmp' &&
+      missionShape(candidate).keyBox.route === 'snmp' &&
       missionShape(candidate).storage === 'file'
     ) {
       return candidate;
@@ -141,7 +141,7 @@ const ESSID = missionEssid(SNMP_NUMBER);
 const ADDRESS = missionAddressForNumber(SNMP_NUMBER) ?? '';
 const KEY_PATH = missionKeyPath(SNMP_NUMBER);
 const KEY = missionKey(SNMP_NUMBER, secret);
-const WORD = plaintextFor(missionShape(SNMP_NUMBER).keyBoxRootHash);
+const WORD = plaintextFor(missionShape(SNMP_NUMBER).keyBox.rootHash);
 const SNMP_PORT = 161;
 
 const laidConfig =
@@ -150,7 +150,9 @@ const laidConfig =
   )?.content ?? '';
 const READ_ONLY_COMMUNITY = parseSnmpdConf(laidConfig).roCommunity ?? '';
 const READ_WRITE_COMMUNITY =
-  DEFAULT_WORDLIST.find((word) => md5(word) === missionShape(SNMP_NUMBER).keyBoxCommunityHash) ?? '';
+  DEFAULT_WORDLIST.find(
+    (word) => md5(word) === missionShape(SNMP_NUMBER).keyBox.communityHash,
+  ) ?? '';
 
 const keyBoxHost = generateHomeLan(ESSID).hosts.find((host) => host.kind === 'machine');
 if (keyBoxHost === undefined) throw new Error('a contract network has a key box');

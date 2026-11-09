@@ -398,8 +398,8 @@ export const buildRouterBaseFsFromIdentity = (
 export const buildApGatewayBaseFs = (essid: string): Directory =>
   withRootSsh(apGatewayFs(essid), buildBranchSshDirectory(essid));
 
-/** A contract network's gateway: an ordinary router that passes its forwards through
- *  to the key box. Its admin password is uncrackable and every package it carries sits on
+/** A contract network's gateway: an ordinary router that passes each forward through
+ *  to the box it names. Its admin password is uncrackable and every package it carries sits on
  *  a safe release, so it is the way in, never a box to break. Its own sshd always answers,
  *  so a shell on it can be reached sideways. One branch here, as a fixed site is one branch
  *  below, so every reader treats it like any gateway. */
@@ -409,7 +409,7 @@ const missionGatewayFs = (essid: string, missionNumber: number): Directory => {
   const rules = shape.forwards.reduce(
     (table, forward) =>
       withForward(table, forward.publicPort, {
-        internalIp: `${subnet}.${shape.keyBoxOctet}`,
+        internalIp: `${subnet}.${forward.boxOctet}`,
         internalPort: forward.internalPort,
       }),
     RULES_V4_SEED,

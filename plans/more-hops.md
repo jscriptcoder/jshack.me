@@ -1,6 +1,7 @@
 # Plan: a contract whose key box sits behind a front box
 
-**Status:** Grilled and planned 2026-11-09, four slices. Nothing is built.
+**Status:** Grilled and planned 2026-11-09, four slices. Slice 1 is in review on
+`refactor/mission-box-records`.
 
 A second contract template. Today every contract's key box is reached straight through the
 gateway's forwards. In this one the gateway forwards only to a **front box**; the key box has no
@@ -150,6 +151,26 @@ wire-checks prove nothing moved.
 (captured, compared, then deleted in the same PR, so it never pins the shape for good); all nine
 mission wire-checks green against `vercel dev`. Mutation gate N/A (no behavior change); the
 existing mutation-killing tests cover the moved code.
+
+**As built (2026-11-09), narrower than drafted above.** The shape and the two lookups changed; the
+readers did not take a box parameter:
+
+- `MissionShape` holds `keyBox: MissionBox`, and each `MissionForward` carries the `boxOctet` it
+  reaches. `missionGatewayFs` points each forward at its own `boxOctet`.
+- `missionKeyBoxNumber` kept its name and its number-only answer. It now finds the key box at
+  `keyBox.octet` instead of taking the first machine, and so does the database builder in
+  `missionKeyBoxFs.ts`. A `missionBoxAt` answering a role would have had one role and no caller
+  for it.
+- `missionLeak.ts`, `buildMissionKeyBoxFs` and `showReport` still take the number and read
+  `missionShape(n).keyBox`. Passing a box into them would have changed about a hundred test call
+  sites in a refactor that was meant to change only field names. **Slice 2 adds the box
+  parameter** where the front box first needs its own files, under its own failing tests.
+- Evidence: 1,977 contract numbers matched a fixture captured from `main`. The fixture covered
+  the shape (projected back to its old layout), a hash of each key box's and gateway's tree,
+  `missionFilePaths`, and which host each lookup answered. The fixture lived in the scratchpad
+  and was never committed. One test changed beyond renames: the sweep in "draws each contract
+  its own application" now skips numbers that are not contracts. Before the change it built a
+  "key box" for number 255 off an ordinary town host.
 
 ### Slice 2 — one contract in three puts its key box behind a front box (v0.450.0)
 

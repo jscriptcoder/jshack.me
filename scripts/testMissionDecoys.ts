@@ -106,8 +106,10 @@ const numberWith = (route: 'hydra' | 'msfconsole', decoys: readonly MissionDecoy
   for (let candidate = 240000; candidate < 340000; candidate += 1) {
     if (!isMissionNumber(candidate)) continue;
     const shape = missionShape(candidate);
-    if (shape.route !== route || shape.storage !== 'file') continue;
-    if ([...shape.decoys].sort().join(',') === [...decoys].sort().join(',')) return candidate;
+    if (shape.keyBox.route !== route || shape.storage !== 'file') continue;
+    if ([...shape.keyBox.decoys].sort().join(',') === [...decoys].sort().join(',')) {
+      return candidate;
+    }
   }
   throw new Error(`no ${route} contract with decoys ${decoys.join(', ')}`);
 };

@@ -581,7 +581,7 @@ describe('generateHomeLan for a contract network', () => {
       const lan = generateHomeLan(`mission-${missionNumber}`);
       const shape = missionShape(missionNumber);
       const keyBox = lan.hosts[1];
-      expect(keyBox?.ip).toBe(`${lan.subnet}.${shape.keyBoxOctet}`);
+      expect(keyBox?.ip).toBe(`${lan.subnet}.${shape.keyBox.octet}`);
       expect(keyBox?.hostname).toBe(`${shape.stem}-files`);
       expect(lan.hosts[0]?.hostname).toBe(`${shape.stem}-gw`);
     }

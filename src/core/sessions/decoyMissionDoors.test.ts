@@ -37,7 +37,7 @@ const decoyContract = (decoy: MissionDecoy) => {
   for (let candidate = 66051; candidate < 66051 + 5000; candidate += 1) {
     if (!isMissionNumber(candidate)) continue;
     const shape = missionShape(candidate);
-    if (!shape.decoys.includes(decoy) || shape.storage === 'database') continue;
+    if (!shape.keyBox.decoys.includes(decoy) || shape.storage === 'database') continue;
     const essid = missionEssid(candidate);
     const keyBoxHost = generateHomeLan(essid).hosts.find((host) => host.kind === 'machine');
     if (keyBoxHost === undefined) throw new Error('a contract network has a key box');

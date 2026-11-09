@@ -124,12 +124,14 @@ const decoyAgentConfig = (community: string): string =>
  *  it can move a draw the box's accounts make. */
 const keyBoxDatabase = (
   missionNumber: number,
+  octet: number,
   drawn: MissionDatabase,
   account: string,
   applicationAccount: string,
 ): MysqlDatabase => {
   const essid = missionEssid(missionNumber);
-  const host = generateHomeLan(essid).hosts.find((candidate) => candidate.kind === 'machine');
+  const lan = generateHomeLan(essid);
+  const host = lan.hosts.find((candidate) => candidate.ip === `${lan.subnet}.${octet}`);
   if (host === undefined) throw new Error(`no key box on contract ${missionNumber}`);
   const application = generateApplication({
     appSeed: `mission-database-${missionNumber}`,
@@ -148,14 +150,14 @@ const keyBoxDatabase = (
 };
 
 export const buildMissionKeyBoxFs = (missionNumber: number): Directory => {
-  const shape = missionShape(missionNumber);
+  const box = missionShape(missionNumber).keyBox;
   const prng = createPrng(`mission-keybox-${missionNumber}`);
   const username = prng.pick(usernamePool(undefined));
 
   const passwd = generatePasswd([
     {
       username: 'root',
-      passwordHash: shape.keyBoxRootHash,
+      passwordHash: box.rootHash,
       uid: 0,
       gid: 0,
       gecos: 'root',
@@ -183,7 +185,7 @@ export const buildMissionKeyBoxFs = (missionNumber: number): Directory => {
   ]);
 
   // sshd always runs; the route's exposed service runs too on every route but hydra.
-  const runningServices: readonly MissionService[] = shape.keyBoxServices;
+  const runningServices: readonly MissionService[] = box.services;
   const toolchain = runningServices.flatMap(({ service, program }) =>
     binariesForService({ service, daemon: program }),
   );
@@ -206,11 +208,17 @@ export const buildMissionKeyBoxFs = (missionNumber: number): Directory => {
   const runsAgent = runningServices.some(({ service }) => service === 'snmp');
   const lettingAnonymousIn = servesFtp;
   const database =
-    shape.keyBoxDatabase === null
+    box.database === null
       ? null
-      : keyBoxDatabase(missionNumber, shape.keyBoxDatabase, username, prng.pick(MYSQL_USERNAMES));
+      : keyBoxDatabase(
+          missionNumber,
+          box.octet,
+          box.database,
+          username,
+          prng.pick(MYSQL_USERNAMES),
+        );
   // Drawn after every other draw on this stream, so it moved nothing a box already had.
-  const decoyAgent = shape.decoys.includes('snmp')
+  const decoyAgent = box.decoys.includes('snmp')
     ? decoyAgentConfig(prng.pick(GUESSABLE_COMMUNITIES))
     : null;
   const varLibEntries: Record<string, FileNode> = {
@@ -219,13 +227,13 @@ export const buildMissionKeyBoxFs = (missionNumber: number): Directory => {
       : {
           mysql: dir({ 'data.json': file(JSON.stringify(database), DATADIR_FILE) }, TRAVERSABLE_DIR),
         }),
-    ...(shape.keyBoxCommunityHash === null
+    ...(box.communityHash === null
       ? {}
       : {
           snmp: dir(
             {
               'snmpd.conf': file(
-                formatSnmpdState(shape.keyBoxCommunityHash),
+                formatSnmpdState(box.communityHash),
                 SNMPD_STATE_PERMISSIONS,
               ),
             },
@@ -319,5 +327,5 @@ export const buildMissionKeyBoxFs = (missionNumber: number): Directory => {
     },
     TRAVERSABLE_DIR,
   );
-  return withPackageManifest(tree, { versions: shape.keyBoxVersions });
+  return withPackageManifest(tree, { versions: box.versions });
 };

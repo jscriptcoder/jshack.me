@@ -20,7 +20,8 @@ import { DEPLOYMENT_SECRETS } from './webRouteContract.js';
 
 const firstSnmpRouteNumber = (): number => {
   for (let candidate = 66051; candidate < 66051 + 5000; candidate += 1) {
-    if (isMissionNumber(candidate) && missionShape(candidate).route === 'snmp') return candidate;
+    if (isMissionNumber(candidate) && missionShape(candidate).keyBox.route === 'snmp')
+      return candidate;
   }
   throw new Error('no snmp route contract in the range');
 };
@@ -28,7 +29,7 @@ const firstSnmpRouteNumber = (): number => {
 export const SNMP_ROUTE_NUMBER = firstSnmpRouteNumber();
 export const SNMP_ROUTE_ESSID = missionEssid(SNMP_ROUTE_NUMBER);
 export const SNMP_ROUTE_ADDRESS = missionAddressForNumber(SNMP_ROUTE_NUMBER) ?? '';
-export const SNMP_ROUTE_WORD = plaintextFor(missionShape(SNMP_ROUTE_NUMBER).keyBoxRootHash);
+export const SNMP_ROUTE_WORD = plaintextFor(missionShape(SNMP_ROUTE_NUMBER).keyBox.rootHash);
 
 const keyBoxHost = generateHomeLan(SNMP_ROUTE_ESSID).hosts.find((host) => host.kind === 'machine');
 if (keyBoxHost === undefined) throw new Error('a contract network has a key box');
@@ -42,5 +43,5 @@ export const SNMP_ROUTE_READ_ONLY_COMMUNITY =
 /** The community a sweep finds on the list every player starts with. */
 export const SNMP_ROUTE_READ_WRITE_COMMUNITY =
   DEFAULT_WORDLIST.find(
-    (word) => md5(word) === missionShape(SNMP_ROUTE_NUMBER).keyBoxCommunityHash,
+    (word) => md5(word) === missionShape(SNMP_ROUTE_NUMBER).keyBox.communityHash,
   ) ?? '';

@@ -1069,7 +1069,7 @@ describe('the gateway of a contract network', () => {
     const found = Array.from({ length: 5000 }, (_unused, index) => index + 66051).find(
       (candidate) =>
         isMissionNumber(candidate) &&
-        missionShape(candidate).route === 'web' &&
+        missionShape(candidate).keyBox.route === 'web' &&
         missionShape(candidate).storage === storage,
     );
     if (found === undefined) throw new Error(`no web route ${storage} contract in the range`);
@@ -1079,7 +1079,7 @@ describe('the gateway of a contract network', () => {
   const forwardRulesOf = (missionNumber: number) => {
     const essid = missionEssid(missionNumber);
     return {
-      keyBoxIp: `${generateHomeLan(essid).subnet}.${missionShape(missionNumber).keyBoxOctet}`,
+      keyBoxIp: `${generateHomeLan(essid).subnet}.${missionShape(missionNumber).keyBox.octet}`,
       rules: parseForwardRules(
         fileAt(buildApGatewayBaseFs(essid), ['etc', 'iptables'], 'rules.v4'),
       ),
@@ -1112,7 +1112,7 @@ describe('the gateway of a contract network', () => {
     expect(parseForwardRules(rules)).toEqual(
       shape.forwards.map((forward) => ({
         publicPort: forward.publicPort,
-        internalIp: `${subnet()}.${shape.keyBoxOctet}`,
+        internalIp: `${subnet()}.${shape.keyBox.octet}`,
         internalPort: forward.internalPort,
       })),
     );

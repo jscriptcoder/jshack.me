@@ -116,7 +116,7 @@ const ftpNumber = (from: number): number => {
     // A contract that keeps its key in a plain file, which is where this check reads it.
     if (
       isMissionNumber(candidate) &&
-      missionShape(candidate).route === 'ftp' &&
+      missionShape(candidate).keyBox.route === 'ftp' &&
       missionShape(candidate).storage === 'file'
     ) {
       return candidate;
@@ -131,7 +131,7 @@ const ADDRESS = missionAddressForNumber(FTP_NUMBER) ?? '';
 const KEY_PATH = missionKeyPath(FTP_NUMBER);
 const KEY = missionKey(FTP_NUMBER, secret);
 const LEAK_PATH = missionLeakPath(FTP_NUMBER) ?? '';
-const WORD = plaintextFor(missionShape(FTP_NUMBER).keyBoxRootHash);
+const WORD = plaintextFor(missionShape(FTP_NUMBER).keyBox.rootHash);
 const CONFIG_PATH = '/etc/vsftpd.conf';
 
 const keyBoxHost = generateHomeLan(ESSID).hosts.find((host) => host.kind === 'machine');

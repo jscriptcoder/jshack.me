@@ -111,7 +111,7 @@ const FORGOTTEN_FILES: readonly {
 /** A plain `ls` hides a dotfile, so `pub/` would look empty with one in it. */
 const forgottenFileOf = (missionNumber: number): (typeof FORGOTTEN_FILES)[number] =>
   createPrng(`mission-leak-${missionNumber}`).pick(
-    missionShape(missionNumber).route === 'ftp'
+    missionShape(missionNumber).keyBox.route === 'ftp'
       ? FORGOTTEN_FILES.filter(({ name }) => !name.startsWith('.'))
       : FORGOTTEN_FILES,
   );
@@ -127,7 +127,7 @@ const LEAK_HOMES: Readonly<
 const leakPlaceOf = (
   missionNumber: number,
 ): { readonly path: string; readonly perms: FilePermissions } | null => {
-  const { route } = missionShape(missionNumber);
+  const { route } = missionShape(missionNumber).keyBox;
   if (route === 'mysql') return { path: DATADIR_PATH, perms: DATADIR_FILE };
   if (route === 'snmp') return { path: SNMPD_CONF_PATH, perms: SNMPD_CONF_PERMISSIONS };
   const home = LEAK_HOMES[route];
@@ -193,7 +193,7 @@ const agentConfig = (missionNumber: number, word: string): string =>
 
 /** What the file holds on this route, given the word. */
 const leakContent = (missionNumber: number, word: string): string => {
-  const { route } = missionShape(missionNumber);
+  const { route } = missionShape(missionNumber).keyBox;
   if (route === 'mysql') return databaseWith(missionNumber, { settings: settingsTable(word) });
   if (route === 'snmp') return agentConfig(missionNumber, word);
   return forgottenFileOf(missionNumber).render(word);
@@ -206,7 +206,7 @@ export const missionLeakPath = (missionNumber: number): string | null =>
 
 /** The word this contract's forgotten file gives away, which is its key box's root. */
 export const missionLeakWord = (missionNumber: number, rawSecrets: string | undefined): string =>
-  leakedWord(missionShape(missionNumber).keyBoxRootHash, rawSecrets);
+  leakedWord(missionShape(missionNumber).keyBox.rootHash, rawSecrets);
 
 /** The forgotten file itself, or null on a route with no leak. */
 export const missionLeakFile = (
@@ -298,8 +298,8 @@ const keyFiles = (missionNumber: number, secret: string): readonly MissionFile[]
 /** Whether the server lays the datadir: on the database route, where it holds the word, and on
  *  a contract keeping its key in it. Built once from every table either adds. */
 const laysDatadir = (missionNumber: number): boolean => {
-  const { route, storage } = missionShape(missionNumber);
-  return route === 'mysql' || storage === 'database';
+  const { keyBox, storage } = missionShape(missionNumber);
+  return keyBox.route === 'mysql' || storage === 'database';
 };
 
 /** The datadir as laid: the word's table on the database route, the key's on a contract
@@ -309,9 +309,9 @@ const datadirFile = (
   secret: string,
   rawSecrets: string | undefined,
 ): MissionFile => {
-  const { route, storage } = missionShape(missionNumber);
+  const { keyBox, storage } = missionShape(missionNumber);
   const tables = {
-    ...(route === 'mysql'
+    ...(keyBox.route === 'mysql'
       ? { settings: settingsTable(missionLeakWord(missionNumber, rawSecrets)) }
       : {}),
     ...(storage === 'database'
@@ -323,11 +323,13 @@ const datadirFile = (
 
 /** The leak when it is a file of its own; on the database route the leak is the datadir. */
 const ownLeakFile = (missionNumber: number, rawSecrets: string | undefined): MissionFile | null =>
-  missionShape(missionNumber).route === 'mysql' ? null : missionLeakFile(missionNumber, rawSecrets);
+  missionShape(missionNumber).keyBox.route === 'mysql'
+    ? null
+    : missionLeakFile(missionNumber, rawSecrets);
 
 /** Where `ownLeakFile` lays it, from the number alone. */
 const ownLeakPath = (missionNumber: number): string | null =>
-  missionShape(missionNumber).route === 'mysql' ? null : missionLeakPath(missionNumber);
+  missionShape(missionNumber).keyBox.route === 'mysql' ? null : missionLeakPath(missionNumber);
 
 /** Every file the server lays onto this contract's key box. A route with no leak never
  *  touches the pools, so a missing `JSHACK_SECRETS` closes only the boxes that need it. */
