@@ -146,8 +146,9 @@ job.
 A contract draws where its key box keeps the key, `file`, `gpg` or `database`, each one time in
 three (`missionShape(n).storage`, v0.447.0). It is drawn on a stream of its own
 (`mission-storage-<n>`), so adding it moved no contract's topology, route or hashes, and it is
-independent of the route: any of the six ways in meets any of the three. Pay, the offer and the
-briefing never say which, and completion is unchanged: the mailed key is compared with the
+independent of the route: any of the six ways in meets any of the three, rather than each storage
+pinned to routes of its own, which would be more rules for fewer combinations. Pay, the offer and
+the briefing never say which, and completion is unchanged: the mailed key is compared with the
 contract's key.
 
 - **`file`** is the plain key file of §3.
@@ -169,7 +170,10 @@ contract's key.
   `-r`, so a sweep for the passphrase finds nothing; `strings` prints it on a line of its own.
 - **The passphrase** is `hv-XXXX-XXXX` in the key's alphabet, an HMAC-SHA256 under
   `MISSION_KEY_SECRET` of `passphrase:<n>` (`missionPassphrase`), a message of its own, so it shares
-  nothing with the key and one job's passphrase says nothing about the next. Stored nowhere.
+  nothing with the key and one job's passphrase says nothing about the next. Stored nowhere. Not a
+  word from a pool: players would collect those and skip `strings`.
+- **The key box ships without `gpg`.** A root there runs `apt install gpg` before `gpg -d`, one
+  more thing for the player to find (seen in the close-out run, 2026-11-09).
 - **`database`** (v0.448.0): no key file is laid. The key is the `portal` row of an `api_keys`
   table in the key box's datadir (`/var/lib/mysql/data.json`), beside three keys to other services
   (`sk_live_…`, `SG.…`, `pk.…`, drawn from the number) none of which is in the key's shape. It is

@@ -1493,7 +1493,7 @@ agreed order:
     Lazy-loading stays low priority; a feature that adds client code raises the bundle ceiling.
 
 42. ✅ **The msfconsole route always lands a shell (v0.446.1).** Found by slice 1 of "where a
-    contract keeps its key" (`plans/key-storage.md`): its wire-check moved to another msfconsole
+    contract keeps its key" (item 43): its wire-check moved to another msfconsole
     number and `exploitCreateSession` answered `dir_list`. A hole's effect is fixed per release
     (`exploitOutcome`), and the route pins the newest critical release of its service. nginx's
     grants `shell_full`, but vsftpd's grants `dir_list` at root, and vsftpd's effect list holds no
@@ -1506,8 +1506,7 @@ agreed order:
     'shell_full'`), the full suite, and the `testMissions.ts` wire-check.
 
 43. ✅ **Where a contract keeps its key: the draw, and the gpg chain (v0.447.0, PR #758, merged
-    2026-11-09).** Slice 1 of
-    [`plans/key-storage.md`](../plans/key-storage.md); as-built: "Where the key is stored" in
+    2026-11-09).** Slice 1 of two; as-built: "Where the key is stored" in
     [`missions-architecture.md`](./missions-architecture.md). Every contract draws `file`, `gpg` or
     `database`, one in three each, on a stream of its own, so no topology, route or hash moved. On a
     gpg contract the server lays the key sealed at `<key path>.gpg`, a `/usr/local/bin/<stem>-vault`
@@ -1520,7 +1519,7 @@ agreed order:
     `testMissionMysql`, `testMissionSnmp`, `testMissionPay`, pinned to plain-file contracts), and
     the mutation gate. The browser run waits for the epic's close-out.
 44. ✅ **Where a contract keeps its key: in its database (v0.448.0, PR #759, merged 2026-11-09).**
-    Slice 2 of [`plans/key-storage.md`](../plans/key-storage.md); as-built: "Where the key is stored"
+    Slice 2 of two; as-built: "Where the key is stored"
     in [`missions-architecture.md`](./missions-architecture.md). A database contract lays no key
     file: the key is the `portal` row of an `api_keys` table in the datadir, beside three keys to
     other services. On every route the key box runs `mysqld` behind a `:3306` forward with a
@@ -1530,7 +1529,19 @@ agreed order:
     route). `show` prints `Storage:  database, table api_keys`. No migration, no new variable.
     Evidence: unit tests, `testMissionMysql` 47/47 (a database contract on the mysql route and one
     on the hydra route, worked from the player's own box), `testMissions` 25/25, and the mutation
-    gate. The bundle sits 5 B under its ceiling. The browser run waits for the epic's close-out.
+    gate. The bundle sits 5 B under its ceiling. **Close-out (2026-11-09, v0.448.0):** one browser
+    run on a fresh player on TRAIN-STATION-FREE, every job worked from the player's own box and
+    paid once. A gpg job on the msfconsole route: root, `ls /usr/local/bin` showed the lone
+    `<stem>-vault`, `cat ~/.bash_history` the seal and the `rm`, `strings` the passphrase on a line
+    of its own, `gpg -d` the key; mailed again it answered "That job is already closed." A database
+    job on the mysql route: `nmap` showed `3306`, `hydra <address> mysql` found the application
+    login and never the database root, one datadir held `settings` and `api_keys`, the `portal`
+    row was the key, paid with no `ssh`. A database job on the msfconsole route: the same from
+    outside, then root by the route read the key out of `data.json`, with no key file on the box.
+    No defect. The key box ships without `gpg`, so a root there runs `apt install gpg` first; that
+    is left as the player's to find. The plan was retired on close-out. **Pick up here
+    (2026-11-09):** the owner's choice from `backlog.md`; the next feature that adds client code
+    raises the bundle ceiling.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

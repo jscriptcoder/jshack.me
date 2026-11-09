@@ -54,16 +54,21 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
 
 - **missions — deferred.** Contract work shipped at v0.441.0 (as-built:
   [`missions-architecture.md`](./missions-architecture.md)): one template, exfiltrate a key, on a
-  two-box network with six routes, four of them leaking a login since v0.445.0. Left for later:
+  two-box network with six routes, four of them leaking a login since v0.445.0, and the key kept in
+  a file, sealed with `gpg` or in a database table since v0.448.0 ("Where the key is stored").
+  Left for later:
   - **Decoy services.** The plan drew up to two per box on guest-at-most releases; as built the key
     box runs only the route's service. `missionShape`'s `keyBoxServices` is where they go. A scan
     tells the route today, and decoys would blur that, but they re-roll every network, so they may
     need a plan for live players.
   - **Harder leaks.** A user login then a second leak for root, at higher pay; a path off the default
-    list with a pointer to it. Each adds a server-written file to `missionFiles`.
-  - **More templates**: deep chains and switches, more hops, the library route (one library pinned
-    to a critical release), a job that cares about stealth, deadlines. Each carries its own pay
-    range above exfiltrate's 500–2,000 JSC.
+    list with a pointer to it. Each adds a server-written file to `missionFiles`. For a database
+    contract: a database login given away on the box (an app config, a `.my.cnf`), or a leak route
+    leaking the database password instead of root's word, both set aside when the database was made
+    reachable from outside.
+  - **More templates**: deep chains and switches, more hops (a gpg passphrase kept on a third box
+    behind the key box), the library route (one library pinned to a critical release), a job that
+    cares about stealth, deadlines. Each carries its own pay range above exfiltrate's 500–2,000 JSC.
   - **File exfiltration** (bring a file home and send it back), once emailit.io can carry one.
   - **Recognition for completed jobs**, the other half of a mission reward; completions are only
     in `hireme_missions` today.
