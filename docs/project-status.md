@@ -1505,6 +1505,21 @@ agreed order:
     while prod has only test players. Evidence: the RED test (`expected 'dir_list' to be
     'shell_full'`), the full suite, and the `testMissions.ts` wire-check.
 
+43. ✅ **Where a contract keeps its key: the draw, and the gpg chain (v0.447.0, PR #758, merged
+    2026-11-09).** Slice 1 of
+    [`plans/key-storage.md`](../plans/key-storage.md); as-built: "Where the key is stored" in
+    [`missions-architecture.md`](./missions-architecture.md). Every contract draws `file`, `gpg` or
+    `database`, one in three each, on a stream of its own, so no topology, route or hash moved. On a
+    gpg contract the server lays the key sealed at `<key path>.gpg`, a `/usr/local/bin/<stem>-vault`
+    program whose `strings` include the passphrase (`grep` skips it as a binary), and a root history
+    of sealing it. The passphrase is `hv-XXXX-XXXX`, derived per contract under
+    `MISSION_KEY_SECRET`. `hireme.ts show` prints the storage and the passphrase. The `gpg` cipher
+    moved to `core/crypto/gpgCodec.ts` so the server seals with it. `database` still keeps a plain
+    file until slice 2. No migration, no new variable. Evidence: unit tests, the wire-checks
+    (`testMissions` 25/25 with a gpg contract, plus `testMissionLeak`, `testMissionFtp`,
+    `testMissionMysql`, `testMissionSnmp`, `testMissionPay`, pinned to plain-file contracts), and
+    the mutation gate. The browser run waits for the epic's close-out.
+
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
 and that is expected. For the shipped systems, start from the three as-built docs named at the top

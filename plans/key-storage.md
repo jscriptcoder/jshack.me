@@ -1,9 +1,14 @@
 # Plan: where a contract keeps its key
 
 **Status:** Grilled 2026-11-09; slice 2 re-grilled 2026-11-09 (decision 6). Two slices planned.
-Slice 1 is built and parked on `feat/key-storage-gpg` (stashed), waiting on its rebase onto v0.446.1
-and its gates. Its wire-check found the msfconsole route's ftp draw unwinnable, fixed first in #757
-(v0.446.1).
+Slice 1 (v0.447.0) merged as #758 on 2026-11-09. Its wire-check found the
+msfconsole route's ftp draw unwinnable, fixed first in #757 (v0.446.1). Slice 2 is next.
+
+**Slice 1 as built:** as planned, except that root's `.bash_history` is laid by the server (it names
+the key path, which never ships), so the key box's base is unchanged and `/usr/local/bin` exists only
+where the program lands. The program's runs are separated by U+0001. The four leak-route wire-checks
+pin their numbers to plain-file contracts, since they read the plain key path. Running the program
+answers as any binary with no command behind it (`No such file or directory`).
 
 Today every contract keeps its `ACCESS-` key the same way: a root-only text file on the key box. Legacy
 also kept it encrypted (`gpg`, its passphrase on another machine, sometimes wrapped in binary noise
