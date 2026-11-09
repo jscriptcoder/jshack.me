@@ -137,7 +137,7 @@ const numberForRoute = (
   for (let candidate = from; candidate < from + 20000; candidate += 1) {
     if (!isMissionNumber(candidate)) continue;
     const shape = missionShape(candidate);
-    if (shape.route === route && shape.storage === storage) return candidate;
+    if (shape.keyBox.route === route && shape.storage === storage) return candidate;
   }
   throw new Error(`no ${route}/${storage} number found from ${from}`);
 };
@@ -366,7 +366,7 @@ const main = async () => {
   const hydraAddress = missionAddressForNumber(HYDRA_NUMBER)!;
   const [hydraForward] = missionShape(HYDRA_NUMBER).forwards;
   if (hydraForward === undefined) throw new Error('a hydra contract has a forward');
-  const hydraRootPassword = plaintextFor(missionShape(HYDRA_NUMBER).keyBoxRootHash);
+  const hydraRootPassword = plaintextFor(missionShape(HYDRA_NUMBER).keyBox.rootHash);
   await seedWordlist([hydraRootPassword]);
   const cracked = await post(SESSIONS, signRequest(owner, 'hydraCrack', {
     essid: OP_ESSID,
@@ -521,7 +521,7 @@ const main = async () => {
   const gpgShape = missionShape(GPG_NUMBER);
   const [gpgForward] = gpgShape.forwards;
   if (gpgForward === undefined) throw new Error('a hydra contract has a forward');
-  const gpgRootPassword = plaintextFor(gpgShape.keyBoxRootHash);
+  const gpgRootPassword = plaintextFor(gpgShape.keyBox.rootHash);
   await seedWordlist([gpgRootPassword]);
   const gpgCracked = await post(SESSIONS, signRequest(owner, 'hydraCrack', {
     essid: OP_ESSID,

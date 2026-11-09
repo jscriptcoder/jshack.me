@@ -20,7 +20,8 @@ import { plaintextFor } from '../passwords.js';
 
 const firstDatabaseRouteNumber = (): number => {
   for (let candidate = 66051; candidate < 66051 + 5000; candidate += 1) {
-    if (isMissionNumber(candidate) && missionShape(candidate).route === 'mysql') return candidate;
+    if (isMissionNumber(candidate) && missionShape(candidate).keyBox.route === 'mysql')
+      return candidate;
   }
   throw new Error('no database route contract in the range');
 };
@@ -28,7 +29,9 @@ const firstDatabaseRouteNumber = (): number => {
 export const DATABASE_ROUTE_NUMBER = firstDatabaseRouteNumber();
 export const DATABASE_ROUTE_ESSID = missionEssid(DATABASE_ROUTE_NUMBER);
 export const DATABASE_ROUTE_ADDRESS = missionAddressForNumber(DATABASE_ROUTE_NUMBER) ?? '';
-export const DATABASE_ROUTE_WORD = plaintextFor(missionShape(DATABASE_ROUTE_NUMBER).keyBoxRootHash);
+export const DATABASE_ROUTE_WORD = plaintextFor(
+  missionShape(DATABASE_ROUTE_NUMBER).keyBox.rootHash,
+);
 
 const keyBoxHost = generateHomeLan(DATABASE_ROUTE_ESSID).hosts.find(
   (host) => host.kind === 'machine',

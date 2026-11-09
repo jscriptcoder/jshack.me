@@ -98,7 +98,8 @@ export const showReport = (
   const address = missionAddressForNumber(missionNumber);
   // Decoys follow the real forwards, so the tail of the list is theirs; a service is a decoy's
   // when it answers on a decoy's port.
-  const realForwardCount = shape.forwards.length - shape.decoys.length;
+  const { keyBox } = shape;
+  const realForwardCount = shape.forwards.length - keyBox.decoys.length;
   const decoyPorts = shape.forwards.slice(realForwardCount).map(({ internalPort }) => internalPort);
   const decoyTag = (isDecoy: boolean): string => (isDecoy ? ' (decoy)' : '');
   return [
@@ -106,14 +107,14 @@ export const showReport = (
     `  Client:   ${terms.client.company} (${terms.client.handle}@${EMAILIT_DOMAIN})`,
     `  Target:   ${terms.targetCompany}, ${shape.stem}-gw / ${shape.stem}-files`,
     `  Pay:      ${writeAmount(terms.pay)}`,
-    `  Route:    ${shape.route}`,
+    `  Route:    ${keyBox.route}`,
     ...shape.forwards.map(
       (forward, index) =>
         `  Forward:  :${forward.publicPort} -> key box :${forward.internalPort}` +
         decoyTag(index >= realForwardCount),
     ),
     `  Services:`,
-    ...shape.keyBoxServices.map(
+    ...keyBox.services.map(
       (service) => serviceLine(service) + decoyTag(decoyPorts.includes(service.port)),
     ),
     `  Storage:  ${storageDetail(missionNumber, secret)}`,

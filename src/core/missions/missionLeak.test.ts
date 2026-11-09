@@ -68,7 +68,7 @@ const numbersWithRoute = (
 ): readonly number[] =>
   SAMPLE_NUMBERS.filter((missionNumber) => {
     const shape = missionShape(missionNumber);
-    return shape.route === route && shape.storage === storage;
+    return shape.keyBox.route === route && shape.storage === storage;
   });
 
 const numbersWithStorage = (storage: MissionStorage): readonly number[] =>
@@ -151,7 +151,7 @@ describe('missionLeakFile', () => {
 
   it('holds the word of the box root, and never names the account', () => {
     for (const missionNumber of numbersWithRoute('web')) {
-      const word = plaintextFor(missionShape(missionNumber).keyBoxRootHash);
+      const word = plaintextFor(missionShape(missionNumber).keyBox.rootHash);
       const leak = missionLeakFile(missionNumber, RAW_SECRETS);
 
       expect(leak?.content.includes(word), `word in file of ${missionNumber}`).toBe(true);
@@ -173,7 +173,7 @@ describe('missionLeakFile', () => {
 
   it('holds the word of the box root on an ftp route, and never names the account', () => {
     for (const missionNumber of numbersWithRoute('ftp')) {
-      const word = plaintextFor(missionShape(missionNumber).keyBoxRootHash);
+      const word = plaintextFor(missionShape(missionNumber).keyBox.rootHash);
       const leak = missionLeakFile(missionNumber, RAW_SECRETS);
 
       expect(leak?.content.includes(word), `word in file of ${missionNumber}`).toBe(true);
@@ -207,7 +207,7 @@ describe('missionLeakFile', () => {
 
   it('holds the word of the box root in a settings row, and never names the account', () => {
     for (const missionNumber of numbersWithRoute('mysql')) {
-      const word = plaintextFor(missionShape(missionNumber).keyBoxRootHash);
+      const word = plaintextFor(missionShape(missionNumber).keyBox.rootHash);
       const laid = parseMysqlDatabase(missionLeakFile(missionNumber, RAW_SECRETS)?.content ?? '');
       const settings = laid?.tables['settings'];
 
@@ -249,7 +249,7 @@ describe('missionLeakFile', () => {
 
   it('holds the word of the box root as the contact, and never names the account', () => {
     for (const missionNumber of numbersWithRoute('snmp')) {
-      const word = plaintextFor(missionShape(missionNumber).keyBoxRootHash);
+      const word = plaintextFor(missionShape(missionNumber).keyBox.rootHash);
       const content = missionLeakFile(missionNumber, RAW_SECRETS)?.content ?? '';
 
       expect(parseSnmpdConf(content).sysContact.includes(word), `${missionNumber}`).toBe(true);
@@ -443,7 +443,7 @@ describe('missionFilePaths', () => {
     // A decoy's agent config is the generated box's, so a root's edit of it is the box's own
     // write and never one the server would lay over.
     for (const missionNumber of SAMPLE_NUMBERS) {
-      const { route, decoys } = missionShape(missionNumber);
+      const { route, decoys } = missionShape(missionNumber).keyBox;
       if (route === 'snmp' || !decoys.includes('snmp')) continue;
 
       expect(missionFilePaths(missionNumber), `${route} ${missionNumber}`).not.toContain(
@@ -711,7 +711,7 @@ describe('a contract that keeps its key in its database', () => {
     const laid = laidDatabase(missionNumber);
     const generated = databaseIn(buildMissionKeyBoxFs(missionNumber));
     const { api_keys: _apiKeys, settings, ...others } = laid?.tables ?? {};
-    const word = plaintextFor(missionShape(missionNumber).keyBoxRootHash);
+    const word = plaintextFor(missionShape(missionNumber).keyBox.rootHash);
 
     expect(missionFilePaths(missionNumber)).toEqual([DATADIR_PATH]);
     expect(missionFiles(missionNumber, HOLDING_BOTH).map((laidFile) => laidFile.path)).toEqual([

@@ -19,9 +19,14 @@ import { md5 } from '../generation/md5.js';
 import { DEFAULT_WORDLIST } from '../wordlist/defaultWordlist.js';
 import { LEAKABLE_HASHES, SHUT_HASHES, fixedBoxRootHash } from './leakablePool.js';
 
-/** The forwards a contract has for its route and its storage, before any decoy. */
-const realForwards = (shape: MissionShape): readonly MissionForward[] =>
-  shape.forwards.slice(0, shape.forwards.length - shape.decoys.length);
+/** A forward's two ports, whichever box it reaches. */
+type PortPair = Omit<MissionForward, 'boxOctet'>;
+
+/** The forwards a contract has for its route and its storage, before any decoy, as their ports. */
+const realForwards = (shape: MissionShape): readonly PortPair[] =>
+  shape.forwards
+    .slice(0, shape.forwards.length - shape.keyBox.decoys.length)
+    .map(({ publicPort, internalPort }) => ({ publicPort, internalPort }));
 
 /** A spread of contract numbers whose last octet is a host octet (2–254). */
 const SAMPLE_NUMBERS = Array.from({ length: 2000 }, (_unused, index) => index * 8381 + 2).filter(
@@ -50,13 +55,13 @@ describe('missionShape', () => {
     // drew them differently the forward would point at the wrong box.
     const shape = missionShape(66051);
     expect(shape.stem.length).toBeGreaterThan(0);
-    expect(shape.keyBoxOctet).toBeGreaterThanOrEqual(2);
-    expect(shape.keyBoxOctet).toBeLessThanOrEqual(254);
+    expect(shape.keyBox.octet).toBeGreaterThanOrEqual(2);
+    expect(shape.keyBox.octet).toBeLessThanOrEqual(254);
   });
 
   it('draws every route about a sixth of the time', () => {
     const counts = SAMPLE_NUMBERS.reduce<Record<string, number>>((tally, missionNumber) => {
-      const { route } = missionShape(missionNumber);
+      const { route } = missionShape(missionNumber).keyBox;
       return { ...tally, [route]: (tally[route] ?? 0) + 1 };
     }, {});
 
@@ -96,8 +101,11 @@ describe('missionShape', () => {
       [1234567, 'msfconsole', 'oakridge', 207, '505828c63fbafed59bd2d0cec555a8b9'],
       [9999999, 'hydra', 'northgate', 153, 'dfeaf10390e560aea745ccba53e044ed'],
     ] as const;
-    for (const [missionNumber, route, stem, keyBoxOctet, keyBoxRootHash] of before) {
-      expect(missionShape(missionNumber)).toMatchObject({ route, stem, keyBoxOctet, keyBoxRootHash });
+    for (const [missionNumber, route, stem, octet, rootHash] of before) {
+      expect(missionShape(missionNumber)).toMatchObject({
+        stem,
+        keyBox: { route, octet, rootHash },
+      });
     }
   });
 
@@ -111,17 +119,19 @@ describe('missionShape', () => {
       const forwardedPorts = real.map(({ internalPort }) => internalPort);
       return md5(
         JSON.stringify({
-          route: shape.route,
+          route: shape.keyBox.route,
           storage: shape.storage,
           stem: shape.stem,
-          keyBoxOctet: shape.keyBoxOctet,
-          keyBoxRootHash: shape.keyBoxRootHash,
+          keyBoxOctet: shape.keyBox.octet,
+          keyBoxRootHash: shape.keyBox.rootHash,
           gatewayAdminHash: shape.gatewayAdminHash,
           forwards: real,
-          services: shape.keyBoxServices.filter(({ port }) => forwardedPorts.includes(port)),
+          services: shape.keyBox.services.filter(({ port }) => forwardedPorts.includes(port)),
           database:
-            shape.route === 'mysql' || shape.storage === 'database' ? shape.keyBoxDatabase : null,
-          community: shape.route === 'snmp' ? shape.keyBoxCommunityHash : null,
+            shape.keyBox.route === 'mysql' || shape.storage === 'database'
+              ? shape.keyBox.database
+              : null,
+          community: shape.keyBox.route === 'snmp' ? shape.keyBox.communityHash : null,
         }),
       );
     };
@@ -163,7 +173,10 @@ describe('missionShape', () => {
       const countsByRoute = shapes.reduce<Record<string, ReadonlySet<number>>>(
         (tally, shape) => ({
           ...tally,
-          [shape.route]: new Set([...(tally[shape.route] ?? []), shape.forwards.length]),
+          [shape.keyBox.route]: new Set([
+            ...(tally[shape.keyBox.route] ?? []),
+            shape.forwards.length,
+          ]),
         }),
         {},
       );
@@ -178,7 +191,7 @@ describe('missionShape', () => {
 
     it('opens each decoy on a public port some route uses, never one already forwarded', () => {
       for (const shape of SAMPLE_NUMBERS.map(missionShape)) {
-        const label = `${shape.route} route ${shape.missionNumber}`;
+        const label = `${shape.keyBox.route} route ${shape.missionNumber}`;
         const publicPorts = shape.forwards.map(({ publicPort }) => publicPort);
 
         expect(new Set(publicPorts).size, label).toBe(publicPorts.length);
@@ -194,15 +207,15 @@ describe('missionShape', () => {
     it('runs a daemon behind every decoy but ssh, on a release that grants a guest at most', () => {
       const decoyServices = { web: 'http', ftp: 'ftp', mysql: 'mysql', snmp: 'snmp' } as const;
       for (const shape of SAMPLE_NUMBERS.map(missionShape)) {
-        const label = `${shape.route} route ${shape.missionNumber}`;
-        for (const decoy of shape.decoys) {
+        const label = `${shape.keyBox.route} route ${shape.missionNumber}`;
+        for (const decoy of shape.keyBox.decoys) {
           if (decoy === 'ssh') continue;
-          const running = shape.keyBoxServices.filter(
+          const running = shape.keyBox.services.filter(
             ({ service }) => service === decoyServices[decoy],
           );
 
           expect(running, `${decoy} decoy on ${label}`).toHaveLength(1);
-          expect(shape.keyBoxVersions[running[0]?.package ?? ''], label).toBe(running[0]?.version);
+          expect(shape.keyBox.versions[running[0]?.package ?? ''], label).toBe(running[0]?.version);
           expect(['low', 'medium'], `${decoy} decoy on ${label}`).toContain(
             pinnedSeverities({ [running[0]?.package ?? '']: running[0]?.version ?? '' })[0],
           );
@@ -213,34 +226,34 @@ describe('missionShape', () => {
     it('puts a database decoy behind a login a sweep finds and a root that stays shut', () => {
       const listed = DEFAULT_WORDLIST.map((word) => md5(word));
       const shapes = SAMPLE_NUMBERS.map(missionShape).filter((shape) =>
-        shape.decoys.includes('mysql'),
+        shape.keyBox.decoys.includes('mysql'),
       );
 
       expect(shapes.length).toBeGreaterThan(0);
       for (const shape of shapes) {
-        const label = `${shape.route} route ${shape.missionNumber}`;
-        expect(listed, label).toContain(shape.keyBoxDatabase?.accountHash);
-        expect(SHUT_HASHES, label).toContain(shape.keyBoxDatabase?.rootHash);
+        const label = `${shape.keyBox.route} route ${shape.missionNumber}`;
+        expect(listed, label).toContain(shape.keyBox.database?.accountHash);
+        expect(SHUT_HASHES, label).toContain(shape.keyBox.database?.rootHash);
       }
     });
 
     it('gives an agent decoy a read-write community no sweep finds', () => {
       // A read-write community shuts a box's ports without root, so a decoy's stays shut.
       const shapes = SAMPLE_NUMBERS.map(missionShape).filter((shape) =>
-        shape.decoys.includes('snmp'),
+        shape.keyBox.decoys.includes('snmp'),
       );
 
       expect(shapes.length).toBeGreaterThan(0);
       for (const shape of shapes) {
-        expect(SHUT_HASHES, `${shape.route} route ${shape.missionNumber}`).toContain(
-          shape.keyBoxCommunityHash,
+        expect(SHUT_HASHES, `${shape.keyBox.route} route ${shape.missionNumber}`).toContain(
+          shape.keyBox.communityHash,
         );
       }
     });
 
     it('draws every kind of decoy, so a scan can be any mix of them', () => {
       const kinds = new Set(
-        SAMPLE_NUMBERS.flatMap((missionNumber) => missionShape(missionNumber).decoys),
+        SAMPLE_NUMBERS.flatMap((missionNumber) => missionShape(missionNumber).keyBox.decoys),
       );
       expect([...kinds].sort()).toEqual(['ftp', 'mysql', 'snmp', 'ssh', 'web']);
     });
@@ -251,7 +264,7 @@ describe('missionShape', () => {
   const firstWithRoute = (route: MissionRoute, storage: MissionStorage = 'file'): number => {
     const found = SAMPLE_NUMBERS.find((missionNumber) => {
       const shape = missionShape(missionNumber);
-      return shape.route === route && shape.storage === storage;
+      return shape.keyBox.route === route && shape.storage === storage;
     });
     if (found === undefined) throw new Error(`no ${route} contract in the sample`);
     return found;
@@ -263,7 +276,7 @@ describe('missionShape', () => {
     // box's own :22 so the crack has a real sshd to land on.
     const shape = missionShape(firstWithRoute('hydra'));
 
-    expect(UNCRACKABLE_HASHES).not.toContain(shape.keyBoxRootHash);
+    expect(UNCRACKABLE_HASHES).not.toContain(shape.keyBox.rootHash);
     expect(realForwards(shape)).toEqual([{ publicPort: 2222, internalPort: 22 }]);
   });
 
@@ -271,7 +284,7 @@ describe('missionShape', () => {
     // The way in is the service hole, so the gateway forwards the public port onto the same
     // port the service listens on behind it.
     const shape = missionShape(firstWithRoute('msfconsole'));
-    const routeService = shape.keyBoxServices[0];
+    const routeService = shape.keyBox.services[0];
 
     expect(routeService).toBeDefined();
     expect(realForwards(shape)).toEqual([
@@ -282,9 +295,9 @@ describe('missionShape', () => {
   it('gives the msfconsole route a live critical hole, and pins everything else safe', () => {
     for (const missionNumber of SAMPLE_NUMBERS) {
       const shape = missionShape(missionNumber);
-      if (shape.route !== 'msfconsole') continue;
+      if (shape.keyBox.route !== 'msfconsole') continue;
 
-      const routeService = shape.keyBoxServices[0];
+      const routeService = shape.keyBox.services[0];
       expect(routeService).toBeDefined();
       const routeCve = liveCve(
         routeService?.package ?? '',
@@ -296,7 +309,7 @@ describe('missionShape', () => {
       expect(routeCve?.severity, `route for ${missionNumber}`).toBe('critical');
 
       // Nothing the key box carries beyond the route grants more than a guest shell.
-      const { [routeService?.package ?? '']: _routeVersion, ...others } = shape.keyBoxVersions;
+      const { [routeService?.package ?? '']: _routeVersion, ...others } = shape.keyBox.versions;
       for (const severity of pinnedSeverities(others)) {
         expect(['low', 'medium'], `non-route pin for ${missionNumber}`).toContain(severity);
       }
@@ -309,9 +322,9 @@ describe('missionShape', () => {
     // no way in at all.
     for (const missionNumber of SAMPLE_NUMBERS) {
       const shape = missionShape(missionNumber);
-      if (shape.route !== 'msfconsole') continue;
+      if (shape.keyBox.route !== 'msfconsole') continue;
 
-      const [routeService] = shape.keyBoxServices;
+      const [routeService] = shape.keyBox.services;
       const outcome = exploitOutcome(
         routeService?.package ?? '',
         routeService?.version ?? '',
@@ -326,9 +339,9 @@ describe('missionShape', () => {
     for (const missionNumber of SAMPLE_NUMBERS) {
       const shape = missionShape(missionNumber);
 
-      const keyBoxPins = shape.route === 'msfconsole' ? {} : shape.keyBoxVersions;
+      const keyBoxPins = shape.keyBox.route === 'msfconsole' ? {} : shape.keyBox.versions;
       for (const severity of pinnedSeverities(keyBoxPins)) {
-        expect(['low', 'medium'], `${shape.route} key box for ${missionNumber}`).toContain(
+        expect(['low', 'medium'], `${shape.keyBox.route} key box for ${missionNumber}`).toContain(
           severity,
         );
       }
@@ -347,12 +360,12 @@ describe('missionShape', () => {
     // hole to fall through: the forward to :2222 is what the word logs in by.
     for (const missionNumber of SAMPLE_NUMBERS) {
       const shape = missionShape(missionNumber);
-      if (shape.route !== 'web' || shape.storage === 'database') continue;
+      if (shape.keyBox.route !== 'web' || shape.storage === 'database') continue;
 
-      const [webService] = shape.keyBoxServices;
+      const [webService] = shape.keyBox.services;
       expect(webService?.service, `web service for ${missionNumber}`).toBe('http');
       expect(webService?.port).toBe(80);
-      expect(shape.keyBoxVersions[webService?.package ?? '']).toBe(webService?.version);
+      expect(shape.keyBox.versions[webService?.package ?? '']).toBe(webService?.version);
       expect(realForwards(shape)).toEqual([
         { publicPort: 80, internalPort: 80 },
         { publicPort: 2222, internalPort: 22 },
@@ -365,12 +378,12 @@ describe('missionShape', () => {
     // to fall through. :2222 is what tells a scan this route from an msfconsole route on :21.
     for (const missionNumber of SAMPLE_NUMBERS) {
       const shape = missionShape(missionNumber);
-      if (shape.route !== 'ftp' || shape.storage === 'database') continue;
+      if (shape.keyBox.route !== 'ftp' || shape.storage === 'database') continue;
 
-      const [ftpService] = shape.keyBoxServices;
+      const [ftpService] = shape.keyBox.services;
       expect(ftpService?.service, `ftp service for ${missionNumber}`).toBe('ftp');
       expect(ftpService?.port).toBe(21);
-      expect(shape.keyBoxVersions[ftpService?.package ?? '']).toBe(ftpService?.version);
+      expect(shape.keyBox.versions[ftpService?.package ?? '']).toBe(ftpService?.version);
       expect(realForwards(shape)).toEqual([
         { publicPort: 21, internalPort: 21 },
         { publicPort: 2222, internalPort: 22 },
@@ -383,13 +396,13 @@ describe('missionShape', () => {
     // through. :2222 is what the word logs in by, since a database cannot log anybody in.
     for (const missionNumber of SAMPLE_NUMBERS) {
       const shape = missionShape(missionNumber);
-      if (shape.route !== 'mysql') continue;
+      if (shape.keyBox.route !== 'mysql') continue;
 
-      const [databaseService] = shape.keyBoxServices;
+      const [databaseService] = shape.keyBox.services;
       expect(databaseService?.service, `service for ${missionNumber}`).toBe('mysql');
       expect(databaseService?.program).toBe('mysqld');
       expect(databaseService?.port).toBe(3306);
-      expect(shape.keyBoxVersions[databaseService?.package ?? '']).toBe(databaseService?.version);
+      expect(shape.keyBox.versions[databaseService?.package ?? '']).toBe(databaseService?.version);
       expect(realForwards(shape)).toEqual([
         { publicPort: 3306, internalPort: 3306 },
         { publicPort: 2222, internalPort: 22 },
@@ -404,11 +417,11 @@ describe('missionShape', () => {
     const listed = DEFAULT_WORDLIST.map((word) => md5(word));
     for (const missionNumber of SAMPLE_NUMBERS) {
       const shape = missionShape(missionNumber);
-      if (shape.route !== 'mysql') continue;
+      if (shape.keyBox.route !== 'mysql') continue;
 
-      expect(listed, `account of ${missionNumber}`).toContain(shape.keyBoxDatabase?.accountHash);
+      expect(listed, `account of ${missionNumber}`).toContain(shape.keyBox.database?.accountHash);
       expect(SHUT_HASHES, `database root of ${missionNumber}`).toContain(
-        shape.keyBoxDatabase?.rootHash,
+        shape.keyBox.database?.rootHash,
       );
     }
   });
@@ -416,12 +429,12 @@ describe('missionShape', () => {
   it('draws no database on any other route, unless the key is kept in one or a decoy runs one', () => {
     for (const missionNumber of SAMPLE_NUMBERS) {
       const shape = missionShape(missionNumber);
-      if (shape.route === 'mysql' || shape.storage === 'database') continue;
-      if (shape.decoys.includes('mysql')) continue;
-      expect(shape.keyBoxDatabase, `${shape.route} route ${missionNumber}`).toBeNull();
+      if (shape.keyBox.route === 'mysql' || shape.storage === 'database') continue;
+      if (shape.keyBox.decoys.includes('mysql')) continue;
+      expect(shape.keyBox.database, `${shape.keyBox.route} route ${missionNumber}`).toBeNull();
       expect(
-        shape.keyBoxServices.some(({ service }) => service === 'mysql'),
-        `${shape.route} route ${missionNumber}`,
+        shape.keyBox.services.some(({ service }) => service === 'mysql'),
+        `${shape.keyBox.route} route ${missionNumber}`,
       ).toBe(false);
     }
   });
@@ -434,9 +447,9 @@ describe('missionShape', () => {
       (shape) => shape.storage === 'database',
     );
 
-    const SSH: MissionForward = { publicPort: 2222, internalPort: 22 };
-    const DATABASE: MissionForward = { publicPort: 3306, internalPort: 3306 };
-    const ROUTE_FORWARDS: Readonly<Record<MissionRoute, readonly MissionForward[]>> = {
+    const SSH: PortPair = { publicPort: 2222, internalPort: 22 };
+    const DATABASE: PortPair = { publicPort: 3306, internalPort: 3306 };
+    const ROUTE_FORWARDS: Readonly<Record<MissionRoute, readonly PortPair[]>> = {
       hydra: [SSH],
       msfconsole: [{ publicPort: 80, internalPort: 80 }],
       web: [{ publicPort: 80, internalPort: 80 }, SSH],
@@ -446,20 +459,20 @@ describe('missionShape', () => {
     };
 
     it('meets every route', () => {
-      expect(new Set(databaseContracts.map(({ route }) => route))).toEqual(
+      expect(new Set(databaseContracts.map(({ keyBox }) => keyBox.route))).toEqual(
         new Set(['hydra', 'msfconsole', 'web', 'ftp', 'mysql', 'snmp']),
       );
     });
 
     it('runs one mysqld, on a release whose hole grants a guest at most', () => {
       for (const shape of databaseContracts) {
-        const label = `${shape.route} route ${shape.missionNumber}`;
-        const databases = shape.keyBoxServices.filter(({ service }) => service === 'mysql');
+        const label = `${shape.keyBox.route} route ${shape.missionNumber}`;
+        const databases = shape.keyBox.services.filter(({ service }) => service === 'mysql');
 
         expect(databases, label).toHaveLength(1);
         expect(databases[0]?.program, label).toBe('mysqld');
         expect(databases[0]?.port, label).toBe(3306);
-        expect(shape.keyBoxVersions['mysql'], label).toBe(databases[0]?.version);
+        expect(shape.keyBox.versions['mysql'], label).toBe(databases[0]?.version);
         expect(['low', 'medium'], label).toContain(
           pinnedSeverities({ mysql: databases[0]?.version ?? '' })[0],
         );
@@ -468,10 +481,10 @@ describe('missionShape', () => {
 
     it('forwards :3306 after the route own forwards, and only once on the database route', () => {
       for (const shape of databaseContracts) {
-        const routeForwards = ROUTE_FORWARDS[shape.route];
+        const routeForwards = ROUTE_FORWARDS[shape.keyBox.route];
 
-        expect(realForwards(shape), `${shape.route} route ${shape.missionNumber}`).toEqual(
-          shape.route === 'mysql' ? routeForwards : [...routeForwards, DATABASE],
+        expect(realForwards(shape), `${shape.keyBox.route} route ${shape.missionNumber}`).toEqual(
+          shape.keyBox.route === 'mysql' ? routeForwards : [...routeForwards, DATABASE],
         );
       }
     });
@@ -479,10 +492,10 @@ describe('missionShape', () => {
     it('puts the application account on the default list, and its root out of reach', () => {
       const listed = DEFAULT_WORDLIST.map((word) => md5(word));
       for (const shape of databaseContracts) {
-        const label = `${shape.route} route ${shape.missionNumber}`;
+        const label = `${shape.keyBox.route} route ${shape.missionNumber}`;
 
-        expect(listed, label).toContain(shape.keyBoxDatabase?.accountHash);
-        expect(SHUT_HASHES, label).toContain(shape.keyBoxDatabase?.rootHash);
+        expect(listed, label).toContain(shape.keyBox.database?.accountHash);
+        expect(SHUT_HASHES, label).toContain(shape.keyBox.database?.rootHash);
       }
     });
   });
@@ -492,13 +505,13 @@ describe('missionShape', () => {
     // through. :2222 is what the word logs in by, since an agent cannot log anybody in.
     for (const missionNumber of SAMPLE_NUMBERS) {
       const shape = missionShape(missionNumber);
-      if (shape.route !== 'snmp' || shape.storage === 'database') continue;
+      if (shape.keyBox.route !== 'snmp' || shape.storage === 'database') continue;
 
-      const [agent] = shape.keyBoxServices;
+      const [agent] = shape.keyBox.services;
       expect(agent?.service, `service for ${missionNumber}`).toBe('snmp');
       expect(agent?.program).toBe('snmpd');
       expect(agent?.port).toBe(161);
-      expect(shape.keyBoxVersions[agent?.package ?? '']).toBe(agent?.version);
+      expect(shape.keyBox.versions[agent?.package ?? '']).toBe(agent?.version);
       expect(realForwards(shape)).toEqual([
         { publicPort: 161, internalPort: 161 },
         { publicPort: 2222, internalPort: 22 },
@@ -510,17 +523,17 @@ describe('missionShape', () => {
     const listed = DEFAULT_WORDLIST.map((word) => md5(word));
     for (const missionNumber of SAMPLE_NUMBERS) {
       const shape = missionShape(missionNumber);
-      if (shape.route !== 'snmp') continue;
+      if (shape.keyBox.route !== 'snmp') continue;
 
-      expect(listed, `community of ${missionNumber}`).toContain(shape.keyBoxCommunityHash);
+      expect(listed, `community of ${missionNumber}`).toContain(shape.keyBox.communityHash);
     }
   });
 
   it('draws no community on any other route, unless a decoy runs an agent', () => {
     for (const missionNumber of SAMPLE_NUMBERS) {
       const shape = missionShape(missionNumber);
-      if (shape.route === 'snmp' || shape.decoys.includes('snmp')) continue;
-      expect(shape.keyBoxCommunityHash, `${shape.route} route ${missionNumber}`).toBeNull();
+      if (shape.keyBox.route === 'snmp' || shape.keyBox.decoys.includes('snmp')) continue;
+      expect(shape.keyBox.communityHash, `${shape.keyBox.route} route ${missionNumber}`).toBeNull();
     }
   });
 
@@ -528,8 +541,8 @@ describe('missionShape', () => {
     'spreads %s route roots across the whole slice, so a farmed list really is 13 words',
     (route) => {
       const roots = SAMPLE_NUMBERS.map((missionNumber) => missionShape(missionNumber))
-        .filter((shape) => shape.route === route)
-        .map((shape) => shape.keyBoxRootHash);
+        .filter((shape) => shape.keyBox.route === route)
+        .map((shape) => shape.keyBox.rootHash);
 
       expect([...new Set(roots)].sort()).toEqual([...LEAKABLE_HASHES].sort());
     },
@@ -540,17 +553,17 @@ describe('missionShape', () => {
       const shape = missionShape(missionNumber);
       expect(SHUT_HASHES, `gateway of ${missionNumber}`).toContain(shape.gatewayAdminHash);
       if (
-        shape.route === 'web' ||
-        shape.route === 'ftp' ||
-        shape.route === 'mysql' ||
-        shape.route === 'snmp'
+        shape.keyBox.route === 'web' ||
+        shape.keyBox.route === 'ftp' ||
+        shape.keyBox.route === 'mysql' ||
+        shape.keyBox.route === 'snmp'
       ) {
-        expect(LEAKABLE_HASHES, `${shape.route} root of ${missionNumber}`).toContain(
-          shape.keyBoxRootHash,
+        expect(LEAKABLE_HASHES, `${shape.keyBox.route} root of ${missionNumber}`).toContain(
+          shape.keyBox.rootHash,
         );
       }
-      if (shape.route === 'msfconsole') {
-        expect(SHUT_HASHES, `msfconsole root of ${missionNumber}`).toContain(shape.keyBoxRootHash);
+      if (shape.keyBox.route === 'msfconsole') {
+        expect(SHUT_HASHES, `msfconsole root of ${missionNumber}`).toContain(shape.keyBox.rootHash);
       }
     }
   });

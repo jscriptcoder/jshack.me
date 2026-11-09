@@ -85,10 +85,11 @@ export type MissionDecoy = (typeof DECOY_KINDS)[number];
  *  one to three real forwards, so every route reaches every count and the count says nothing. */
 const FORWARD_COUNTS = [3, 4] as const;
 
-/** One forward on the gateway: the public port it answers on, and the port it reaches on
- *  the key box. */
+/** One forward on the gateway: the public port it answers on, the box behind the gateway it
+ *  reaches (by its last octet), and the port it reaches there. */
 export type MissionForward = {
   readonly publicPort: number;
+  readonly boxOctet: number;
   readonly internalPort: number;
 };
 
@@ -109,21 +110,39 @@ export type MissionDatabase = {
   readonly rootHash: string;
 };
 
+/** One machine behind a contract's gateway, and everything drawn for it. */
+export type MissionBox = {
+  /** Its last octet on the contract's subnet. */
+  readonly octet: number;
+  /** The one guaranteed way to root it. */
+  readonly route: MissionRoute;
+  /** Its `root` password hash: crackable on the hydra route, one a file can leak on a leak
+   *  route, and one that stays shut on the msfconsole route. */
+  readonly rootHash: string;
+  /** The hashes guarding its database, on the database route, on every contract that keeps
+   *  its key in one, and behind a database decoy. */
+  readonly database: MissionDatabase | null;
+  /** The hash of the read-write community: one a sweep finds on the snmp route, and one no
+   *  sweep finds behind an snmp decoy. */
+  readonly communityHash: string | null;
+  /** The services it runs: the route's service (on every route but hydra), then the database
+   *  on a contract keeping its key in one, then the decoys' daemons, each already on its
+   *  chosen release. */
+  readonly services: readonly MissionService[];
+  /** Versions to pin on it, package to version — every service it runs and every library it
+   *  carries. */
+  readonly versions: Readonly<Record<string, string>>;
+  /** The doors on it that lead nowhere, in the order their forwards follow the real ones. Each
+   *  is built as the real door of its kind is, minus what the server lays in. */
+  readonly decoys: readonly MissionDecoy[];
+};
+
 export type MissionShape = {
   readonly missionNumber: number;
   readonly stem: string;
-  readonly keyBoxOctet: number;
-  readonly route: MissionRoute;
   readonly storage: MissionStorage;
-  /** The key box's `root` password hash: crackable on the hydra route, one a file can
-   *  leak on a leak route, and one that stays shut on the msfconsole route. */
-  readonly keyBoxRootHash: string;
-  /** The hashes guarding the key box's database, on the database route, on every contract
-   *  that keeps its key in one, and behind a database decoy. */
-  readonly keyBoxDatabase: MissionDatabase | null;
-  /** The hash of the read-write community: one a sweep finds on the snmp route, and one no
-   *  sweep finds behind an snmp decoy. */
-  readonly keyBoxCommunityHash: string | null;
+  /** The box holding the key. */
+  readonly keyBox: MissionBox;
   /** The gateway's `root` ("admin") password hash — always uncrackable and never one a
    *  file can leak, so the gateway is a box the route passes through rather than one to
    *  break into. */
@@ -131,21 +150,11 @@ export type MissionShape = {
   /** Versions to pin on the gateway, package to version. Every firmware vendor is pinned
    *  safe, so whichever the gateway builder draws sits on a guest-at-most release. */
   readonly gatewayVersions: Readonly<Record<string, string>>;
-  /** The services the key box runs: the route's service (on every route but hydra), then the
-   *  database on a contract keeping its key in one, then the decoys' daemons, each already on
-   *  its chosen release. */
-  readonly keyBoxServices: readonly MissionService[];
-  /** Versions to pin on the key box, package to version — every service it runs and every
-   *  library it carries. */
-  readonly keyBoxVersions: Readonly<Record<string, string>>;
-  /** The gateway's forwards onto the key box: one on a route with one door, and on a leak
-   *  route the door holding the file followed by `:2222`. A contract keeping its key in a
-   *  database adds `:3306` after them, unless the route's door already is. The decoys'
-   *  forwards follow, bringing the count to three or four. */
+  /** The gateway's forwards: one on a route with one door, and on a leak route the door
+   *  holding the file followed by `:2222`. A contract keeping its key in a database adds
+   *  `:3306` after them, unless the route's door already is. The decoys' forwards follow,
+   *  bringing the count to three or four. */
   readonly forwards: readonly MissionForward[];
-  /** The doors that lead nowhere, in the order their forwards follow the real ones. Each is
-   *  built as the real door of its kind is, minus what the server lays in. */
-  readonly decoys: readonly MissionDecoy[];
 };
 
 /** A service that can be the msfconsole route: an exposed daemon with a `critical` release
@@ -195,8 +204,11 @@ const LEAK_ROUTE_DOORS: Readonly<
   Record<Exclude<MissionRoute, 'hydra' | 'msfconsole'>, RouteCandidate>
 > = { web: WEB_SERVER, ftp: FTP_SERVER, mysql: DATABASE_SERVER, snmp: SNMP_AGENT };
 
+/** A forward before it is pointed at a box: the public port and the port it reaches. */
+type PortPair = Omit<MissionForward, 'boxOctet'>;
+
 /** The forward a word logs in through: the public :2222 onto the key box's own sshd. */
-const SSH_FORWARD: MissionForward = { publicPort: 2222, internalPort: 22 };
+const SSH_FORWARD: PortPair = { publicPort: 2222, internalPort: 22 };
 
 /** The daemon behind each decoy, or none for `ssh`, whose forward reaches the sshd every key
  *  box runs. */
@@ -208,7 +220,7 @@ const DECOY_SERVICES: Readonly<Record<MissionDecoy, RouteCandidate | null>> = {
   snmp: SNMP_AGENT,
 };
 
-const decoyForward = (decoy: MissionDecoy): MissionForward => {
+const decoyForward = (decoy: MissionDecoy): PortPair => {
   const service = DECOY_SERVICES[decoy];
   return service === null ? SSH_FORWARD : { publicPort: service.port, internalPort: service.port };
 };
@@ -294,7 +306,7 @@ export const missionShape = (missionNumber: number): MissionShape => {
   };
 
   const keyBoxServices: MissionService[] = [];
-  let forwards: readonly MissionForward[];
+  let forwards: readonly PortPair[];
   let keyBoxRootHash: string;
   let keyBoxDatabase: MissionDatabase | null = null;
   let keyBoxCommunityHash: string | null = null;
@@ -363,17 +375,23 @@ export const missionShape = (missionNumber: number): MissionShape => {
   return {
     missionNumber,
     stem,
-    keyBoxOctet,
-    route,
     storage,
-    keyBoxRootHash,
-    keyBoxDatabase,
-    keyBoxCommunityHash,
+    keyBox: {
+      octet: keyBoxOctet,
+      route,
+      rootHash: keyBoxRootHash,
+      database: keyBoxDatabase,
+      communityHash: keyBoxCommunityHash,
+      services: keyBoxServices,
+      versions: keyBoxVersions,
+      decoys,
+    },
     gatewayAdminHash,
     gatewayVersions,
-    keyBoxServices,
-    keyBoxVersions,
-    forwards,
-    decoys,
+    forwards: forwards.map(({ publicPort, internalPort }) => ({
+      publicPort,
+      boxOctet: keyBoxOctet,
+      internalPort,
+    })),
   };
 };

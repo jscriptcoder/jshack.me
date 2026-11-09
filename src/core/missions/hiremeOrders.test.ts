@@ -105,11 +105,13 @@ describe('showReport', () => {
   // plain file, so the whole report below reads as the simplest contract does.
   const HYDRA = Array.from({ length: 4000 }, (_unused, index) => index * 256 + 2).find(
     (candidate) =>
-      missionShape(candidate).route === 'hydra' && missionShape(candidate).storage === 'file',
+      missionShape(candidate).keyBox.route === 'hydra' &&
+      missionShape(candidate).storage === 'file',
   )!;
   const MSFCONSOLE = Array.from({ length: 4000 }, (_unused, index) => index * 256 + 2).find(
     (candidate) =>
-      missionShape(candidate).route === 'msfconsole' && missionShape(candidate).storage === 'file',
+      missionShape(candidate).keyBox.route === 'msfconsole' &&
+      missionShape(candidate).storage === 'file',
   )!;
   const RAW_SECRETS = JSON.stringify({
     UNCRACKABLE_PASSWORDS,
@@ -131,7 +133,7 @@ describe('showReport', () => {
 
   it('prints both forwards, the leaked file and the word on an ftp route', () => {
     const number = Array.from({ length: 4000 }, (_unused, index) => index * 256 + 2).find(
-      (candidate) => missionShape(candidate).route === 'ftp',
+      (candidate) => missionShape(candidate).keyBox.route === 'ftp',
     )!;
     const lines = showReport(number, SECRET, RAW_SECRETS).split('\n');
 
@@ -141,13 +143,13 @@ describe('showReport', () => {
     expect(lines).toContain(`  Leak:     ${missionLeakPath(number)}`);
     // Through a boolean: a failing `toContain` would print the word.
     expect(
-      lines.includes(`  Word:     ${plaintextFor(missionShape(number).keyBoxRootHash)}`),
+      lines.includes(`  Word:     ${plaintextFor(missionShape(number).keyBox.rootHash)}`),
     ).toBe(true);
   });
 
   it('prints both forwards, the datadir and the word on a database route', () => {
     const number = Array.from({ length: 4000 }, (_unused, index) => index * 256 + 2).find(
-      (candidate) => missionShape(candidate).route === 'mysql',
+      (candidate) => missionShape(candidate).keyBox.route === 'mysql',
     )!;
     const lines = showReport(number, SECRET, RAW_SECRETS).split('\n');
 
@@ -157,13 +159,13 @@ describe('showReport', () => {
     expect(lines).toContain('  Leak:     /var/lib/mysql/data.json');
     // Through a boolean: a failing `toContain` would print the word.
     expect(
-      lines.includes(`  Word:     ${plaintextFor(missionShape(number).keyBoxRootHash)}`),
+      lines.includes(`  Word:     ${plaintextFor(missionShape(number).keyBox.rootHash)}`),
     ).toBe(true);
   });
 
   it('prints both forwards, the agent config and the word on an snmp route', () => {
     const number = Array.from({ length: 4000 }, (_unused, index) => index * 256 + 2).find(
-      (candidate) => missionShape(candidate).route === 'snmp',
+      (candidate) => missionShape(candidate).keyBox.route === 'snmp',
     )!;
     const lines = showReport(number, SECRET, RAW_SECRETS).split('\n');
 
@@ -173,7 +175,7 @@ describe('showReport', () => {
     expect(lines).toContain('  Leak:     /etc/snmp/snmpd.conf');
     // Through a boolean: a failing `toContain` would print the word.
     expect(
-      lines.includes(`  Word:     ${plaintextFor(missionShape(number).keyBoxRootHash)}`),
+      lines.includes(`  Word:     ${plaintextFor(missionShape(number).keyBox.rootHash)}`),
     ).toBe(true);
   });
 
@@ -271,7 +273,7 @@ describe('showReport', () => {
               `  Forward:  :${forward.publicPort} -> key box :${forward.internalPort} (decoy)`,
           ),
         '  Services:',
-        ...shape.keyBoxServices.map(
+        ...shape.keyBox.services.map(
           (service) =>
             `    ${service.service} (${service.package} ${service.version}) :${service.port} (decoy)`,
         ),
@@ -284,7 +286,7 @@ describe('showReport', () => {
 
   it('lists each service on the key box with its release and port, the route first', () => {
     const shape = missionShape(MSFCONSOLE);
-    const [routeService, ...others] = shape.keyBoxServices;
+    const [routeService, ...others] = shape.keyBox.services;
     const lines = showReport(MSFCONSOLE, SECRET, undefined).split('\n');
 
     const storageLine = lines.findIndex((line) => line.startsWith('  Storage:'));
@@ -305,7 +307,8 @@ describe('showReport', () => {
   it('tags a decoy forward and never the route doors or the database the key is kept in', () => {
     const number = Array.from({ length: 4000 }, (_unused, index) => index * 256 + 2).find(
       (candidate) =>
-        missionShape(candidate).route === 'hydra' && missionShape(candidate).storage === 'database',
+        missionShape(candidate).keyBox.route === 'hydra' &&
+        missionShape(candidate).storage === 'database',
     )!;
     const shape = missionShape(number);
     const lines = showReport(number, SECRET, undefined).split('\n');
@@ -314,7 +317,7 @@ describe('showReport', () => {
     expect(lines).toContain('  Forward:  :3306 -> key box :3306');
     expect(
       lines.filter((line) => line.endsWith('(decoy)') && line.includes('Forward:')),
-    ).toHaveLength(shape.decoys.length);
+    ).toHaveLength(shape.keyBox.decoys.length);
   });
 
   it('prints a different key under a different secret, as the two deployments do', () => {

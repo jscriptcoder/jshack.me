@@ -33,7 +33,8 @@ const KEY_SECRET = 'test-mission-secret';
 
 const firstWebRouteNumber = (): number => {
   for (let candidate = 66051; candidate < 66051 + 5000; candidate += 1) {
-    if (isMissionNumber(candidate) && missionShape(candidate).route === 'web') return candidate;
+    if (isMissionNumber(candidate) && missionShape(candidate).keyBox.route === 'web')
+      return candidate;
   }
   throw new Error('no web route contract in the range');
 };
@@ -45,7 +46,7 @@ export const WEB_ROUTE_GATEWAY = computeApGatewayId(WEB_ROUTE_ESSID);
 /** The file's name under the document root, as a request asks for it. */
 export const WEB_ROUTE_LEAK_PATH = missionLeakPath(WEB_ROUTE_NUMBER) ?? '';
 export const WEB_ROUTE_LEAK_REQUEST = WEB_ROUTE_LEAK_PATH.replace('/var/www/html', '');
-export const WEB_ROUTE_WORD = plaintextFor(missionShape(WEB_ROUTE_NUMBER).keyBoxRootHash);
+export const WEB_ROUTE_WORD = plaintextFor(missionShape(WEB_ROUTE_NUMBER).keyBox.rootHash);
 
 const keyBoxHost = generateHomeLan(WEB_ROUTE_ESSID).hosts.find((host) => host.kind === 'machine');
 if (keyBoxHost === undefined) throw new Error('a contract network has a key box');

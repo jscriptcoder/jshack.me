@@ -40,6 +40,7 @@ import { readOpenPorts } from '../services/pidfile.js';
 import { buildRemoteHostFs } from './remoteHostFs.js';
 import { buildMissionKeyBoxFs } from './missionKeyBoxFs.js';
 import { missionNumberFromEssid } from '../missions/missionNetwork.js';
+import { missionShape } from '../missions/missionShape.js';
 import { hostMachineId } from './remoteHostId.js';
 import { generateHomeLan, type LanHost, type LanHostKind } from './generateHomeLan.js';
 import { generateDeepLayer } from './generateDeepLayer.js';
@@ -116,15 +117,17 @@ export const resolveLanHostIdentity = (host: LanHost, essid: string): LanHostIde
 });
 
 /** The contract number of the box `machineId` names, but ONLY when it is the key box — the
- *  one machine behind a contract gateway — and `null` for anything else: the gateway, a box
- *  on an ordinary network, or an address no contract makes. The server lays the key onto
- *  this box and no other, and it holds only the id a session carries, so this is how it
- *  recognises the box and recovers the number the key is derived from. Bundle-safe: the
- *  number is public shape, never the secret the key comes from. */
+ *  machine at the octet the contract draws for it — and `null` for anything else: the
+ *  gateway, a box on an ordinary network, or an address no contract makes. The server lays
+ *  the key onto this box and no other, and it holds only the id a session carries, so this
+ *  is how it recognises the box and recovers the number the key is derived from.
+ *  Bundle-safe: the number is public shape, never the secret the key comes from. */
 export const missionKeyBoxNumber = (essid: string, machineId: string): number | null => {
   const missionNumber = missionNumberFromEssid(essid);
   if (missionNumber === null) return null;
-  const keyBox = generateHomeLan(essid).hosts.find((host) => host.kind === 'machine');
+  const lan = generateHomeLan(essid);
+  const keyBoxIp = `${lan.subnet}.${missionShape(missionNumber).keyBox.octet}`;
+  const keyBox = lan.hosts.find((host) => host.ip === keyBoxIp);
   if (keyBox === undefined) return null;
   return machineIdForLanHost(keyBox, essid) === machineId ? missionNumber : null;
 };

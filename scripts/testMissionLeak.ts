@@ -125,7 +125,7 @@ const webNumber = (from: number): number => {
     // A contract that keeps its key in a plain file, which is where this check reads it.
     if (
       isMissionNumber(candidate) &&
-      missionShape(candidate).route === 'web' &&
+      missionShape(candidate).keyBox.route === 'web' &&
       missionShape(candidate).storage === 'file'
     ) {
       return candidate;
@@ -141,7 +141,7 @@ const KEY_PATH = missionKeyPath(WEB_NUMBER);
 const KEY = missionKey(WEB_NUMBER, secret);
 const LEAK_PATH = missionLeakPath(WEB_NUMBER) ?? '';
 const LEAK_REQUEST = LEAK_PATH.replace('/var/www/html', '');
-const WORD = plaintextFor(missionShape(WEB_NUMBER).keyBoxRootHash);
+const WORD = plaintextFor(missionShape(WEB_NUMBER).keyBox.rootHash);
 
 const keyBoxHost = generateHomeLan(ESSID).hosts.find((host) => host.kind === 'machine');
 if (keyBoxHost === undefined) throw new Error('a contract network has a key box');

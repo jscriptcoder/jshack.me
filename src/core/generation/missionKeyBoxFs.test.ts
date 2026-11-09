@@ -16,6 +16,7 @@ import { readRwCommunityHash, readSnmpdState } from '../snmp/rwCommunity.js';
 import { parseSnmpdConf, readSnmpdConf, SNMPD_CONF_PERMISSIONS } from '../snmp/conf.js';
 import { SHUT_HASHES } from '../missions/leakablePool.js';
 import { missionLeakFile } from '../missions/missionLeak.js';
+import { isMissionNumber } from '../missions/missionNetwork.js';
 import { SNMP_ROUTE_NUMBER } from '../../test/factories/snmpRouteContract.js';
 import { DEPLOYMENT_SECRETS } from '../../test/factories/webRouteContract.js';
 import type { Directory, FileNode } from '../filesystem/types.js';
@@ -25,8 +26,8 @@ import type { Directory, FileNode } from '../filesystem/types.js';
 const numberWithRoute = (route: MissionRoute, without: readonly MissionDecoy[] = []): number => {
   for (let missionNumber = 2; missionNumber < 5000; missionNumber += 1) {
     const shape = missionShape(missionNumber);
-    if (shape.route !== route) continue;
-    if (without.some((decoy) => shape.decoys.includes(decoy))) continue;
+    if (shape.keyBox.route !== route) continue;
+    if (without.some((decoy) => shape.keyBox.decoys.includes(decoy))) continue;
     if (without.includes('mysql') && shape.storage === 'database') continue;
     return missionNumber;
   }
@@ -36,7 +37,7 @@ const numberWithRoute = (route: MissionRoute, without: readonly MissionDecoy[] =
 /** The first sampled contract number running `decoy` as a decoy. */
 const numberWithDecoy = (decoy: MissionDecoy): number => {
   for (let missionNumber = 2; missionNumber < 5000; missionNumber += 1) {
-    if (missionShape(missionNumber).decoys.includes(decoy)) return missionNumber;
+    if (missionShape(missionNumber).keyBox.decoys.includes(decoy)) return missionNumber;
   }
   throw new Error(`no ${decoy} decoy in range`);
 };
@@ -44,7 +45,7 @@ const numberWithDecoy = (decoy: MissionDecoy): number => {
 /** What a scan of the box finds listening: its own sshd and every service the shape names,
  *  the route's and the decoys'. */
 const servicesNamedFor = (missionNumber: number): readonly string[] =>
-  ['ssh', ...missionShape(missionNumber).keyBoxServices.map(({ service }) => service)].sort();
+  ['ssh', ...missionShape(missionNumber).keyBox.services.map(({ service }) => service)].sort();
 
 const HYDRA = numberWithRoute('hydra');
 const MSF = numberWithRoute('msfconsole');
@@ -81,7 +82,7 @@ describe('the key box of a contract network', () => {
     const passwd = fileAt(buildMissionKeyBoxFs(HYDRA), ['etc', 'passwd']);
     const rootHash = passwd.split('\n')[0]?.split(':')[1];
 
-    expect(rootHash).toBe(missionShape(HYDRA).keyBoxRootHash);
+    expect(rootHash).toBe(missionShape(HYDRA).keyBox.rootHash);
     // An NPC user and guest sit below root, shells that cannot read the root-only key.
     expect(passwd).toMatch(/:1000:1000:/);
     expect(passwd).toMatch(/^guest:[^:]*:1001:1001:/m);
@@ -149,7 +150,7 @@ describe('the key box of a contract network', () => {
 
   it('guards the database with its two drawn accounts and nobody else', () => {
     const database = databaseIn(buildMissionKeyBoxFs(MYSQL));
-    const drawn = missionShape(MYSQL).keyBoxDatabase;
+    const drawn = missionShape(MYSQL).keyBox.database;
 
     expect(database?.credentials).toHaveLength(2);
     expect(database?.credentials[0]).toEqual({
@@ -187,7 +188,9 @@ describe('the key box of a contract network', () => {
       databaseIn(buildMissionKeyBoxFs(missionNumber))?.tables['users']?.rows[0]?.['password_hash'];
     const [first, second] = Array.from({ length: 5000 }, (_unused, index) => index + 2).filter(
       (missionNumber) =>
-        missionShape(missionNumber).route === 'mysql' && passwordHashOf(missionNumber) !== undefined,
+        isMissionNumber(missionNumber) &&
+        missionShape(missionNumber).keyBox.route === 'mysql' &&
+        passwordHashOf(missionNumber) !== undefined,
     );
     if (first === undefined || second === undefined) throw new Error('two contracts in range');
 
@@ -240,7 +243,7 @@ describe('the key box of a contract network', () => {
     const box = buildMissionKeyBoxFs(SNMP);
     const state = nodeAt(box, ['var', 'lib', 'snmp', 'snmpd.conf']);
 
-    expect(readRwCommunityHash(box)).toBe(missionShape(SNMP).keyBoxCommunityHash);
+    expect(readRwCommunityHash(box)).toBe(missionShape(SNMP).keyBox.communityHash);
     expect(state?.perms.read).toEqual(['root']);
     expect(state?.perms.write).toEqual(['root']);
   });
@@ -280,7 +283,7 @@ describe('the key box of a contract network', () => {
 
   it('runs the msfconsole route service on its critical release, reachable to a scan', () => {
     const shape = missionShape(MSF);
-    const routeService = shape.keyBoxServices[0];
+    const routeService = shape.keyBox.services[0];
     const ports = readOpenPorts(buildMissionKeyBoxFs(MSF));
 
     expect(ports.some((port) => port.service === 'ssh')).toBe(true);
@@ -298,7 +301,7 @@ describe('the key box of a contract network', () => {
 
     expect(manifest.size).toBeGreaterThan(0);
     for (const [pkg, version] of manifest) {
-      expect(version, pkg).toBe(shape.keyBoxVersions[pkg]);
+      expect(version, pkg).toBe(shape.keyBox.versions[pkg]);
     }
   });
 
@@ -348,7 +351,7 @@ describe('a decoy on the key box', () => {
     const database = databaseIn(buildMissionKeyBoxFs(missionNumber));
 
     expect(database?.credentials[1]?.passwordHash).toBe(
-      missionShape(missionNumber).keyBoxDatabase?.accountHash,
+      missionShape(missionNumber).keyBox.database?.accountHash,
     );
     expect(Object.keys(database?.tables ?? {})).not.toContain('settings');
     expect(Object.keys(database?.tables ?? {})).not.toContain('api_keys');
@@ -380,7 +383,7 @@ describe('a decoy on the key box', () => {
       parseSnmpdConf(readSnmpdConf(buildMissionKeyBoxFs(missionNumber))).roCommunity;
     const communities = new Set(
       Array.from({ length: 3000 }, (_unused, index) => index + 2)
-        .filter((missionNumber) => missionShape(missionNumber).decoys.includes('snmp'))
+        .filter((missionNumber) => missionShape(missionNumber).keyBox.decoys.includes('snmp'))
         .slice(0, 40)
         .map(communityOf),
     );
@@ -392,7 +395,7 @@ describe('a decoy on the key box', () => {
 /** The key box's root hash on the msfconsole route stays shut. */
 describe('the msfconsole key box root', () => {
   it('is uncrackable, so the service hole is the only way in', () => {
-    expect(UNCRACKABLE_HASHES).toContain(missionShape(MSF).keyBoxRootHash);
+    expect(UNCRACKABLE_HASHES).toContain(missionShape(MSF).keyBox.rootHash);
   });
 });
 

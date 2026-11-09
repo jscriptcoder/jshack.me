@@ -123,7 +123,7 @@ const numberWith = (route: MissionRoute, storage: MissionStorage, from: number):
   for (let candidate = from; candidate < from + 20000; candidate += 1) {
     if (
       isMissionNumber(candidate) &&
-      missionShape(candidate).route === route &&
+      missionShape(candidate).keyBox.route === route &&
       missionShape(candidate).storage === storage
     ) {
       return candidate;
@@ -140,7 +140,7 @@ const ESSID = missionEssid(DATABASE_NUMBER);
 const ADDRESS = missionAddressForNumber(DATABASE_NUMBER) ?? '';
 const KEY_PATH = missionKeyPath(DATABASE_NUMBER);
 const KEY = missionKey(DATABASE_NUMBER, secret);
-const WORD = plaintextFor(missionShape(DATABASE_NUMBER).keyBoxRootHash);
+const WORD = plaintextFor(missionShape(DATABASE_NUMBER).keyBox.rootHash);
 const DATABASE_PORT = 3306;
 
 const account = databaseIn(buildMissionKeyBoxFs(DATABASE_NUMBER))?.credentials.find(
@@ -332,7 +332,7 @@ const cleanup = async () => {
  *  too. The key is compared and never printed. */
 const workKeptInDatabase = async (missionNumber: number, index: number) => {
   const shape = missionShape(missionNumber);
-  const label = `${shape.route} route, key in the database (${missionNumber})`;
+  const label = `${shape.keyBox.route} route, key in the database (${missionNumber})`;
   const address = missionAddressForNumber(missionNumber) ?? '';
   const key = missionKey(missionNumber, secret);
   const { keyBox } = boxesOf(missionNumber);
@@ -389,10 +389,10 @@ const workKeptInDatabase = async (missionNumber: number, index: number) => {
   );
   const tables = await statement('SHOW TABLES', login, address);
   check(
-    `${label}: SHOW TABLES lists api_keys${shape.route === 'mysql' ? ' and settings' : ''}`,
+    `${label}: SHOW TABLES lists api_keys${shape.keyBox.route === 'mysql' ? ' and settings' : ''}`,
     tables.status === 200 &&
       tables.output.includes('api_keys') &&
-      tables.output.includes('settings') === (shape.route === 'mysql'),
+      tables.output.includes('settings') === (shape.keyBox.route === 'mysql'),
     `status ${tables.status}`,
   );
   const selected = await statement('SELECT * FROM api_keys', login, address);
@@ -420,7 +420,7 @@ const workKeptInDatabase = async (missionNumber: number, index: number) => {
     `status ${mailed.status} balance ${await balanceOf(wallet)} (want ${terms.pay})`,
   );
 
-  if (shape.route !== 'hydra') {
+  if (shape.keyBox.route !== 'hydra') {
     const deleted = await statement(
       "DELETE FROM api_keys WHERE service = 'portal'",
       login,
@@ -445,7 +445,7 @@ const workKeptInDatabase = async (missionNumber: number, index: number) => {
   const rooted = await sshToKeyBox(
     contractor,
     'root',
-    plaintextFor(shape.keyBoxRootHash),
+    plaintextFor(shape.keyBox.rootHash),
     address,
   );
   check(`${label}: ssh root lands`, rooted.status === 200, `status ${rooted.status}`);
