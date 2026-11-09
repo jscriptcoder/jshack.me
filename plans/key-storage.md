@@ -1,6 +1,9 @@
 # Plan: where a contract keeps its key
 
-**Status:** Grilled 2026-11-09. Two slices planned 2026-11-09. Nothing is built.
+**Status:** Grilled 2026-11-09; slice 2 re-grilled 2026-11-09 (decision 6). Two slices planned.
+Slice 1 is built and parked on `feat/key-storage-gpg` (stashed), waiting on its rebase onto v0.446.1
+and its gates. Its wire-check found the msfconsole route's ftp draw unwinnable, fixed first in #757
+(v0.446.1).
 
 Today every contract keeps its `ACCESS-` key the same way: a root-only text file on the key box. Legacy
 also kept it encrypted (`gpg`, its passphrase on another machine, sometimes wrapped in binary noise
@@ -44,21 +47,19 @@ brings both back as a second draw beside the route. As-built context:
    `gpg -d` opens. Rejected: a word from a pool, which players would collect and so skip `strings`.
 
 5. **The owner took every remaining recommendation (2026-11-09):**
-   - **A database is a file, and that is accepted.** A v2 database is the root-only
-     `/var/lib/mysql/data.json`, with no per-table grants: any database login reads every table. So on
-     the mysql route a database key is reached by cracking the application login with `hydra` and a
-     `SELECT`, with no `ssh` and no root, the easiest pairing and the new play. On the other five
-     routes a root reads the key out of `data.json` with `cat` or `grep`, close to the plain file.
-     Nobody can tell the storage before looking. No `/root/.my.cnf`: the database root password comes
-     from the pool that must never leak.
+   - **A database is a file** (still true): a v2 database is the root-only `/var/lib/mysql/data.json`,
+     with no per-table grants, so any database login reads every table and a root reads the key out
+     of `data.json`. No `/root/.my.cnf`: the database root password comes from the pool that must
+     never leak. What the grill first drew from this, that off the mysql route the database is only
+     reached through root, is replaced by decision 6.
    - **The database key** is a row in an `api_keys` table (legacy's name) with a few decoy rows not in
-     the `ACCESS-` shape. Off the mysql route the key box still gets a database: a mysqld on a safe
-     release with no forward, its root uncrackable.
+     the `ACCESS-` shape. Where the database runs and how it is reached: decision 6.
    - **The gpg program's content** is the ELF stub header, its name, and a few lines of its own: a
      usage line, `--seal`, `--open`, and the passphrase. NUL-free, like every binary stub (a root's
      edit goes to a Postgres TEXT column).
-   - **The history line names no secret**, so it can be generated in `core/`. The program and the
-     encrypted key are laid in by the server, as the key file is.
+   - **The history line is laid in by the server**, with the program and the encrypted key. (The
+     grill said it could be generated in `core/` because it names no secret; it names the key path,
+     whose pool is server-only, so it cannot. Corrected while building slice 1.)
    - **The draw is flat, one in three**, and exactly one storage per contract, never two combined.
    - **Pay and the offer do not change**, so pay gives no hint of the storage, the rule leak routes
      already follow.
@@ -76,6 +77,22 @@ brings both back as a second draw beside the route. As-built context:
    - **Two slices.** Slice 1: the draw, with `file` and `gpg`. Slice 2: `database`. Each its own PR,
      version bump, unit tests, a wire-check against `vercel dev` and the mutation gate; one browser
      run at close-out works a gpg job and a database job, including the mysql-route pairing.
+
+6. **A database contract is worked from outside, as a database user, never as root (2026-11-09).**
+   The point of the database key is to reach the database from another box with `mysql`, not to root
+   the key box and read `data.json`. So every `database` contract forwards `:3306` on the gateway,
+   whatever its route, and its application account's password is drawn from the crackable pool, as on
+   the mysql route: `hydra <address> mysql`, then `mysql <address> <user>`, then
+   `SELECT * FROM api_keys`. The database root stays shut. The route is still drawn and still roots
+   the box, so a root can also read the key out of `data.json`: a database contract has two ways to
+   the key, and the login one never needs a shell. A database login reads tables and grants no shell,
+   so nothing climbs that should not. A scan shows `3306` beside the route's ports (on the mysql route
+   it already was its door). This replaces decision 5's "a database is a file, and that is accepted"
+   and its database-key bullet, and closes the carried risk about the application account.
+   Rejected: a login the route gives away on the box (an app config, a `.my.cnf`), which needs a
+   shell on the box; a leak route leaking the database password instead of root's word, which leaves
+   hydra and msfconsole contracts needing a sweep anyway. Both stay candidates for the deferred
+   "harder leaks".
 
 ## Where the key is made today (found 2026-11-09)
 
@@ -192,12 +209,14 @@ database contract, so the `api/` doors change what they serve and the wire-check
 
 - On a `database` contract no key file is laid; the key is a row of an `api_keys` table in the key
   box's datadir, beside a few decoy rows whose values are not in the `ACCESS-` shape.
-- **On the mysql route**, the datadir holds both `settings` (root's word, as today) and `api_keys`:
-  the application login a `hydra` sweep finds reads the key with `SELECT * FROM api_keys`, with no
-  `ssh`.
-- **On every other route**, the key box runs a `mysqld` on a safe release, listening on `3306`, with
-  no forward on the gateway. Both of its database accounts are drawn from `SHUT_HASHES`, so no sweep
-  from a guest shell on the box opens it; a root reads the key from `/var/lib/mysql/data.json`.
+- **On every route**, the key box runs `mysqld` on a safe release and the gateway forwards `:3306` to
+  it, beside the route's own forwards. Its application account's password is from the crackable pool
+  and its database root from `SHUT_HASHES`. From the player's own box, `hydra <address> mysql` finds
+  the application login, `mysql <address> <user>` logs in, and `SELECT * FROM api_keys` shows the key,
+  with no shell on the key box.
+- **On the mysql route** the database is the one it already runs: the datadir holds both `settings`
+  (root's word, as today) and `api_keys`, and the forward is the one it already has.
+- **The route still roots the box**, and a root reads the key out of `/var/lib/mysql/data.json`.
 - A root's `DROP TABLE api_keys` or `rm` of the datadir closes the job for later visitors.
 - With `MISSION_KEY_SECRET` unset, the datadir door answers 500 `mission_secret_missing`.
 - `hireme.ts show` prints `Storage: database`.
@@ -206,7 +225,8 @@ database contract, so the `api/` doors change what they serve and the wire-check
 **Shape**
 
 - `missionShape`: on `database` off the mysql route, the key box gains the database server on a safe
-  release and a `keyBoxDatabase` with both hashes from `SHUT_HASHES`. Its forwards are unchanged.
+  release, a `keyBoxDatabase` drawn as the mysql route's is (application account crackable, root
+  shut), and a `3306 -> 3306` forward after the route's own.
 - `missionLeak.ts`: the datadir is built once from every table the contract's route and storage put
   in it (`settings` on the mysql route, `api_keys` on database storage), so the two never compete
   for the same file; `missionFilePaths` lists the datadir on every contract that has one.
@@ -214,25 +234,27 @@ database contract, so the `api/` doors change what they serve and the wire-check
 **TDD order (RED first)**
 
 1. `missionShape` on database storage, every route: the database server present on a safe release,
-   no new forward, both hashes shut off the mysql route.
+   a `3306` forward (exactly one on the mysql route), the application account crackable and the
+   database root shut.
 2. `missionFiles`: the datadir carries `api_keys` with the key and the decoys, and on the mysql route
    `settings` as well; no key file.
-3. The database statements on the laid datadir: `SELECT` from `api_keys` as the application account
-   on the mysql route; access denied for any sweepable word off it.
+3. The database statements on the laid datadir: `SELECT` from `api_keys` as the application account,
+   on the mysql route and off it.
 4. `missionFilePaths` and the write gate for the datadir; 500 with the secret unset.
 5. `showReport`: `Storage: database`.
 
 **Gates**
 
-- As slice 1, with `scripts/testMissionMysql.ts` gaining a mysql-route database contract (the
-  application login reads the key, the mail pays) and `testMissions.ts` an other-route one (root
-  reads the datadir, the mail pays).
+- As slice 1, with `scripts/testMissionMysql.ts` gaining two database contracts, one on the mysql
+  route and one on another route. On each, from the player's own box: a scan shows `3306`, a sweep
+  finds the application login, `SELECT` from `api_keys` returns the key `show` prints, and the mail
+  pays. On the other-route one, root also reads the key out of the datadir.
 - Mutation gate on the changed lines. Version bump to v0.448.0.
 
 **Docs**
 
-- `missions-architecture.md`: the storage section gains the database, including that the mysql
-  route reaches it without root.
+- `missions-architecture.md`: the storage section gains the database: worked from outside as a
+  database user, the forward it adds to every route, and the second way through root.
 
 ---
 
@@ -242,18 +264,17 @@ One browser run on a fresh player, contracts staged with `hireme.ts accept --num
 
 - a gpg job: root, `ls /usr/local/bin`, `cat ~/.bash_history`, `strings` on the program, `gpg -d`,
   mail, paid once;
-- a database job on the mysql route: `hydra` the application login, `SELECT` the key, mail, paid
-  with no `ssh`;
-- a database job on another route: root, read the datadir, mail, paid.
+- a database job on the mysql route and one on another route, each from the player's own box:
+  `nmap` shows `3306`, `hydra <address> mysql`, `mysql <address> <user>`, `SELECT` the key, mail,
+  paid, with no `ssh`;
+- on the second, also root by the route and read the datadir.
 
 Then the shipped items in `project-status.md`, the "missions — deferred" entry in `backlog.md`
 trimmed, a valleynews `/dev` note if the owner wants one, and this plan retired.
 
 ## Carried risks
 
-- **Off the mysql route, the database's application account is shut too.** The grill fixed only the
-  database root as uncrackable. A crackable application login on a box with no forward would still
-  open the key to anyone holding a guest shell there who can sweep `localhost`, a way in that is not
-  the route. Shutting both keeps "nothing but the route climbs". Confirm at slice 2's start.
+- ~~Off the mysql route, the database's application account is shut too.~~ Closed by decision 6:
+  the application login is the intended way to the key, from outside.
 - **Slice 1 treats `database` as `file`.** Merged alone, about a third of contracts play as plain
   file jobs until slice 2. Free while prod has only test players.
