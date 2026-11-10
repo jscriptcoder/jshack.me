@@ -545,6 +545,29 @@ describe('the files of a two-hop contract', () => {
     expect(differing.length).toBeGreaterThan(bothWeb.length / 2);
   });
 
+  it('draws each contract its own front-box forgotten file', () => {
+    const webFronts = twoHopShapes.filter((shape) => shape.frontBox?.route === 'web');
+    const names = new Set(
+      webFronts.map(({ missionNumber }) => missionLeakPath(frontOf(missionNumber))),
+    );
+
+    expect(webFronts.length).toBeGreaterThan(5);
+    expect(names.size).toBeGreaterThan(1);
+  });
+
+  // Captured before a front box existed: a front box drawing its file on a stream of its own
+  // must leave every key box's draw where it was.
+  it.each([
+    [66058, '/var/www/html/todo.txt'],
+    [66065, '/srv/ftp/pub/old'],
+    [66068, '/srv/ftp/pub/settings'],
+    [66082, '/srv/ftp/pub/settings'],
+    [66097, '/var/www/html/notes.txt'],
+    [66098, '/var/www/html/readme.txt'],
+  ])('keeps contract %i key box forgotten file at %s', (missionNumber, path) => {
+    expect(missionLeakPath(keyOf(missionNumber))).toBe(path);
+  });
+
   it.each(['hydra', 'msfconsole'] as const)(
     'lays nothing on a %s front box, and asks no secret to say so',
     (route) => {

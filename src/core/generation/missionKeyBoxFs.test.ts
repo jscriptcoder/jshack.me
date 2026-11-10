@@ -66,6 +66,15 @@ const fileAt = (fs: Directory, segments: readonly string[]): string => {
   return node.content;
 };
 
+/** Every password hash the box's application drew for its rows: the bcrypt strings, which the
+ *  application's own stream draws, unlike the box's account that staffs it. */
+const drawnHashesOf = (box: Directory): ReadonlySet<string> =>
+  new Set(JSON.stringify(databaseIn(box)?.tables ?? {}).match(/\$2y\$10\$[^"]+/g) ?? []);
+
+/** Whether two sets share no member. */
+const disjoint = (first: ReadonlySet<string>, second: ReadonlySet<string>): boolean =>
+  [...first].every((member) => !second.has(member));
+
 const nodeAt = (fs: Directory, segments: readonly string[]): FileNode | undefined =>
   segments.reduce<FileNode | undefined>(
     (node, segment) => (node?.kind === 'directory' ? node.entries.get(segment) : undefined),
@@ -193,8 +202,12 @@ describe('the key box of a contract network', () => {
         passwordHashOf(missionNumber) !== undefined,
     );
     if (first === undefined || second === undefined) throw new Error('two contracts in range');
+    const firstDrawn = drawnHashesOf(buildMissionKeyBoxFs(first));
 
     expect(passwordHashOf(first)).not.toBe(passwordHashOf(second));
+    // The rows the application draws, past the box's own account, are drawn per contract too.
+    expect(firstDrawn.size).toBeGreaterThan(0);
+    expect(disjoint(firstDrawn, drawnHashesOf(buildMissionKeyBoxFs(second)))).toBe(true);
   });
 
   it('keeps the table holding the word out of the box as it generates', () => {
@@ -336,6 +349,21 @@ describe('the front box of a two-hop contract', () => {
     throw new Error('no such two-hop contract in range');
   };
 
+  /** The first two contracts in range whose shape `wanted` accepts. */
+  const firstTwo = (
+    wanted: (shape: ReturnType<typeof missionShape>) => boolean,
+  ): readonly [number, number] => {
+    const found: number[] = [];
+    for (let missionNumber = 2; missionNumber < 20000 && found.length < 2; missionNumber += 1) {
+      if (isMissionNumber(missionNumber) && wanted(missionShape(missionNumber))) {
+        found.push(missionNumber);
+      }
+    }
+    const [first, second] = found;
+    if (first === undefined || second === undefined) throw new Error('two contracts in range');
+    return [first, second];
+  };
+
   const frontOf = (missionNumber: number) => {
     const { frontBox } = missionShape(missionNumber);
     if (frontBox === null) throw new Error(`contract ${missionNumber} has one hop`);
@@ -365,6 +393,24 @@ describe('the front box of a two-hop contract', () => {
       );
 
     expect(differing).toHaveLength(20);
+  });
+
+  it('draws each contract its own front-box NPC user and guest', () => {
+    const passwordsBelowRoot = (tree: Directory) =>
+      fileAt(tree, ['etc', 'passwd']).split('\n').slice(1).join('\n');
+    const [first, second] = firstTwo((shape) => shape.frontBox !== null);
+
+    expect(passwordsBelowRoot(buildMissionFrontBoxFs(first))).not.toBe(
+      passwordsBelowRoot(buildMissionFrontBoxFs(second)),
+    );
+  });
+
+  it('draws each contract its own front-box application on the database route', () => {
+    const [first, second] = firstTwo((shape) => shape.frontBox?.route === 'mysql');
+    const firstDrawn = drawnHashesOf(buildMissionFrontBoxFs(first));
+
+    expect(firstDrawn.size).toBeGreaterThan(0);
+    expect(disjoint(firstDrawn, drawnHashesOf(buildMissionFrontBoxFs(second)))).toBe(true);
   });
 
   it.each(['hydra', 'msfconsole', 'web', 'ftp', 'mysql', 'snmp'] as const)(
