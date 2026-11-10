@@ -40,10 +40,11 @@
  * word, an agent whose read-write community stays shut). Every route reaches every count.
  *
  * One contract in three has two hops. The gateway forwards only onto a front box, which falls
- * to a route of its own from the same six and holds nothing; the key box has no forward and no
- * decoys, and is worked from a shell on the front box, its doors reached over the LAN on their
- * own ports. A two-hop contract's key box keeps the route, hashes and storage it would have had
- * with one hop.
+ * to a route of its own from the same six and holds nothing; the key box has no forward, and is
+ * worked from a shell on the front box, its doors reached over the LAN on their own ports. A
+ * two-hop contract's key box keeps the route, hashes and storage it would have had with one hop,
+ * and runs decoys of its own, so a scan from the front box does not tell its route either: two
+ * or three doors besides sshd, the real ones first.
  *
  * Everything that is NOT the way in sits on a release whose hole grants a guest shell at
  * most (`low` or `medium`): the gateway's firmware (so the gateway is passed through, not
@@ -90,6 +91,14 @@ export type MissionDecoy = (typeof DECOY_KINDS)[number];
 /** How many forwards a gateway has, decoys filling the gap above the real ones. A contract has
  *  one to three real forwards, so every route reaches every count and the count says nothing. */
 const FORWARD_COUNTS = [3, 4] as const;
+
+/** The doors a two-hop key box can run that lead nowhere. Never ssh: sshd runs on every box, so
+ *  its door is always there and blurs nothing. */
+const INSIDE_DECOY_KINDS = ['web', 'ftp', 'mysql', 'snmp'] as const;
+
+/** How many service doors a two-hop key box runs besides sshd, decoys filling the gap above the
+ *  real ones. It has none to two, so every route reaches every count its real doors allow. */
+const INSIDE_DOOR_COUNTS = [2, 3] as const;
 
 /** The share of contracts whose key box sits behind a front box. */
 const TWO_HOP_SHARE = 1 / 3;
@@ -141,8 +150,9 @@ export type MissionBox = {
   /** Versions to pin on it, package to version — every service it runs and every library it
    *  carries. */
   readonly versions: Readonly<Record<string, string>>;
-  /** The doors on it that lead nowhere, in the order their forwards follow the real ones. Each
-   *  is built as the real door of its kind is, minus what the server lays in. */
+  /** The doors on it that lead nowhere, in the order their forwards follow the real ones, or on a
+   *  two-hop key box, which has no forwards, in the order their daemons follow the real ones.
+   *  Each is built as the real door of its kind is, minus what the server lays in. */
   readonly decoys: readonly MissionDecoy[];
 };
 
@@ -359,6 +369,46 @@ const drawRoute = (route: MissionRoute, prng: Prng): RouteDraw => {
 /** A box before its decoys. */
 type BareBox = Omit<MissionBox, 'decoys'>;
 
+/** `box` running `decoys`, each the real door's daemon on a safe release, drawn on `prng`. */
+const withDecoyDaemons = (
+  box: BareBox,
+  decoys: readonly MissionDecoy[],
+  prng: Prng,
+): MissionBox => {
+  const services = [...box.services];
+  const versions = { ...box.versions };
+  for (const decoy of decoys) {
+    const service = DECOY_SERVICES[decoy];
+    if (service === null) continue;
+    const version = safeVersionOf(service.package, prng);
+    services.push({ ...service, version });
+    versions[service.package] = version;
+  }
+  return {
+    ...box,
+    services,
+    versions,
+    // The door lets a sweep in as far as the real one would, onto a database holding nothing.
+    database: decoys.includes('mysql') ? databaseAccounts(prng) : box.database,
+    // A read-write community shuts the box's ports without root, so a decoy's never falls.
+    communityHash: decoys.includes('snmp') ? prng.pick(SHUT_HASHES) : box.communityHash,
+    decoys,
+  };
+};
+
+/** A two-hop key box with its inside decoys: doors filling the services it runs besides sshd to
+ *  two or three, so a scan from the front box does not tell its route. Drawn last on a stream of
+ *  its own, so they moved nothing a contract already had. */
+const withInsideDecoys = (box: BareBox, missionNumber: number): MissionBox => {
+  const decoyPrng = createPrng(`mission-inside-decoys-${missionNumber}`);
+  const doorCount = decoyPrng.pick(INSIDE_DOOR_COUNTS);
+  const unrun = INSIDE_DECOY_KINDS.filter(
+    (decoy) => !box.services.some(({ port }) => port === decoyForward(decoy).internalPort),
+  );
+  const decoys = decoyPrng.pickN(unrun, doorCount - box.services.length);
+  return withDecoyDaemons(box, decoys, decoyPrng);
+};
+
 /** The box the gateway forwards onto, with its decoys: doors filling its forwards to three or
  *  four, each running the real door's daemon. Drawn last on a stream of its own, so decoys
  *  moved nothing a contract already had. */
@@ -373,26 +423,8 @@ const withDecoys = (
     (decoy) => !forwards.some(({ publicPort }) => publicPort === decoyForward(decoy).publicPort),
   );
   const decoys = decoyPrng.pickN(unforwarded, forwardCount - forwards.length);
-  const services = [...box.services];
-  const versions = { ...box.versions };
-  for (const decoy of decoys) {
-    const service = DECOY_SERVICES[decoy];
-    if (service === null) continue;
-    const version = safeVersionOf(service.package, decoyPrng);
-    services.push({ ...service, version });
-    versions[service.package] = version;
-  }
   return {
-    box: {
-      ...box,
-      services,
-      versions,
-      // The door lets a sweep in as far as the real one would, onto a database holding nothing.
-      database: decoys.includes('mysql') ? databaseAccounts(decoyPrng) : box.database,
-      // A read-write community shuts the box's ports without root, so a decoy's never falls.
-      communityHash: decoys.includes('snmp') ? decoyPrng.pick(SHUT_HASHES) : box.communityHash,
-      decoys,
-    },
+    box: withDecoyDaemons(box, decoys, decoyPrng),
     forwards: [...forwards, ...decoys.map(decoyForward)],
   };
 };
@@ -516,7 +548,7 @@ export const missionShape = (missionNumber: number): MissionShape => {
       missionNumber,
       stem,
       storage,
-      keyBox: { ...keyBox, decoys: [] },
+      keyBox: withInsideDecoys(keyBox, missionNumber),
       frontBox: entry.box,
       gatewayAdminHash,
       gatewayVersions,

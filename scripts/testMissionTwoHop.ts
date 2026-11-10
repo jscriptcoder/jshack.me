@@ -9,6 +9,10 @@
 //     server on the front box, and the word opens root there over the forwarded :2222.
 //   - FROM THAT ROOT SHELL: `apt install` writes onto the front box, `nmap` of the LAN reaches
 //     all three hosts, and the key box's route works over the LAN on the key box's own ports.
+//   - THE KEY BOX'S OWN DECOYS LEAD NOWHERE FROM THE HOP: before its route is worked, each is
+//     worked to its empty end (web: a sweep finds no forgotten file; ftp: anonymous lands a guest
+//     in an empty pub; mysql: the swept account opens no word and no key; snmp: silent to
+//     public, read-only to a guess, shut to a sweep). The six contracts hold all four kinds.
 //   - THE KEY BOX OPENS FROM THE HOP: root lands there, its auth.log names the front box's LAN
 //     address, and root reads the key.
 //   - THE JOB PAYS ONCE, and `show` names both boxes.
@@ -36,7 +40,12 @@ import { binaryStub } from '../src/core/generation/binaries.js';
 import { RIDGEMONT } from '../src/core/generation/world.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { databaseIn } from '../src/core/mysql/datadir.js';
-import { SNMPD_CONF_PATH, parseSnmpdConf } from '../src/core/snmp/conf.js';
+import { SNMPD_CONF_PATH, parseSnmpdConf, readSnmpdConf } from '../src/core/snmp/conf.js';
+import {
+  DEFAULT_DIRLIST,
+  DIRLIST_PATH,
+  formatDirlist,
+} from '../src/core/network/defaultDirlist.js';
 import {
   DEFAULT_WORDLIST,
   WORDLIST_PATH,
@@ -350,6 +359,155 @@ const standOnTheFront = async (contract: Contract) => {
   );
 };
 
+/** The key box's tree, read through the server as a player holding any session on it would. */
+const listDir = async (
+  machineId: string,
+  tier: 'root' | 'guest',
+  path: string,
+): Promise<readonly string[] | null> => {
+  const answer = await post(
+    NETWORK,
+    signRequest(contractor, 'resolveCrossPlayerFs', { machine_id: machineId }),
+  );
+  if (answer.status !== 200) return null;
+  const tree = deserializeTree((answer.body as { tree: SerializedDirectory }).tree);
+  const listed = createFsView(tree, { userType: tier }).list(asAbsPath(path));
+  return listed.ok ? listed.entries : null;
+};
+
+const crackedOf = (body: Record<string, unknown> | null) =>
+  (body?.['cracked'] ?? []) as readonly { username: string; password: string }[];
+
+/** Works each of the key box's decoys from the front box to its empty end: each lets a player
+ *  in as far as the real door of its kind would, onto nothing. */
+const workTheInsideDecoys = async (contract: Contract, shell: string) => {
+  const { route, missionNumber, essid, keyBox, keyBoxIp, front } = contract;
+  const decoys = contract.shape.keyBox.decoys;
+  await seedFile(front, DIRLIST_PATH, formatDirlist(DEFAULT_DIRLIST));
+  await seedFile(front, WORDLIST_PATH, formatWordlist(DEFAULT_WORDLIST));
+  const sweep = (service: 'mysql' | 'snmp', port: number) =>
+    post(
+      SESSIONS,
+      signRequest(contractor, 'hydraCrack', {
+        essid,
+        target_ip: keyBoxIp,
+        service,
+        caller_machine_id: front,
+        port,
+      }),
+    );
+
+  if (decoys.includes('web')) {
+    const swept = await post(
+      NETWORK,
+      signRequest(contractor, 'resolveOccupantSweep', {
+        essid,
+        target: keyBoxIp,
+        port: 80,
+        caller_machine_id: front,
+      }),
+    );
+    const found = ((swept.body?.['results'] ?? []) as readonly { path: string; status: number }[])
+      .filter((result) => result.status === 200)
+      .map((result) => result.path);
+    check(
+      `${route}: gobuster of the key box's web decoy from the front box finds no forgotten file`,
+      swept.status === 200 &&
+        swept.body?.['dirlistFound'] === true &&
+        found.every((path) => /index\.html$/.test(path)),
+      `status ${swept.status} ${errorOf(swept.body)} found [${found.join(', ')}]`,
+    );
+  }
+
+  if (decoys.includes('ftp')) {
+    const ftpSession = `ftp-decoy-${route}-${RUN}`;
+    const anonymous = await post(
+      SESSIONS,
+      signRequest(contractor, 'authCreateSession', {
+        session_id: ftpSession,
+        essid,
+        target_ip: keyBoxIp,
+        port: 21,
+        username: 'anonymous',
+        password: 'anything',
+        parent_session_id: shell,
+        caller_machine_id: front,
+        kind: 'ftp',
+      }),
+    );
+    const landed = await sessionAt(ftpSession);
+    const pub = await listDir(keyBox, 'guest', '/srv/ftp/pub');
+    check(
+      `${route}: anonymous ftp from the front box lands a guest on the key box's decoy, in an empty pub`,
+      anonymous.status === 200 &&
+        landed?.machineId === keyBox &&
+        landed.userType === 'guest' &&
+        pub !== null &&
+        pub.length === 0,
+      `status ${anonymous.status} ${errorOf(anonymous.body)} tier ${landed?.userType ?? '-'} pub ${pub === null ? 'unread' : pub.length}`,
+    );
+  }
+
+  if (decoys.includes('mysql')) {
+    const swept = await sweep('mysql', 3306);
+    const [account] = crackedOf(swept.body);
+    const tables = await post(
+      SESSIONS,
+      signRequest(contractor, 'mysqlStatement', {
+        essid,
+        target_ip: keyBoxIp,
+        port: 3306,
+        username: account?.username ?? '',
+        password: account?.password ?? '',
+        statement: 'SHOW TABLES',
+        caller_machine_id: front,
+      }),
+    );
+    const listed = ((tables.body?.['output'] ?? []) as readonly string[]).join('\n');
+    const generated = Object.keys(databaseIn(buildMissionKeyBoxFs(missionNumber))?.tables ?? {});
+    check(
+      `${route}: hydra from the front box opens the key box's database decoy onto no word and no key`,
+      swept.status === 200 &&
+        account !== undefined &&
+        tables.status === 200 &&
+        generated.length > 0 &&
+        generated.every((table) => listed.includes(table)) &&
+        !listed.includes('settings') &&
+        !listed.includes('api_keys'),
+      `sweep ${swept.status} tables ${tables.status} ${errorOf(tables.body)}`,
+    );
+  }
+
+  if (decoys.includes('snmp')) {
+    const walk = (community: string) =>
+      post(
+        SESSIONS,
+        signRequest(contractor, 'snmpWalk', {
+          essid,
+          target_ip: keyBoxIp,
+          community,
+          caller_machine_id: front,
+        }),
+      );
+    const guessable =
+      parseSnmpdConf(readSnmpdConf(buildMissionKeyBoxFs(missionNumber))).roCommunity ?? '';
+    const silent = await walk('public');
+    const guessed = await walk(guessable);
+    const identity = guessed.body?.['identity'] as { sysContact?: string } | undefined;
+    const communities = await sweep('snmp', 161);
+    check(
+      `${route}: the key box's agent decoy is silent to public, read-only to a guess, shut to a sweep`,
+      silent.status === 404 &&
+        guessed.status === 200 &&
+        guessed.body?.['tier'] === 'read-only' &&
+        identity?.sysContact === 'netops@corp.local' &&
+        communities.status === 200 &&
+        crackedOf(communities.body).length === 0,
+      `public ${silent.status} guess ${guessed.status} tier ${String(guessed.body?.['tier'] ?? '-')} sweep ${communities.status} cracked ${crackedOf(communities.body).length}`,
+    );
+  }
+};
+
 /** Logs in as root on the key box over the LAN from the front shell, returning the session. */
 const sshToKeyBox = async (contract: Contract, shell: string, password: string) => {
   const sessionId = `ssh-key-${contract.route}-${RUN}`;
@@ -525,7 +683,8 @@ const workTheKeyBox = async (contract: Contract, shell: string): Promise<boolean
 };
 
 const main = async () => {
-  if (homeEssid === undefined || CONTRACTS.length !== ROUTES.length) {
+  const insideDecoys = new Set(CONTRACTS.flatMap(({ shape }) => shape.keyBox.decoys));
+  if (homeEssid === undefined || CONTRACTS.length !== ROUTES.length || insideDecoys.size !== 4) {
     console.error('the world does not hold what this check assumes');
     process.exit(2);
   }
@@ -576,6 +735,7 @@ const main = async () => {
     const shell = await rootTheFront(contract);
     if (shell === null) continue;
     await standOnTheFront(contract);
+    await workTheInsideDecoys(contract, shell);
     if (!(await workTheKeyBox(contract, shell))) continue;
 
     const key = missionKey(missionNumber, secret);
@@ -617,6 +777,15 @@ const main = async () => {
         shown.includes(':2222 -> front box :22') &&
         !shown.includes('-> key box'),
       '(output not echoed: it holds the words and the key)',
+    );
+    const keySection = shown
+      .split('\n')
+      .slice(shown.split('\n').indexOf(`  Key box:   ${paid.shape.stem}-files`));
+    check(
+      "`show` tags each of the key box's decoys",
+      keySection.filter((line) => line.endsWith('(decoy)')).length ===
+        paid.shape.keyBox.decoys.length && paid.shape.keyBox.decoys.length > 0,
+      `${paid.shape.keyBox.decoys.length} decoys`,
     );
   }
 

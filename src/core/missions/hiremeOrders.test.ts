@@ -341,7 +341,8 @@ describe('showReport on a two-hop contract', () => {
 
   it('prints the report line by line, each box in a section of its own', () => {
     // A web front box over a hydra key box keeping its key in a plain file: the gateway's
-    // forwards all reach the front box, and its decoys are the front box's.
+    // forwards all reach the front box, and its decoys are the front box's. The hydra route
+    // runs no daemon of its own, so whatever the key box runs beside its sshd is a decoy.
     const number = twoHop(
       ({ frontBox, keyBox, storage }) =>
         frontBox?.route === 'web' && keyBox.route === 'hydra' && storage === 'file',
@@ -381,7 +382,7 @@ describe('showReport on a two-hop contract', () => {
         `  Key box:   ${shape.stem}-files`,
         '    Route:    hydra',
         '    Services:',
-        ...shape.keyBox.services.map((line) => service(line, '')),
+        ...shape.keyBox.services.map((line) => service(line, ' (decoy)')),
         '  Storage:  file',
         `  Key path: ${missionKeyPath(number)}`,
         `  Key:      ${missionKey(number, SECRET)}`,
@@ -411,7 +412,7 @@ describe('showReport on a two-hop contract', () => {
     expect(keyLines.includes(`    Word:     ${keyWord}`)).toBe(true);
   });
 
-  it('keeps the database a key is kept in off the gateway, untagged on the key box', () => {
+  it('keeps the database a key is kept in off the gateway, and never tags it a decoy', () => {
     // A database front box would forward its own 3306, so the front here is any other route.
     const number = twoHop(
       ({ frontBox, storage }) => storage === 'database' && frontBox?.route !== 'mysql',
@@ -422,8 +423,13 @@ describe('showReport on a two-hop contract', () => {
 
     expect(lines.filter((line) => line.includes('-> key box'))).toEqual([]);
     expect(lines).not.toContain('  Forward:  :3306 -> front box :3306');
-    expect(lines.slice(keySection).some((line) => line.includes(':3306'))).toBe(true);
-    expect(lines.slice(keySection).filter((line) => line.endsWith('(decoy)'))).toEqual([]);
+    const keyLines = lines.slice(keySection);
+    const database = keyLines.filter((line) => line.endsWith(':3306'));
+
+    expect(database).toHaveLength(1);
+    expect(keyLines.filter((line) => line.endsWith('(decoy)'))).toHaveLength(
+      shape.keyBox.decoys.length,
+    );
     expect(lines).toContain('  Storage:  database, table api_keys');
   });
 });
