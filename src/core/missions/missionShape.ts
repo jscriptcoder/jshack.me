@@ -359,6 +359,33 @@ const drawRoute = (route: MissionRoute, prng: Prng): RouteDraw => {
 /** A box before its decoys. */
 type BareBox = Omit<MissionBox, 'decoys'>;
 
+/** `box` running `decoys`, each the real door's daemon on a safe release, drawn on `prng`. */
+const withDecoyDaemons = (
+  box: BareBox,
+  decoys: readonly MissionDecoy[],
+  prng: Prng,
+): MissionBox => {
+  const services = [...box.services];
+  const versions = { ...box.versions };
+  for (const decoy of decoys) {
+    const service = DECOY_SERVICES[decoy];
+    if (service === null) continue;
+    const version = safeVersionOf(service.package, prng);
+    services.push({ ...service, version });
+    versions[service.package] = version;
+  }
+  return {
+    ...box,
+    services,
+    versions,
+    // The door lets a sweep in as far as the real one would, onto a database holding nothing.
+    database: decoys.includes('mysql') ? databaseAccounts(prng) : box.database,
+    // A read-write community shuts the box's ports without root, so a decoy's never falls.
+    communityHash: decoys.includes('snmp') ? prng.pick(SHUT_HASHES) : box.communityHash,
+    decoys,
+  };
+};
+
 /** The box the gateway forwards onto, with its decoys: doors filling its forwards to three or
  *  four, each running the real door's daemon. Drawn last on a stream of its own, so decoys
  *  moved nothing a contract already had. */
@@ -373,26 +400,8 @@ const withDecoys = (
     (decoy) => !forwards.some(({ publicPort }) => publicPort === decoyForward(decoy).publicPort),
   );
   const decoys = decoyPrng.pickN(unforwarded, forwardCount - forwards.length);
-  const services = [...box.services];
-  const versions = { ...box.versions };
-  for (const decoy of decoys) {
-    const service = DECOY_SERVICES[decoy];
-    if (service === null) continue;
-    const version = safeVersionOf(service.package, decoyPrng);
-    services.push({ ...service, version });
-    versions[service.package] = version;
-  }
   return {
-    box: {
-      ...box,
-      services,
-      versions,
-      // The door lets a sweep in as far as the real one would, onto a database holding nothing.
-      database: decoys.includes('mysql') ? databaseAccounts(decoyPrng) : box.database,
-      // A read-write community shuts the box's ports without root, so a decoy's never falls.
-      communityHash: decoys.includes('snmp') ? decoyPrng.pick(SHUT_HASHES) : box.communityHash,
-      decoys,
-    },
+    box: withDecoyDaemons(box, decoys, decoyPrng),
     forwards: [...forwards, ...decoys.map(decoyForward)],
   };
 };
