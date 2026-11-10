@@ -1,7 +1,7 @@
 # Plan: a contract whose key box sits behind a front box
 
-**Status:** Grilled and planned 2026-11-09, four slices. Slice 1 is in review on
-`refactor/mission-box-records`.
+**Status:** Grilled and planned 2026-11-09, four slices. Slice 1 merged (#761). Slice 2 is in
+review on `feat/mission-front-box`.
 
 A second contract template. Today every contract's key box is reached straight through the
 gateway's forwards. In this one the gateway forwards only to a **front box**; the key box has no
@@ -238,6 +238,43 @@ LAN-side path. Measure first: before slice 2's RED, stage one two-hop number wit
 script and try each route's door from the front box. A door that refuses is fixed inside this
 slice if the fix is small; if it is large, it becomes its own slice ahead of this one, and the
 plan changes with the owner's approval.
+
+**As built (2026-11-10).**
+
+- **Carried risk, measured before RED:** no door refused. From a root shell on the front box,
+  each of the six routes reached the key box over the LAN and laid its files there. No fix was
+  needed.
+- **Shape:** a number is two-hop when `mission-template-<n>` draws under one third. The front
+  octet is drawn on `mission-front-<n>`, and the front box's route, versions and hashes continue
+  on that same stream. Decoys belong to whichever box the gateway forwards onto. The LAN reads a
+  cheap `missionTopology(n)` (stem and both octets), because the whole shape costs about 2 ms to
+  draw.
+- **Front box's own streams:** `mission-frontbox-<n>` (NPC user and guest),
+  `mission-front-database-<n>` (its application) and `mission-front-leak-<n>` (its forgotten
+  file and agent community). The key box keeps every stream it had.
+- **Lookups and files:** `missionBoxAt` answers `{ missionNumber, role: 'key' | 'front' }`.
+  Every per-box function in `missionLeak.ts` takes that reference; the key's own files stay
+  number-based. The write gate in `api/patches.ts` asks `missionBoxAt` too.
+- **`hireme show`:** every report now names its template. A two-hop report gives each box its own
+  section, front box first, and its forwards say `-> front box`.
+- **Factories and pins:** each finder now requires a single-hop number. Three wire-check pins
+  were two-hop and moved: `testMissionLeak` 200022 → 200032, and `testMissions` msfconsole
+  100051 → 100062 and gpg 100030 → 100035.
+- **Wire-check:** `testMissionTwoHop.ts` passes, 54 of 54, with one web-fronted contract per
+  key-box route. A public scan shows the gateway's own `sshd:22` beside the front box's
+  forwards, as every gateway does. The nine mission wire-checks re-ran green.
+- **Budgets:** the front box adds 332 B to the main chunk, so the ceiling rose by 400 B. The
+  build-time budgets first failed by the same margins on `main` as on the branch, so the machine
+  was loaded. A later run on a quiet machine passed every one (0.8–1.1 ms per box against 2 ms),
+  and no build-time ceiling changed.
+- **Mutation:** run on the changed lines of the five files, plus `missionKeyBoxFs.ts`. 303 of
+  313 killed (96.8%), 0 timeouts. Four survivors were killed with new tests: shared front-box
+  accounts, applications and forgotten files across contracts, and a swap of the two leak
+  streams. `drawTopology` now returns the front stream and octet as one nullable pair, which
+  removed three equivalent survivors. Left open: guards that throw either way, a float boundary
+  on the template draw, two `show` mutants with the same effect, and the key box's application
+  seed. That seed changes only generated rows, and only an offline comparison against `main`
+  would notice it.
 
 ### Slice 3 — the key box blurs an inside scan (v0.451.0)
 
