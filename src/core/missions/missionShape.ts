@@ -1,6 +1,6 @@
 /**
  * A contract network's shape, a pure function of its number — the one place that decides,
- * for the gateway and the key box, their names, the one guaranteed way in, the versions
+ * for the gateway and the boxes behind it, their names, each box's guaranteed way in, the versions
  * every package sits on, and the gateway's forwards. It ships in the bundle: none of it is
  * secret (the key and its path are the server's, not here), and a player holding the
  * address can work the same shape out, which is what lets every hop command compute the
@@ -38,6 +38,12 @@
  * ports, and the gap above the real ones is filled with doors of the kinds some route is won
  * through, each built as the real door is but holding nothing (a database a sweep opens onto no
  * word, an agent whose read-write community stays shut). Every route reaches every count.
+ *
+ * One contract in three has two hops. The gateway forwards only onto a front box, which falls
+ * to a route of its own from the same six and holds nothing; the key box has no forward and no
+ * decoys, and is worked from a shell on the front box, its doors reached over the LAN on their
+ * own ports. A two-hop contract's key box keeps the route, hashes and storage it would have had
+ * with one hop.
  *
  * Everything that is NOT the way in sits on a release whose hole grants a guest shell at
  * most (`low` or `medium`): the gateway's firmware (so the gateway is passed through, not
@@ -84,6 +90,9 @@ export type MissionDecoy = (typeof DECOY_KINDS)[number];
 /** How many forwards a gateway has, decoys filling the gap above the real ones. A contract has
  *  one to three real forwards, so every route reaches every count and the count says nothing. */
 const FORWARD_COUNTS = [3, 4] as const;
+
+/** The share of contracts whose key box sits behind a front box. */
+const TWO_HOP_SHARE = 1 / 3;
 
 /** One forward on the gateway: the public port it answers on, the box behind the gateway it
  *  reaches (by its last octet), and the port it reaches there. */
@@ -143,6 +152,10 @@ export type MissionShape = {
   readonly storage: MissionStorage;
   /** The box holding the key. */
   readonly keyBox: MissionBox;
+  /** On a two-hop contract, the box the gateway forwards onto instead of the key box: it falls
+   *  to a route of its own and holds nothing, and the key box is worked from a shell on it.
+   *  Null on a single-hop contract. */
+  readonly frontBox: MissionBox | null;
   /** The gateway's `root` ("admin") password hash — always uncrackable and never one a
    *  file can leak, so the gateway is a box the route passes through rather than one to
    *  break into. */
@@ -150,10 +163,11 @@ export type MissionShape = {
   /** Versions to pin on the gateway, package to version. Every firmware vendor is pinned
    *  safe, so whichever the gateway builder draws sits on a guest-at-most release. */
   readonly gatewayVersions: Readonly<Record<string, string>>;
-  /** The gateway's forwards: one on a route with one door, and on a leak route the door
-   *  holding the file followed by `:2222`. A contract keeping its key in a database adds
-   *  `:3306` after them, unless the route's door already is. The decoys' forwards follow,
-   *  bringing the count to three or four. */
+  /** The gateway's forwards, all onto one box: the front box on a two-hop contract, else the
+   *  key box. One on a route with one door, and on a leak route the door holding the file
+   *  followed by `:2222`. A single-hop contract keeping its key in a database adds `:3306`
+   *  after them, unless the route's door already is. The decoys' forwards follow, bringing the
+   *  count to three or four. */
   readonly forwards: readonly MissionForward[];
 };
 
@@ -288,6 +302,128 @@ const safeFirmwareVersions = (prng: Prng): Record<string, string> => {
   return firmware;
 };
 
+/** What a route draws onto the box it roots: the door it runs (none on hydra), the versions
+ *  that door pins, the forwards that reach it, and the hashes guarding it. */
+type RouteDraw = {
+  readonly services: readonly MissionService[];
+  readonly versions: Readonly<Record<string, string>>;
+  readonly forwards: readonly PortPair[];
+  readonly rootHash: string;
+  readonly database: MissionDatabase | null;
+  readonly communityHash: string | null;
+};
+
+const drawRoute = (route: MissionRoute, prng: Prng): RouteDraw => {
+  if (route === 'msfconsole') {
+    const candidate = prng.pick(MSFCONSOLE_ROUTE_CANDIDATES);
+    const version = criticalRouteVersion(candidate.package);
+    if (version === undefined) throw new Error(`no route release for ${candidate.package}`);
+    return {
+      services: [{ ...candidate, version }],
+      versions: { [candidate.package]: version },
+      forwards: [{ publicPort: candidate.port, internalPort: candidate.port }],
+      rootHash: prng.pick(SHUT_HASHES),
+      database: null,
+      communityHash: null,
+    };
+  }
+  if (route === 'hydra') {
+    return {
+      services: [],
+      versions: {},
+      forwards: [SSH_FORWARD],
+      rootHash: crackableHash(prng),
+      database: null,
+      communityHash: null,
+    };
+  }
+  const door = LEAK_ROUTE_DOORS[route];
+  const version = safeVersionOf(door.package, prng);
+  const rootHash = prng.pick(LEAKABLE_HASHES);
+  return {
+    services: [{ ...door, version }],
+    versions: { [door.package]: version },
+    forwards: [{ publicPort: door.port, internalPort: door.port }, SSH_FORWARD],
+    rootHash,
+    database: route === 'mysql' ? databaseAccounts(prng) : null,
+    communityHash: route === 'snmp' ? crackableHash(prng) : null,
+  };
+};
+
+/** A box before its decoys. */
+type BareBox = Omit<MissionBox, 'decoys'>;
+
+/** The box the gateway forwards onto, with its decoys: doors filling its forwards to three or
+ *  four, each running the real door's daemon. Drawn last on a stream of its own, so decoys
+ *  moved nothing a contract already had. */
+const withDecoys = (
+  box: BareBox,
+  forwards: readonly PortPair[],
+  missionNumber: number,
+): { readonly box: MissionBox; readonly forwards: readonly PortPair[] } => {
+  const decoyPrng = createPrng(`mission-decoys-${missionNumber}`);
+  const forwardCount = decoyPrng.pick(FORWARD_COUNTS);
+  const unforwarded = DECOY_KINDS.filter(
+    (decoy) => !forwards.some(({ publicPort }) => publicPort === decoyForward(decoy).publicPort),
+  );
+  const decoys = decoyPrng.pickN(unforwarded, forwardCount - forwards.length);
+  const services = [...box.services];
+  const versions = { ...box.versions };
+  for (const decoy of decoys) {
+    const service = DECOY_SERVICES[decoy];
+    if (service === null) continue;
+    const version = safeVersionOf(service.package, decoyPrng);
+    services.push({ ...service, version });
+    versions[service.package] = version;
+  }
+  return {
+    box: {
+      ...box,
+      services,
+      versions,
+      // The door lets a sweep in as far as the real one would, onto a database holding nothing.
+      database: decoys.includes('mysql') ? databaseAccounts(decoyPrng) : box.database,
+      // A read-write community shuts the box's ports without root, so a decoy's never falls.
+      communityHash: decoys.includes('snmp') ? decoyPrng.pick(SHUT_HASHES) : box.communityHash,
+      decoys,
+    },
+    forwards: [...forwards, ...decoys.map(decoyForward)],
+  };
+};
+
+/** Every host octet on a contract's subnet: the gateway holds `.1`. */
+const HOST_OCTETS = Array.from({ length: 253 }, (_unused, index) => index + 2);
+
+/** A two-hop contract's front box, on a stream of its own so drawing it moved nothing the key
+ *  box had: an address the key box does not hold, a route from the six, and its own safe base
+ *  under that route's draw. */
+const drawFrontBox = (
+  missionNumber: number,
+  keyBoxOctet: number,
+): { readonly box: BareBox; readonly forwards: readonly PortPair[] } => {
+  const prng = createPrng(`mission-front-${missionNumber}`);
+  const octet = prng.pick(HOST_OCTETS.filter((candidate) => candidate !== keyBoxOctet));
+  const route = prng.pick(ROUTES);
+  const baseVersions = safeBaseVersions(prng);
+  const drawn = drawRoute(route, prng);
+  return {
+    box: {
+      octet,
+      route,
+      rootHash: drawn.rootHash,
+      database: drawn.database,
+      communityHash: drawn.communityHash,
+      services: drawn.services,
+      versions: { ...baseVersions, ...drawn.versions },
+    },
+    forwards: drawn.forwards,
+  };
+};
+
+/** Forwards pointed at the box they reach. */
+const pointedAt = (forwards: readonly PortPair[], boxOctet: number): readonly MissionForward[] =>
+  forwards.map(({ publicPort, internalPort }) => ({ publicPort, boxOctet, internalPort }));
+
 export const missionShape = (missionNumber: number): MissionShape => {
   // The first two draws are the topology's (stem, then key-box octet); generateHomeLan
   // reads them, so their order is fixed here and nowhere else.
@@ -298,100 +434,74 @@ export const missionShape = (missionNumber: number): MissionShape => {
 
   // Versions and decoys on their own streams, so adding either never shifts the topology.
   const versionPrng = createPrng(`mission-versions-${missionNumber}`);
-  const keyBoxVersions = safeBaseVersions(versionPrng);
+  const keyBoxBase = safeBaseVersions(versionPrng);
 
   const gatewayVersions: Record<string, string> = {
     ...safeBaseVersions(versionPrng),
     ...safeFirmwareVersions(versionPrng),
   };
 
-  const keyBoxServices: MissionService[] = [];
-  let forwards: readonly PortPair[];
-  let keyBoxRootHash: string;
-  let keyBoxDatabase: MissionDatabase | null = null;
-  let keyBoxCommunityHash: string | null = null;
-
-  if (route === 'msfconsole') {
-    const candidate = versionPrng.pick(MSFCONSOLE_ROUTE_CANDIDATES);
-    const version = criticalRouteVersion(candidate.package);
-    if (version === undefined) throw new Error(`no route release for ${candidate.package}`);
-    keyBoxServices.push({ ...candidate, version });
-    keyBoxVersions[candidate.package] = version;
-    forwards = [{ publicPort: candidate.port, internalPort: candidate.port }];
-    keyBoxRootHash = versionPrng.pick(SHUT_HASHES);
-  } else if (route === 'hydra') {
-    forwards = [SSH_FORWARD];
-    keyBoxRootHash = crackableHash(versionPrng);
-  } else {
-    const door = LEAK_ROUTE_DOORS[route];
-    const version = safeVersionOf(door.package, versionPrng);
-    keyBoxServices.push({ ...door, version });
-    keyBoxVersions[door.package] = version;
-    forwards = [{ publicPort: door.port, internalPort: door.port }, SSH_FORWARD];
-    keyBoxRootHash = versionPrng.pick(LEAKABLE_HASHES);
-    if (route === 'mysql') keyBoxDatabase = databaseAccounts(versionPrng);
-    if (route === 'snmp') keyBoxCommunityHash = crackableHash(versionPrng);
-  }
-
+  const drawn = drawRoute(route, versionPrng);
   const gatewayAdminHash = versionPrng.pick(SHUT_HASHES);
 
   // On a stream of its own, so adding it moved no contract's topology, route or hashes.
   const storage = createPrng(`mission-storage-${missionNumber}`).pick(STORAGES);
 
-  // A key in the database is reached from outside as a database user, so off the database
-  // route the box gains one, behind a forward of its own. Drawn after everything above, so a
-  // contract's way in reads the same whatever its storage.
-  if (storage === 'database' && keyBoxDatabase === null) {
-    const version = safeVersionOf(DATABASE_SERVER.package, versionPrng);
-    keyBoxServices.push({ ...DATABASE_SERVER, version });
-    keyBoxVersions[DATABASE_SERVER.package] = version;
-    forwards = [
-      ...forwards,
-      { publicPort: DATABASE_SERVER.port, internalPort: DATABASE_SERVER.port },
-    ];
-    keyBoxDatabase = databaseAccounts(versionPrng);
+  // A key in the database is reached as a database user, so off the database route the key
+  // box gains one. Drawn after everything above, so a contract's way in reads the same
+  // whatever its storage.
+  const keptInDatabase = storage === 'database' && drawn.database === null;
+  const databaseVersion = keptInDatabase
+    ? safeVersionOf(DATABASE_SERVER.package, versionPrng)
+    : null;
+  const keyBox: BareBox = {
+    octet: keyBoxOctet,
+    route,
+    rootHash: drawn.rootHash,
+    database: keptInDatabase ? databaseAccounts(versionPrng) : drawn.database,
+    communityHash: drawn.communityHash,
+    services:
+      databaseVersion === null
+        ? drawn.services
+        : [...drawn.services, { ...DATABASE_SERVER, version: databaseVersion }],
+    versions: {
+      ...keyBoxBase,
+      ...drawn.versions,
+      ...(databaseVersion === null ? {} : { [DATABASE_SERVER.package]: databaseVersion }),
+    },
+  };
+
+  // On a stream of its own, so a contract that stays single-hop keeps its network to the byte.
+  if (createPrng(`mission-template-${missionNumber}`).next() < TWO_HOP_SHARE) {
+    // The gateway forwards only onto the front box. The key box's doors, a database keeping
+    // the key among them, are reached from inside.
+    const front = drawFrontBox(missionNumber, keyBoxOctet);
+    const entry = withDecoys(front.box, front.forwards, missionNumber);
+    return {
+      missionNumber,
+      stem,
+      storage,
+      keyBox: { ...keyBox, decoys: [] },
+      frontBox: entry.box,
+      gatewayAdminHash,
+      gatewayVersions,
+      forwards: pointedAt(entry.forwards, entry.box.octet),
+    };
   }
 
-  // On a stream of its own and drawn last, so decoys moved nothing a contract already had.
-  const decoyPrng = createPrng(`mission-decoys-${missionNumber}`);
-  const forwardCount = decoyPrng.pick(FORWARD_COUNTS);
-  const unforwarded = DECOY_KINDS.filter(
-    (decoy) => !forwards.some(({ publicPort }) => publicPort === decoyForward(decoy).publicPort),
-  );
-  const decoys = decoyPrng.pickN(unforwarded, forwardCount - forwards.length);
-  forwards = [...forwards, ...decoys.map(decoyForward)];
-  for (const decoy of decoys) {
-    const service = DECOY_SERVICES[decoy];
-    if (service === null) continue;
-    const version = safeVersionOf(service.package, decoyPrng);
-    keyBoxServices.push({ ...service, version });
-    keyBoxVersions[service.package] = version;
-  }
-  // The door lets a sweep in as far as the real one would, onto a database holding nothing.
-  if (decoys.includes('mysql')) keyBoxDatabase = databaseAccounts(decoyPrng);
-  // A read-write community shuts the box's ports without root, so a decoy's never falls.
-  if (decoys.includes('snmp')) keyBoxCommunityHash = decoyPrng.pick(SHUT_HASHES);
-
+  // A key in the database is reached from outside, behind a forward of its own.
+  const realForwards: readonly PortPair[] = keptInDatabase
+    ? [...drawn.forwards, { publicPort: DATABASE_SERVER.port, internalPort: DATABASE_SERVER.port }]
+    : drawn.forwards;
+  const entry = withDecoys(keyBox, realForwards, missionNumber);
   return {
     missionNumber,
     stem,
     storage,
-    keyBox: {
-      octet: keyBoxOctet,
-      route,
-      rootHash: keyBoxRootHash,
-      database: keyBoxDatabase,
-      communityHash: keyBoxCommunityHash,
-      services: keyBoxServices,
-      versions: keyBoxVersions,
-      decoys,
-    },
+    keyBox: entry.box,
+    frontBox: null,
     gatewayAdminHash,
     gatewayVersions,
-    forwards: forwards.map(({ publicPort, internalPort }) => ({
-      publicPort,
-      boxOctet: keyBoxOctet,
-      internalPort,
-    })),
+    forwards: pointedAt(entry.forwards, keyBoxOctet),
   };
 };

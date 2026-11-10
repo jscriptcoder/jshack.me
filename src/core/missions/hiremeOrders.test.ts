@@ -6,7 +6,7 @@ import {
   showReport,
 } from './hiremeOrders.js';
 import { missionLeakPath } from './missionLeak.js';
-import { missionShape } from './missionShape.js';
+import { missionShape, type MissionShape } from './missionShape.js';
 import { missionKey, missionKeyPath, missionPassphrase } from './missionSecret.js';
 import { missionAddressForNumber, missionEssid } from './missionNetwork.js';
 import { missionTerms } from './missionTerms.js';
@@ -101,18 +101,18 @@ describe('readMissionOrder', () => {
 
 describe('showReport', () => {
   const SECRET = 'operator-test-secret';
+  /** The first single-hop contract `wanted` accepts: every report below reads one box. */
+  const singleHop = (wanted: (shape: MissionShape) => boolean): number =>
+    Array.from({ length: 4000 }, (_unused, index) => index * 256 + 2).find((candidate) => {
+      const shape = missionShape(candidate);
+      return shape.frontBox === null && wanted(shape);
+    })!;
   // One number per route, so the report is checked on both. The hydra one keeps its key in a
   // plain file, so the whole report below reads as the simplest contract does.
-  const HYDRA = Array.from({ length: 4000 }, (_unused, index) => index * 256 + 2).find(
-    (candidate) =>
-      missionShape(candidate).keyBox.route === 'hydra' &&
-      missionShape(candidate).storage === 'file',
-  )!;
-  const MSFCONSOLE = Array.from({ length: 4000 }, (_unused, index) => index * 256 + 2).find(
-    (candidate) =>
-      missionShape(candidate).keyBox.route === 'msfconsole' &&
-      missionShape(candidate).storage === 'file',
-  )!;
+  const HYDRA = singleHop(({ keyBox, storage }) => keyBox.route === 'hydra' && storage === 'file');
+  const MSFCONSOLE = singleHop(
+    ({ keyBox, storage }) => keyBox.route === 'msfconsole' && storage === 'file',
+  );
   const RAW_SECRETS = JSON.stringify({
     UNCRACKABLE_PASSWORDS,
     CRACKABLE_PASSWORDS,
@@ -132,9 +132,7 @@ describe('showReport', () => {
   });
 
   it('prints both forwards, the leaked file and the word on an ftp route', () => {
-    const number = Array.from({ length: 4000 }, (_unused, index) => index * 256 + 2).find(
-      (candidate) => missionShape(candidate).keyBox.route === 'ftp',
-    )!;
+    const number = singleHop(({ keyBox }) => keyBox.route === 'ftp');
     const lines = showReport(number, SECRET, RAW_SECRETS).split('\n');
 
     expect(lines).toContain('  Route:    ftp');
@@ -148,9 +146,7 @@ describe('showReport', () => {
   });
 
   it('prints both forwards, the datadir and the word on a database route', () => {
-    const number = Array.from({ length: 4000 }, (_unused, index) => index * 256 + 2).find(
-      (candidate) => missionShape(candidate).keyBox.route === 'mysql',
-    )!;
+    const number = singleHop(({ keyBox }) => keyBox.route === 'mysql');
     const lines = showReport(number, SECRET, RAW_SECRETS).split('\n');
 
     expect(lines).toContain('  Route:    mysql');
@@ -164,9 +160,7 @@ describe('showReport', () => {
   });
 
   it('prints both forwards, the agent config and the word on an snmp route', () => {
-    const number = Array.from({ length: 4000 }, (_unused, index) => index * 256 + 2).find(
-      (candidate) => missionShape(candidate).keyBox.route === 'snmp',
-    )!;
+    const number = singleHop(({ keyBox }) => keyBox.route === 'snmp');
     const lines = showReport(number, SECRET, RAW_SECRETS).split('\n');
 
     expect(lines).toContain('  Route:    snmp');
@@ -201,9 +195,7 @@ describe('showReport', () => {
   });
 
   const withStorage = (storage: 'file' | 'gpg' | 'database'): number =>
-    Array.from({ length: 4000 }, (_unused, index) => index * 256 + 2).find(
-      (candidate) => missionShape(candidate).storage === storage,
-    )!;
+    singleHop((shape) => shape.storage === storage);
 
   it('says a plain-file contract keeps its key in a file, at the key path', () => {
     const number = withStorage('file');
@@ -305,11 +297,9 @@ describe('showReport', () => {
   });
 
   it('tags a decoy forward and never the route doors or the database the key is kept in', () => {
-    const number = Array.from({ length: 4000 }, (_unused, index) => index * 256 + 2).find(
-      (candidate) =>
-        missionShape(candidate).keyBox.route === 'hydra' &&
-        missionShape(candidate).storage === 'database',
-    )!;
+    const number = singleHop(
+      ({ keyBox, storage }) => keyBox.route === 'hydra' && storage === 'database',
+    );
     const shape = missionShape(number);
     const lines = showReport(number, SECRET, undefined).split('\n');
 
