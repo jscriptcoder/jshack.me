@@ -394,15 +394,46 @@ const withDecoys = (
 /** Every host octet on a contract's subnet: the gateway holds `.1`. */
 const HOST_OCTETS = Array.from({ length: 253 }, (_unused, index) => index + 2);
 
-/** A two-hop contract's front box, on a stream of its own so drawing it moved nothing the key
- *  box had: an address the key box does not hold, a route from the six, and its own safe base
- *  under that route's draw. */
-const drawFrontBox = (
+/** Where a contract's boxes stand: the stem they are named on, the key box's octet, and the
+ *  front box's on a two-hop contract (null on a single-hop one). */
+export type MissionTopology = {
+  readonly stem: string;
+  readonly keyBoxOctet: number;
+  readonly frontBoxOctet: number | null;
+};
+
+/** The topology's draws, and the two streams left where they stopped, for the shape to go on
+ *  drawing from. */
+const drawTopology = (
   missionNumber: number,
-  keyBoxOctet: number,
+): MissionTopology & { readonly shapePrng: Prng; readonly frontPrng: Prng | null } => {
+  const shapePrng = createPrng(`mission-shape-${missionNumber}`);
+  const stem = shapePrng.pick(TARGET_STEMS);
+  const keyBoxOctet = shapePrng.nextInt(2, 254);
+  // On a stream of its own, so a contract that stays single-hop keeps its network to the byte.
+  const twoHop = createPrng(`mission-template-${missionNumber}`).next() < TWO_HOP_SHARE;
+  if (!twoHop) return { stem, keyBoxOctet, frontBoxOctet: null, shapePrng, frontPrng: null };
+  const frontPrng = createPrng(`mission-front-${missionNumber}`);
+  const frontBoxOctet = frontPrng.pick(
+    HOST_OCTETS.filter((candidate) => candidate !== keyBoxOctet),
+  );
+  return { stem, keyBoxOctet, frontBoxOctet, shapePrng, frontPrng };
+};
+
+/** Where a contract's boxes stand, drawn the way the shape draws it. The LAN reads this on
+ *  every hop command, and the whole shape takes milliseconds to draw, so this draws nothing
+ *  past the addresses. */
+export const missionTopology = (missionNumber: number): MissionTopology => {
+  const { stem, keyBoxOctet, frontBoxOctet } = drawTopology(missionNumber);
+  return { stem, keyBoxOctet, frontBoxOctet };
+};
+
+/** A two-hop contract's front box, on a stream of its own so drawing it moved nothing the key
+ *  box had: a route from the six, and its own safe base under that route's draw. */
+const drawFrontBox = (
+  prng: Prng,
+  octet: number,
 ): { readonly box: BareBox; readonly forwards: readonly PortPair[] } => {
-  const prng = createPrng(`mission-front-${missionNumber}`);
-  const octet = prng.pick(HOST_OCTETS.filter((candidate) => candidate !== keyBoxOctet));
   const route = prng.pick(ROUTES);
   const baseVersions = safeBaseVersions(prng);
   const drawn = drawRoute(route, prng);
@@ -425,12 +456,8 @@ const pointedAt = (forwards: readonly PortPair[], boxOctet: number): readonly Mi
   forwards.map(({ publicPort, internalPort }) => ({ publicPort, boxOctet, internalPort }));
 
 export const missionShape = (missionNumber: number): MissionShape => {
-  // The first two draws are the topology's (stem, then key-box octet); generateHomeLan
-  // reads them, so their order is fixed here and nowhere else.
-  const prng = createPrng(`mission-shape-${missionNumber}`);
-  const stem = prng.pick(TARGET_STEMS);
-  const keyBoxOctet = prng.nextInt(2, 254);
-  const route = prng.pick(ROUTES);
+  const { stem, keyBoxOctet, frontBoxOctet, shapePrng, frontPrng } = drawTopology(missionNumber);
+  const route = shapePrng.pick(ROUTES);
 
   // Versions and decoys on their own streams, so adding either never shifts the topology.
   const versionPrng = createPrng(`mission-versions-${missionNumber}`);
@@ -471,11 +498,10 @@ export const missionShape = (missionNumber: number): MissionShape => {
     },
   };
 
-  // On a stream of its own, so a contract that stays single-hop keeps its network to the byte.
-  if (createPrng(`mission-template-${missionNumber}`).next() < TWO_HOP_SHARE) {
+  if (frontPrng !== null && frontBoxOctet !== null) {
     // The gateway forwards only onto the front box. The key box's doors, a database keeping
     // the key among them, are reached from inside.
-    const front = drawFrontBox(missionNumber, keyBoxOctet);
+    const front = drawFrontBox(frontPrng, frontBoxOctet);
     const entry = withDecoys(front.box, front.forwards, missionNumber);
     return {
       missionNumber,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildMissionKeyBoxFs } from './missionKeyBoxFs.js';
+import { buildMissionFrontBoxFs, buildMissionKeyBoxFs } from './missionKeyBoxFs.js';
 import {
   missionShape,
   MISSION_ROUTE_DAY,
@@ -322,6 +322,99 @@ describe('the key box of a contract network', () => {
     for (const log of ['access.log', 'auth.log', 'kern.log']) {
       expect(fileAt(fs, ['var', 'log', log])).toBe('');
     }
+  });
+});
+
+describe('the front box of a two-hop contract', () => {
+  /** The first two-hop contract in range whose shape `wanted` accepts. */
+  const twoHop = (wanted: (shape: ReturnType<typeof missionShape>) => boolean): number => {
+    for (let missionNumber = 2; missionNumber < 20000; missionNumber += 1) {
+      if (!isMissionNumber(missionNumber)) continue;
+      const shape = missionShape(missionNumber);
+      if (shape.frontBox !== null && wanted(shape)) return missionNumber;
+    }
+    throw new Error('no such two-hop contract in range');
+  };
+
+  const frontOf = (missionNumber: number) => {
+    const { frontBox } = missionShape(missionNumber);
+    if (frontBox === null) throw new Error(`contract ${missionNumber} has one hop`);
+    return frontBox;
+  };
+
+  it('carries root as its own record draws it, above an NPC user and guest', () => {
+    const missionNumber = twoHop(() => true);
+    const passwd = fileAt(buildMissionFrontBoxFs(missionNumber), ['etc', 'passwd']);
+
+    expect(passwd.split('\n')[0]?.split(':')[1]).toBe(frontOf(missionNumber).rootHash);
+    expect(passwd).toMatch(/:1000:1000:/);
+    expect(passwd).toMatch(/^guest:[^:]*:1001:1001:/m);
+  });
+
+  it('draws its NPC user and guest on its own stream, not the key box', () => {
+    const passwordsBelowRoot = (tree: Directory) =>
+      fileAt(tree, ['etc', 'passwd']).split('\n').slice(1).join('\n');
+    const differing = Array.from({ length: 5000 }, (_unused, index) => index + 2)
+      .filter((missionNumber) => isMissionNumber(missionNumber))
+      .filter((missionNumber) => missionShape(missionNumber).frontBox !== null)
+      .slice(0, 20)
+      .filter(
+        (missionNumber) =>
+          passwordsBelowRoot(buildMissionFrontBoxFs(missionNumber)) !==
+          passwordsBelowRoot(buildMissionKeyBoxFs(missionNumber)),
+      );
+
+    expect(differing).toHaveLength(20);
+  });
+
+  it.each(['hydra', 'msfconsole', 'web', 'ftp', 'mysql', 'snmp'] as const)(
+    'runs sshd and every door its record names on the %s route, on its own pins',
+    (route) => {
+      const missionNumber = twoHop((shape) => shape.frontBox?.route === route);
+      const front = frontOf(missionNumber);
+      const box = buildMissionFrontBoxFs(missionNumber);
+      const manifest = parseDpkgVersions(fileAt(box, ['var', 'lib', 'dpkg', 'status']));
+
+      expect(
+        readOpenPorts(box)
+          .map((port) => port.service)
+          .sort(),
+      ).toEqual(['ssh', ...front.services.map(({ service }) => service)].sort());
+      expect(manifest.size).toBeGreaterThan(0);
+      for (const [pkg, version] of manifest) {
+        expect(version, pkg).toBe(front.versions[pkg]);
+      }
+    },
+  );
+
+  it('runs no database for a key kept in one, which is the key box to run', () => {
+    const missionNumber = twoHop(
+      (shape) =>
+        shape.storage === 'database' &&
+        shape.frontBox?.route !== 'mysql' &&
+        !(shape.frontBox?.decoys ?? []).includes('mysql'),
+    );
+
+    expect(databaseIn(buildMissionFrontBoxFs(missionNumber))).toBeNull();
+    expect(databaseIn(buildMissionKeyBoxFs(missionNumber))).not.toBeNull();
+  });
+
+  it('keeps an application of its own on the database route, not the key box one', () => {
+    const missionNumber = twoHop(
+      (shape) => shape.frontBox?.route === 'mysql' && shape.keyBox.database !== null,
+    );
+    const front = databaseIn(buildMissionFrontBoxFs(missionNumber));
+
+    expect(front?.credentials[1]?.passwordHash).toBe(frontOf(missionNumber).database?.accountHash);
+    expect(front?.tables).not.toEqual(databaseIn(buildMissionKeyBoxFs(missionNumber))?.tables);
+  });
+
+  it('holds the read-write community its record draws on the snmp route', () => {
+    const missionNumber = twoHop((shape) => shape.frontBox?.route === 'snmp');
+
+    expect(readRwCommunityHash(buildMissionFrontBoxFs(missionNumber))).toBe(
+      frontOf(missionNumber).communityHash,
+    );
   });
 });
 

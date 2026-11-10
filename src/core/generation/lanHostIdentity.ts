@@ -38,9 +38,9 @@ import {
 } from './routerFs.js';
 import { readOpenPorts } from '../services/pidfile.js';
 import { buildRemoteHostFs } from './remoteHostFs.js';
-import { buildMissionKeyBoxFs } from './missionKeyBoxFs.js';
+import { buildMissionFrontBoxFs, buildMissionKeyBoxFs } from './missionKeyBoxFs.js';
 import { missionNumberFromEssid } from '../missions/missionNetwork.js';
-import { missionShape } from '../missions/missionShape.js';
+import { missionTopology } from '../missions/missionShape.js';
 import { hostMachineId } from './remoteHostId.js';
 import { generateHomeLan, type LanHost, type LanHostKind } from './generateHomeLan.js';
 import { generateDeepLayer } from './generateDeepLayer.js';
@@ -95,9 +95,9 @@ export const forwardsIntoDeepLayer = (options: {
 };
 
 /** A LAN host's seeded base filesystem — the edge router, an inner gateway, a switch,
- *  or a coordinate-seeded NPC tree. On a contract network the one machine behind the
- *  gateway is the key box, built deliberately rather than as an NPC, so nothing the
- *  world scatters on a host can open a way in the contract did not place. */
+ *  or a coordinate-seeded NPC tree. On a contract network each machine behind the gateway
+ *  is the key box or the front box, built deliberately rather than as an NPC, so nothing
+ *  the world scatters on a host can open a way in the contract did not place. */
 export const baseFsForLanHost = (host: LanHost, essid: string): Directory => {
   const octet = lanHostOctet(host);
   if (host.kind === 'router') {
@@ -107,7 +107,11 @@ export const baseFsForLanHost = (host: LanHost, essid: string): Directory => {
     return buildSwitchBaseFs(essid, octet);
   }
   const missionNumber = missionNumberFromEssid(essid);
-  if (missionNumber !== null) return buildMissionKeyBoxFs(missionNumber);
+  if (missionNumber !== null) {
+    return missionTopology(missionNumber).frontBoxOctet === octet
+      ? buildMissionFrontBoxFs(missionNumber)
+      : buildMissionKeyBoxFs(missionNumber);
+  }
   return buildRemoteHostFs(essid, host);
 };
 
@@ -126,7 +130,7 @@ export const missionKeyBoxNumber = (essid: string, machineId: string): number | 
   const missionNumber = missionNumberFromEssid(essid);
   if (missionNumber === null) return null;
   const lan = generateHomeLan(essid);
-  const keyBoxIp = `${lan.subnet}.${missionShape(missionNumber).keyBox.octet}`;
+  const keyBoxIp = `${lan.subnet}.${missionTopology(missionNumber).keyBoxOctet}`;
   const keyBox = lan.hosts.find((host) => host.ip === keyBoxIp);
   if (keyBox === undefined) return null;
   return machineIdForLanHost(keyBox, essid) === machineId ? missionNumber : null;

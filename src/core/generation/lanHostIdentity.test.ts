@@ -10,7 +10,8 @@ import {
 import { generateDeepLayer } from './generateDeepLayer.js';
 import { computeDeepGatewayId } from '../identity/router.js';
 import { generateHomeLan, type LanHost } from './generateHomeLan.js';
-import { buildMissionKeyBoxFs } from './missionKeyBoxFs.js';
+import { buildMissionFrontBoxFs, buildMissionKeyBoxFs } from './missionKeyBoxFs.js';
+import { missionShape } from '../missions/missionShape.js';
 import { buildApGatewayBaseFs } from './routerFs.js';
 import type { Directory } from '../filesystem/types.js';
 import { readRunningProcesses } from '../services/pidfile.js';
@@ -116,6 +117,16 @@ describe('a contract network through the hop resolvers', () => {
   it('resolves the gateway to the contract gateway', () => {
     const gateway = gatewayOn(MISSION_ESSID);
     expect(baseFsForLanHost(gateway, MISSION_ESSID)).toEqual(buildApGatewayBaseFs(MISSION_ESSID));
+  });
+
+  it('resolves each box of a two-hop contract to its own deliberate box', () => {
+    const TWO_HOP_ESSID = 'mission-2';
+    const { keyBox, frontBox } = missionShape(2);
+    const keyBoxHost = hostOn(TWO_HOP_ESSID, (host) => octetOf(host) === keyBox.octet);
+    const frontBoxHost = hostOn(TWO_HOP_ESSID, (host) => octetOf(host) === frontBox?.octet);
+
+    expect(baseFsForLanHost(keyBoxHost, TWO_HOP_ESSID)).toEqual(buildMissionKeyBoxFs(2));
+    expect(baseFsForLanHost(frontBoxHost, TWO_HOP_ESSID)).toEqual(buildMissionFrontBoxFs(2));
   });
 });
 
