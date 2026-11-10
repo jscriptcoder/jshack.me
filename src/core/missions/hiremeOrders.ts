@@ -14,7 +14,8 @@
  * needs to drive a test of the network and its mail door by hand.
  */
 
-import { missionShape } from './missionShape.js';
+import { missionShape, type MissionBox, type MissionBoxRef } from './missionShape.js';
+import { FRONT_BOX_SUFFIX, GATEWAY_SUFFIX, KEY_BOX_SUFFIX } from './pools.js';
 import { EMAILIT_DOMAIN } from '../generation/fixedSites.js';
 import { missionKeyFilePath, missionLeakPath, missionLeakWord } from './missionLeak.js';
 import { missionKey, missionPassphrase } from './missionSecret.js';
@@ -57,24 +58,34 @@ export const readMissionOrder = (words: readonly string[]): MissionOrder | null 
   return null;
 };
 
-/** How a service reads in the report: what it is, the release it sits on, and the port it
- *  answers. */
-const serviceLine = (service: {
-  readonly service: string;
-  readonly package: string;
-  readonly version: string;
-  readonly port: number;
-}): string => `    ${service.service} (${service.package} ${service.version}) :${service.port}`;
+const decoyTag = (isDecoy: boolean): string => (isDecoy ? ' (decoy)' : '');
 
-/** The lines `show` adds on a route that leaks a word. Reading the word needs the pools, so
- *  the report says when they are missing rather than failing the whole of `show`. */
-const leakLines = (missionNumber: number, rawSecrets: string | undefined): readonly string[] => {
-  const keyBox = { missionNumber, role: 'key' } as const;
-  const path = missionLeakPath(keyBox);
+/** The lines `show` adds on a route that leaks a word, at `indent`. Reading the word needs the
+ *  pools, so the report says when they are missing rather than failing the whole of `show`. */
+const leakLines = (
+  ref: MissionBoxRef,
+  rawSecrets: string | undefined,
+  indent: string,
+): readonly string[] => {
+  const path = missionLeakPath(ref);
   if (path === null) return [];
-  const word = rawSecrets === undefined ? undefined : missionLeakWord(keyBox, rawSecrets);
-  return [`  Leak:     ${path}`, `  Word:     ${word ?? '(JSHACK_SECRETS is not set)'}`];
+  const word = rawSecrets === undefined ? undefined : missionLeakWord(ref, rawSecrets);
+  return [
+    `${indent}Leak:     ${path}`,
+    `${indent}Word:     ${word ?? '(JSHACK_SECRETS is not set)'}`,
+  ];
 };
+
+/** A box's services as the report lists them, at `indent`: each with its release and port,
+ *  a decoy's tagged. */
+const serviceLines = (box: MissionBox, decoyPorts: readonly number[], indent: string) => [
+  `${indent}Services:`,
+  ...box.services.map(
+    (service) =>
+      `${indent}  ${service.service} (${service.package} ${service.version}) :${service.port}` +
+      decoyTag(decoyPorts.includes(service.port)),
+  ),
+];
 
 /** How the key is stored, with what the operator needs to reach it: the passphrase that opens
  *  a sealed key, the table a database keeps it in. */
@@ -85,10 +96,11 @@ const storageDetail = (missionNumber: number, secret: string): string => {
 };
 
 /** The multi-line report `show <address>` prints for a contract number: the address and
- *  essid it answers at, the one guaranteed route, the gateway's forwards, the key box's
- *  services, and — the operator-only half — how the key is stored, the key and the file it
- *  is in (with the passphrase that opens it on a gpg contract), and on a leak
- *  route the file and the word in it, all derived from the deployment's secrets. */
+ *  essid it answers at, its template, the gateway's forwards naming the box they reach, each
+ *  box's route and services, and — the operator-only half — how the key is stored, the key and
+ *  the file it is in (with the passphrase that opens it on a gpg contract), and on each leak
+ *  route the file and the word in it, all derived from the deployment's secrets. A two-hop
+ *  contract gives each box a section of its own, the front box's first, as the way in runs. */
 export const showReport = (
   missionNumber: number,
   secret: string,
@@ -97,31 +109,52 @@ export const showReport = (
   const shape = missionShape(missionNumber);
   const terms = missionTerms(missionNumber);
   const address = missionAddressForNumber(missionNumber);
-  // Decoys follow the real forwards, so the tail of the list is theirs; a service is a decoy's
-  // when it answers on a decoy's port.
-  const { keyBox } = shape;
-  const realForwardCount = shape.forwards.length - keyBox.decoys.length;
+  const { keyBox, frontBox } = shape;
+  const keyRef = { missionNumber, role: 'key' } as const;
+  // The gateway forwards onto one box, whose decoys follow its real forwards, so the tail of
+  // the list is theirs; a service is a decoy's when it answers on a decoy's port.
+  const entry = frontBox ?? keyBox;
+  const realForwardCount = shape.forwards.length - entry.decoys.length;
   const decoyPorts = shape.forwards.slice(realForwardCount).map(({ internalPort }) => internalPort);
-  const decoyTag = (isDecoy: boolean): string => (isDecoy ? ' (decoy)' : '');
-  return [
-    `Contract ${missionNumber} at ${address} (essid ${missionEssid(missionNumber)})`,
-    `  Client:   ${terms.client.company} (${terms.client.handle}@${EMAILIT_DOMAIN})`,
-    `  Target:   ${terms.targetCompany}, ${shape.stem}-gw / ${shape.stem}-files`,
-    `  Pay:      ${writeAmount(terms.pay)}`,
-    `  Route:    ${keyBox.route}`,
-    ...shape.forwards.map(
-      (forward, index) =>
-        `  Forward:  :${forward.publicPort} -> key box :${forward.internalPort}` +
-        decoyTag(index >= realForwardCount),
-    ),
-    `  Services:`,
-    ...keyBox.services.map(
-      (service) => serviceLine(service) + decoyTag(decoyPorts.includes(service.port)),
-    ),
+  const reached = frontBox === null ? 'key box' : 'front box';
+  const keyLines = [
     `  Storage:  ${storageDetail(missionNumber, secret)}`,
     `  Key path: ${missionKeyFilePath(missionNumber)}`,
     `  Key:      ${missionKey(missionNumber, secret)}`,
-    ...leakLines(missionNumber, rawSecrets),
+  ];
+  const boxes =
+    frontBox === null
+      ? [
+          ...serviceLines(keyBox, decoyPorts, '  '),
+          ...keyLines,
+          ...leakLines(keyRef, rawSecrets, '  '),
+        ]
+      : [
+          `  Front box: ${shape.stem}-${FRONT_BOX_SUFFIX}`,
+          `    Route:    ${frontBox.route}`,
+          ...serviceLines(frontBox, decoyPorts, '    '),
+          ...leakLines({ missionNumber, role: 'front' }, rawSecrets, '    '),
+          `  Key box:   ${shape.stem}-${KEY_BOX_SUFFIX}`,
+          `    Route:    ${keyBox.route}`,
+          ...serviceLines(keyBox, [], '    '),
+          ...leakLines(keyRef, rawSecrets, '    '),
+          ...keyLines,
+        ];
+  const hosts = [GATEWAY_SUFFIX, ...(frontBox === null ? [] : [FRONT_BOX_SUFFIX]), KEY_BOX_SUFFIX];
+  return [
+    `Contract ${missionNumber} at ${address} (essid ${missionEssid(missionNumber)})`,
+    `  Client:   ${terms.client.company} (${terms.client.handle}@${EMAILIT_DOMAIN})`,
+    `  Target:   ${terms.targetCompany}, ${hosts.map((suffix) => `${shape.stem}-${suffix}`).join(' / ')}`,
+    `  Pay:      ${writeAmount(terms.pay)}`,
+    `  Template: ${frontBox === null ? 'single-hop' : 'two-hop'}`,
+    // One box needs no section, so its route heads the report as it always has.
+    ...(frontBox === null ? [`  Route:    ${keyBox.route}`] : []),
+    ...shape.forwards.map(
+      (forward, index) =>
+        `  Forward:  :${forward.publicPort} -> ${reached} :${forward.internalPort}` +
+        decoyTag(index >= realForwardCount),
+    ),
+    ...boxes,
   ].join('\n');
 };
 

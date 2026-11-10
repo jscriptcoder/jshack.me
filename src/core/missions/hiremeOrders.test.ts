@@ -258,6 +258,7 @@ describe('showReport', () => {
         `  Client:   ${terms.client.company} (${terms.client.handle}@emailit.io)`,
         `  Target:   ${terms.targetCompany}, ${shape.stem}-gw / ${shape.stem}-files`,
         `  Pay:      §${terms.pay.toLocaleString('en-US')}`,
+        '  Template: single-hop',
         '  Route:    hydra',
         '  Forward:  :2222 -> key box :22',
         ...shape.forwards
@@ -316,6 +317,114 @@ describe('showReport', () => {
     expect(showReport(HYDRA, 'secret-one', undefined)).not.toBe(
       showReport(HYDRA, 'secret-two', undefined),
     );
+  });
+});
+
+describe('showReport on a two-hop contract', () => {
+  const SECRET = 'operator-test-secret';
+  const RAW_SECRETS = JSON.stringify({
+    UNCRACKABLE_PASSWORDS,
+    CRACKABLE_PASSWORDS,
+    COMMON_PASSWORDS,
+    WIFI_PASSWORDS,
+  });
+  /** The first two-hop contract `wanted` accepts. */
+  const twoHop = (wanted: (shape: MissionShape) => boolean): number =>
+    Array.from({ length: 4000 }, (_unused, index) => index * 256 + 2).find((candidate) => {
+      const shape = missionShape(candidate);
+      return shape.frontBox !== null && wanted(shape);
+    })!;
+  const frontOf = (shape: MissionShape) => {
+    if (shape.frontBox === null) throw new Error(`contract ${shape.missionNumber} has one hop`);
+    return shape.frontBox;
+  };
+
+  it('prints the report line by line, each box in a section of its own', () => {
+    // A web front box over a hydra key box keeping its key in a plain file: the gateway's
+    // forwards all reach the front box, and its decoys are the front box's.
+    const number = twoHop(
+      ({ frontBox, keyBox, storage }) =>
+        frontBox?.route === 'web' && keyBox.route === 'hydra' && storage === 'file',
+    );
+    const shape = missionShape(number);
+    const front = frontOf(shape);
+    const terms = missionTerms(number);
+    const realForwardCount = shape.forwards.length - front.decoys.length;
+    const decoyPorts = shape.forwards
+      .slice(realForwardCount)
+      .map(({ internalPort }) => internalPort);
+    const service = (
+      line: { service: string; package: string; version: string; port: number },
+      tag: string,
+    ): string => `      ${line.service} (${line.package} ${line.version}) :${line.port}${tag}`;
+
+    expect(showReport(number, SECRET, undefined)).toBe(
+      [
+        `Contract ${number} at ${missionAddressForNumber(number)} (essid ${missionEssid(number)})`,
+        `  Client:   ${terms.client.company} (${terms.client.handle}@emailit.io)`,
+        `  Target:   ${terms.targetCompany}, ${shape.stem}-gw / ${shape.stem}-web / ${shape.stem}-files`,
+        `  Pay:      §${terms.pay.toLocaleString('en-US')}`,
+        '  Template: two-hop',
+        ...shape.forwards.map(
+          (forward, index) =>
+            `  Forward:  :${forward.publicPort} -> front box :${forward.internalPort}` +
+            (index >= realForwardCount ? ' (decoy)' : ''),
+        ),
+        `  Front box: ${shape.stem}-web`,
+        '    Route:    web',
+        '    Services:',
+        ...front.services.map((line) =>
+          service(line, decoyPorts.includes(line.port) ? ' (decoy)' : ''),
+        ),
+        `    Leak:     ${missionLeakPath({ missionNumber: number, role: 'front' })}`,
+        '    Word:     (JSHACK_SECRETS is not set)',
+        `  Key box:   ${shape.stem}-files`,
+        '    Route:    hydra',
+        '    Services:',
+        ...shape.keyBox.services.map((line) => service(line, '')),
+        '  Storage:  file',
+        `  Key path: ${missionKeyPath(number)}`,
+        `  Key:      ${missionKey(number, SECRET)}`,
+      ].join('\n'),
+    );
+  });
+
+  it("prints each leak route's own file and word, in the section of the box it roots", () => {
+    const number = twoHop(
+      ({ frontBox, keyBox }) => frontBox?.route === 'ftp' && keyBox.route === 'snmp',
+    );
+    const shape = missionShape(number);
+    const lines = showReport(number, SECRET, RAW_SECRETS).split('\n');
+    const keySection = lines.indexOf(`  Key box:   ${shape.stem}-files`);
+    const frontLines = lines.slice(0, keySection);
+    const keyLines = lines.slice(keySection);
+    const frontWord = plaintextFor(frontOf(shape).rootHash);
+    const keyWord = plaintextFor(shape.keyBox.rootHash);
+
+    expect(frontWord).not.toBe(keyWord);
+    expect(frontLines).toContain(
+      `    Leak:     ${missionLeakPath({ missionNumber: number, role: 'front' })}`,
+    );
+    expect(keyLines).toContain('    Leak:     /etc/snmp/snmpd.conf');
+    // Through a boolean: a failing `toContain` would print the word.
+    expect(frontLines.includes(`    Word:     ${frontWord}`)).toBe(true);
+    expect(keyLines.includes(`    Word:     ${keyWord}`)).toBe(true);
+  });
+
+  it('keeps the database a key is kept in off the gateway, untagged on the key box', () => {
+    // A database front box would forward its own 3306, so the front here is any other route.
+    const number = twoHop(
+      ({ frontBox, storage }) => storage === 'database' && frontBox?.route !== 'mysql',
+    );
+    const shape = missionShape(number);
+    const lines = showReport(number, SECRET, undefined).split('\n');
+    const keySection = lines.indexOf(`  Key box:   ${shape.stem}-files`);
+
+    expect(lines.filter((line) => line.includes('-> key box'))).toEqual([]);
+    expect(lines).not.toContain('  Forward:  :3306 -> front box :3306');
+    expect(lines.slice(keySection).some((line) => line.includes(':3306'))).toBe(true);
+    expect(lines.slice(keySection).filter((line) => line.endsWith('(decoy)'))).toEqual([]);
+    expect(lines).toContain('  Storage:  database, table api_keys');
   });
 });
 
