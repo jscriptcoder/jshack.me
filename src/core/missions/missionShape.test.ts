@@ -3,8 +3,10 @@ import {
   MISSION_ROUTE_DAY,
   missionShape,
   type MissionBox,
+  type MissionDecoy,
   type MissionForward,
   type MissionRoute,
+  type MissionService,
   type MissionShape,
 } from './missionShape.js';
 import { liveCve } from '../cve/liveCve.js';
@@ -48,6 +50,20 @@ const ROUTE_FORWARDS: Readonly<Record<MissionRoute, readonly PortPair[]>> = {
   mysql: [DATABASE, SSH],
   snmp: [{ publicPort: 161, internalPort: 161 }, SSH],
 };
+
+/** The port of the service each route but hydra runs on the box it roots. */
+const ROUTE_DOOR_PORTS: Readonly<Record<Exclude<MissionRoute, 'hydra'>, number>> = {
+  msfconsole: 80,
+  web: 80,
+  ftp: 21,
+  mysql: 3306,
+  snmp: 161,
+};
+
+/** A box's services for its route and its storage: those before its decoys' daemons, an ssh
+ *  decoy running none of its own. */
+const realServices = (box: MissionBox): readonly MissionService[] =>
+  box.services.slice(0, box.services.length - box.decoys.filter((decoy) => decoy !== 'ssh').length);
 
 /** A spread of contract numbers whose last octet is a host octet (2–254). */
 const SAMPLE_NUMBERS = Array.from({ length: 2000 }, (_unused, index) => index * 8381 + 2).filter(
@@ -208,14 +224,13 @@ describe('missionShape', () => {
       }
     });
 
-    it('keeps the key box it had, without its forwards or decoys', () => {
+    it('keeps the key box it had, its inside decoys aside', () => {
       for (const [missionNumber, digest] of KEY_BOX_BEFORE) {
         const shape = missionShape(missionNumber);
         const { keyBox } = shape;
         const label = `contract ${missionNumber}`;
 
         expect(shape.frontBox, label).not.toBeNull();
-        expect(keyBox.decoys, label).toEqual([]);
         expect(
           md5(
             JSON.stringify({
@@ -225,14 +240,156 @@ describe('missionShape', () => {
               octet: keyBox.octet,
               route: keyBox.route,
               rootHash: keyBox.rootHash,
-              database: keyBox.database,
-              communityHash: keyBox.communityHash,
-              services: keyBox.services,
+              database: keyBox.decoys.includes('mysql') ? null : keyBox.database,
+              communityHash: keyBox.decoys.includes('snmp') ? null : keyBox.communityHash,
+              services: realServices(keyBox),
             }),
           ),
           label,
         ).toBe(digest);
       }
+    });
+
+    /** One two-hop contract of every route on each box, and the digest of everything but its key
+     *  box, taken from the generator before the key box ran decoys of its own. */
+    const BESIDE_KEY_BOX_BEFORE: readonly (readonly [number, string])[] = [
+      [2, 'a3a1bb095c73666239a3285dc036efc7'], // hydra, front ftp
+      [8383, '6f6f3067dd12250be4531b6a7a680890'], // ftp, front msfconsole
+      [75431, '68c86a61c3a293ef8e3c8b8a170d6b68'], // ftp, front msfconsole
+      [134098, '3d8cd43ac152027f6eb3e5a142dec083'], // mysql, front hydra
+      [192765, 'e6e4d2c52412fe3556391a14db8883b6'], // snmp, front mysql
+      [259813, 'ee11d59ed33255db9e7d8c5013b200e6'], // mysql, front msfconsole
+      [310099, 'ae3444ad514b15132962c6f0cde0ab0c'], // msfconsole, front hydra
+      [326861, 'a65f9cc2cd900c2c5565b72904e93ce5'], // hydra, front web
+      [377147, 'ed0b378fa2081ff277a31583d26804fb'], // web, front web
+      [452576, 'fbb1a6d118de208d11a970785af2f169'], // web, front hydra
+      [486100, 'c356fa209f4fec49e6c8b9a6e359dd89'], // snmp, front hydra
+      [494481, '386e173bda970afc24839be1ebee3b73'], // mysql, front ftp
+      [519624, '1874be1d39e76a597b1813269fcb3bca'], // msfconsole, front web
+      [528005, '32542f9949f19360044556dfdceb3eb2'], // web, front mysql
+      [754292, '10e4a17d13d754700d5f93172421f7e5'], // msfconsole, front web
+      [762673, 'a73e206ed1310fbcf41a6773f30fb61f'], // ftp, front snmp
+      [1047627, '2126d38910890ae0e2783d301f3e699b'], // hydra, front snmp
+      [1651059, 'bd4283496b1db56abd06450ee78dbf69'], // snmp, front snmp
+    ];
+
+    it('leaves the front box, the forwards and the gateway as they were', () => {
+      for (const [missionNumber, digest] of BESIDE_KEY_BOX_BEFORE) {
+        const { keyBox: _keyBox, ...besideKeyBox } = missionShape(missionNumber);
+        expect(md5(JSON.stringify(besideKeyBox)), `contract ${missionNumber}`).toBe(digest);
+      }
+    });
+
+    describe('inside decoys', () => {
+      /** The ports of the doors a key box runs for its route and its storage, in order. */
+      const realDoorPorts = (shape: MissionShape): readonly number[] => {
+        const { route } = shape.keyBox;
+        const routeDoor = route === 'hydra' ? [] : [ROUTE_DOOR_PORTS[route]];
+        const keptInDatabase = shape.storage === 'database' && route !== 'mysql' ? [3306] : [];
+        return [...routeDoor, ...keptInDatabase];
+      };
+
+      it('runs two or three service doors besides :22 on the key box, each about half the time', () => {
+        for (const { missionNumber, keyBox } of twoHopShapes) {
+          expect([2, 3], `contract ${missionNumber}`).toContain(keyBox.services.length);
+        }
+        const twos = twoHopShapes.filter(({ keyBox }) => keyBox.services.length === 2).length;
+        expect(twos / twoHopShapes.length).toBeGreaterThan(0.4);
+        expect(twos / twoHopShapes.length).toBeLessThan(0.6);
+      });
+
+      it('runs the real doors first, then a decoy behind every door after them', () => {
+        for (const shape of twoHopShapes) {
+          const { keyBox } = shape;
+          const label = `${keyBox.route} key box of ${shape.missionNumber}`;
+          const real = realDoorPorts(shape);
+
+          expect(
+            realServices(keyBox).map(({ port }) => port),
+            label,
+          ).toEqual(real);
+          expect(keyBox.decoys, label).toHaveLength(keyBox.services.length - real.length);
+        }
+      });
+
+      it('fills the gap from web, ftp, mysql and snmp, never twice and never a door it runs', () => {
+        const decoyServices: Readonly<Record<MissionDecoy, string>> = {
+          ssh: 'ssh',
+          web: 'http',
+          ftp: 'ftp',
+          mysql: 'mysql',
+          snmp: 'snmp',
+        };
+        for (const { missionNumber, keyBox } of twoHopShapes) {
+          const label = `${keyBox.route} key box of ${missionNumber}`;
+          const ports = keyBox.services.map(({ port }) => port);
+          const decoyDoors = keyBox.services.slice(realServices(keyBox).length);
+
+          expect(new Set(ports).size, label).toBe(ports.length);
+          expect(
+            keyBox.decoys.map((decoy) => decoyServices[decoy]),
+            label,
+          ).toEqual(decoyDoors.map(({ service }) => service));
+        }
+      });
+
+      it('reaches every count its real doors allow, on every route and storage', () => {
+        const byDoors = new Map<string, { readonly real: number; readonly counts: Set<number> }>();
+        for (const shape of twoHopShapes) {
+          const real = realDoorPorts(shape);
+          const doors = `${shape.keyBox.route} key box on [${real.join(', ')}]`;
+          const group = byDoors.get(doors) ?? { real: real.length, counts: new Set<number>() };
+          group.counts.add(shape.keyBox.decoys.length);
+          byDoors.set(doors, group);
+        }
+
+        // Every route on a plain key, and again on a key kept in a database but for mysql's,
+        // whose door already is the database's.
+        expect(byDoors.size).toBe(11);
+        for (const [doors, { real, counts }] of byDoors) {
+          expect([...counts].sort(), doors).toEqual([2 - real, 3 - real]);
+        }
+      });
+
+      it('runs each inside decoy on a release that grants a guest at most', () => {
+        for (const { missionNumber, keyBox } of twoHopShapes) {
+          const label = `${keyBox.route} key box of ${missionNumber}`;
+          for (const decoy of keyBox.services.slice(realServices(keyBox).length)) {
+            expect(keyBox.versions[decoy.package], label).toBe(decoy.version);
+            expect(['low', 'medium'], label).toContain(
+              pinnedSeverities({ [decoy.package]: decoy.version })[0],
+            );
+          }
+        }
+      });
+
+      it('puts a database decoy behind a login a sweep finds and a root that stays shut', () => {
+        const listed = DEFAULT_WORDLIST.map((word) => md5(word));
+        const shapes = twoHopShapes.filter(({ keyBox }) => keyBox.decoys.includes('mysql'));
+
+        expect(shapes.length).toBeGreaterThan(0);
+        for (const { missionNumber, keyBox } of shapes) {
+          const label = `${keyBox.route} key box of ${missionNumber}`;
+          expect(listed, label).toContain(keyBox.database?.accountHash);
+          expect(SHUT_HASHES, label).toContain(keyBox.database?.rootHash);
+        }
+      });
+
+      it('gives an agent decoy a read-write community no sweep finds', () => {
+        const shapes = twoHopShapes.filter(({ keyBox }) => keyBox.decoys.includes('snmp'));
+
+        expect(shapes.length).toBeGreaterThan(0);
+        for (const { missionNumber, keyBox } of shapes) {
+          expect(SHUT_HASHES, `${keyBox.route} key box of ${missionNumber}`).toContain(
+            keyBox.communityHash,
+          );
+        }
+      });
+
+      it('draws every kind but ssh, whose door every box already runs', () => {
+        const kinds = new Set(twoHopShapes.flatMap(({ keyBox }) => keyBox.decoys));
+        expect([...kinds].sort()).toEqual(['ftp', 'mysql', 'snmp', 'web']);
+      });
     });
 
     it('stands the front box at an address of its own, anywhere on the subnet', () => {

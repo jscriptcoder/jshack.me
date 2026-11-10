@@ -34,12 +34,19 @@ const numberWithRoute = (route: MissionRoute, without: readonly MissionDecoy[] =
   throw new Error(`no ${route} contract in range`);
 };
 
-/** The first sampled contract number running `decoy` as a decoy. */
-const numberWithDecoy = (decoy: MissionDecoy): number => {
+/** Whether a contract's key box is reached through the gateway's forwards or from a front box. */
+type Template = 'single-hop' | 'two-hop';
+
+const isOfTemplate = (missionNumber: number, template: Template): boolean =>
+  (missionShape(missionNumber).frontBox === null) === (template === 'single-hop');
+
+/** The first sampled contract number of `template` whose key box runs `decoy` as a decoy. */
+const numberWithDecoy = (decoy: MissionDecoy, template: Template): number => {
   for (let missionNumber = 2; missionNumber < 5000; missionNumber += 1) {
+    if (!isOfTemplate(missionNumber, template)) continue;
     if (missionShape(missionNumber).keyBox.decoys.includes(decoy)) return missionNumber;
   }
-  throw new Error(`no ${decoy} decoy in range`);
+  throw new Error(`no ${decoy} decoy on a ${template} key box in range`);
 };
 
 /** What a scan of the box finds listening: its own sshd and every service the shape names,
@@ -464,11 +471,12 @@ describe('the front box of a two-hop contract', () => {
   });
 });
 
-describe('a decoy on the key box', () => {
+describe.each<Template>(['single-hop', 'two-hop'])('a decoy on a %s key box', (template) => {
   // Each is the real door of its kind as the box generates, minus what the server lays in, so
-  // working it is the only way to find it holds nothing.
+  // working it is the only way to find it holds nothing. A two-hop key box's are reached from
+  // the front box rather than through a forward, and are built the same.
   it('serves the stock page behind a web decoy, and nothing else', () => {
-    const box = buildMissionKeyBoxFs(numberWithDecoy('web'));
+    const box = buildMissionKeyBoxFs(numberWithDecoy('web', template));
 
     expect(fileAt(box, ['var', 'www', 'html', 'index.html'])).toContain('It works!');
     expect(listTree(box).filter((path) => path.startsWith('var/www/'))).toEqual([
@@ -477,7 +485,7 @@ describe('a decoy on the key box', () => {
   });
 
   it('lets anonymous into an empty pub behind an ftp decoy', () => {
-    const box = buildMissionKeyBoxFs(numberWithDecoy('ftp'));
+    const box = buildMissionKeyBoxFs(numberWithDecoy('ftp', template));
 
     expect(fileAt(box, ['etc', 'vsftpd.conf'])).toMatch(/^anonymous_enable=YES$/m);
     expect(nodeAt(box, ['srv', 'ftp', 'pub'])?.kind).toBe('directory');
@@ -486,7 +494,7 @@ describe('a decoy on the key box', () => {
   });
 
   it('keeps a generated application behind a database decoy, with no word and no key', () => {
-    const missionNumber = numberWithDecoy('mysql');
+    const missionNumber = numberWithDecoy('mysql', template);
     const database = databaseIn(buildMissionKeyBoxFs(missionNumber));
 
     expect(database?.credentials[1]?.passwordHash).toBe(
@@ -497,7 +505,7 @@ describe('a decoy on the key box', () => {
   });
 
   it('answers a guessable community behind an snmp decoy, with an ordinary contact', () => {
-    const box = buildMissionKeyBoxFs(numberWithDecoy('snmp'));
+    const box = buildMissionKeyBoxFs(numberWithDecoy('snmp', template));
     const conf = parseSnmpdConf(readSnmpdConf(box));
 
     expect(['monitor', 'netops']).toContain(conf.roCommunity);
@@ -509,7 +517,8 @@ describe('a decoy on the key box', () => {
 
   it('reads line for line like the snmp route config, but for its community and contact', () => {
     // A header or a trailing newline the route's file lacks would tell a guest which is which.
-    const decoy = readSnmpdConf(buildMissionKeyBoxFs(numberWithDecoy('snmp'))).split('\n');
+    const decoyBox = buildMissionKeyBoxFs(numberWithDecoy('snmp', template));
+    const decoy = readSnmpdConf(decoyBox).split('\n');
     const route = (
       missionLeakFile({ missionNumber: SNMP_ROUTE_NUMBER, role: 'key' }, DEPLOYMENT_SECRETS)
         ?.content ?? ''
@@ -525,6 +534,8 @@ describe('a decoy on the key box', () => {
       parseSnmpdConf(readSnmpdConf(buildMissionKeyBoxFs(missionNumber))).roCommunity;
     const communities = new Set(
       Array.from({ length: 3000 }, (_unused, index) => index + 2)
+        .filter(isMissionNumber)
+        .filter((missionNumber) => isOfTemplate(missionNumber, template))
         .filter((missionNumber) => missionShape(missionNumber).keyBox.decoys.includes('snmp'))
         .slice(0, 40)
         .map(communityOf),
