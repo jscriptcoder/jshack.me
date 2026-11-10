@@ -275,6 +275,16 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   a bug on its own; it becomes one when something the game shows the player (a tutorial, a planted
   history, a man page) types it.
 
+- **An uninstalled command answers a bad flag instead of `command not found`.** Seen in the browser
+  on 2026-11-10 (v0.453.0): with gpg not installed, `gpg --version` printed
+  `gpg: unrecognized option: --version`, while a bare `gpg` correctly said
+  `bash: gpg: command not found. Install with: apt install gpg`. A player can read the first as gpg
+  being on the box. The cause is the order of checks: `prepareStage` in `shell/runLine.ts` binds flags
+  before the command runs, and the binary check is `wrapWithBinaryCheck` in
+  `commands/availability.ts`, which only gates `execute`. So any `installed-package` command typed
+  with a flag it does not declare fails on the flag first. Real bash looks the program up before
+  the program sees its arguments, so the fix is to resolve the binary before `bindFlags`.
+
 - **`ssh`, `scp` and `ftp` could not reach your own box — RESOLVED 2026-10-09 (v0.341.0–v0.344.0,
   #637–#640).** `ssh root@localhost` answered `No route to host` with sshd running. At home the
   three doors now log into the own box client-side (`commands/ownBoxLogin.ts`): the daemon must hold
