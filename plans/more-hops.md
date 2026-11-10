@@ -1,7 +1,7 @@
 # Plan: a contract whose key box sits behind a front box
 
-**Status:** Grilled and planned 2026-11-09, four slices. Slice 1 merged (#761). Slice 2 is in
-review on `feat/mission-front-box`.
+**Status:** Grilled and planned 2026-11-09, four slices. Slice 1 merged (#761), slice 2 merged
+(#762). Slice 3 is in review on `feat/mission-inside-decoys`.
 
 A second contract template. Today every contract's key box is reached straight through the
 gateway's forwards. In this one the gateway forwards only to a **front box**; the key box has no
@@ -298,6 +298,34 @@ plan changes with the owner's approval.
 
 **Gates:** the usual; `testMissionTwoHop.ts` gains a key box whose inside decoys are worked to
 their empty ends before its route pays; mutation on the changed lines; v0.451.0.
+
+**As built (2026-11-10).**
+
+- **Shape:** a refactor first moved the decoy daemons' build out of `withDecoys` into
+  `withDecoyDaemons`, so the gateway's decoys still draw byte for byte as they did. A two-hop key
+  box then takes `withInsideDecoys` on `mission-inside-decoys-<n>`: a door count from 2 or 3,
+  then that many less its real doors from the kinds it does not run, built by the same helper.
+- **Preservation:** the key box's 18 pinned digests still match with its decoys stripped, and 18
+  new digests of everything beside the key box, taken before the change, pin the front box, the
+  forwards and the gateway. Every route and storage reaches both counts its real doors allow:
+  11 combinations, since mysql's door is the database's.
+- **`hireme show`:** a key box's decoys have no forwards, so the report tags the services after
+  its real doors.
+- **Key box tree:** the "decoy on a key box" tests now run once per template; the builder needed
+  no change, since it already reads the box's decoys and services. A new test reads a key box's
+  open ports off its tree, which is what a scan from the front box sees: `22`, then exactly the
+  shape's doors on their drawn releases.
+- **Wire-check:** `testMissionTwoHop.ts` passes, 64 of 64. Its six contracts hold all four
+  kinds of inside decoy between them, and it exits 2 if they ever stop. A LAN `ftp` login's
+  answer carries no `machine_id`, so the check reads where it landed off the session row. The
+  nine mission wire-checks re-ran green.
+- **Budgets:** the inside decoys add 115 B to the main chunk, so the ceiling rose by 200 B. Every
+  build-time budget passed (0.85–1.13 ms per box against 2 ms).
+- **Mutation:** 36 of 39 killed on the changed lines of `missionShape.ts` and `hiremeOrders.ts`,
+  0 timeouts. The three survivors empty `withDecoyDaemons`, empty `withDecoys`, or blank the
+  object `withDecoys` returns. Each breaks every contract's shape, and applied by hand it fails
+  both test files at load. Stryker misses them because the shape tests draw their sample at
+  module load, before a mutant switches on.
 
 ### Slice 4 — the board names a two-hop job and pays more for it (v0.452.0)
 

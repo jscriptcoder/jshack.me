@@ -58,8 +58,9 @@ import {
  *  100; then the decoys on a contract's network (their draw and the agent config a key box
  *  generates for one) added 268 B, rounded up to 300; then a contract's front box (the
  *  template draw, the second box the shape and the LAN carry, and its builder) added 332 B,
- *  rounded up to 400. */
-const BUNDLE_CEILING_BYTES = 299_275;
+ *  rounded up to 400; then a two-hop key box's own decoys (their draw and the report's tags)
+ *  added 115 B, rounded up to 200. */
+const BUNDLE_CEILING_BYTES = 299_475;
 
 /** About a tenth of that before world content, so a loaded machine's noise cannot fail
  *  the check while a content change that makes boxes ten times dearer still does. */
