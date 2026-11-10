@@ -1,6 +1,8 @@
 /**
- * The base filesystem of a contract network's key box — the one machine behind the
- * gateway, the box the contract's key sits on.
+ * The base filesystem of a contract network's key box — the box the contract's key sits on —
+ * and on a two-hop contract of its front box, the box the gateway forwards onto instead. Both
+ * are built the same way from their own records, on streams of their own; what follows says
+ * "key box", and holds for the front box but for the key and the storage it never has.
  *
  * Built deliberately, not through the NPC host generator: that generator scatters a box
  * with whatever its name's role draws — a database login, a leaked backup, a listener on
@@ -86,13 +88,14 @@ import { CRACK_CHANCE, drawPasswordHash } from './passwordPools.js';
 import { formatSnmpdState, SNMPD_STATE_PERMISSIONS } from '../snmp/rwCommunity.js';
 import { SNMPD_CONF_PERMISSIONS } from '../snmp/conf.js';
 import { GUESSABLE_COMMUNITIES } from '../missions/pools.js';
-import { generateApplication } from './generateDatabase.js';
+import { buildApplication } from './databaseApp.js';
 import { generateHomeLan } from './generateHomeLan.js';
 import { MYSQL_USERNAMES } from './pools/database.js';
 import { usernamePool } from './pools/usernames.js';
 import { missionEssid } from '../missions/missionNetwork.js';
 import {
   missionShape,
+  type MissionBox,
   type MissionDatabase,
   type MissionService,
 } from '../missions/missionShape.js';
@@ -122,9 +125,10 @@ const decoyAgentConfig = (community: string): string =>
 
 /** The database as it generates. Its application is on a stream of its own, so nothing about
  *  it can move a draw the box's accounts make. */
-const keyBoxDatabase = (
+const boxDatabase = (
   missionNumber: number,
   octet: number,
+  appSeed: string,
   drawn: MissionDatabase,
   account: string,
   applicationAccount: string,
@@ -132,13 +136,14 @@ const keyBoxDatabase = (
   const essid = missionEssid(missionNumber);
   const lan = generateHomeLan(essid);
   const host = lan.hosts.find((candidate) => candidate.ip === `${lan.subnet}.${octet}`);
-  if (host === undefined) throw new Error(`no key box on contract ${missionNumber}`);
-  const application = generateApplication({
-    appSeed: `mission-database-${missionNumber}`,
+  if (host === undefined) throw new Error(`no box at .${octet} on contract ${missionNumber}`);
+  // Staffed by the box's own account alone. The world's generator would list each neighbour's
+  // NPC, a name the other contract box was never given, since a contract box draws its own.
+  const application = buildApplication({
+    prng: createPrng(appSeed),
     essid,
     host,
-    account,
-    role: undefined,
+    people: [account],
   });
   return {
     ...application,
@@ -149,9 +154,17 @@ const keyBoxDatabase = (
   };
 };
 
-export const buildMissionKeyBoxFs = (missionNumber: number): Directory => {
-  const box = missionShape(missionNumber).keyBox;
-  const prng = createPrng(`mission-keybox-${missionNumber}`);
+/** The streams a box's own draws come off: its accounts (and the community and application
+ *  account after them), and its database's application. Each box has its own, so neither box
+ *  can move a draw the other makes. */
+type BoxStreams = { readonly accounts: string; readonly application: string };
+
+const buildMissionBoxFs = (
+  missionNumber: number,
+  box: MissionBox,
+  streams: BoxStreams,
+): Directory => {
+  const prng = createPrng(streams.accounts);
   const username = prng.pick(usernamePool(undefined));
 
   const passwd = generatePasswd([
@@ -210,9 +223,10 @@ export const buildMissionKeyBoxFs = (missionNumber: number): Directory => {
   const database =
     box.database === null
       ? null
-      : keyBoxDatabase(
+      : boxDatabase(
           missionNumber,
           box.octet,
+          streams.application,
           box.database,
           username,
           prng.pick(MYSQL_USERNAMES),
@@ -328,4 +342,22 @@ export const buildMissionKeyBoxFs = (missionNumber: number): Directory => {
     TRAVERSABLE_DIR,
   );
   return withPackageManifest(tree, { versions: box.versions });
+};
+
+export const buildMissionKeyBoxFs = (missionNumber: number): Directory =>
+  buildMissionBoxFs(missionNumber, missionShape(missionNumber).keyBox, {
+    accounts: `mission-keybox-${missionNumber}`,
+    application: `mission-database-${missionNumber}`,
+  });
+
+/** A two-hop contract's front box: built as the key box is, from its own record and on its own
+ *  streams. It holds no key and no storage, since the server lays nothing on it but its own
+ *  route's file. */
+export const buildMissionFrontBoxFs = (missionNumber: number): Directory => {
+  const { frontBox } = missionShape(missionNumber);
+  if (frontBox === null) throw new Error(`contract ${missionNumber} has no front box`);
+  return buildMissionBoxFs(missionNumber, frontBox, {
+    accounts: `mission-frontbox-${missionNumber}`,
+    application: `mission-front-database-${missionNumber}`,
+  });
 };

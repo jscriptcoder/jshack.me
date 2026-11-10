@@ -20,8 +20,10 @@ import { DEPLOYMENT_SECRETS } from './webRouteContract.js';
 
 const firstSnmpRouteNumber = (): number => {
   for (let candidate = 66051; candidate < 66051 + 5000; candidate += 1) {
-    if (isMissionNumber(candidate) && missionShape(candidate).keyBox.route === 'snmp')
-      return candidate;
+    if (!isMissionNumber(candidate)) continue;
+    // One hop: the gateway forwards straight onto the key box this reaches.
+    const { keyBox, frontBox } = missionShape(candidate);
+    if (keyBox.route === 'snmp' && frontBox === null) return candidate;
   }
   throw new Error('no snmp route contract in the range');
 };
@@ -37,8 +39,10 @@ export const SNMP_ROUTE_KEY_BOX = resolveLanHostIdentity(keyBoxHost, SNMP_ROUTE_
 
 /** The community a walk can guess, which only the server's config names. */
 export const SNMP_ROUTE_READ_ONLY_COMMUNITY =
-  parseSnmpdConf(missionLeakFile(SNMP_ROUTE_NUMBER, DEPLOYMENT_SECRETS)?.content ?? '')
-    .roCommunity ?? '';
+  parseSnmpdConf(
+    missionLeakFile({ missionNumber: SNMP_ROUTE_NUMBER, role: 'key' }, DEPLOYMENT_SECRETS)
+      ?.content ?? '',
+  ).roCommunity ?? '';
 
 /** The community a sweep finds on the list every player starts with. */
 export const SNMP_ROUTE_READ_WRITE_COMMUNITY =

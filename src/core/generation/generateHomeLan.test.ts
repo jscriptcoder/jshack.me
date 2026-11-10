@@ -586,4 +586,36 @@ describe('generateHomeLan for a contract network', () => {
       expect(lan.hosts[0]?.hostname).toBe(`${shape.stem}-gw`);
     }
   });
+
+  it('stands a front box beside the key box on a two-hop contract, where the shape says', () => {
+    for (const missionNumber of [2, 8383, 134098, 326861]) {
+      const lan = generateHomeLan(`mission-${missionNumber}`);
+      const { stem, keyBox, frontBox } = missionShape(missionNumber);
+
+      expect(lan.hosts, `contract ${missionNumber}`).toHaveLength(3);
+      expect(lan.hosts, `contract ${missionNumber}`).toEqual(
+        expect.arrayContaining([
+          { ip: `${lan.subnet}.1`, hostname: `${stem}-gw`, kind: 'router' },
+          { ip: `${lan.subnet}.${keyBox.octet}`, hostname: `${stem}-files`, kind: 'machine' },
+          { ip: `${lan.subnet}.${frontBox?.octet}`, hostname: `${stem}-web`, kind: 'machine' },
+        ]),
+      );
+    }
+  });
+
+  it('holds a front box exactly when the shape draws one', () => {
+    for (let index = 0; index < 300; index += 1) {
+      const missionNumber = index * 8381 + 2;
+      if (missionNumber % 256 < 2 || missionNumber % 256 > 254) continue;
+      const lan = generateHomeLan(`mission-${missionNumber}`);
+      const { frontBox } = missionShape(missionNumber);
+      const machines = lan.hosts.filter((host) => host.kind === 'machine');
+
+      expect(machines.map(({ ip }) => ip).sort(), `contract ${missionNumber}`).toEqual(
+        [missionShape(missionNumber).keyBox.octet, ...(frontBox === null ? [] : [frontBox.octet])]
+          .map((octet) => `${lan.subnet}.${octet}`)
+          .sort(),
+      );
+    }
+  });
 });

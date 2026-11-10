@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildMissionKeyBoxFs } from './missionKeyBoxFs.js';
+import { buildMissionFrontBoxFs, buildMissionKeyBoxFs } from './missionKeyBoxFs.js';
 import {
   missionShape,
   MISSION_ROUTE_DAY,
@@ -65,6 +65,15 @@ const fileAt = (fs: Directory, segments: readonly string[]): string => {
   if (node.kind !== 'file') throw new Error(`${segments.join('/')} is not a file`);
   return node.content;
 };
+
+/** Every password hash the box's application drew for its rows: the bcrypt strings, which the
+ *  application's own stream draws, unlike the box's account that staffs it. */
+const drawnHashesOf = (box: Directory): ReadonlySet<string> =>
+  new Set(JSON.stringify(databaseIn(box)?.tables ?? {}).match(/\$2y\$10\$[^"]+/g) ?? []);
+
+/** Whether two sets share no member. */
+const disjoint = (first: ReadonlySet<string>, second: ReadonlySet<string>): boolean =>
+  [...first].every((member) => !second.has(member));
 
 const nodeAt = (fs: Directory, segments: readonly string[]): FileNode | undefined =>
   segments.reduce<FileNode | undefined>(
@@ -193,8 +202,12 @@ describe('the key box of a contract network', () => {
         passwordHashOf(missionNumber) !== undefined,
     );
     if (first === undefined || second === undefined) throw new Error('two contracts in range');
+    const firstDrawn = drawnHashesOf(buildMissionKeyBoxFs(first));
 
     expect(passwordHashOf(first)).not.toBe(passwordHashOf(second));
+    // The rows the application draws, past the box's own account, are drawn per contract too.
+    expect(firstDrawn.size).toBeGreaterThan(0);
+    expect(disjoint(firstDrawn, drawnHashesOf(buildMissionKeyBoxFs(second)))).toBe(true);
   });
 
   it('keeps the table holding the word out of the box as it generates', () => {
@@ -325,6 +338,132 @@ describe('the key box of a contract network', () => {
   });
 });
 
+describe('the front box of a two-hop contract', () => {
+  /** The first two-hop contract in range whose shape `wanted` accepts. */
+  const twoHop = (wanted: (shape: ReturnType<typeof missionShape>) => boolean): number => {
+    for (let missionNumber = 2; missionNumber < 20000; missionNumber += 1) {
+      if (!isMissionNumber(missionNumber)) continue;
+      const shape = missionShape(missionNumber);
+      if (shape.frontBox !== null && wanted(shape)) return missionNumber;
+    }
+    throw new Error('no such two-hop contract in range');
+  };
+
+  /** The first two contracts in range whose shape `wanted` accepts. */
+  const firstTwo = (
+    wanted: (shape: ReturnType<typeof missionShape>) => boolean,
+  ): readonly [number, number] => {
+    const found: number[] = [];
+    for (let missionNumber = 2; missionNumber < 20000 && found.length < 2; missionNumber += 1) {
+      if (isMissionNumber(missionNumber) && wanted(missionShape(missionNumber))) {
+        found.push(missionNumber);
+      }
+    }
+    const [first, second] = found;
+    if (first === undefined || second === undefined) throw new Error('two contracts in range');
+    return [first, second];
+  };
+
+  const frontOf = (missionNumber: number) => {
+    const { frontBox } = missionShape(missionNumber);
+    if (frontBox === null) throw new Error(`contract ${missionNumber} has one hop`);
+    return frontBox;
+  };
+
+  it('carries root as its own record draws it, above an NPC user and guest', () => {
+    const missionNumber = twoHop(() => true);
+    const passwd = fileAt(buildMissionFrontBoxFs(missionNumber), ['etc', 'passwd']);
+
+    expect(passwd.split('\n')[0]?.split(':')[1]).toBe(frontOf(missionNumber).rootHash);
+    expect(passwd).toMatch(/:1000:1000:/);
+    expect(passwd).toMatch(/^guest:[^:]*:1001:1001:/m);
+  });
+
+  it('draws its NPC user and guest on its own stream, not the key box', () => {
+    const passwordsBelowRoot = (tree: Directory) =>
+      fileAt(tree, ['etc', 'passwd']).split('\n').slice(1).join('\n');
+    const differing = Array.from({ length: 5000 }, (_unused, index) => index + 2)
+      .filter((missionNumber) => isMissionNumber(missionNumber))
+      .filter((missionNumber) => missionShape(missionNumber).frontBox !== null)
+      .slice(0, 20)
+      .filter(
+        (missionNumber) =>
+          passwordsBelowRoot(buildMissionFrontBoxFs(missionNumber)) !==
+          passwordsBelowRoot(buildMissionKeyBoxFs(missionNumber)),
+      );
+
+    expect(differing).toHaveLength(20);
+  });
+
+  it('draws each contract its own front-box NPC user and guest', () => {
+    const passwordsBelowRoot = (tree: Directory) =>
+      fileAt(tree, ['etc', 'passwd']).split('\n').slice(1).join('\n');
+    const [first, second] = firstTwo((shape) => shape.frontBox !== null);
+
+    expect(passwordsBelowRoot(buildMissionFrontBoxFs(first))).not.toBe(
+      passwordsBelowRoot(buildMissionFrontBoxFs(second)),
+    );
+  });
+
+  it('draws each contract its own front-box application on the database route', () => {
+    const [first, second] = firstTwo((shape) => shape.frontBox?.route === 'mysql');
+    const firstDrawn = drawnHashesOf(buildMissionFrontBoxFs(first));
+
+    expect(firstDrawn.size).toBeGreaterThan(0);
+    expect(disjoint(firstDrawn, drawnHashesOf(buildMissionFrontBoxFs(second)))).toBe(true);
+  });
+
+  it.each(['hydra', 'msfconsole', 'web', 'ftp', 'mysql', 'snmp'] as const)(
+    'runs sshd and every door its record names on the %s route, on its own pins',
+    (route) => {
+      const missionNumber = twoHop((shape) => shape.frontBox?.route === route);
+      const front = frontOf(missionNumber);
+      const box = buildMissionFrontBoxFs(missionNumber);
+      const manifest = parseDpkgVersions(fileAt(box, ['var', 'lib', 'dpkg', 'status']));
+
+      expect(
+        readOpenPorts(box)
+          .map((port) => port.service)
+          .sort(),
+      ).toEqual(['ssh', ...front.services.map(({ service }) => service)].sort());
+      expect(manifest.size).toBeGreaterThan(0);
+      for (const [pkg, version] of manifest) {
+        expect(version, pkg).toBe(front.versions[pkg]);
+      }
+    },
+  );
+
+  it('runs no database for a key kept in one, which is the key box to run', () => {
+    const missionNumber = twoHop(
+      (shape) =>
+        shape.storage === 'database' &&
+        shape.frontBox?.route !== 'mysql' &&
+        !(shape.frontBox?.decoys ?? []).includes('mysql'),
+    );
+
+    expect(databaseIn(buildMissionFrontBoxFs(missionNumber))).toBeNull();
+    expect(databaseIn(buildMissionKeyBoxFs(missionNumber))).not.toBeNull();
+  });
+
+  it('keeps an application of its own on the database route, not the key box one', () => {
+    const missionNumber = twoHop(
+      (shape) => shape.frontBox?.route === 'mysql' && shape.keyBox.database !== null,
+    );
+    const front = databaseIn(buildMissionFrontBoxFs(missionNumber));
+
+    expect(front?.credentials[1]?.passwordHash).toBe(frontOf(missionNumber).database?.accountHash);
+    expect(front?.tables).not.toEqual(databaseIn(buildMissionKeyBoxFs(missionNumber))?.tables);
+  });
+
+  it('holds the read-write community its record draws on the snmp route', () => {
+    const missionNumber = twoHop((shape) => shape.frontBox?.route === 'snmp');
+
+    expect(readRwCommunityHash(buildMissionFrontBoxFs(missionNumber))).toBe(
+      frontOf(missionNumber).communityHash,
+    );
+  });
+});
+
 describe('a decoy on the key box', () => {
   // Each is the real door of its kind as the box generates, minus what the server lays in, so
   // working it is the only way to find it holds nothing.
@@ -371,7 +510,10 @@ describe('a decoy on the key box', () => {
   it('reads line for line like the snmp route config, but for its community and contact', () => {
     // A header or a trailing newline the route's file lacks would tell a guest which is which.
     const decoy = readSnmpdConf(buildMissionKeyBoxFs(numberWithDecoy('snmp'))).split('\n');
-    const route = (missionLeakFile(SNMP_ROUTE_NUMBER, DEPLOYMENT_SECRETS)?.content ?? '').split('\n');
+    const route = (
+      missionLeakFile({ missionNumber: SNMP_ROUTE_NUMBER, role: 'key' }, DEPLOYMENT_SECRETS)
+        ?.content ?? ''
+    ).split('\n');
 
     expect(decoy).toHaveLength(route.length);
     expect(decoy[0]).toBe(route[0]);

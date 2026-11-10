@@ -32,6 +32,8 @@ export const TARGET_STEMS: readonly string[] = [
 export const GATEWAY_SUFFIX = 'gw';
 /** The suffix on the key box's hostname: the box the key sits on. */
 export const KEY_BOX_SUFFIX = 'files';
+/** The suffix on a two-hop contract's front box: the box the gateway forwards onto. */
+export const FRONT_BOX_SUFFIX = 'web';
 
 /** What a key box's agent answers a read-only walk to, in place of `public`, on the snmp route
  *  and behind an snmp decoy alike. Short and common enough for a player to guess. A sweep never

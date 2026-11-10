@@ -137,6 +137,8 @@ const numberForRoute = (
   for (let candidate = from; candidate < from + 20000; candidate += 1) {
     if (!isMissionNumber(candidate)) continue;
     const shape = missionShape(candidate);
+    // One hop: the gateway forwards straight onto the key box this check reaches.
+    if (shape.frontBox !== null) continue;
     if (shape.keyBox.route === route && shape.storage === storage) return candidate;
   }
   throw new Error(`no ${route}/${storage} number found from ${from}`);

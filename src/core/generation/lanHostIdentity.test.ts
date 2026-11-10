@@ -4,13 +4,14 @@ import {
   chainGatewayBaseFsForMachineId,
   machineIdForLanHost,
   generatedBaseFsForMachineId,
-  missionKeyBoxNumber,
+  missionBoxAt,
   resolveDeepGatewayIdentity,
 } from './lanHostIdentity.js';
 import { generateDeepLayer } from './generateDeepLayer.js';
 import { computeDeepGatewayId } from '../identity/router.js';
 import { generateHomeLan, type LanHost } from './generateHomeLan.js';
-import { buildMissionKeyBoxFs } from './missionKeyBoxFs.js';
+import { buildMissionFrontBoxFs, buildMissionKeyBoxFs } from './missionKeyBoxFs.js';
+import { missionShape } from '../missions/missionShape.js';
 import { buildApGatewayBaseFs } from './routerFs.js';
 import type { Directory } from '../filesystem/types.js';
 import { readRunningProcesses } from '../services/pidfile.js';
@@ -117,28 +118,61 @@ describe('a contract network through the hop resolvers', () => {
     const gateway = gatewayOn(MISSION_ESSID);
     expect(baseFsForLanHost(gateway, MISSION_ESSID)).toEqual(buildApGatewayBaseFs(MISSION_ESSID));
   });
+
+  it('resolves each box of a two-hop contract to its own deliberate box', () => {
+    const TWO_HOP_ESSID = 'mission-2';
+    const { keyBox, frontBox } = missionShape(2);
+    const keyBoxHost = hostOn(TWO_HOP_ESSID, (host) => octetOf(host) === keyBox.octet);
+    const frontBoxHost = hostOn(TWO_HOP_ESSID, (host) => octetOf(host) === frontBox?.octet);
+
+    expect(baseFsForLanHost(keyBoxHost, TWO_HOP_ESSID)).toEqual(buildMissionKeyBoxFs(2));
+    expect(baseFsForLanHost(frontBoxHost, TWO_HOP_ESSID)).toEqual(buildMissionFrontBoxFs(2));
+  });
 });
 
-describe('naming the key box of a contract number', () => {
-  const MISSION_ESSID = 'mission-66051';
+describe('naming a contract box by its machine id', () => {
+  // The server lays each box's files onto that box and no other, so it must recognise a box
+  // by its id alone — the id a session on it carries — and recover the number and the box.
+  const SINGLE_HOP_ESSID = 'mission-66051';
+  const TWO_HOP_ESSID = 'mission-2';
 
-  it('is the machine_id of the one machine behind the gateway, carrying the number', () => {
-    // The server lays the key onto exactly this box, so it must recognise the box by its
-    // id alone — the id a session on the key box carries — and recover the number from it.
-    const keyBox = hostOn(MISSION_ESSID, (host) => host.kind === 'machine');
-    expect(missionKeyBoxNumber(MISSION_ESSID, machineIdForLanHost(keyBox, MISSION_ESSID))).toBe(
-      66051,
+  const boxAtOctet = (essid: string, octet: number | undefined) =>
+    missionBoxAt(
+      essid,
+      machineIdForLanHost(
+        hostOn(essid, (host) => octetOf(host) === octet),
+        essid,
+      ),
     );
+
+  it('names the key box of a single-hop contract, carrying the number', () => {
+    expect(boxAtOctet(SINGLE_HOP_ESSID, missionShape(66051).keyBox.octet)).toEqual({
+      missionNumber: 66051,
+      role: 'key',
+    });
   });
 
-  it('is not the gateway — the gateway holds no key', () => {
-    expect(
-      missionKeyBoxNumber(MISSION_ESSID, machineIdForLanHost(gatewayOn(MISSION_ESSID), MISSION_ESSID)),
-    ).toBeNull();
+  it('names each box of a two-hop contract by its own role', () => {
+    const { keyBox, frontBox } = missionShape(2);
+
+    expect(boxAtOctet(TWO_HOP_ESSID, keyBox.octet)).toEqual({ missionNumber: 2, role: 'key' });
+    expect(boxAtOctet(TWO_HOP_ESSID, frontBox?.octet)).toEqual({
+      missionNumber: 2,
+      role: 'front',
+    });
+  });
+
+  it('is not the gateway — the gateway holds nothing the server lays', () => {
+    expect(boxAtOctet(SINGLE_HOP_ESSID, 1)).toBeNull();
+    expect(boxAtOctet(TWO_HOP_ESSID, 1)).toBeNull();
+  });
+
+  it('is nothing for an id the contract network does not generate', () => {
+    expect(missionBoxAt(TWO_HOP_ESSID, `ed25519-${FOREIGN_KEY.slice(0, 8)}`)).toBeNull();
   });
 
   it('is nothing on a network that is not a contract', () => {
-    expect(missionKeyBoxNumber(ESSID, machineIdForLanHost(gatewayOn(ESSID), ESSID))).toBeNull();
+    expect(missionBoxAt(ESSID, machineIdForLanHost(siblingOn(ESSID), ESSID))).toBeNull();
   });
 });
 

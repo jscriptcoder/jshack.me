@@ -33,8 +33,10 @@ const KEY_SECRET = 'test-mission-secret';
 
 const firstWebRouteNumber = (): number => {
   for (let candidate = 66051; candidate < 66051 + 5000; candidate += 1) {
-    if (isMissionNumber(candidate) && missionShape(candidate).keyBox.route === 'web')
-      return candidate;
+    if (!isMissionNumber(candidate)) continue;
+    // One hop: the gateway forwards straight onto the key box this reaches.
+    const { keyBox, frontBox } = missionShape(candidate);
+    if (keyBox.route === 'web' && frontBox === null) return candidate;
   }
   throw new Error('no web route contract in the range');
 };
@@ -44,7 +46,8 @@ export const WEB_ROUTE_ESSID = missionEssid(WEB_ROUTE_NUMBER);
 export const WEB_ROUTE_ADDRESS = missionAddressForNumber(WEB_ROUTE_NUMBER) ?? '';
 export const WEB_ROUTE_GATEWAY = computeApGatewayId(WEB_ROUTE_ESSID);
 /** The file's name under the document root, as a request asks for it. */
-export const WEB_ROUTE_LEAK_PATH = missionLeakPath(WEB_ROUTE_NUMBER) ?? '';
+export const WEB_ROUTE_LEAK_PATH =
+  missionLeakPath({ missionNumber: WEB_ROUTE_NUMBER, role: 'key' }) ?? '';
 export const WEB_ROUTE_LEAK_REQUEST = WEB_ROUTE_LEAK_PATH.replace('/var/www/html', '');
 export const WEB_ROUTE_WORD = plaintextFor(missionShape(WEB_ROUTE_NUMBER).keyBox.rootHash);
 

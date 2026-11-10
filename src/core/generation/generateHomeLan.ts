@@ -31,7 +31,8 @@ import { HOSTNAME_PREFIXES, OFFICE_HOSTNAME_PREFIXES } from './pools/hostnames.j
 import { lanSubnetPrefix } from '../network/lanAddress.js';
 import { seedApGatewayHostname, seedInnerGatewayHostname } from './gatewayHostname.js';
 import { missionNumberFromEssid } from '../missions/missionNetwork.js';
-import { GATEWAY_SUFFIX, KEY_BOX_SUFFIX, TARGET_STEMS } from '../missions/pools.js';
+import { FRONT_BOX_SUFFIX, GATEWAY_SUFFIX, KEY_BOX_SUFFIX } from '../missions/pools.js';
+import { missionTopology } from '../missions/missionShape.js';
 import type { Ipv4 } from '../network/interfaces.js';
 
 export type LanHostKind = 'machine' | 'router' | 'switch';
@@ -149,20 +150,27 @@ const machinesAt = (
   );
 };
 
-/** A contract network's LAN: a gateway at `.1` and a key box behind it, both named for
- *  the target company, drawn from the contract's number alone. Its own shape, not the
- *  town topology above — no inner gateway, no switch, no filler — so a scan reads as one
- *  company's two machines. */
+/** A contract network's LAN: a gateway at `.1` and a key box behind it, and on a two-hop
+ *  contract a front box beside them, all named for the target company and drawn from the
+ *  contract's number alone. Its own shape, not the town topology above — no inner gateway, no
+ *  switch, no filler — so a scan reads as one company's machines. */
 const missionLan = (subnet: string, missionNumber: number): HomeLan => {
-  const prng = createPrng(`mission-shape-${missionNumber}`);
-  const stem = prng.pick(TARGET_STEMS);
-  const keyBoxOctet = prng.nextInt(2, 254);
+  const { stem, keyBoxOctet, frontBoxOctet } = missionTopology(missionNumber);
   return {
     subnet,
-    hosts: [
+    hosts: byOctet([
       { ip: `${subnet}.1`, hostname: `${stem}-${GATEWAY_SUFFIX}`, kind: 'router' },
       { ip: `${subnet}.${keyBoxOctet}`, hostname: `${stem}-${KEY_BOX_SUFFIX}`, kind: 'machine' },
-    ],
+      ...(frontBoxOctet === null
+        ? []
+        : [
+            {
+              ip: `${subnet}.${frontBoxOctet}`,
+              hostname: `${stem}-${FRONT_BOX_SUFFIX}`,
+              kind: 'machine' as const,
+            },
+          ]),
+    ]),
   };
 };
 

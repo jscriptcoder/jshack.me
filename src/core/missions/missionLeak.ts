@@ -33,8 +33,8 @@
  */
 
 import { DATADIR_FILE, FTP_PUBLIC_FILE, ROOT_FILE } from '../generation/baseFs.js';
-import { buildMissionKeyBoxFs } from '../generation/missionKeyBoxFs.js';
-import { missionKeyBoxNumber } from '../generation/lanHostIdentity.js';
+import { buildMissionFrontBoxFs, buildMissionKeyBoxFs } from '../generation/missionKeyBoxFs.js';
+import { missionBoxAt } from '../generation/lanHostIdentity.js';
 import { md5 } from '../generation/md5.js';
 import { createPrng } from '../generation/prng.js';
 import { DATADIR_PATH, databaseIn } from '../mysql/datadir.js';
@@ -53,7 +53,12 @@ import {
   missionPassphrase,
   requireMissionSecret,
 } from './missionSecret.js';
-import { missionShape, type MissionRoute } from './missionShape.js';
+import {
+  missionShape,
+  type MissionBox,
+  type MissionBoxRef,
+  type MissionRoute,
+} from './missionShape.js';
 import { GUESSABLE_COMMUNITIES } from './pools.js';
 
 /** A file the server lays onto a key box before its journal replays. */
@@ -108,10 +113,28 @@ const FORGOTTEN_FILES: readonly {
   },
 ];
 
+/** The record of the box `ref` names. A single-hop contract has no front box, and no door
+ *  can reach one, so asking for it is a caller's bug. */
+const boxOf = ({ missionNumber, role }: MissionBoxRef): MissionBox => {
+  const shape = missionShape(missionNumber);
+  if (role === 'key') return shape.keyBox;
+  if (shape.frontBox === null) throw new Error(`contract ${missionNumber} has no front box`);
+  return shape.frontBox;
+};
+
+/** The stream a box's forgotten file and its agent's community are drawn on. The key box keeps
+ *  the one it always had, and the front box has its own, so neither moves the other's. */
+const leakSeedOf = ({ missionNumber, role }: MissionBoxRef): string =>
+  role === 'key' ? `mission-leak-${missionNumber}` : `mission-front-leak-${missionNumber}`;
+
+/** The box as it generates, whose datadir a laid one replaces. */
+const generatedBoxOf = ({ missionNumber, role }: MissionBoxRef) =>
+  role === 'key' ? buildMissionKeyBoxFs(missionNumber) : buildMissionFrontBoxFs(missionNumber);
+
 /** A plain `ls` hides a dotfile, so `pub/` would look empty with one in it. */
-const forgottenFileOf = (missionNumber: number): (typeof FORGOTTEN_FILES)[number] =>
-  createPrng(`mission-leak-${missionNumber}`).pick(
-    missionShape(missionNumber).keyBox.route === 'ftp'
+const forgottenFileOf = (ref: MissionBoxRef): (typeof FORGOTTEN_FILES)[number] =>
+  createPrng(leakSeedOf(ref)).pick(
+    boxOf(ref).route === 'ftp'
       ? FORGOTTEN_FILES.filter(({ name }) => !name.startsWith('.'))
       : FORGOTTEN_FILES,
   );
@@ -125,15 +148,15 @@ const LEAK_HOMES: Readonly<
 };
 
 const leakPlaceOf = (
-  missionNumber: number,
+  ref: MissionBoxRef,
 ): { readonly path: string; readonly perms: FilePermissions } | null => {
-  const { route } = missionShape(missionNumber).keyBox;
+  const { route } = boxOf(ref);
   if (route === 'mysql') return { path: DATADIR_PATH, perms: DATADIR_FILE };
   if (route === 'snmp') return { path: SNMPD_CONF_PATH, perms: SNMPD_CONF_PERMISSIONS };
   const home = LEAK_HOMES[route];
   return home === undefined
     ? null
-    : { path: `${home.directory}/${forgottenFileOf(missionNumber).name}`, perms: home.perms };
+    : { path: `${home.directory}/${forgottenFileOf(ref).name}`, perms: home.perms };
 };
 
 /** The table a word sits in on a database route. Its rows are fixed, and read as what they are:
@@ -152,11 +175,8 @@ const settingsTable = (word: string): MysqlTable => ({
 
 /** The datadir with the tables added, which is the whole file: a laid file replaces the box's
  *  and never merges into it. */
-const databaseWith = (
-  missionNumber: number,
-  tables: Readonly<Record<string, MysqlTable>>,
-): string => {
-  const database = databaseIn(buildMissionKeyBoxFs(missionNumber));
+const databaseWith = (ref: MissionBoxRef, tables: Readonly<Record<string, MysqlTable>>): string => {
+  const database = databaseIn(generatedBoxOf(ref));
   if (database === null) throw new MissionLeakUnavailableError();
   return JSON.stringify({ ...database, tables: { ...database.tables, ...tables } });
 };
@@ -183,39 +203,39 @@ const apiKeysTable = (missionNumber: number, key: string): MysqlTable => ({
 });
 
 /** The agent's whole config. The word is its contact, which a walk prints at either tier. */
-const agentConfig = (missionNumber: number, word: string): string =>
+const agentConfig = (ref: MissionBoxRef, word: string): string =>
   [
     '# /etc/snmp/snmpd.conf — SNMP agent configuration',
-    `rocommunity ${createPrng(`mission-leak-${missionNumber}`).pick(GUESSABLE_COMMUNITIES)}`,
+    `rocommunity ${createPrng(leakSeedOf(ref)).pick(GUESSABLE_COMMUNITIES)}`,
     `syscontact helpdesk: the server password is still ${word}, change it!`,
     '',
   ].join('\n');
 
 /** What the file holds on this route, given the word. */
-const leakContent = (missionNumber: number, word: string): string => {
-  const { route } = missionShape(missionNumber).keyBox;
-  if (route === 'mysql') return databaseWith(missionNumber, { settings: settingsTable(word) });
-  if (route === 'snmp') return agentConfig(missionNumber, word);
-  return forgottenFileOf(missionNumber).render(word);
+const leakContent = (ref: MissionBoxRef, word: string): string => {
+  const { route } = boxOf(ref);
+  if (route === 'mysql') return databaseWith(ref, { settings: settingsTable(word) });
+  if (route === 'snmp') return agentConfig(ref, word);
+  return forgottenFileOf(ref).render(word);
 };
 
-/** Where the forgotten file sits, drawn from the number, or null on a route with no leak.
- *  The path alone needs no secret, so the write gate can ask for it. */
-export const missionLeakPath = (missionNumber: number): string | null =>
-  leakPlaceOf(missionNumber)?.path ?? null;
+/** Where the box's forgotten file sits, drawn from the number, or null on a route with no
+ *  leak. The path alone needs no secret, so the write gate can ask for it. */
+export const missionLeakPath = (ref: MissionBoxRef): string | null =>
+  leakPlaceOf(ref)?.path ?? null;
 
-/** The word this contract's forgotten file gives away, which is its key box's root. */
-export const missionLeakWord = (missionNumber: number, rawSecrets: string | undefined): string =>
-  leakedWord(missionShape(missionNumber).keyBox.rootHash, rawSecrets);
+/** The word the box's forgotten file gives away, which is that box's root. */
+export const missionLeakWord = (ref: MissionBoxRef, rawSecrets: string | undefined): string =>
+  leakedWord(boxOf(ref).rootHash, rawSecrets);
 
-/** The forgotten file itself, or null on a route with no leak. */
+/** The box's forgotten file itself, or null on a route with no leak. */
 export const missionLeakFile = (
-  missionNumber: number,
+  ref: MissionBoxRef,
   rawSecrets: string | undefined,
 ): MissionFile | null => {
-  const place = leakPlaceOf(missionNumber);
+  const place = leakPlaceOf(ref);
   if (place === null) return null;
-  return { ...place, content: leakContent(missionNumber, missionLeakWord(missionNumber, rawSecrets)) };
+  return { ...place, content: leakContent(ref, missionLeakWord(ref, rawSecrets)) };
 };
 
 /** A program on the box, as every program is: any tier reads and runs it, only root changes it. */
@@ -295,59 +315,71 @@ const keyFiles = (missionNumber: number, secret: string): readonly MissionFile[]
   ];
 };
 
-/** Whether the server lays the datadir: on the database route, where it holds the word, and on
- *  a contract keeping its key in it. Built once from every table either adds. */
-const laysDatadir = (missionNumber: number): boolean => {
-  const { keyBox, storage } = missionShape(missionNumber);
-  return keyBox.route === 'mysql' || storage === 'database';
-};
+/** Whether the box keeps the contract's key in its datadir: the key box, on a contract keeping
+ *  it in a database. A front box never holds the key. */
+const keepsKeyInDatabase = (ref: MissionBoxRef): boolean =>
+  ref.role === 'key' && missionShape(ref.missionNumber).storage === 'database';
 
-/** The datadir as laid: the word's table on the database route, the key's on a contract
- *  keeping it there, or both. */
-const datadirFile = (
-  missionNumber: number,
-  secret: string,
-  rawSecrets: string | undefined,
-): MissionFile => {
-  const { keyBox, storage } = missionShape(missionNumber);
+/** Whether the server lays the box's datadir: on the database route, where it holds the word,
+ *  and on the key box of a contract keeping its key in it. Built once from every table either
+ *  adds. */
+const laysDatadir = (ref: MissionBoxRef): boolean =>
+  boxOf(ref).route === 'mysql' || keepsKeyInDatabase(ref);
+
+/** The datadir as laid: the word's table on the database route, the key's on a key box keeping
+ *  it there, or both. */
+const datadirFile = (ref: MissionBoxRef, env: MissionSecretsEnv): MissionFile => {
+  const { missionNumber } = ref;
   const tables = {
-    ...(keyBox.route === 'mysql'
-      ? { settings: settingsTable(missionLeakWord(missionNumber, rawSecrets)) }
+    ...(boxOf(ref).route === 'mysql'
+      ? { settings: settingsTable(missionLeakWord(ref, env.rawSecrets)) }
       : {}),
-    ...(storage === 'database'
-      ? { api_keys: apiKeysTable(missionNumber, missionKey(missionNumber, secret)) }
+    ...(keepsKeyInDatabase(ref)
+      ? {
+          api_keys: apiKeysTable(
+            missionNumber,
+            missionKey(missionNumber, requireMissionSecret(env.keySecret)),
+          ),
+        }
       : {}),
   };
-  return { path: DATADIR_PATH, content: databaseWith(missionNumber, tables), perms: DATADIR_FILE };
+  return { path: DATADIR_PATH, content: databaseWith(ref, tables), perms: DATADIR_FILE };
 };
 
 /** The leak when it is a file of its own; on the database route the leak is the datadir. */
-const ownLeakFile = (missionNumber: number, rawSecrets: string | undefined): MissionFile | null =>
-  missionShape(missionNumber).keyBox.route === 'mysql'
-    ? null
-    : missionLeakFile(missionNumber, rawSecrets);
+const ownLeakFile = (ref: MissionBoxRef, rawSecrets: string | undefined): MissionFile | null =>
+  boxOf(ref).route === 'mysql' ? null : missionLeakFile(ref, rawSecrets);
 
 /** Where `ownLeakFile` lays it, from the number alone. */
-const ownLeakPath = (missionNumber: number): string | null =>
-  missionShape(missionNumber).keyBox.route === 'mysql' ? null : missionLeakPath(missionNumber);
+const ownLeakPath = (ref: MissionBoxRef): string | null =>
+  boxOf(ref).route === 'mysql' ? null : missionLeakPath(ref);
 
-/** Every file the server lays onto this contract's key box. A route with no leak never
- *  touches the pools, so a missing `JSHACK_SECRETS` closes only the boxes that need it. */
+/** The two secrets the server holds, as it reads them from its environment. */
+type MissionSecretsEnv = {
+  readonly keySecret: string | undefined;
+  readonly rawSecrets: string | undefined;
+};
+
+/** Every file the server lays onto the box: on the key box the key's files, then its leak and
+ *  its datadir; on a front box its leak and its datadir alone, which never need the key's
+ *  secret. A route with no leak never touches the pools, so a missing `JSHACK_SECRETS` closes
+ *  only the boxes that need it. */
 export const missionFiles = (
-  missionNumber: number,
-  env: { readonly keySecret: string | undefined; readonly rawSecrets: string | undefined },
+  ref: MissionBoxRef,
+  env: MissionSecretsEnv,
 ): readonly MissionFile[] => {
-  const secret = requireMissionSecret(env.keySecret);
-  const leak = ownLeakFile(missionNumber, env.rawSecrets);
+  const keyFilesLaid =
+    ref.role === 'key' ? keyFiles(ref.missionNumber, requireMissionSecret(env.keySecret)) : [];
+  const leak = ownLeakFile(ref, env.rawSecrets);
   return [
-    ...keyFiles(missionNumber, secret),
+    ...keyFilesLaid,
     ...(leak === null ? [] : [leak]),
-    ...(laysDatadir(missionNumber) ? [datadirFile(missionNumber, secret, env.rawSecrets)] : []),
+    ...(laysDatadir(ref) ? [datadirFile(ref, env)] : []),
   ];
 };
 
-/** The files for the box a door has reached: none unless it is a contract's key box, and an
- *  error when a secret that box needs is unset, which the door answers 500. */
+/** The files for the box a door has reached: none unless it is a contract's key or front box,
+ *  and an error when a secret that box needs is unset, which the door answers 500. */
 export const missionFilesForBox = async (
   box: { readonly essid: string; readonly machine_id: string },
   env: { readonly keySecret: string | undefined; readonly rawSecrets: string | undefined },
@@ -355,10 +387,10 @@ export const missionFilesForBox = async (
   | { readonly data: readonly MissionFile[]; readonly error: null }
   | { readonly data: null; readonly error: 'mission_secret_missing' }
 > => {
-  const missionNumber = missionKeyBoxNumber(box.essid, box.machine_id);
-  if (missionNumber === null) return { data: [], error: null };
+  const reached = missionBoxAt(box.essid, box.machine_id);
+  if (reached === null) return { data: [], error: null };
   try {
-    return { data: missionFiles(missionNumber, env), error: null };
+    return { data: missionFiles(reached, env), error: null };
   } catch {
     return { data: null, error: 'mission_secret_missing' };
   }
@@ -366,11 +398,11 @@ export const missionFilesForBox = async (
 
 /** The paths `missionFiles` lays in, from the number alone: the write gate asks whether a
  *  tier may write one, which only root may on any of them, and needs no secret to ask. */
-export const missionFilePaths = (missionNumber: number): readonly string[] => {
-  const leakPath = ownLeakPath(missionNumber);
+export const missionFilePaths = (ref: MissionBoxRef): readonly string[] => {
+  const leakPath = ownLeakPath(ref);
   return [
-    ...keyFilePaths(missionNumber),
+    ...(ref.role === 'key' ? keyFilePaths(ref.missionNumber) : []),
     ...(leakPath === null ? [] : [leakPath]),
-    ...(laysDatadir(missionNumber) ? [DATADIR_PATH] : []),
+    ...(laysDatadir(ref) ? [DATADIR_PATH] : []),
   ];
 };
