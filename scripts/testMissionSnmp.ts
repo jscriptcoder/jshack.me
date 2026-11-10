@@ -145,7 +145,7 @@ const WORD = plaintextFor(missionShape(SNMP_NUMBER).keyBox.rootHash);
 const SNMP_PORT = 161;
 
 const laidConfig =
-  missionFiles(SNMP_NUMBER, { keySecret: secret, rawSecrets }).find(
+  missionFiles({ missionNumber: SNMP_NUMBER, role: 'key' }, { keySecret: secret, rawSecrets }).find(
     (laid) => laid.path === SNMPD_CONF_PATH,
   )?.content ?? '';
 const READ_ONLY_COMMUNITY = parseSnmpdConf(laidConfig).roCommunity ?? '';

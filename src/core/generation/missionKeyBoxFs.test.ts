@@ -464,7 +464,10 @@ describe('a decoy on the key box', () => {
   it('reads line for line like the snmp route config, but for its community and contact', () => {
     // A header or a trailing newline the route's file lacks would tell a guest which is which.
     const decoy = readSnmpdConf(buildMissionKeyBoxFs(numberWithDecoy('snmp'))).split('\n');
-    const route = (missionLeakFile(SNMP_ROUTE_NUMBER, DEPLOYMENT_SECRETS)?.content ?? '').split('\n');
+    const route = (
+      missionLeakFile({ missionNumber: SNMP_ROUTE_NUMBER, role: 'key' }, DEPLOYMENT_SECRETS)
+        ?.content ?? ''
+    ).split('\n');
 
     expect(decoy).toHaveLength(route.length);
     expect(decoy[0]).toBe(route[0]);

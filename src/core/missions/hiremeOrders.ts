@@ -69,9 +69,10 @@ const serviceLine = (service: {
 /** The lines `show` adds on a route that leaks a word. Reading the word needs the pools, so
  *  the report says when they are missing rather than failing the whole of `show`. */
 const leakLines = (missionNumber: number, rawSecrets: string | undefined): readonly string[] => {
-  const path = missionLeakPath(missionNumber);
+  const keyBox = { missionNumber, role: 'key' } as const;
+  const path = missionLeakPath(keyBox);
   if (path === null) return [];
-  const word = rawSecrets === undefined ? undefined : missionLeakWord(missionNumber, rawSecrets);
+  const word = rawSecrets === undefined ? undefined : missionLeakWord(keyBox, rawSecrets);
   return [`  Leak:     ${path}`, `  Word:     ${word ?? '(JSHACK_SECRETS is not set)'}`];
 };
 

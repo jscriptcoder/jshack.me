@@ -138,7 +138,9 @@ describe('showReport', () => {
     expect(lines).toContain('  Route:    ftp');
     expect(lines).toContain('  Forward:  :21 -> key box :21');
     expect(lines).toContain('  Forward:  :2222 -> key box :22');
-    expect(lines).toContain(`  Leak:     ${missionLeakPath(number)}`);
+    expect(lines).toContain(
+      `  Leak:     ${missionLeakPath({ missionNumber: number, role: 'key' })}`,
+    );
     // Through a boolean: a failing `toContain` would print the word.
     expect(
       lines.includes(`  Word:     ${plaintextFor(missionShape(number).keyBox.rootHash)}`),

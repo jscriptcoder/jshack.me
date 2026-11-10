@@ -11,7 +11,7 @@ import {
 import type { AppendLog } from '../src/core/patches/appendMachineLog.js';
 import { handleListPatches, type ListPatchesQuery } from '../src/core/patches/listPatches.js';
 import { handleRemovePatch, type PatchTreeQuery } from '../src/core/patches/removePatch.js';
-import { missionKeyBoxNumber } from '../src/core/generation/lanHostIdentity.js';
+import { missionBoxAt } from '../src/core/generation/lanHostIdentity.js';
 import { missionFilePaths } from '../src/core/missions/missionLeak.js';
 import { handleAppendAuthLog } from '../src/core/patches/appendAuthLog.js';
 import { handleAppendKernLog } from '../src/core/patches/appendKernLog.js';
@@ -294,12 +294,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return { data: data as OccupantWorkstation | null, error };
   };
 
-  // The paths of the files a contract key box carries — paths only, no secret: the write gate
+  // The paths of the files a contract box carries — paths only, no secret: the write gate
   // asks whether a tier may write one, which its root-only perms answer. None for every other
   // box. Letting a root's `rm` of one resolve and be permitted is all this does.
   const missionFilePathsOf = ({ essid, machine_id }: { essid: string; machine_id: string }) => {
-    const missionNumber = missionKeyBoxNumber(essid, machine_id);
-    return missionNumber === null ? [] : missionFilePaths(missionNumber);
+    const box = missionBoxAt(essid, machine_id);
+    return box === null ? [] : missionFilePaths(box);
   };
 
   if (actionOf(req.body) === 'listPatches') {

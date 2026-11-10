@@ -6,6 +6,7 @@ import {
   missionFilesForBox,
   missionLeakFile,
   missionLeakPath,
+  missionLeakWord,
   MissionLeakUnavailableError,
 } from './missionLeak.js';
 import { LEAKABLE_HASHES, SHUT_HASHES } from './leakablePool.js';
@@ -15,7 +16,13 @@ import {
   missionPassphrase,
   MissionSecretMissingError,
 } from './missionSecret.js';
-import { missionShape, type MissionRoute, type MissionStorage } from './missionShape.js';
+import {
+  missionShape,
+  type MissionBoxRef,
+  type MissionRoute,
+  type MissionShape,
+  type MissionStorage,
+} from './missionShape.js';
 import { decryptContent } from '../crypto/gpgCodec.js';
 import { binaryStub } from '../generation/binaries.js';
 import { strings } from '../commands/strings.js';
@@ -55,6 +62,10 @@ const RAW_SECRETS = JSON.stringify({
 });
 
 const KEY_SECRET = 'test-mission-secret';
+
+/** A contract's key box, and on two hops its front box, as the server names them. */
+const keyOf = (missionNumber: number): MissionBoxRef => ({ missionNumber, role: 'key' });
+const frontOf = (missionNumber: number): MissionBoxRef => ({ missionNumber, role: 'front' });
 
 const SAMPLE_NUMBERS = Array.from({ length: 2000 }, (_unused, index) => index * 8381 + 2).filter(
   (missionNumber) => missionNumber % 256 >= 2 && missionNumber % 256 <= 254,
@@ -126,7 +137,9 @@ describe('leakedWord', () => {
 
 describe('missionLeakFile', () => {
   it('sits at a name the default list tries, under the document root', () => {
-    const paths = numbersWithRoute('web').map(missionLeakPath);
+    const paths = numbersWithRoute('web').map((missionNumber) =>
+      missionLeakPath(keyOf(missionNumber)),
+    );
 
     for (const path of paths) {
       const name = path?.replace('/var/www/html/', '');
@@ -138,21 +151,23 @@ describe('missionLeakFile', () => {
   });
 
   it('can be a dotfile on a web route, where a sweep finds what a listing would hide', () => {
-    expect(numbersWithRoute('web').map(missionLeakPath)).toContain('/var/www/html/.env');
+    expect(
+      numbersWithRoute('web').map((missionNumber) => missionLeakPath(keyOf(missionNumber))),
+    ).toContain('/var/www/html/.env');
   });
 
   it('is the same for the same number', () => {
     const missionNumber = firstWithRoute('web');
 
-    expect(missionLeakFile(missionNumber, RAW_SECRETS)).toEqual(
-      missionLeakFile(missionNumber, RAW_SECRETS),
+    expect(missionLeakFile(keyOf(missionNumber), RAW_SECRETS)).toEqual(
+      missionLeakFile(keyOf(missionNumber), RAW_SECRETS),
     );
   });
 
   it('holds the word of the box root, and never names the account', () => {
     for (const missionNumber of numbersWithRoute('web')) {
       const word = plaintextFor(missionShape(missionNumber).keyBox.rootHash);
-      const leak = missionLeakFile(missionNumber, RAW_SECRETS);
+      const leak = missionLeakFile(keyOf(missionNumber), RAW_SECRETS);
 
       expect(leak?.content.includes(word), `word in file of ${missionNumber}`).toBe(true);
       expect(/root/i.test(leak?.content ?? 'root'), `account in file of ${missionNumber}`).toBe(
@@ -162,7 +177,9 @@ describe('missionLeakFile', () => {
   });
 
   it('sits in the ftp public directory on an ftp route, at a name a plain ls shows', () => {
-    const paths = numbersWithRoute('ftp').map(missionLeakPath);
+    const paths = numbersWithRoute('ftp').map((missionNumber) =>
+      missionLeakPath(keyOf(missionNumber)),
+    );
 
     for (const path of paths) {
       expect(path, 'in pub').toMatch(/^\/srv\/ftp\/pub\/[^./][^/]*$/);
@@ -174,7 +191,7 @@ describe('missionLeakFile', () => {
   it('holds the word of the box root on an ftp route, and never names the account', () => {
     for (const missionNumber of numbersWithRoute('ftp')) {
       const word = plaintextFor(missionShape(missionNumber).keyBox.rootHash);
-      const leak = missionLeakFile(missionNumber, RAW_SECRETS);
+      const leak = missionLeakFile(keyOf(missionNumber), RAW_SECRETS);
 
       expect(leak?.content.includes(word), `word in file of ${missionNumber}`).toBe(true);
       expect(/root/i.test(leak?.content ?? 'root'), `account in file of ${missionNumber}`).toBe(
@@ -185,9 +202,9 @@ describe('missionLeakFile', () => {
 
   it('is the datadir on a database route, as root-only as the one it replaces', () => {
     for (const missionNumber of numbersWithRoute('mysql')) {
-      const leak = missionLeakFile(missionNumber, RAW_SECRETS);
+      const leak = missionLeakFile(keyOf(missionNumber), RAW_SECRETS);
 
-      expect(missionLeakPath(missionNumber)).toBe(DATADIR_PATH);
+      expect(missionLeakPath(keyOf(missionNumber))).toBe(DATADIR_PATH);
       expect(leak?.path).toBe(DATADIR_PATH);
       expect(leak?.perms).toEqual(DATADIR_FILE);
     }
@@ -195,7 +212,9 @@ describe('missionLeakFile', () => {
 
   it('adds only the settings table to the database the box generates', () => {
     for (const missionNumber of numbersWithRoute('mysql')) {
-      const laid = parseMysqlDatabase(missionLeakFile(missionNumber, RAW_SECRETS)?.content ?? '');
+      const laid = parseMysqlDatabase(
+        missionLeakFile(keyOf(missionNumber), RAW_SECRETS)?.content ?? '',
+      );
       const generated = databaseIn(buildMissionKeyBoxFs(missionNumber));
       const { settings: _settings, ...others } = laid?.tables ?? {};
 
@@ -208,7 +227,9 @@ describe('missionLeakFile', () => {
   it('holds the word of the box root in a settings row, and never names the account', () => {
     for (const missionNumber of numbersWithRoute('mysql')) {
       const word = plaintextFor(missionShape(missionNumber).keyBox.rootHash);
-      const laid = parseMysqlDatabase(missionLeakFile(missionNumber, RAW_SECRETS)?.content ?? '');
+      const laid = parseMysqlDatabase(
+        missionLeakFile(keyOf(missionNumber), RAW_SECRETS)?.content ?? '',
+      );
       const settings = laid?.tables['settings'];
 
       expect(settings?.columns).toEqual([
@@ -232,16 +253,16 @@ describe('missionLeakFile', () => {
   it('is the same database for the same number', () => {
     const missionNumber = firstWithRoute('mysql');
 
-    expect(missionLeakFile(missionNumber, RAW_SECRETS)).toEqual(
-      missionLeakFile(missionNumber, RAW_SECRETS),
+    expect(missionLeakFile(keyOf(missionNumber), RAW_SECRETS)).toEqual(
+      missionLeakFile(keyOf(missionNumber), RAW_SECRETS),
     );
   });
 
   it('is the agent config on an snmp route, readable by any tier and written by root', () => {
     for (const missionNumber of numbersWithRoute('snmp')) {
-      const leak = missionLeakFile(missionNumber, RAW_SECRETS);
+      const leak = missionLeakFile(keyOf(missionNumber), RAW_SECRETS);
 
-      expect(missionLeakPath(missionNumber)).toBe(SNMPD_CONF_PATH);
+      expect(missionLeakPath(keyOf(missionNumber))).toBe(SNMPD_CONF_PATH);
       expect(leak?.path).toBe(SNMPD_CONF_PATH);
       expect(leak?.perms).toEqual(SNMPD_CONF_PERMISSIONS);
     }
@@ -250,7 +271,7 @@ describe('missionLeakFile', () => {
   it('holds the word of the box root as the contact, and never names the account', () => {
     for (const missionNumber of numbersWithRoute('snmp')) {
       const word = plaintextFor(missionShape(missionNumber).keyBox.rootHash);
-      const content = missionLeakFile(missionNumber, RAW_SECRETS)?.content ?? '';
+      const content = missionLeakFile(keyOf(missionNumber), RAW_SECRETS)?.content ?? '';
 
       expect(parseSnmpdConf(content).sysContact.includes(word), `${missionNumber}`).toBe(true);
       expect(/root/i.test(content), `${missionNumber}`).toBe(false);
@@ -258,7 +279,9 @@ describe('missionLeakFile', () => {
   });
 
   it('reads as a config: a header, its two directives and a closing newline', () => {
-    const lines = (missionLeakFile(firstWithRoute('snmp'), RAW_SECRETS)?.content ?? '').split('\n');
+    const lines = (
+      missionLeakFile(keyOf(firstWithRoute('snmp')), RAW_SECRETS)?.content ?? ''
+    ).split('\n');
 
     expect(lines).toHaveLength(4);
     expect(lines[0]).toBe('# /etc/snmp/snmpd.conf — SNMP agent configuration');
@@ -267,7 +290,7 @@ describe('missionLeakFile', () => {
 
   it.each(['web', 'ftp'] as const)('keeps the agent config off a %s route', (route) => {
     for (const missionNumber of numbersWithRoute(route)) {
-      const content = missionLeakFile(missionNumber, RAW_SECRETS)?.content ?? '';
+      const content = missionLeakFile(keyOf(missionNumber), RAW_SECRETS)?.content ?? '';
 
       expect(parseSnmpdConf(content).roCommunity, `${missionNumber}`).toBeNull();
     }
@@ -276,7 +299,8 @@ describe('missionLeakFile', () => {
   it('answers to monitor or netops and never to public, so a default walk gets silence', () => {
     const communities = numbersWithRoute('snmp').map(
       (missionNumber) =>
-        parseSnmpdConf(missionLeakFile(missionNumber, RAW_SECRETS)?.content ?? '').roCommunity,
+        parseSnmpdConf(missionLeakFile(keyOf(missionNumber), RAW_SECRETS)?.content ?? '')
+          .roCommunity,
     );
 
     expect([...new Set(communities)].sort()).toEqual(['monitor', 'netops']);
@@ -285,13 +309,13 @@ describe('missionLeakFile', () => {
   it('is the same config for the same number', () => {
     const missionNumber = firstWithRoute('snmp');
 
-    expect(missionLeakFile(missionNumber, RAW_SECRETS)).toEqual(
-      missionLeakFile(missionNumber, RAW_SECRETS),
+    expect(missionLeakFile(keyOf(missionNumber), RAW_SECRETS)).toEqual(
+      missionLeakFile(keyOf(missionNumber), RAW_SECRETS),
     );
   });
 
   it('refuses the config when the deployment holds no pools', () => {
-    expect(() => missionLeakFile(firstWithRoute('snmp'), undefined)).toThrow(
+    expect(() => missionLeakFile(keyOf(firstWithRoute('snmp')), undefined)).toThrow(
       MissionLeakUnavailableError,
     );
   });
@@ -299,8 +323,8 @@ describe('missionLeakFile', () => {
   it('does not exist on a route with no leak', () => {
     for (const route of ['hydra', 'msfconsole'] as const) {
       const missionNumber = firstWithRoute(route);
-      expect(missionLeakPath(missionNumber), route).toBeNull();
-      expect(missionLeakFile(missionNumber, RAW_SECRETS), route).toBeNull();
+      expect(missionLeakPath(keyOf(missionNumber)), route).toBeNull();
+      expect(missionLeakFile(keyOf(missionNumber), RAW_SECRETS), route).toBeNull();
     }
   });
 });
@@ -309,7 +333,9 @@ describe('missionFiles', () => {
   it('lays the key alone on a route with no leak, without needing the pools', () => {
     const missionNumber = firstWithRoute('hydra');
 
-    expect(missionFiles(missionNumber, { keySecret: KEY_SECRET, rawSecrets: undefined })).toEqual([
+    expect(
+      missionFiles(keyOf(missionNumber), { keySecret: KEY_SECRET, rawSecrets: undefined }),
+    ).toEqual([
       {
         path: missionKeyPath(missionNumber),
         content: `${missionKey(missionNumber, KEY_SECRET)}\n`,
@@ -321,30 +347,36 @@ describe('missionFiles', () => {
   it('lays the key and the leak on a web route', () => {
     const missionNumber = firstWithRoute('web');
 
-    expect(missionFiles(missionNumber, { keySecret: KEY_SECRET, rawSecrets: RAW_SECRETS })).toEqual(
-      [
-        {
-          path: missionKeyPath(missionNumber),
-          content: `${missionKey(missionNumber, KEY_SECRET)}\n`,
-          perms: ROOT_FILE,
-        },
-        missionLeakFile(missionNumber, RAW_SECRETS),
-      ],
-    );
+    expect(
+      missionFiles(keyOf(missionNumber), { keySecret: KEY_SECRET, rawSecrets: RAW_SECRETS }),
+    ).toEqual([
+      {
+        path: missionKeyPath(missionNumber),
+        content: `${missionKey(missionNumber, KEY_SECRET)}\n`,
+        perms: ROOT_FILE,
+      },
+      missionLeakFile(keyOf(missionNumber), RAW_SECRETS),
+    ]);
   });
 
   it.each(['web', 'ftp', 'mysql'] as const)(
     'fails closed on a %s route when the pools are missing',
     (route) => {
       expect(() =>
-        missionFiles(firstWithRoute(route), { keySecret: KEY_SECRET, rawSecrets: undefined }),
+        missionFiles(keyOf(firstWithRoute(route)), {
+          keySecret: KEY_SECRET,
+          rawSecrets: undefined,
+        }),
       ).toThrow(MissionLeakUnavailableError);
     },
   );
 
   it('fails closed on any route when the key secret is missing', () => {
     expect(() =>
-      missionFiles(firstWithRoute('hydra'), { keySecret: undefined, rawSecrets: RAW_SECRETS }),
+      missionFiles(keyOf(firstWithRoute('hydra')), {
+        keySecret: undefined,
+        rawSecrets: RAW_SECRETS,
+      }),
     ).toThrow(MissionSecretMissingError);
   });
 });
@@ -352,7 +384,8 @@ describe('missionFiles', () => {
 describe('missionFilesForBox', () => {
   const keyBoxOf = (missionNumber: number) => {
     const essid = missionEssid(missionNumber);
-    const keyBox = generateHomeLan(essid).hosts.find((host) => host.kind === 'machine');
+    const { keyBox: drawn } = missionShape(missionNumber);
+    const keyBox = generateHomeLan(essid).hosts.find(({ ip }) => ip.endsWith(`.${drawn.octet}`));
     if (keyBox === undefined) throw new Error('a contract network has a key box');
     return { essid, machine_id: machineIdForLanHost(keyBox, essid) };
   };
@@ -362,7 +395,7 @@ describe('missionFilesForBox', () => {
     const missionNumber = firstWithRoute('web');
 
     expect(await missionFilesForBox(keyBoxOf(missionNumber), HOLDING_BOTH)).toEqual({
-      data: missionFiles(missionNumber, HOLDING_BOTH),
+      data: missionFiles(keyOf(missionNumber), HOLDING_BOTH),
       error: null,
     });
   });
@@ -416,7 +449,7 @@ describe('missionFilesForBox', () => {
         rawSecrets: undefined,
       }),
     ).toEqual({
-      data: missionFiles(missionNumber, { keySecret: KEY_SECRET, rawSecrets: undefined }),
+      data: missionFiles(keyOf(missionNumber), { keySecret: KEY_SECRET, rawSecrets: undefined }),
       error: null,
     });
   });
@@ -427,12 +460,12 @@ describe('missionFilePaths', () => {
     for (const route of ['hydra', 'msfconsole', 'web', 'ftp', 'mysql', 'snmp'] as const) {
       for (const storage of ['file', 'gpg', 'database'] as const) {
         const missionNumber = firstWithRoute(route, storage);
-        const laid = missionFiles(missionNumber, {
+        const laid = missionFiles(keyOf(missionNumber), {
           keySecret: KEY_SECRET,
           rawSecrets: RAW_SECRETS,
         });
 
-        expect(missionFilePaths(missionNumber), `${route} ${storage}`).toEqual(
+        expect(missionFilePaths(keyOf(missionNumber)), `${route} ${storage}`).toEqual(
           laid.map((file) => file.path),
         );
       }
@@ -446,10 +479,140 @@ describe('missionFilePaths', () => {
       const { route, decoys } = missionShape(missionNumber).keyBox;
       if (route === 'snmp' || !decoys.includes('snmp')) continue;
 
-      expect(missionFilePaths(missionNumber), `${route} ${missionNumber}`).not.toContain(
+      expect(missionFilePaths(keyOf(missionNumber)), `${route} ${missionNumber}`).not.toContain(
         SNMPD_CONF_PATH,
       );
     }
+  });
+});
+
+describe('the files of a two-hop contract', () => {
+  const HOLDING_BOTH = { keySecret: KEY_SECRET, rawSecrets: RAW_SECRETS };
+
+  const twoHopShapes = SAMPLE_NUMBERS.map(missionShape).filter((shape) => shape.frontBox !== null);
+
+  const twoHopWith = (wanted: (shape: MissionShape) => boolean): number => {
+    const found = twoHopShapes.find(wanted);
+    if (found === undefined) throw new Error('no such two-hop contract in the sample');
+    return found.missionNumber;
+  };
+
+  const frontWord = (missionNumber: number): string =>
+    plaintextFor(missionShape(missionNumber).frontBox?.rootHash ?? '');
+
+  it('lays the key and the key box own leak on the key box, and only its own leak on the front box', () => {
+    const missionNumber = twoHopWith(
+      (shape) =>
+        shape.storage === 'file' && shape.keyBox.route === 'ftp' && shape.frontBox?.route === 'web',
+    );
+    const keyLeak = missionLeakPath(keyOf(missionNumber));
+    const frontLeak = missionLeakPath(frontOf(missionNumber));
+
+    expect(keyLeak).toMatch(/^\/srv\/ftp\/pub\//);
+    expect(frontLeak).toMatch(/^\/var\/www\/html\//);
+    expect(missionFiles(keyOf(missionNumber), HOLDING_BOTH).map(({ path }) => path)).toEqual([
+      missionKeyPath(missionNumber),
+      keyLeak,
+    ]);
+    expect(missionFiles(frontOf(missionNumber), HOLDING_BOTH).map(({ path }) => path)).toEqual([
+      frontLeak,
+    ]);
+  });
+
+  it.each(['web', 'ftp', 'snmp'] as const)(
+    "gives a %s front box's file the front box own root word",
+    (route) => {
+      const missionNumber = twoHopWith((shape) => shape.frontBox?.route === route);
+      const file = missionLeakFile(frontOf(missionNumber), RAW_SECRETS);
+
+      expect(
+        missionLeakWord(frontOf(missionNumber), RAW_SECRETS) === frontWord(missionNumber),
+      ).toBe(true);
+      expect(file?.content.includes(frontWord(missionNumber))).toBe(true);
+    },
+  );
+
+  it('draws the front box forgotten file on a stream of its own, not the key box one', () => {
+    const bothWeb = twoHopShapes.filter(
+      (shape) => shape.keyBox.route === 'web' && shape.frontBox?.route === 'web',
+    );
+    const differing = bothWeb.filter(
+      ({ missionNumber }) =>
+        missionLeakPath(keyOf(missionNumber)) !== missionLeakPath(frontOf(missionNumber)),
+    );
+
+    expect(bothWeb.length).toBeGreaterThan(5);
+    expect(differing.length).toBeGreaterThan(bothWeb.length / 2);
+  });
+
+  it.each(['hydra', 'msfconsole'] as const)(
+    'lays nothing on a %s front box, and asks no secret to say so',
+    (route) => {
+      const missionNumber = twoHopWith((shape) => shape.frontBox?.route === route);
+      const holdingNothing = { keySecret: undefined, rawSecrets: undefined };
+
+      expect(missionFiles(frontOf(missionNumber), holdingNothing)).toEqual([]);
+      expect(missionFilePaths(frontOf(missionNumber))).toEqual([]);
+    },
+  );
+
+  it('lays a database front box its own datadir with its word, and the key only in the key box', () => {
+    const missionNumber = twoHopWith(
+      (shape) => shape.frontBox?.route === 'mysql' && shape.storage === 'database',
+    );
+    const [frontDatadir] = missionFiles(frontOf(missionNumber), HOLDING_BOTH);
+    const keyDatadir = missionFiles(keyOf(missionNumber), HOLDING_BOTH).find(
+      ({ path }) => path === DATADIR_PATH,
+    );
+    const front = parseMysqlDatabase(frontDatadir?.content ?? '');
+    const key = parseMysqlDatabase(keyDatadir?.content ?? '');
+
+    expect(frontDatadir?.path).toBe(DATADIR_PATH);
+    expect(JSON.stringify(front?.tables['settings']).includes(frontWord(missionNumber))).toBe(true);
+    expect(front?.tables['api_keys']).toBeUndefined();
+    expect(
+      JSON.stringify(key?.tables['api_keys']).includes(missionKey(missionNumber, KEY_SECRET)),
+    ).toBe(true);
+  });
+
+  it('names the same files the server lays in, for each box', () => {
+    for (const { missionNumber } of twoHopShapes.slice(0, 80)) {
+      for (const box of [keyOf(missionNumber), frontOf(missionNumber)]) {
+        expect(missionFilePaths(box), `${box.role} box of ${missionNumber}`).toEqual(
+          missionFiles(box, HOLDING_BOTH).map(({ path }) => path),
+        );
+      }
+    }
+  });
+
+  it('knows no front box on a single-hop contract', () => {
+    const single = SAMPLE_NUMBERS.find(
+      (missionNumber) => missionShape(missionNumber).frontBox === null,
+    );
+    if (single === undefined) throw new Error('no single-hop contract in the sample');
+
+    expect(() => missionFiles(frontOf(single), HOLDING_BOTH)).toThrow();
+    expect(() => missionFilePaths(frontOf(single))).toThrow();
+  });
+
+  it('gives each box of a two-hop contract its own files at the door', async () => {
+    const missionNumber = twoHopWith((shape) => shape.frontBox?.route === 'web');
+    const essid = missionEssid(missionNumber);
+    const { keyBox, frontBox } = missionShape(missionNumber);
+    const idAt = (octet: number | undefined) => {
+      const host = generateHomeLan(essid).hosts.find(({ ip }) => ip.endsWith(`.${octet}`));
+      if (host === undefined) throw new Error(`no box at .${octet}`);
+      return { essid, machine_id: machineIdForLanHost(host, essid) };
+    };
+
+    expect(await missionFilesForBox(idAt(frontBox?.octet), HOLDING_BOTH)).toEqual({
+      data: missionFiles(frontOf(missionNumber), HOLDING_BOTH),
+      error: null,
+    });
+    expect(await missionFilesForBox(idAt(keyBox.octet), HOLDING_BOTH)).toEqual({
+      data: missionFiles(keyOf(missionNumber), HOLDING_BOTH),
+      error: null,
+    });
   });
 });
 
@@ -461,11 +624,11 @@ describe('a contract that keeps its key encrypted', () => {
     `/usr/local/bin/${missionShape(missionNumber).stem}-vault`;
 
   const fileAt = (missionNumber: number, path: string) =>
-    missionFiles(missionNumber, HOLDING_BOTH).find((laid) => laid.path === path);
+    missionFiles(keyOf(missionNumber), HOLDING_BOTH).find((laid) => laid.path === path);
 
   it('lays the key sealed beside where the plain key would be, root-only, and no plain key', () => {
     for (const missionNumber of numbersWithStorage('gpg').slice(0, 20)) {
-      const laid = missionFiles(missionNumber, HOLDING_BOTH);
+      const laid = missionFiles(keyOf(missionNumber), HOLDING_BOTH);
       const sealed = fileAt(missionNumber, sealedPathOf(missionNumber));
 
       expect(sealed?.perms).toEqual(ROOT_FILE);
@@ -504,13 +667,13 @@ describe('a contract that keeps its key encrypted', () => {
   it('lays the sealed key and the program, and nothing else', () => {
     const missionNumber = firstWithRoute('hydra', 'gpg');
 
-    expect(missionFilePaths(missionNumber)).toEqual([
+    expect(missionFilePaths(keyOf(missionNumber))).toEqual([
       sealedPathOf(missionNumber),
       programPathOf(missionNumber),
       '/root/.bash_history',
     ]);
-    expect(missionFiles(missionNumber, HOLDING_BOTH).map((file) => file.path)).toEqual(
-      missionFilePaths(missionNumber),
+    expect(missionFiles(keyOf(missionNumber), HOLDING_BOTH).map((file) => file.path)).toEqual(
+      missionFilePaths(keyOf(missionNumber)),
     );
   });
 
@@ -532,27 +695,30 @@ describe('a contract that keeps its key encrypted', () => {
   it('lays the leak beside them on a leak route', () => {
     const missionNumber = firstWithRoute('web', 'gpg');
 
-    expect(missionFilePaths(missionNumber)).toEqual([
+    expect(missionFilePaths(keyOf(missionNumber))).toEqual([
       sealedPathOf(missionNumber),
       programPathOf(missionNumber),
       '/root/.bash_history',
-      missionLeakPath(missionNumber),
+      missionLeakPath(keyOf(missionNumber)),
     ]);
-    expect(missionFiles(missionNumber, HOLDING_BOTH).map((file) => file.path)).toEqual(
-      missionFilePaths(missionNumber),
+    expect(missionFiles(keyOf(missionNumber), HOLDING_BOTH).map((file) => file.path)).toEqual(
+      missionFilePaths(keyOf(missionNumber)),
     );
   });
 
   it('fails closed when the key secret is missing', () => {
     expect(() =>
-      missionFiles(firstWithStorage('gpg'), { keySecret: undefined, rawSecrets: RAW_SECRETS }),
+      missionFiles(keyOf(firstWithStorage('gpg')), {
+        keySecret: undefined,
+        rawSecrets: RAW_SECRETS,
+      }),
     ).toThrow(MissionSecretMissingError);
   });
 
   describe('on the box, as root', () => {
     const laidTree = async (missionNumber: number): Promise<Directory> => {
       const tree = await withMissionFiles(
-        async () => ({ data: missionFiles(missionNumber, HOLDING_BOTH), error: null }),
+        async () => ({ data: missionFiles(keyOf(missionNumber), HOLDING_BOTH), error: null }),
         {
           essid: missionEssid(missionNumber),
           machineId: 'key-box',
@@ -643,7 +809,7 @@ describe('a contract that keeps its key in its database', () => {
 
   const laidDatabase = (missionNumber: number) =>
     parseMysqlDatabase(
-      missionFiles(missionNumber, HOLDING_BOTH).find((laid) => laid.path === DATADIR_PATH)
+      missionFiles(keyOf(missionNumber), HOLDING_BOTH).find((laid) => laid.path === DATADIR_PATH)
         ?.content ?? '',
     );
 
@@ -652,7 +818,7 @@ describe('a contract that keeps its key in its database', () => {
     const missionNumber = firstWithRoute('hydra', 'database');
 
     expect(
-      missionFiles(missionNumber, { keySecret: KEY_SECRET, rawSecrets: undefined }).map(
+      missionFiles(keyOf(missionNumber), { keySecret: KEY_SECRET, rawSecrets: undefined }).map(
         ({ path, perms }) => ({ path, perms }),
       ),
     ).toEqual([{ path: DATADIR_PATH, perms: DATADIR_FILE }]);
@@ -713,10 +879,10 @@ describe('a contract that keeps its key in its database', () => {
     const { api_keys: _apiKeys, settings, ...others } = laid?.tables ?? {};
     const word = plaintextFor(missionShape(missionNumber).keyBox.rootHash);
 
-    expect(missionFilePaths(missionNumber)).toEqual([DATADIR_PATH]);
-    expect(missionFiles(missionNumber, HOLDING_BOTH).map((laidFile) => laidFile.path)).toEqual([
-      DATADIR_PATH,
-    ]);
+    expect(missionFilePaths(keyOf(missionNumber))).toEqual([DATADIR_PATH]);
+    expect(
+      missionFiles(keyOf(missionNumber), HOLDING_BOTH).map((laidFile) => laidFile.path),
+    ).toEqual([DATADIR_PATH]);
     expect(laid?.tables['api_keys']?.rows[2]?.['api_key']).toBe(
       missionKey(missionNumber, KEY_SECRET),
     );
@@ -734,12 +900,15 @@ describe('a contract that keeps its key in its database', () => {
   it('lays the datadir after the leak on a leak route with a file of its own', () => {
     const missionNumber = firstWithRoute('web', 'database');
 
-    expect(missionFilePaths(missionNumber)).toEqual([missionLeakPath(missionNumber), DATADIR_PATH]);
+    expect(missionFilePaths(keyOf(missionNumber))).toEqual([
+      missionLeakPath(keyOf(missionNumber)),
+      DATADIR_PATH,
+    ]);
   });
 
   it('fails closed when the key secret is missing', () => {
     expect(() =>
-      missionFiles(firstWithRoute('hydra', 'database'), {
+      missionFiles(keyOf(firstWithRoute('hydra', 'database')), {
         keySecret: undefined,
         rawSecrets: RAW_SECRETS,
       }),
@@ -774,7 +943,7 @@ describe('a contract that keeps its key in its database', () => {
 
   it('fails closed on the database route when the pools are missing', () => {
     expect(() =>
-      missionFiles(firstWithRoute('mysql', 'database'), {
+      missionFiles(keyOf(firstWithRoute('mysql', 'database')), {
         keySecret: KEY_SECRET,
         rawSecrets: undefined,
       }),
@@ -788,7 +957,7 @@ describe('who can read what the server lays onto a key box', () => {
   /** The key box as a door sees it, with the number's files laid on. */
   const laidBox = async (missionNumber: number) => {
     const tree = await withMissionFiles(
-      async () => ({ data: missionFiles(missionNumber, HOLDING_BOTH), error: null }),
+      async () => ({ data: missionFiles(keyOf(missionNumber), HOLDING_BOTH), error: null }),
       {
         essid: missionEssid(missionNumber),
         machineId: 'key-box',
@@ -809,7 +978,7 @@ describe('who can read what the server lays onto a key box', () => {
     const missionNumber = firstWithRoute('ftp');
     const tree = await laidBox(missionNumber);
 
-    expect(readableBy(tree, 'guest', missionLeakPath(missionNumber) ?? '')).toBe(true);
+    expect(readableBy(tree, 'guest', missionLeakPath(keyOf(missionNumber)) ?? '')).toBe(true);
     expect(readableBy(tree, 'guest', missionKeyPath(missionNumber))).toBe(false);
     expect(readableBy(tree, 'root', missionKeyPath(missionNumber))).toBe(true);
   });
@@ -818,8 +987,8 @@ describe('who can read what the server lays onto a key box', () => {
     const missionNumber = firstWithRoute('web');
     const tree = await laidBox(missionNumber);
 
-    expect(readableBy(tree, 'guest', missionLeakPath(missionNumber) ?? '')).toBe(false);
-    expect(readableBy(tree, 'root', missionLeakPath(missionNumber) ?? '')).toBe(true);
+    expect(readableBy(tree, 'guest', missionLeakPath(keyOf(missionNumber)) ?? '')).toBe(false);
+    expect(readableBy(tree, 'root', missionLeakPath(keyOf(missionNumber)) ?? '')).toBe(true);
   });
 
   it('keeps the datadir from a guest on a database route, and opens it to root', async () => {
@@ -839,7 +1008,7 @@ describe('who can read what the server lays onto a key box', () => {
   });
 
   it('lets only root change the file in pub', () => {
-    const leak = missionLeakFile(firstWithRoute('ftp'), RAW_SECRETS);
+    const leak = missionLeakFile(keyOf(firstWithRoute('ftp')), RAW_SECRETS);
 
     expect(leak?.perms.write).toEqual(['root']);
     expect(leak?.perms.execute).toEqual([]);

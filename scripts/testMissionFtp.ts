@@ -130,7 +130,7 @@ const ESSID = missionEssid(FTP_NUMBER);
 const ADDRESS = missionAddressForNumber(FTP_NUMBER) ?? '';
 const KEY_PATH = missionKeyPath(FTP_NUMBER);
 const KEY = missionKey(FTP_NUMBER, secret);
-const LEAK_PATH = missionLeakPath(FTP_NUMBER) ?? '';
+const LEAK_PATH = missionLeakPath({ missionNumber: FTP_NUMBER, role: 'key' }) ?? '';
 const WORD = plaintextFor(missionShape(FTP_NUMBER).keyBox.rootHash);
 const CONFIG_PATH = '/etc/vsftpd.conf';
 

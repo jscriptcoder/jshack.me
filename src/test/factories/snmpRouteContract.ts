@@ -37,8 +37,10 @@ export const SNMP_ROUTE_KEY_BOX = resolveLanHostIdentity(keyBoxHost, SNMP_ROUTE_
 
 /** The community a walk can guess, which only the server's config names. */
 export const SNMP_ROUTE_READ_ONLY_COMMUNITY =
-  parseSnmpdConf(missionLeakFile(SNMP_ROUTE_NUMBER, DEPLOYMENT_SECRETS)?.content ?? '')
-    .roCommunity ?? '';
+  parseSnmpdConf(
+    missionLeakFile({ missionNumber: SNMP_ROUTE_NUMBER, role: 'key' }, DEPLOYMENT_SECRETS)
+      ?.content ?? '',
+  ).roCommunity ?? '';
 
 /** The community a sweep finds on the list every player starts with. */
 export const SNMP_ROUTE_READ_WRITE_COMMUNITY =

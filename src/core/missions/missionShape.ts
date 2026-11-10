@@ -146,6 +146,12 @@ export type MissionBox = {
   readonly decoys: readonly MissionDecoy[];
 };
 
+/** Which of a contract's boxes: the one holding the key, or a two-hop contract's front box. */
+export type MissionBoxRole = 'key' | 'front';
+
+/** One box of one contract, as the server names it from the machine a door reached. */
+export type MissionBoxRef = { readonly missionNumber: number; readonly role: MissionBoxRole };
+
 export type MissionShape = {
   readonly missionNumber: number;
   readonly stem: string;

@@ -139,7 +139,7 @@ const ESSID = missionEssid(WEB_NUMBER);
 const ADDRESS = missionAddressForNumber(WEB_NUMBER) ?? '';
 const KEY_PATH = missionKeyPath(WEB_NUMBER);
 const KEY = missionKey(WEB_NUMBER, secret);
-const LEAK_PATH = missionLeakPath(WEB_NUMBER) ?? '';
+const LEAK_PATH = missionLeakPath({ missionNumber: WEB_NUMBER, role: 'key' }) ?? '';
 const LEAK_REQUEST = LEAK_PATH.replace('/var/www/html', '');
 const WORD = plaintextFor(missionShape(WEB_NUMBER).keyBox.rootHash);
 
