@@ -124,7 +124,9 @@ const numberWith = (route: MissionRoute, storage: MissionStorage, from: number):
     if (
       isMissionNumber(candidate) &&
       missionShape(candidate).keyBox.route === route &&
-      missionShape(candidate).storage === storage
+      missionShape(candidate).storage === storage &&
+      // One hop: the gateway forwards straight onto the key box this check reaches.
+      missionShape(candidate).frontBox === null
     ) {
       return candidate;
     }

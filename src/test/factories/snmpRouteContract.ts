@@ -20,8 +20,10 @@ import { DEPLOYMENT_SECRETS } from './webRouteContract.js';
 
 const firstSnmpRouteNumber = (): number => {
   for (let candidate = 66051; candidate < 66051 + 5000; candidate += 1) {
-    if (isMissionNumber(candidate) && missionShape(candidate).keyBox.route === 'snmp')
-      return candidate;
+    if (!isMissionNumber(candidate)) continue;
+    // One hop: the gateway forwards straight onto the key box this reaches.
+    const { keyBox, frontBox } = missionShape(candidate);
+    if (keyBox.route === 'snmp' && frontBox === null) return candidate;
   }
   throw new Error('no snmp route contract in the range');
 };

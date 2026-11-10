@@ -20,8 +20,10 @@ import { plaintextFor } from '../passwords.js';
 
 const firstDatabaseRouteNumber = (): number => {
   for (let candidate = 66051; candidate < 66051 + 5000; candidate += 1) {
-    if (isMissionNumber(candidate) && missionShape(candidate).keyBox.route === 'mysql')
-      return candidate;
+    if (!isMissionNumber(candidate)) continue;
+    // One hop: the gateway forwards straight onto the key box this reaches.
+    const { keyBox, frontBox } = missionShape(candidate);
+    if (keyBox.route === 'mysql' && frontBox === null) return candidate;
   }
   throw new Error('no database route contract in the range');
 };

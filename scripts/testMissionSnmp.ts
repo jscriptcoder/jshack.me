@@ -128,7 +128,9 @@ const snmpNumber = (from: number): number => {
     if (
       isMissionNumber(candidate) &&
       missionShape(candidate).keyBox.route === 'snmp' &&
-      missionShape(candidate).storage === 'file'
+      missionShape(candidate).storage === 'file' &&
+      // One hop: the gateway forwards straight onto the key box this check reaches.
+      missionShape(candidate).frontBox === null
     ) {
       return candidate;
     }
