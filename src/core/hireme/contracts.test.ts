@@ -10,6 +10,8 @@ import {
 import { missionTerms } from '../missions/missionTerms.js';
 import { missionAddressForNumber } from '../missions/missionNetwork.js';
 import { missionKeyPath } from '../missions/missionSecret.js';
+import { missionShape } from '../missions/missionShape.js';
+import { FRONT_BOX_SUFFIX, GATEWAY_SUFFIX, KEY_BOX_SUFFIX } from '../missions/pools.js';
 
 /**
  * A board's three doors: reading it (which tops its offers up), accepting an offer, and
@@ -20,7 +22,8 @@ import { missionKeyPath } from '../missions/missionSecret.js';
 const HANDLE = 'neo';
 const BOARD_ADDRESS = '194.12.34.56';
 
-/** Contract numbers with a host last octet, each a different client and target. */
+/** Contract numbers with a host last octet, each a different client and target. The first
+ *  two are two-hop contracts, the last two single-hop. */
 const FIRST = 100000;
 const SECOND = 100003;
 const THIRD = 70000;
@@ -275,7 +278,33 @@ describe('accepting an offer', () => {
     expect(briefing.body).toContain(`-- ${terms.client.company}`);
   });
 
-  it('writes the briefing as the client would, line by line', async () => {
+  it('writes a single-hop briefing as the client would, line by line', async () => {
+    const { store, accepts } = offered();
+    const terms = missionTerms(THIRD);
+
+    await accept('offer=ccc', store);
+
+    expect(accepts[0]!.briefing.body).toBe(
+      [
+        terms.pitch,
+        '',
+        `The target is ${terms.targetCompany}. Their network is at ${missionAddressForNumber(THIRD)}.`,
+        '',
+        `Somewhere on it is the key to ${terms.keyOpens}. It looks like this:`,
+        '',
+        '  ACCESS-XXXX-XXXX-XXXX',
+        '',
+        'Reply to this address with the key and your wallet address.',
+        'No key, no money. No wallet, no money.',
+        '',
+        `-- ${terms.client.company}`,
+        '',
+      ].join('\n'),
+    );
+  });
+
+  // Working out what "inside" means is the job, so the briefing says only that much.
+  it('tells a two-hop contractor the key is inside the network, not on the edge', async () => {
     const { store, accepts } = offered();
     const terms = missionTerms(SECOND);
 
@@ -291,6 +320,8 @@ describe('accepting an offer', () => {
         '',
         '  ACCESS-XXXX-XXXX-XXXX',
         '',
+        'The key is on a machine inside their network, not on the edge.',
+        '',
         'Reply to this address with the key and your wallet address.',
         'No key, no money. No wallet, no money.',
         '',
@@ -300,14 +331,35 @@ describe('accepting an offer', () => {
     );
   });
 
-  it('never says in the briefing where the key sits or how to get in', async () => {
+  it.each([
+    ['single-hop', 'ccc', THIRD],
+    ['two-hop', 'bbb', SECOND],
+  ])(
+    'never says in a %s briefing where the key sits or how to get in',
+    async (_template, ref, missionNumber) => {
+      const { store, accepts } = offered();
+
+      await accept(`offer=${ref}`, store);
+      const { body } = accepts[0]!.briefing;
+
+      expect(body).not.toContain(missionKeyPath(missionNumber));
+      expect(body).not.toMatch(/hydra|msfconsole|exploit|password/i);
+    },
+  );
+
+  it('names no box, route, count of machines or address of a two-hop network but its own', async () => {
     const { store, accepts } = offered();
+    const { stem, keyBox, frontBox } = missionShape(SECOND);
 
     await accept('offer=bbb', store);
     const { body } = accepts[0]!.briefing;
 
-    expect(body).not.toContain(missionKeyPath(SECOND));
-    expect(body).not.toMatch(/hydra|msfconsole|exploit|password/i);
+    expect(body.match(/\d+\.\d+\.\d+\.\d+/g)).toEqual([missionAddressForNumber(SECOND)]);
+    for (const suffix of [GATEWAY_SUFFIX, FRONT_BOX_SUFFIX, KEY_BOX_SUFFIX]) {
+      expect(body).not.toContain(`${stem}-${suffix}`);
+    }
+    for (const route of [keyBox.route, frontBox!.route]) expect(body).not.toContain(route);
+    expect(body).not.toMatch(/\b(two|three|second|front|pivot|hop|machines)\b/i);
   });
 
   it('refuses under the offer while another contract is held', async () => {

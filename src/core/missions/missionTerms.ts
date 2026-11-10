@@ -18,7 +18,7 @@
  */
 
 import { createPrng } from '../generation/prng.js';
-import { missionShape } from './missionShape.js';
+import { missionTopology } from './missionShape.js';
 
 export type MissionClient = {
   readonly company: string;
@@ -91,23 +91,27 @@ const KEY_OPENS: readonly string[] = [
   'the admin console',
 ];
 
-const KIND = 'retrieve an access key';
+/** What each template's job is, and what it pays, in JSC quoted to the nearest 50 as a
+ *  freelance quote is. A key kept behind a second box is harder work, so the board names it
+ *  and its pay starts where a single-hop job's tops out. */
+const SINGLE_HOP = { kind: 'retrieve an access key', minPay: 500, maxPay: 2000 } as const;
+const TWO_HOP = { kind: 'retrieve an internal access key', minPay: 2000, maxPay: 4000 } as const;
 
-/** Pay runs from 500 to 2,000 JSC, quoted to the nearest 50, as a freelance quote is. */
 const PAY_STEP = 50;
-const PAY_MIN_STEPS = 500 / PAY_STEP;
-const PAY_MAX_STEPS = 2000 / PAY_STEP;
 
 const capitalised = (word: string): string => word.charAt(0).toUpperCase() + word.slice(1);
 
 export const missionTerms = (missionNumber: number): MissionTerms => {
   const prng = createPrng(`mission-terms-${missionNumber}`);
+  const { stem, frontBoxOctet } = missionTopology(missionNumber);
+  const job = frontBoxOctet === null ? SINGLE_HOP : TWO_HOP;
   return {
     client: prng.pick(CLIENTS),
-    targetCompany: `${capitalised(missionShape(missionNumber).stem)} ${prng.pick(TARGET_TRADES)}`,
-    kind: KIND,
+    targetCompany: `${capitalised(stem)} ${prng.pick(TARGET_TRADES)}`,
+    kind: job.kind,
     pitch: prng.pick(PITCHES),
     keyOpens: prng.pick(KEY_OPENS),
-    pay: prng.nextInt(PAY_MIN_STEPS, PAY_MAX_STEPS) * PAY_STEP,
+    // The last draw on the stream, so a template's own range moves nothing drawn before it.
+    pay: prng.nextInt(job.minPay / PAY_STEP, job.maxPay / PAY_STEP) * PAY_STEP,
   };
 };

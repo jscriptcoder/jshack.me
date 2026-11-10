@@ -14,6 +14,8 @@
 //     from someone with no contract with that client, and a key after dropping the job each
 //     earn their own reply, and none of them changes a job or mints.
 //   - THE HOLE STAYS. Whoever logs in as the contractor and names their own wallet is paid.
+//   - A TWO-HOP JOB PAYS ITS OWN RANGE. A two-hop contract accepted from the board pays its
+//     quoted 2,000–4,000 once, and the same key again mints nothing more.
 //   - A PROOF IS A SEND. A wrong password mails nothing, a player at 20 sends this hour is
 //     refused, and each proof mail counts as one send.
 //
@@ -37,6 +39,7 @@ import { HIREME_DOMAIN } from '../src/core/generation/fixedSites.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { missionAddressForNumber } from '../src/core/missions/missionNetwork.js';
 import { missionKey } from '../src/core/missions/missionSecret.js';
+import { missionTopology } from '../src/core/missions/missionShape.js';
 import { missionTerms } from '../src/core/missions/missionTerms.js';
 
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
@@ -105,6 +108,7 @@ const freshWallet = (): string => `jsc${randomBytes(20).toString('hex')}`;
 const CONTRACTOR_WALLET = freshWallet();
 const THIEF_WALLET = freshWallet();
 const NO_WALLET_PROBE = freshWallet();
+const TWO_HOP_WALLET = freshWallet();
 
 const openAccount = async (handle: string) => {
   const { error } = await sr.from('email_accounts').insert({
@@ -231,6 +235,21 @@ const numberOutside = async (client: string): Promise<number> => {
   throw new Error('no free contract number outside the client');
 };
 
+/** A two-hop contract number nobody holds. */
+const freeTwoHopNumber = async (): Promise<number> => {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const candidate = 0x520000 + attempt * 256 + 11;
+    if (missionTopology(candidate).frontBoxOctet === null) continue;
+    const { data } = await sr
+      .from('hireme_missions')
+      .select('number')
+      .eq('number', candidate)
+      .maybeSingle();
+    if (data === null) return candidate;
+  }
+  throw new Error('no free two-hop contract number');
+};
+
 const cleanup = async () => {
   // Boards, contracts and messages go with their accounts.
   await sr.from('email_accounts').delete().eq('signed_up_by', owner.publicKeyHex);
@@ -241,7 +260,7 @@ const cleanup = async () => {
   await sr.from('sessions').delete().eq('player_key', visitor.publicKeyHex);
   await sr.from('home_network_occupants').delete().eq('owner_key', visitor.publicKeyHex);
   await sr.from('network_lan_leases').delete().eq('owner_key', visitor.publicKeyHex);
-  const wallets = [CONTRACTOR_WALLET, THIEF_WALLET, NO_WALLET_PROBE];
+  const wallets = [CONTRACTOR_WALLET, THIEF_WALLET, NO_WALLET_PROBE, TWO_HOP_WALLET];
   await sr.from('wallet_transfers').delete().in('to_address', wallets);
   await sr.from('wallet_balances').delete().in('address', wallets);
 };
@@ -497,6 +516,44 @@ const main = async () => {
       (await stateOf(neo, fifth)) === 'accepted' &&
       (await balanceOf(NO_WALLET_PROBE)) === 0,
     `status ${limited.status}`,
+  );
+
+  // === 8. A TWO-HOP JOB PAYS ITS OWN RANGE, ONCE. ===
+  const hopper = handleFor('hop');
+  const hopperBoard = await boardFor(hopper);
+  const twoHop = await freeTwoHopNumber();
+  const twoHopRef = randomBytes(3).toString('hex');
+  const offered = await sr
+    .from('hireme_missions')
+    .insert({ number: twoHop, handle: hopper, state: 'offered', ref: twoHopRef });
+  if (offered.error) throw new Error(`offer insert failed: ${offered.error.message}`);
+  await fetchAt(hopperBoard, '/accept', `offer=${twoHopRef}`);
+  const twoHopTerms = missionTerms(twoHop);
+  const twoHopProof = `${missionKey(twoHop, secret)} ${TWO_HOP_WALLET}\n`;
+  const twoHopPaid = await mail(stranger, {
+    handle: hopper,
+    to: twoHopTerms.client.handle,
+    body: twoHopProof,
+  });
+  const twoHopReply = (await inboxOf(hopper)).at(-1);
+  check(
+    'a two-hop job pays its quoted two-hop pay, and the client says so',
+    twoHopPaid.status === 200 &&
+      (await stateOf(hopper, twoHop)) === 'completed' &&
+      twoHopTerms.pay >= 2000 &&
+      twoHopTerms.pay <= 4000 &&
+      twoHopReply?.sender === `${twoHopTerms.client.handle}@emailit.io` &&
+      twoHopReply.body.startsWith(
+        `Key received. §${twoHopTerms.pay.toLocaleString('en-US')} sent to ${TWO_HOP_WALLET}.`,
+      ),
+    `contract ${twoHop}, §${twoHopTerms.pay}, ${twoHopReply?.body.split('\n')[0] ?? 'no reply'}`,
+  );
+  await mail(stranger, { handle: hopper, to: twoHopTerms.client.handle, body: twoHopProof });
+  check(
+    'the same two-hop key again mints nothing more',
+    (await balanceOf(TWO_HOP_WALLET)) === twoHopTerms.pay &&
+      JSON.stringify(await mintsTo(TWO_HOP_WALLET)) === JSON.stringify([twoHopTerms.pay]),
+    `balance ${await balanceOf(TWO_HOP_WALLET)} of ${twoHopTerms.pay}`,
   );
 
   await cleanup();

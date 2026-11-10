@@ -1,7 +1,7 @@
 # Plan: a contract whose key box sits behind a front box
 
-**Status:** Grilled and planned 2026-11-09, four slices. Slice 1 merged (#761), slice 2 merged
-(#762). Slice 3 is in review on `feat/mission-inside-decoys`.
+**Status:** Grilled and planned 2026-11-09, four slices. Slices 1–3 merged (#761, #762, #763).
+Slice 4 is in review on `feat/mission-two-hop-terms`; the close-out follows it.
 
 A second contract template. Today every contract's key box is reached straight through the
 gateway's forwards. In this one the gateway forwards only to a **front box**; the key box has no
@@ -347,6 +347,34 @@ told only that the key is inside.
 
 **Gates:** the usual; `testMissionBoard` and `testMissionPay` gain a two-hop offer and payout;
 mutation on the changed lines; v0.452.0.
+
+**As built (2026-11-10).**
+
+- **Pay:** 2,000–4,000 as grilled, so a two-hop job paying exactly 2,000 ties the top single-hop
+  pay. The owner kept the tie over starting at 2,050. Pay stays the last draw on
+  `mission-terms-<n>`, only its range following the template, so the earlier draws do not
+  move: one digest over the 1,346 single-hop numbers in the sample pins their whole terms, and
+  another pins the 631 two-hop numbers' client, target, pitch and key.
+- **Template:** the terms and the briefing each read `missionTopology(n)`, the cheap draw, not
+  the shape; the terms now take their stem from it too.
+- **Board:** it already printed each offer's `kind`, so the two-hop line needed no board change.
+- **Briefing:** the two-hop line is `The key is on a machine inside their network, not on the
+  edge.`, between the key's sample and "Reply to this address". A test pins that a two-hop
+  briefing holds no address but the contract's, no box's hostname, neither route, and none of
+  "two", "three", "second", "front", "pivot", "hop" or "machines". The pitch "The box is
+  theirs now" keeps "box" off that list.
+- **Pins that moved:** the line-by-line briefing test's contract was two-hop, so it moved to a
+  single-hop one beside a new two-hop test. Two of the three contracts in the
+  `/etc/hireme/contracts` test are two-hop and now list a two-hop pay.
+- **Wire-checks:** offers are drawn from server randomness, so each check posts its own offers
+  on chosen numbers. `testMissionBoard` passes 21 of 21: a two-hop offer's line beside a
+  single-hop one's, and only the two-hop briefing saying "inside". Its first check no longer
+  assumed every random offer is single-hop. `testMissionPay` passes 17 of 17: a two-hop job
+  accepted from the board paid its quote of 3,300 once, and the same key again minted nothing.
+  The other eight mission wire-checks re-ran green.
+- **Budgets:** the terms and the briefing are server-only, so the main chunk did not grow.
+- **Mutation:** 29 of 29 killed on the changed lines of `missionTerms.ts` and `contracts.ts`, 0
+  timeouts.
 
 ### Close-out (after slice 4)
 
