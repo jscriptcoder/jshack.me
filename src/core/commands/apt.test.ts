@@ -50,7 +50,7 @@ import {
   mockPatchApi,
   mockSession,
 } from '../../test/factories/commandEnv.js';
-import { applyPatches } from '../filesystem/applyPatches.js';
+import { applyPatches, type Patch } from '../filesystem/applyPatches.js';
 import { createFsView } from '../filesystem/fsView.js';
 import { buildWorkstationBaseFs } from '../generation/workstationFs.js';
 import { buildApGatewayBaseFs } from '../generation/routerFs.js';
@@ -216,6 +216,9 @@ type AptEnvOpts = {
   /** An empty `/lib` — the box of somebody who has deleted the shared libraries
    *  their tools link, which is the only state an install has any to write. */
   readonly withoutLibraries?: boolean;
+  /** Every write lands on the box, and re-reading the box shows it — as a real journal
+   *  does. Off, writes are only recorded, and the box stays as it was built. */
+  readonly writesLand?: boolean;
 };
 
 /** One filesystem operation apt performed, in the order it performed them.
@@ -323,6 +326,11 @@ const aptEnv = (opts: AptEnvOpts = {}) => {
   const identity = mockIdentity(
     opts.ownerKey === undefined ? {} : { publicKeyHex: asPlayerKeyHex(opts.ownerKey) },
   );
+  // The box as its journal stands: only ever moved on when `writesLand` asks for it.
+  const box = { tree: installedBoxTree(opts) };
+  const land = (patch: Patch): void => {
+    if (opts.writesLand === true) box.tree = applyPatches(box.tree, [patch]);
+  };
   const env = mockCommandEnv({
     session:
       opts.onHop === true
@@ -340,7 +348,7 @@ const aptEnv = (opts: AptEnvOpts = {}) => {
     },
     apt: { recordDowngrade },
     identity,
-    fs: mockFsViewFromTree(installedBoxTree(opts)),
+    fs: mockFsViewFromTree(box.tree, { onReload: async () => box.tree }),
     network: homeCard(opts.online ?? true),
     ...(opts.gameDay === undefined
       ? {}
@@ -353,11 +361,22 @@ const aptEnv = (opts: AptEnvOpts = {}) => {
         if (opts.failWritesTo !== undefined) {
           return opts.failWritesTo === path ? { ok: false, error: 'permission_denied' } : { ok: true };
         }
-        return opts.writeResult ?? { ok: true };
+        const result = opts.writeResult ?? { ok: true };
+        if (result.ok) {
+          land({
+            path,
+            content,
+            owner: options?.owner ?? 'root',
+            ...(options?.permissions === undefined ? {} : { permissions: options.permissions }),
+          });
+        }
+        return result;
       },
       mkdir: async (path) => {
         operations.push({ kind: 'mkdir', path });
-        return opts.mkdirResult ?? { ok: true };
+        const result = opts.mkdirResult ?? { ok: true };
+        if (result.ok) land({ path, content: null, owner: 'root', nodeType: 'directory' });
+        return result;
       },
     },
   });
@@ -1230,6 +1249,61 @@ describe('apt', () => {
       expect(exitCode).toBe(100);
     });
 
+    describe('several packages in one line', () => {
+      it('installs every package it is given, reading the package lists once', async () => {
+        const { env, writes } = aptEnv();
+
+        const { lines, exitCode } = await streamResult(
+          await apt.execute(env, ['install', 'nmap', 'lynx'], NO_FLAGS),
+        );
+
+        expect(lines.map((line) => line.content)).toEqual([
+          'Reading package lists...',
+          'Building dependency tree...',
+          'The following NEW packages will be installed:',
+          '  nmap',
+          'Setting up nmap ...',
+          'The following NEW packages will be installed:',
+          '  lynx',
+          'Setting up lynx ...',
+        ]);
+        expect(writes.map(({ path }) => path)).toEqual(['/usr/bin/nmap', '/usr/bin/lynx']);
+        expect(exitCode).toBe(0);
+      });
+
+      it('keeps the version an earlier package recorded when a later one records its own', async () => {
+        // Each package writes the whole manifest, so one composed from the box as it was
+        // when the line started would wipe out the row the package before it just added.
+        const gameDay = 300;
+        const { env, writes } = aptEnv({ gameDay, writesLand: true });
+
+        const { exitCode } = await streamResult(
+          await apt.execute(env, ['install', REDIS, 'nginx'], NO_FLAGS),
+        );
+
+        const manifests = writes.filter(({ path }) => path === DPKG_STATUS_PATH);
+        const versions = parseDpkgVersions(manifests.at(-1)?.content ?? '');
+        expect(versions.get(REDIS)).toBe(newestReleaseOn(REDIS, gameDay));
+        expect(versions.get('nginx')).toBe(newestReleaseOn('nginx', gameDay));
+        expect(exitCode).toBe(0);
+      });
+
+      it('stops at the first package it cannot install, leaving the rest of the line alone', async () => {
+        const { env, writes } = aptEnv();
+
+        const { lines, exitCode } = await streamResult(
+          await apt.execute(env, ['install', 'nmap', 'nosuchpkg', 'lynx'], NO_FLAGS),
+        );
+
+        expect(lines.at(-1)).toEqual({
+          kind: 'error',
+          content: 'E: Unable to locate package nosuchpkg',
+        });
+        expect(writes.map(({ path }) => path)).toEqual(['/usr/bin/nmap']);
+        expect(exitCode).toBe(100);
+      });
+    });
+
     /**
      * Some packages ship DATA, not just binaries: hydra without a wordlist is a
      * tool with nothing to try. `extraFiles` is that seam — the package names the
@@ -1502,6 +1576,16 @@ describe('apt', () => {
 
     const { text } = syncResult(await apt.execute(aptEnv().env, [], NO_FLAGS));
     expect(text).toContain('[=<version>]');
+  });
+
+  it('documents naming several packages in one install', async () => {
+    expect(apt.manual?.synopsis).toContain('[package[=<version>]...]');
+    expect(apt.manual?.examples?.map((entry) => entry.command)).toContain(
+      'apt install nmap hydra lynx',
+    );
+
+    const { text } = syncResult(await apt.execute(aptEnv().env, [], NO_FLAGS));
+    expect(text).toContain('apt install <package>[=<version>]...');
   });
 
   it('brings back the library a tool links when the box no longer has it', async () => {
@@ -3352,6 +3436,26 @@ describe('apt on a router, where moving the firmware flashes and reboots it', ()
       DROPPED_LINE,
     ]);
     expect(recordDowngrade).not.toHaveBeenCalled();
+    expect(pops.count).toBe(1);
+    expect(exitCode).toBe(0);
+  });
+
+  it('installs nothing more from the line once a flash has taken the box down', async () => {
+    // The shell is gone with the box, so whatever the line still names has no box to
+    // land on.
+    const { older, patched, gameDay } = firmwareFixture();
+    const { env, pops, writes } = aptEnv({
+      onHop: true,
+      gameDay,
+      carries: { [GATEWAY_FIRMWARE]: patched },
+    });
+
+    const { lines, exitCode } = await streamResult(
+      await apt.execute(env, ['install', `${GATEWAY_FIRMWARE}=${older}`, 'nmap'], NO_FLAGS),
+    );
+
+    expect(contents(lines).slice(-2)).toEqual([FLASH_LINE, DROPPED_LINE]);
+    expect(writes.map(({ path }) => path)).toEqual([DPKG_STATUS_PATH]);
     expect(pops.count).toBe(1);
     expect(exitCode).toBe(0);
   });
