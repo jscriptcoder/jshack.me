@@ -90,11 +90,11 @@ const STEP_DELAY_MS = 300;
 
 const USAGE = [
   'apt: usage:',
-  '  apt install <package>[=<version>]  Install a package, or roll one back to a release',
-  '  apt upgrade [package]              Patch the packages on this box whose fixes have shipped',
-  '  apt update                         Say how many packages on this box could be upgraded',
-  '  apt list [--installed]             List packages (optionally only installed ones)',
-  '  apt list --upgradable              List the packages on this box with a vulnerability',
+  '  apt install <package>[=<version>]...  Install packages, or roll one back to a release',
+  '  apt upgrade [package]                 Patch the packages on this box whose fixes have shipped',
+  '  apt update                            Say how many packages on this box could be upgraded',
+  '  apt list [--installed]                List packages (optionally only installed ones)',
+  '  apt list --upgradable                 List the packages on this box with a vulnerability',
 ];
 
 /** Apt's exit code for a failed operation (permission, fetch, locate, …). */
@@ -464,10 +464,6 @@ async function* updateLists(env: CommandEnv): AsyncGenerator<TerminalLine, numbe
 const nothingNewerThan = (status: UpgradeStatus): boolean =>
   status.kind === 'up-to-date' || status.kind === 'no-timeline';
 
-/** The repo half of `install`, once the caller has cleared the root and
- *  connectivity gates. Every step is announced before it happens; a failure
- *  lands beneath the announcements the player has already seen rather than
- *  replacing them. */
 /** `redis=7.2.5` split into the package and the release it names; a bare `redis` names
  *  no release. Split on the FIRST `=` so a version containing one cannot swallow the
  *  package name. */
@@ -494,6 +490,7 @@ async function* pinVersion(
     readonly carried: ReadonlyMap<string, string>;
     readonly gameDay: number;
   },
+  shell: StandingShell,
 ): AsyncGenerator<TerminalLine, number> {
   const { packageName, version, manifest, carried, gameDay } = pin;
   const from = carried.get(packageName);
@@ -532,7 +529,11 @@ async function* pinVersion(
     yield errorLine(`E: Failed to write ${DPKG_STATUS_PATH} (${written.error})`);
     return APT_ERROR;
   }
-  const flashed = flashesRouter(env, manifest, pinned);
+  const flashed = flashesRouter(
+    { identity: env.identity, session: shell.session },
+    manifest,
+    pinned,
+  );
   // Only a LANDED rollback is reported, which is why this sits below the write rather
   // than beside the announcement above it. The manifest IS the downgrade, so a report
   // raised any earlier would put a rollback in the box owner's log that their manifest
@@ -542,33 +543,74 @@ async function* pinVersion(
   // reboot ends the session this report would be sent from.
   if (!flashed) env.apt.recordDowngrade({ packageName, fromVersion: from, toVersion: version });
   yield text(`Setting up ${packageName} (${version}) ...`);
-  return flashed ? yield* rebootOntoImage(env, written) : 0;
+  return flashed ? yield* rebootOntoImage(shell, written) : 0;
 }
 
-async function* installPackage(
+/** One package of an install line, once the preamble is out. */
+async function* installOne(
   env: CommandEnv,
-  packageName: string,
-  pinnedVersion: string | undefined,
+  spec: string,
+  shell: StandingShell,
+): AsyncGenerator<TerminalLine, number> {
+  const [packageName, pinnedVersion] = splitPin(spec);
+  // A named release answers the version question outright, so it runs ahead of every
+  // resolver below: those all ask "where should this box move to", and the player has
+  // already said.
+  if (pinnedVersion !== undefined) {
+    const manifest = readDpkgStatus(env.fs.root());
+    return yield* pinVersion(
+      env,
+      {
+        packageName,
+        version: pinnedVersion,
+        manifest,
+        carried: parseDpkgVersions(manifest),
+        gameDay: gameDayAt(env.now()),
+      },
+      shell,
+    );
+  }
+  return yield* installNewest(env, packageName, shell);
+}
+
+/**
+ * Every package the line names, in the order it names them, under one preamble: the
+ * lists are read once, as real apt reads them once.
+ *
+ * Each package after the first starts from the box RE-READ, because every one of them
+ * writes the whole manifest — composed from the box as the line found it, the second
+ * would wipe out the row the first had just added.
+ *
+ * The line stops at the first package that fails, leaving the rest alone: carrying on
+ * would bury the failure under the installs that followed it. It stops too once a flash
+ * has rebooted the box, because the shell went down with it and the rest of the line
+ * has no box left to land on.
+ */
+async function* installPackages(
+  env: CommandEnv,
+  specs: readonly string[],
 ): AsyncGenerator<TerminalLine, number> {
   yield text('Reading package lists...');
   await env.sleep(STEP_DELAY_MS);
   yield text('Building dependency tree...');
   await env.sleep(STEP_DELAY_MS);
 
-  // A named release answers the version question outright, so it runs ahead of every
-  // resolver below: those all ask "where should this box move to", and the player has
-  // already said.
-  if (pinnedVersion !== undefined) {
-    const manifest = readDpkgStatus(env.fs.root());
-    return yield* pinVersion(env, {
-      packageName,
-      version: pinnedVersion,
-      manifest,
-      carried: parseDpkgVersions(manifest),
-      gameDay: gameDayAt(env.now()),
-    });
+  const standing = { rebooted: false };
+  const shell: StandingShell = {
+    hostname: env.hostname,
+    session: env.session,
+    hopChain: env.hopChain,
+    popSession: () => {
+      standing.rebooted = true;
+      env.popSession();
+    },
+  };
+  for (const [index, spec] of specs.entries()) {
+    const onBox = index === 0 ? env : { ...env, fs: await env.fs.reload() };
+    const exitCode = yield* installOne(onBox, spec, shell);
+    if (exitCode !== 0 || standing.rebooted) return exitCode;
   }
-  return yield* installNewest(env, packageName, env);
+  return 0;
 }
 
 /**
@@ -697,20 +739,19 @@ const handleList = (env: CommandEnv, flags: ReadonlyMap<string, string | true>):
   return streamedResult(listPackages(env, flags));
 };
 
-const handleInstall = (env: CommandEnv, spec: string | undefined): CommandResult => {
+const handleInstall = (env: CommandEnv, specs: readonly string[]): CommandResult => {
   if (env.session.userType !== 'root') {
     return lockError();
   }
   if (!reachesRepo(env)) {
     return offlineError();
   }
-  if (spec === undefined) {
+  if (specs.length === 0) {
     return errorResult(['E: No package specified.', ...USAGE]);
   }
   // Only `install` takes a release: `upgrade` exists to answer where a box should move
   // NEXT, and a version handed to it would be the player answering its own question.
-  const [packageName, pinnedVersion] = splitPin(spec);
-  return streamedResult(installPackage(env, packageName, pinnedVersion));
+  return streamedResult(installPackages(env, specs));
 };
 
 /** `upgrade` takes the same two gates `install` does, in the same order and for the same
@@ -739,12 +780,13 @@ const handleUpdate = (env: CommandEnv): CommandResult => {
 };
 
 const execute: Command['execute'] = async (env, args, flags) => {
-  const [subcommand, packageName] = args;
+  const [subcommand, ...packageNames] = args;
+  const [packageName] = packageNames;
   if (subcommand === undefined) {
     return errorResult(USAGE);
   }
   if (subcommand === 'install') {
-    return handleInstall(env, packageName);
+    return handleInstall(env, packageNames);
   }
   if (subcommand === 'list') {
     return handleList(env, flags);
@@ -773,9 +815,9 @@ export const apt: Command = {
   },
   manual: {
     synopsis:
-      'apt <install|list|upgrade|update> [--installed|--upgradable] [-y] [package[=<version>]]',
+      'apt <install|list|upgrade|update> [--installed|--upgradable] [-y] [package[=<version>]...]',
     description:
-      'Advanced Package Tool. "install" downloads a package and places its binaries where they belong — tools in /usr/bin, service daemons in /usr/sbin — making them available to run (requires root — run "su" first). Naming a release as "<package>=<version>" installs that release instead of the newest: the repo hands over only releases it already holds, and only backwards — moving a box forward is what "upgrade" is for. "upgrade" closes the holes "list --upgradable" names: it moves every package on this box whose fix has been released onto that release, or only the package you name, and reports the ones whose fix has not shipped yet rather than moving them (requires root). "update" reads the package lists and says how many packages on this box "upgrade" could move (requires root). "-y" is accepted out of habit: apt here never stops to ask. "list" shows the installable catalog; "list --installed" shows only the packages already present. "list --upgradable" (or -u) reads this box\'s package manifest and names every package with a published vulnerability, by its CVE id and severity, beside the version that fixes it, or — while the fix has not been released yet — how many days until it is. It needs no root. All of them reach the repo over the network you are on — your own at home, or the network of a box you have a shell on. On a router, moving its firmware flashes the new image and reboots the device, which closes every connection to it.',
+      'Advanced Package Tool. "install" downloads a package and places its binaries where they belong — tools in /usr/bin, service daemons in /usr/sbin — making them available to run (requires root — run "su" first). Name several packages to install them all in one go, in the order given; the install stops at the first one that fails. Naming a release as "<package>=<version>" installs that release instead of the newest: the repo hands over only releases it already holds, and only backwards — moving a box forward is what "upgrade" is for. "upgrade" closes the holes "list --upgradable" names: it moves every package on this box whose fix has been released onto that release, or only the package you name, and reports the ones whose fix has not shipped yet rather than moving them (requires root). "update" reads the package lists and says how many packages on this box "upgrade" could move (requires root). "-y" is accepted out of habit: apt here never stops to ask. "list" shows the installable catalog; "list --installed" shows only the packages already present. "list --upgradable" (or -u) reads this box\'s package manifest and names every package with a published vulnerability, by its CVE id and severity, beside the version that fixes it, or — while the fix has not been released yet — how many days until it is. It needs no root. All of them reach the repo over the network you are on — your own at home, or the network of a box you have a shell on. On a router, moving its firmware flashes the new image and reboots the device, which closes every connection to it.',
     arguments: [
       {
         name: 'operation',
@@ -797,6 +839,10 @@ export const apt: Command = {
     ],
     examples: [
       { command: 'apt install nmap', description: 'Install the nmap network scanner' },
+      {
+        command: 'apt install nmap hydra lynx',
+        description: 'Install several packages in one go, in the order they are named',
+      },
       {
         command: 'apt install redis=7.2.5',
         description: 'Roll redis back to an older release the repo still holds',
