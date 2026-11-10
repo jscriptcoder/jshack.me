@@ -13,6 +13,9 @@
 //     at once take one job and mail one briefing.
 //   - DROPPING. `POST /drop` abandons the job, mails the client's line, leaves the address
 //     answering, and the next read fills the board to three offers again.
+//   - A TWO-HOP OFFER SAYS SO. Beside a single-hop offer, a two-hop one reads "retrieve an
+//     internal access key" and quotes a two-hop pay, and its briefing alone says the key is
+//     inside the network.
 //   - THE DOORS AND THE LOG. A GET of /accept or /drop answers the board and changes nothing,
 //     a form anywhere else on the boards' server is 405, and every POST is an access.log line
 //     naming the board, never with the form.
@@ -22,6 +25,7 @@
 //
 // Exits 0 when all checks pass, 1 on failure, 2 on missing env.
 
+import { randomBytes } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { signRequest } from '../src/core/signedRequest/sign.js';
 import { generateIdentityIn } from '../src/test/factories/identityIn.js';
@@ -35,6 +39,7 @@ import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js
 import { ACCESS_LOG_PATH } from '../src/core/logging/accessLog.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { missionAddressForNumber } from '../src/core/missions/missionNetwork.js';
+import { missionTopology } from '../src/core/missions/missionShape.js';
 import { missionTerms } from '../src/core/missions/missionTerms.js';
 
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
@@ -135,6 +140,39 @@ const contractsOf = async (handle: string): Promise<readonly ContractRow[]> => {
   return (data ?? []) as ContractRow[];
 };
 
+/** A contract number nobody holds, of the template asked for. */
+const freeNumber = async (twoHop: boolean): Promise<number> => {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const candidate = 0x510000 + attempt * 256 + 9;
+    if ((missionTopology(candidate).frontBoxOctet !== null) !== twoHop) continue;
+    const { data } = await sr
+      .from('hireme_missions')
+      .select('number')
+      .eq('number', candidate)
+      .maybeSingle();
+    if (data === null) return candidate;
+  }
+  throw new Error(`no free ${twoHop ? 'two-hop' : 'single-hop'} contract number`);
+};
+
+/** Post an offer of `missionNumber` on a handle's board, as a read would; its ref. */
+const offerOn = async (handle: string, missionNumber: number): Promise<string> => {
+  const ref = randomBytes(3).toString('hex');
+  const placed = await sr
+    .from('hireme_missions')
+    .insert({ number: missionNumber, handle, state: 'offered', ref });
+  if (placed.error) throw new Error(`offer insert failed: ${placed.error.message}`);
+  return ref;
+};
+
+/** An offer's line on the board: client, kind and pay. */
+const offerLine = (missionNumber: number): string => {
+  const terms = missionTerms(missionNumber);
+  return `${terms.client.company} — ${terms.kind} — §${terms.pay.toLocaleString('en-US')}`;
+};
+
+const INSIDE_LINE = 'The key is on a machine inside their network, not on the edge.';
+
 const inState = (rows: readonly ContractRow[], state: string): readonly ContractRow[] =>
   rows.filter((row) => row.state === state);
 
@@ -211,13 +249,7 @@ const main = async () => {
       inState(firstRows, 'offered').length === 3 &&
       firstRefs.length === 3 &&
       firstRows.every(
-        (row) =>
-          firstRefs.includes(row.ref ?? '') &&
-          firstContent.includes(
-            `${missionTerms(row.number).client.company} — retrieve an access key — §${missionTerms(
-              row.number,
-            ).pay.toLocaleString('en-US')}`,
-          ),
+        (row) => firstRefs.includes(row.ref ?? '') && firstContent.includes(offerLine(row.number)),
       ),
     `status ${firstRead.status}, ${firstRows.length} rows, refs [${firstRefs.join(',')}]`,
   );
@@ -403,7 +435,44 @@ const main = async () => {
     `status ${dropAgain.status}`,
   );
 
-  // === 8. THE LOG NAMES THE BOARD AND NEVER THE FORM. ===
+  // === 8. A TWO-HOP OFFER SAYS SO, AND ITS BRIEFING SAYS "INSIDE". ===
+  const hopper = handleFor('hop');
+  const hopperBoard = await boardFor(hopper);
+  const twoHop = await freeNumber(true);
+  const singleHop = await freeNumber(false);
+  const twoHopRef = await offerOn(hopper, twoHop);
+  const singleHopRef = await offerOn(hopper, singleHop);
+  const hopperContent = contentOf((await fetchAt(hopperBoard, '/')).body);
+  const twoHopTerms = missionTerms(twoHop);
+  const singleHopTerms = missionTerms(singleHop);
+  check(
+    'a two-hop offer reads as an internal access key at a two-hop pay, beside a single-hop one',
+    hopperContent.includes(
+      `${twoHopTerms.client.company} — retrieve an internal access key — §${twoHopTerms.pay.toLocaleString('en-US')}`,
+    ) &&
+      twoHopTerms.pay >= 2000 &&
+      twoHopTerms.pay <= 4000 &&
+      hopperContent.includes(
+        `${singleHopTerms.client.company} — retrieve an access key — §${singleHopTerms.pay.toLocaleString('en-US')}`,
+      ) &&
+      singleHopTerms.pay <= 2000,
+    `contract ${twoHop} §${twoHopTerms.pay}, contract ${singleHop} §${singleHopTerms.pay}`,
+  );
+  await fetchAt(hopperBoard, '/accept', `offer=${twoHopRef}`);
+  const twoHopBriefing = (await inboxOf(hopper)).at(-1);
+  await fetchAt(hopperBoard, '/drop', 'confirm=yes');
+  await fetchAt(hopperBoard, '/accept', `offer=${singleHopRef}`);
+  const singleHopBriefing = (await inboxOf(hopper)).at(-1);
+  check(
+    'only the two-hop briefing says the key is on a machine inside the network',
+    twoHopBriefing?.subject === `Contract: ${twoHopTerms.targetCompany}` &&
+      twoHopBriefing.body.includes(`\n${INSIDE_LINE}\n`) &&
+      singleHopBriefing?.subject === `Contract: ${singleHopTerms.targetCompany}` &&
+      !singleHopBriefing.body.includes(INSIDE_LINE),
+    `${twoHopBriefing?.subject ?? 'no mail'} / ${singleHopBriefing?.subject ?? 'no mail'}`,
+  );
+
+  // === 9. THE LOG NAMES THE BOARD AND NEVER THE FORM. ===
   const log = await boardsLog();
   check(
     'every accept and drop is a POST line naming the board, never with the form',
