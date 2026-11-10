@@ -1,12 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import { CLIENT_HANDLES, clientByHandle, missionTerms } from './missionTerms.js';
-import { missionShape } from './missionShape.js';
+import { missionShape, missionTopology } from './missionShape.js';
+import { md5 } from '../generation/md5.js';
 import { validateUsername } from '../gameConfig/gameConfig.js';
 
 /** A spread of contract numbers whose last octet is a host octet (2–254). */
 const SAMPLE_NUMBERS = Array.from({ length: 2000 }, (_unused, index) => index * 8381 + 2).filter(
   (missionNumber) => missionNumber % 256 >= 2 && missionNumber % 256 <= 254,
 );
+
+const isTwoHop = (missionNumber: number): boolean =>
+  missionTopology(missionNumber).frontBoxOctet !== null;
+
+const SINGLE_HOP_NUMBERS = SAMPLE_NUMBERS.filter((missionNumber) => !isTwoHop(missionNumber));
+const TWO_HOP_NUMBERS = SAMPLE_NUMBERS.filter(isTwoHop);
 
 const capitalised = (word: string): string => word.charAt(0).toUpperCase() + word.slice(1);
 
@@ -15,18 +22,50 @@ describe('missionTerms', () => {
     expect(missionTerms(66051)).toEqual(missionTerms(66051));
   });
 
-  it('offers one kind of job, retrieving an access key', () => {
-    for (const missionNumber of SAMPLE_NUMBERS) {
+  it('offers a single-hop job as retrieving an access key', () => {
+    for (const missionNumber of SINGLE_HOP_NUMBERS) {
       expect(missionTerms(missionNumber).kind).toBe('retrieve an access key');
     }
   });
 
-  it('pays from 500 to 2,000 JSC in steps of 50, reaching both ends', () => {
-    const pays = SAMPLE_NUMBERS.map((missionNumber) => missionTerms(missionNumber).pay);
+  // The board says which job is the harder one, so a contractor takes it knowingly and its
+  // pay makes sense.
+  it('offers a two-hop job as retrieving an internal access key', () => {
+    for (const missionNumber of TWO_HOP_NUMBERS) {
+      expect(missionTerms(missionNumber).kind).toBe('retrieve an internal access key');
+    }
+  });
+
+  it('pays a single-hop job from 500 to 2,000 JSC in steps of 50, reaching both ends', () => {
+    const pays = SINGLE_HOP_NUMBERS.map((missionNumber) => missionTerms(missionNumber).pay);
 
     for (const pay of pays) expect(pay % 50).toBe(0);
     expect(Math.min(...pays)).toBe(500);
     expect(Math.max(...pays)).toBe(2000);
+  });
+
+  it('pays a two-hop job from 2,000 to 4,000 JSC in steps of 50, reaching both ends', () => {
+    const pays = TWO_HOP_NUMBERS.map((missionNumber) => missionTerms(missionNumber).pay);
+
+    for (const pay of pays) expect(pay % 50).toBe(0);
+    expect(Math.min(...pays)).toBe(2000);
+    expect(Math.max(...pays)).toBe(4000);
+  });
+
+  it('keeps the terms of every single-hop contract as they were', () => {
+    // Taken before a two-hop job had terms of its own: every single-hop contract's client,
+    // target, pitch, key and pay.
+    expect(md5(JSON.stringify(SINGLE_HOP_NUMBERS.map(missionTerms)))).toBe(
+      'd3bb6b75e3330c47cdb497b937549cc0',
+    );
+  });
+
+  it('keeps the client, target, pitch and key of a two-hop contract as they were', () => {
+    const beside = TWO_HOP_NUMBERS.map(missionTerms).map(
+      ({ kind: _kind, pay: _pay, ...rest }) => rest,
+    );
+
+    expect(md5(JSON.stringify(beside))).toBe('e66e3edbd697f212acf143798fb709c2');
   });
 
   it('names the target company after the stem its boxes are named for', () => {

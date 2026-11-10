@@ -62,10 +62,11 @@ describe("the boards' server /etc/hireme/contracts", () => {
       contract({ handle: 'morph', number: 131330, accepted_at: '2026-11-03T11:00:00Z' }),
     ]);
 
+    // Contracts 2 and 131330 are two-hop, so their lines carry a two-hop job's pay.
     expect(contentAt(tree, '/etc/hireme/contracts')).toBe(
       'neo bellwether-desk 195.12.40.7 1400\n' +
-        'trin marlowe-ops 195.0.0.2 900\n' +
-        'morph greyline-jobs 195.2.1.2 1050\n',
+        'trin marlowe-ops 195.0.0.2 2550\n' +
+        'morph greyline-jobs 195.2.1.2 2750\n',
     );
   });
 
