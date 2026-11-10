@@ -56,8 +56,10 @@ import {
  *  shape and the database a key box generates) added 269 B, rounded up to 300; then the
  *  coin sign (one formatter every printed amount goes through) added 23 B, rounded up to
  *  100; then the decoys on a contract's network (their draw and the agent config a key box
- *  generates for one) added 268 B, rounded up to 300. */
-const BUNDLE_CEILING_BYTES = 298_875;
+ *  generates for one) added 268 B, rounded up to 300; then a contract's front box (the
+ *  template draw, the second box the shape and the LAN carry, and its builder) added 332 B,
+ *  rounded up to 400. */
+const BUNDLE_CEILING_BYTES = 299_275;
 
 /** About a tenth of that before world content, so a loaded machine's noise cannot fail
  *  the check while a content change that makes boxes ten times dearer still does. */
