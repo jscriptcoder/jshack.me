@@ -116,6 +116,10 @@ export const showReport = (
   const entry = frontBox ?? keyBox;
   const realForwardCount = shape.forwards.length - entry.decoys.length;
   const decoyPorts = shape.forwards.slice(realForwardCount).map(({ internalPort }) => internalPort);
+  // A two-hop key box's decoys have no forwards: each runs a daemon after its real doors.
+  const insideDecoyPorts = keyBox.services
+    .slice(keyBox.services.length - keyBox.decoys.length)
+    .map(({ port }) => port);
   const reached = frontBox === null ? 'key box' : 'front box';
   const keyLines = [
     `  Storage:  ${storageDetail(missionNumber, secret)}`,
@@ -136,7 +140,7 @@ export const showReport = (
           ...leakLines({ missionNumber, role: 'front' }, rawSecrets, '    '),
           `  Key box:   ${shape.stem}-${KEY_BOX_SUFFIX}`,
           `    Route:    ${keyBox.route}`,
-          ...serviceLines(keyBox, [], '    '),
+          ...serviceLines(keyBox, insideDecoyPorts, '    '),
           ...leakLines(keyRef, rawSecrets, '    '),
           ...keyLines,
         ];
