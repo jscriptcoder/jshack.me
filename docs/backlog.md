@@ -55,8 +55,9 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
 - **missions — deferred.** Contract work shipped at v0.441.0 (as-built:
   [`missions-architecture.md`](./missions-architecture.md)): one template, exfiltrate a key, on a
   two-box network with six routes, four of them leaking a login since v0.445.0, and the key kept in
-  a file, sealed with `gpg` or in a database table since v0.448.0 ("Where the key is stored"), and
-  decoy doors blurring the scan since v0.449.0 ("Decoys"). Left for later:
+  a file, sealed with `gpg` or in a database table since v0.448.0 ("Where the key is stored"),
+  decoy doors blurring the scan since v0.449.0 ("Decoys"), and a second template since v0.452.0,
+  the key box behind a front box, one contract in three ("Two hops"). Left for later:
   - **Believable filler behind the doors.** A real door and a decoy are both the stock build (the
     `It works!` page, an empty `pub`, a `netops@corp.local` contact), which is what keeps them
     alike. A company homepage, mundane files in `pub` or a business contact would make the network
@@ -67,9 +68,13 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
     contract: a database login given away on the box (an app config, a `.my.cnf`), or a leak route
     leaking the database password instead of root's word, both set aside when the database was made
     reachable from outside.
-  - **More templates**: deep chains and switches, more hops (a gpg passphrase kept on a third box
-    behind the key box), the library route (one library pinned to a critical release), a job that
-    cares about stealth, deadlines. Each carries its own pay range above exfiltrate's 500–2,000 JSC.
+  - **More templates**: deep chains and switches (an inner gateway, a second layer), the library
+    route (one library pinned to a critical release), a job that cares about stealth, deadlines.
+    Each carries its own pay range above exfiltrate's 500–2,000 JSC, as two hops' 2,000–4,000 does.
+  - **Two-hop twists**, set aside in the two-hop grill (2026-11-09): a gpg contract's passphrase
+    kept on a third box behind the key box (a twist on a third of contracts, not a template of its
+    own); a lead to the key box's root on the front box (a deploy script, `.bash_history`, a cron
+    line), which can join as a seventh inside route as the leak routes joined the six.
   - **File exfiltration** (bring a file home and send it back), once emailit.io can carry one.
   - **Recognition for completed jobs**, the other half of a mission reward; completions are only
     in `hireme_missions` today.

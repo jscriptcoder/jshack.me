@@ -1557,8 +1557,32 @@ agreed order:
     `monitor` walked read-only with `netops@corp.local`, `hydra <address> snmp` found nothing.
     mysql: `hydra` found the application account, the tables held no `settings` and no
     `api_keys`. Then `msfconsole <address> 80` rooted the key box, `cat` read the key, and the
-    mailed key paid the contract's §700 once. No defect. The plan was retired on close-out. **Pick
-    up here (2026-11-09):** the owner's choice from `backlog.md`.
+    mailed key paid the contract's §700 once. No defect. The plan was retired on close-out.
+46. ✅ **A contract whose key box sits behind a front box (v0.450.0–v0.452.0, PRs #761–#764,
+    merged 2026-11-09 to 2026-11-10).** Four slices; as-built: "Two hops" in
+    [`missions-architecture.md`](./missions-architecture.md). One contract in three, drawn from
+    its number, is two-hop: the gateway forwards only to a front box (`<stem>-web`) with a route of
+    its own, and the key box has no forward. The player roots the front box, installs tools there,
+    scans the LAN and works the key box's route from the hop on its own ports. The key box runs 2 or
+    3 service doors besides `22`, inside decoys filling the gap above its real ones. The board names
+    the job `retrieve an internal access key` and pays 2,000–4,000 JSC; the briefing says only that
+    the key is on a machine inside their network. Slice 1 was a pure refactor (the key box became one
+    record); no single-hop contract's shape or terms moved. Evidence: unit tests (10,390),
+    `testMissionTwoHop` 64/64, `testMissionBoard` 21/21, `testMissionPay` 17/17 and every other
+    mission wire-check green, mutation 303/313, 36/39 and 29/29 over the three behavior slices. The
+    survivors left open were guards that throw either way, mutants with the same effect as another,
+    a seed only an offline comparison would notice, and mutants hidden by fixtures built at module
+    load. The main-chunk ceiling rose to
+    299,475 B. **Close-out (2026-11-10, v0.452.0):** one browser run on a fresh player on
+    LIBRARY-PATRON. The first board read offered a two-hop job beside two single-hop ones; the
+    board was turned over by back-dating until a two-hop offer with an inside decoy came up,
+    contract 6920654 (hydra in front, the ftp route on the key box, database storage, a web decoy),
+    accepted with `curl -d`. Its briefing carried the "inside" line, a public scan showed only the
+    front box's forwards, `ssh -p 2222` rooted `northgate-web`, `nmap -sV 192.168.211.1-254` there
+    found `northgate-files`, `gobuster` found only the decoy's stock page, anonymous `ftp` leaked
+    the key box's word, `ssh root@192.168.211.99` read the key out of `data.json`, and the mailed
+    key paid §2,700 once. No defect. The plan was retired on close-out. **Pick up here
+    (2026-11-10):** the owner's choice from `backlog.md`.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

@@ -4,7 +4,9 @@ How a player takes paid work: a contract offered on their hireme.io board, accep
 briefed by mail, worked on a network of its own and paid by mailing the client the key. This is
 the shipped model of the missions epic, complete at **v0.441.0** (four slices, v0.438.0–v0.441.0,
 PRs #746–#749, 2026-11-01 to 2026-11-03), with the routes that leak a login added by the epic
-that followed (four slices, v0.442.0–v0.445.0, PRs #750–#753, 2026-11-03 to 2026-11-04). It sits
+that followed (four slices, v0.442.0–v0.445.0, PRs #750–#753, 2026-11-03 to 2026-11-04), and a
+second template, a key box behind a front box ("Two hops", four slices, v0.450.0–v0.452.0, PRs
+#761–#764, 2026-11-09 to 2026-11-10). It sits
 on top of the contractor boards
 ([`hireme-architecture.md`](./hireme-architecture.md)), emailit.io
 ([`email-architecture.md`](./email-architecture.md)) and the wallet
@@ -72,7 +74,9 @@ since without the address it says nothing about which contracts exist.
 clock:
 
 - **Two boxes**: a **gateway** at `.1` and a **key box** at a drawn octet, named from a
-  target-stem pool (`halden-gw`, `halden-files`; `core/missions/pools.ts`).
+  target-stem pool (`halden-gw`, `halden-files`; `core/missions/pools.ts`). One contract in three
+  is two-hop and adds a front box (`halden-web`) the gateway forwards to instead ("Two hops",
+  below); everything in this section holds for each box.
 - **One guaranteed route**, a flat draw over the six in `ROUTES`:
   - **hydra**: a crackable `root` (a word from the crackable pool) on the key box's sshd,
     reached through a public `:2222` forwarded to its `:22`;
@@ -150,7 +154,8 @@ a scan shows 4–5 ports.
 - `show` tags each decoy forward and service `(decoy)`.
 - **Pay is unchanged.** Decoys land on every contract alike, so no job is harder than another.
 - **Rejected:** daemons on the key box with no forward (only a shell there sees them, and whoever
-  has one already found the route); a flat 0–2 decoys (two ports would still mostly mean hydra or
+  has one already found the route; on a two-hop contract a shell on the front box is how the key
+  box is scanned, so there they are exactly what "Two hops" adds); a flat 0–2 decoys (two ports would still mostly mean hydra or
   msfconsole); every gateway forwarding all five kinds (every scan alike, so players skip it);
   decoys whose doors stay shut (one failed `hydra` rules each out, saving the player barely
   anything over the old scan).
@@ -160,7 +165,80 @@ a scan shows 4–5 ports.
 
 **To add a decoy kind:** `DECOY_KINDS` and `DECOY_SERVICES` in `missionShape.ts`, and whatever
 the key box must carry for its door in `missionKeyBoxFs.ts`. A new route whose door is a new kind
-should add it here too, or the scan tells that route again.
+should add it here too, or the scan tells that route again; if its door is not ssh, add it to
+`INSIDE_DECOY_KINDS` as well, or an inside scan tells it.
+
+## Two hops
+
+Since v0.450.0 one contract in three puts its key box behind a **front box**. The gateway
+forwards only to the front box; the key box has no forward and is reached from inside, by a player
+standing on the front box. Storage, the key and completion are as on a single-hop contract.
+
+- **The template is drawn from the number** on `mission-template-<n>` (under one third is
+  two-hop), so a contract's shape stays a function of its number and computable offline. A stream
+  of its own meant no single-hop contract's route, hashes, key or storage moved; an accepted
+  contract that landed in the share turned two-hop, which cost nothing while prod had only test
+  players. Rejected: choosing the template at posting and storing it (every door would need a
+  table read, and the client could no longer work out the shape).
+- **Three hosts, no filler:** the gateway at `.1`, the key box at its octet as before, and the
+  front box (`<stem>-web`) at an octet of its own drawn on `mission-front-<n>`. An inside scan
+  shows one host besides the gateway and the front box: finding the key box is not the job,
+  working its route from a hop is. Filler boxes to rule out belong with "believable filler" in
+  `backlog.md`.
+- **The front box falls to its own route**, a draw from the same six continuing on
+  `mission-front-<n>` with its own safe versions and hashes. The two draws are independent, so a
+  contract can draw the same route twice and the two boxes' words can coincide. The front box
+  holds no key, no storage and no lead, and is built by the same mission builder
+  (`buildMissionFrontBoxFs`, `missionKeyBoxFs.ts`) on streams of its own: `mission-frontbox-<n>`
+  (its NPC user and guest), `mission-front-database-<n>` (its application) and
+  `mission-front-leak-<n>` (its forgotten file and agent community).
+- **Outside, the front box takes the key box's place** in the forward and decoy rules: its route's
+  forwards, then decoys filling to 3 or 4, so a two-hop contract's public scan reads like a
+  single-hop one. On database storage `3306` is the key box's and is reached inside, so it is no
+  forward.
+- **Inside, a route's door is the key box's own port**: hydra is its `:22`, and a leak word logs in
+  with `ssh root@<key box>` on `22`, not `-p 2222`. Every route roots the box it lands on, so the
+  front box always ends rooted, and `apt install` works there.
+- **The key box blurs an inside scan** (v0.451.0): it runs **2 or 3 service doors besides `22`**,
+  about half each, the real ones first (the route's door, and `3306` on database storage), then
+  inside decoys from `web`, `ftp`, `mysql` and `snmp` (`INSIDE_DECOY_KINDS`), never a kind twice
+  or a port it already runs, drawn on `mission-inside-decoys-<n>`. Each is built by the same helper
+  as the gateway's decoys (`withDecoyDaemons`), so it is the real door's build with nothing laid
+  in, on a safe release. sshd always runs, so ssh is never an inside decoy. Rejected: no inside
+  decoys, which would have made the second hop a free read after a first that made the player
+  work.
+- **Any shell on the front box is a foothold.** Its `guest` and NPC user keep the world's odds, so
+  a player can often `hydra` a guest shell through `:2222` without working the front route. From it
+  the stock tools (`ifconfig`, `ping`, `curl`, `ssh`, `scp`) reach the key box; everything else
+  needs `apt`, so root in practice. One rule, no carve-out: tier decides what a shell can do.
+  Rejected: the key box answering only a root on the front box; shutting the front box's guest
+  and user.
+- **The LAN reads `missionTopology(n)`**, the stem and both octets, because the whole shape takes
+  about 2 ms to draw and every hop command reads the LAN. `missionBoxAt(essid, machineId)`
+  (`lanHostIdentity.ts`) answers `{ missionNumber, role: 'key' | 'front' }`, and every per-box
+  function in `missionLeak.ts` takes that reference, so the server lays each box's files on that
+  box alone (the front route's leak on the front box, the key's files and the key route's leak on
+  the key box) and the write gate in `api/patches.ts` lists each box's paths for it. No inside
+  door needed a change: each of the six routes reached the key box from the front box and laid its
+  files there, measured before the first slice's RED.
+- **The board names the job and pays more** (v0.452.0). A two-hop offer reads `<Client> —
+  retrieve an internal access key — <pay>` and pays 2,000–4,000 JSC rounded to 50. Pay is still the
+  last draw on `mission-terms-<n>`, only its range following the template, so no single-hop
+  contract's terms moved; a two-hop job at exactly 2,000 ties the top single-hop pay, which the
+  owner kept. The briefing adds one line, `The key is on a machine inside their network, not on
+  the edge.`, and never says pivot, front box, how many machines, a route or the key box's
+  address: working out what "inside" means is the job. Rejected: hiding the template (its pay
+  range would tell anyway).
+- **Closing a hop is as anywhere**: whoever roots the front box can `passwd` or `apt upgrade` it.
+- **`show`** names every report's template; a two-hop report gives each box a section, front box
+  first, with its route, services (decoys tagged, inside ones too) and leak, and the forwards say
+  `-> front box`.
+- **Rejected in the grill (2026-11-09):** the gpg passphrase on a third box behind the key box (it
+  touches only gpg contracts, so it is a twist, not a template); both at once (three boxes deep
+  before the first hop was known to be fun); a lead to the key box's root on the front box (a
+  deploy script, `.bash_history`, a cron line), a new route kind that can join later as a seventh
+  inside route. There is no key-based ssh login in the game, so "an ssh key on the front box" was
+  never an option.
 
 ## 3. The key and the secret
 
@@ -293,7 +371,9 @@ Then every route is the same: `ssh root@<address> -p 2222` with the word, the ke
 
 **To add a route:** `ROUTES` and `LEAK_ROUTE_DOORS` in `missionShape.ts`, `leakPlaceOf` and `leakContent` in
 `missionLeak.ts`, and `findMissionFiles` at any door in `api/sessions.ts` that reads the file. If the new
-route's door is a new kind, add it as a decoy kind too ("Decoys", above). Two harder
+route's door is a new kind, add it as a decoy kind too ("Decoys", above). A route serves both boxes
+of a two-hop contract ("Two hops"): its lay-in takes a `MissionBoxRef`, so it must work on the front
+box behind a forward and on the key box on its own port, and both need a test. Two harder
 templates were left for later: a user login then a second leak for root, and a path off the default list
 with a pointer to it.
 
@@ -335,7 +415,8 @@ boards' server's fetch handler (`resolveHttpFetch.ts`); the doors and their word
   and a completed or dropped job's slot fills on the next read. The read and the top-up are one
   transaction, so two reads at once cannot post six. Anyone reading a leaked board tops it up
   too, which is harmless.
-- **An offer** is one block: `<Client> — retrieve an access key — <pay>`, a one-line pitch, its
+- **An offer** is one block: `<Client> — retrieve an access key — <pay>` (`retrieve an internal
+  access key` on a two-hop contract), a one-line pitch, its
   ref and an `[ Accept ]` form posting `offer=<ref>` in a hidden field (`curl -d "offer=<ref>"`
   does the same). **It never shows the address**, so the form cannot carry the number; a page
   whose offer has since turned over is refused rather than swapped for another job.
@@ -343,7 +424,7 @@ boards' server's fetch handler (`resolveHttpFetch.ts`); the doors and their word
   `core/missions/missionTerms.ts`): the client (a company and its handle, from ten), the target
   company (named on the shape's stem, so `halden-gw` belongs to Halden something), the pitch
   (black-hat or grey, from six), what the key opens, the kind of job and the pay, 500 to 2,000 JSC
-  rounded to 50 ("§1,350"). An offer's line shows only client, kind, pay and pitch, so two
+  rounded to 50 ("§1,350"), or 2,000 to 4,000 on a two-hop contract. An offer's line shows only client, kind, pay and pitch, so two
   different jobs can read alike (about once in 620 boards); the briefing tells them apart.
 - **Accepting** turns the offer `accepted` and mails the briefing as system mail, always
   delivered. While a job is active the board shows a **Current contract** block above the offers
@@ -371,7 +452,8 @@ boards' server's fetch handler (`resolveHttpFetch.ts`); the doors and their word
 - **The briefing**, from `<client handle>@emailit.io`, subject `Contract: <target company>`: the
   pitch, the target company, the mission address, what the key opens, the key's form, that the
   reply goes to this address with the key and a wallet address, and "No key, no money. No wallet,
-  no money." Never the way in, the path or the key's file.
+  no money." A two-hop briefing adds that the key is on a machine inside their network, not on
+  the edge. Never the way in, the path or the key's file.
 - **A client has no inbox.** `handleResolveMail` hands a send to a client handle to the client's
   door (`answerClientMail`, `core/missions/clientMail.ts`) instead of to `email_send`. The mail is
   read when it is sent, answered with system mail in the sender's inbox, and kept nowhere. The send
@@ -430,9 +512,10 @@ tsx scripts/hireme.ts …`, never needed in play (orders parsed in `core/mission
   with an active job or no mailbox); prints the address. `--number` is how a dev gets a network
   with given axes: search for a number that has them.
 - `post <handle>` burns the board's offers and posts three fresh ones now.
-- `show <address>` prints the client, target, pay, route, forwards, the key box's services, the
-  storage (with the passphrase on a gpg contract), the file the key is in and the key, and on a
-  leak route the file's path and the word. It reads the secrets
+- `show <address>` prints the client, target, pay, template, route, forwards, the key box's
+  services, the storage (with the passphrase on a gpg contract), the file the key is in and the
+  key, and on a leak route the file's path and the word. A two-hop report gives the front box and
+  the key box a section each. It reads the secrets
   from the env; only its derived key and that word are ever printed.
 - `drop <handle>` abandons the active job.
 
@@ -444,9 +527,9 @@ of its row and the patches it left, as the wire-checks' cleanup does.
 
 The client carries the 195 block in `isPublicIp`, the `whois` record and the network's shape.
 The key, its paths, the terms, the board, the briefing, the replies and the root view are built
-on the server only. The leak routes added the slice's hashes and the route shapes. The owner raised
-the main chunk's ceiling to 298,175 B and then 298,475 B, and it stands at 298,461 B gzipped, which
-leaves 14 B: the next feature needs another raise or the lazy-loading in `backlog.md`.
+on the server only. The leak routes added the slice's hashes and the route shapes, and the two-hop
+template the front box and the inside decoys. Each feature raises the main chunk's ceiling by its
+measured growth; at v0.452.0 the chunk is 299,314 B gzipped against a ceiling of 299,475 B.
 
 ## 10. Proving it
 
@@ -466,9 +549,13 @@ leaves 14 B: the next feature needs another raise or the lazy-loading in `backlo
   limit); `testMissionContracts.ts` (11: the root view, through real accepts, a drop and a
   completion); one per leak route, each from the scan to the payout and each way a route closes:
   `testMissionLeak.ts` (16), `testMissionFtp.ts` (27), `testMissionMysql.ts` (28),
-  `testMissionSnmp.ts` (35); and `testMissionDecoys.ts` (15: every decoy kind worked to its empty
-  end on two staged contracts, then the hydra route paid beside three decoys). The decoys' doors are
-  also proven in `decoyMissionDoors.test.ts`.
+  `testMissionSnmp.ts` (35); `testMissionDecoys.ts` (15: every decoy kind worked to its empty
+  end on two staged contracts, then the hydra route paid beside three decoys); and
+  `testMissionTwoHop.ts` (64: one web-fronted contract per key-box route, the key box absent from
+  a public scan, the front route worked to root, the LAN scanned from it, every inside decoy worked
+  to its empty end, the key box's route worked from the hop, the key paid once). The board and pay
+  checks each post a two-hop offer on a chosen number (21 and 17 checks at v0.452.0). The decoys'
+  doors are also proven in `decoyMissionDoors.test.ts`.
 - **Mutation**: every slice's scoped run left no survivor but equivalents.
 - **One browser run at the epic's close-out** (2026-11-03, v0.441.0), two players in headed
   browsers, each in a different town. alice signed up on emailit.io, applied with `curl -d`, read
@@ -496,12 +583,27 @@ leaves 14 B: the next feature needs another raise or the lazy-loading in `backlo
   1,650, 2,800, 3,300, 5,050 JSC. No defect. The closures, the guest shell, `snmpset` and the
   `msfconsole` refusals rest on the wire-checks. Announced on valleynews.io `/dev` (story 17).
   Words and keys were masked on every read of the screen, so the run's record holds neither.
+- **One browser run at the two-hop close-out** (2026-11-10, v0.452.0), one fresh player on
+  LIBRARY-PATRON. The first board read offered "Saltmarsh Energy — retrieve an internal access key
+  — §3,100" beside two single-hop offers. Its key box ran only its real doors, so the board was
+  turned over by back-dating its offers until a two-hop offer with an inside decoy came up:
+  contract 6920654, hydra in front, the ftp route on the key box, database storage, a web decoy.
+  The player accepted it with `curl -d`, and the briefing carried the "inside" line. A public scan
+  showed `22`, `2222`, `3306` and `80` and no ftp. `ssh root@<address> -p 2222` landed on
+  `northgate-web`, where `apt install` gave `nmap`, `gobuster` and `ftp`. `nmap -sV
+  192.168.211.1-254` found the gateway, `northgate-files` and `northgate-web`; the key box showed
+  `22`, `21`, `3306` and `80`. `gobuster` on the decoy found only the stock page. Anonymous `ftp`,
+  `get` of `pub/old`, and `ssh root@<key box>` with its word landed on `northgate-files`, whose
+  `data.json` held the key. The mailed key got "Key received. §2,700", the balance 2,700; the key
+  again got "That job is already closed." and one mint stood. No defect. `nmap` takes a range,
+  not a CIDR block.
 
 ## What follows
 
 Deferred, in `backlog.md` under "missions — deferred": believable filler behind real doors and
-decoys alike; further templates (deep chains, switches, the library route, stealth,
-deadlines, a harder leak); file exfiltration, which
+decoys alike; further templates (deep chains, switches, the gpg passphrase on a third box, the
+library route, stealth, deadlines, a harder leak); a lead to the key box on the front box, as a
+seventh inside route; file exfiltration, which
 needs attachments; recognition for completed jobs; a second, darknet operator.
 
 ## Key files
@@ -521,5 +623,6 @@ needs attachments; recognition for completed jobs; a second, darknet operator.
 - **Wiring**: `core/network/resolveHttpFetch.ts`, `core/network/resolveCrossPlayerFs.ts`,
   `core/patches/remoteWritePermission.ts`, `core/emailit/handleResolveMail.ts`,
   `core/emailit/signup.ts` (`RESERVED_HANDLES`), `core/commands/whois.ts`,
-  `core/generation/generateHomeLan.ts`, `core/generation/world.ts`.
+  `core/generation/generateHomeLan.ts`, `core/generation/lanHostIdentity.ts` (`missionBoxAt`),
+  `core/generation/world.ts`.
 - **Operator**: `scripts/hireme.ts`.

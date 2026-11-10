@@ -477,3 +477,26 @@ kind (table above) and ends empty: `pub` holds nothing, the walk shows `netops@c
 | `apt install mysql-client` | There is no such package; `mysql` works without an install |
 | `SHOW DATABASES` | Answers a syntax error; `SHOW TABLES` lists the one database |
 | The masked read | A helper that masks the key must hand node a Windows path (`cygpath -w`): with `MSYS_NO_PATHCONV=1` set, a `/c/...` path never opens and the key prints unmasked |
+
+### Then: a two-hop contract, worked from the front box
+
+Verified 2026-11-10 (v0.452.0), contract 6920654: hydra in front, the ftp route on the key box,
+database storage, a web decoy inside. Accepted from the board, paid §2,700 once. One contract in
+three is two-hop; the board names it `retrieve an internal access key`. Classify the offered
+numbers offline before accepting: `missionShape(n).frontBox` (null on single-hop), its `route`,
+`keyBox.route`, `storage` and `keyBox.decoys` (the inside decoys, 0–3).
+
+| # | Command | Trap |
+| --- | --- | --- |
+| 1 | Read the board, classify its offers offline | Three offers can all be single-hop (the run saw 18 in a row, at a 0.33 share). Turn the board over by back-dating: `update hireme_missions set posted_at = now() - interval '25 hours' where handle = '<h>' and state = 'offered'`, then read it again. A key box can also run no inside decoy (2 real doors), so check `keyBox.decoys` if the run needs one |
+| 2 | `nmap <address>` | Shows the gateway's `22` and the FRONT box's forwards only. The key box's doors never show from outside |
+| 3 | The front route, as on a single-hop contract | It lands on `root@<stem>-web`. Derive a hydra root offline: `plaintextFor(missionShape(n).frontBox.rootHash)` |
+| 4 | `ifconfig`, then `apt install nmap` (and `gobuster`, `ftp`, `hydra` as the key route needs) ON the front box | The front box has none of them. Install there, not at home: the hop runs its own tools |
+| 5 | `nmap -sV 192.168.<x>.1-254` | **`nmap` takes a range, never a CIDR block**: `192.168.<x>.0/24` answers the usage line. The range lists three hosts: `<stem>-gw`, `<stem>-files` (the key box) and `<stem>-web`. `nmap -sV <key box>` is paced: read the screen a few seconds after the prompt |
+| 6 | Work each inside decoy, then the key route, against the key box's LAN address on its own ports | hydra is the key box's `:22`; a leak word logs in with `ssh root@<key box>`, no `-p 2222` |
+| 7 | `exit` twice, then mail the key from home | `exit` from the key box returns to the front box, and a second to your own box |
+
+Work out the leak word and the key root offline with `missionLeakWord({ missionNumber: n, role:
+'key' }, process.env.JSHACK_SECRETS)` and `plaintextFor(missionShape(n).keyBox.rootHash)`; the
+front box's leak takes `role: 'front'`. Keep them in a scratch file and type them from it, so they
+never pass through a command line you read back.

@@ -113,4 +113,4 @@ time.
 Put it in the reference that owns its scenario, not here. This file keeps only what every run
 needs — preflight, session basics, teardown and the routing table — so a new reference is
 warranted only when a scenario fits none of the existing ones; add its row to the table above.
-Still unwritten: a pivot more than one layer down.
+Still unwritten: a pivot through a deep chain (an inner gateway onto a second layer). A pivot from one box to another on the same LAN is "Then: a two-hop contract" in `references/reaching-a-state.md`.
