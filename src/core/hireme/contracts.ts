@@ -22,6 +22,7 @@
 import { z } from 'zod';
 import { EMAILIT_DOMAIN } from '../generation/fixedSites.js';
 import { missionAddressForNumber } from '../missions/missionNetwork.js';
+import { missionTopology } from '../missions/missionShape.js';
 import { missionTerms, type MissionTerms } from '../missions/missionTerms.js';
 import { contractBoardPage, type BoardNotice } from './contractBoard.js';
 
@@ -133,8 +134,13 @@ const clientAddress = (terms: MissionTerms): string => `${terms.client.handle}@$
 
 const subjectOf = (terms: MissionTerms): string => `Contract: ${terms.targetCompany}`;
 
+/** What a two-hop briefing adds: that much and no more, since working out what "inside"
+ *  means is the job. It names no machine, route or address. */
+const INSIDE_LINES = ['The key is on a machine inside their network, not on the edge.', ''];
+
 const briefingOf = (missionNumber: number): ContractMail => {
   const terms = missionTerms(missionNumber);
+  const inside = missionTopology(missionNumber).frontBoxOctet !== null;
   return {
     sender: clientAddress(terms),
     subject: subjectOf(terms),
@@ -147,6 +153,7 @@ const briefingOf = (missionNumber: number): ContractMail => {
       '',
       '  ACCESS-XXXX-XXXX-XXXX',
       '',
+      ...(inside ? INSIDE_LINES : []),
       'Reply to this address with the key and your wallet address.',
       'No key, no money. No wallet, no money.',
       '',
