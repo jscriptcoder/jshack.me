@@ -475,6 +475,28 @@ describe.each<Template>(['single-hop', 'two-hop'])('a decoy on a %s key box', (t
   // Each is the real door of its kind as the box generates, minus what the server lays in, so
   // working it is the only way to find it holds nothing. A two-hop key box's are reached from
   // the front box rather than through a forward, and are built the same.
+  it('opens each decoy to a scan beside sshd and the real doors, on the release it runs', () => {
+    const numbers = Array.from({ length: 400 }, (_unused, index) => index + 2)
+      .filter(isMissionNumber)
+      .filter((missionNumber) => isOfTemplate(missionNumber, template))
+      .slice(0, 30);
+    for (const missionNumber of numbers) {
+      const { keyBox } = missionShape(missionNumber);
+      const label = `contract ${missionNumber}`;
+      const scanned = readOpenPorts(buildMissionKeyBoxFs(missionNumber));
+
+      expect(
+        scanned.map(({ port }) => port),
+        label,
+      ).toEqual([22, ...keyBox.services.map(({ port }) => port)]);
+      for (const service of keyBox.services) {
+        expect(scanned.find(({ port }) => port === service.port)?.version, label).toContain(
+          service.version,
+        );
+      }
+    }
+  });
+
   it('serves the stock page behind a web decoy, and nothing else', () => {
     const box = buildMissionKeyBoxFs(numberWithDecoy('web', template));
 
