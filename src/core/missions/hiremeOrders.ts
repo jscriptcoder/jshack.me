@@ -21,7 +21,7 @@ import { missionKeyFilePath, missionLeakPath, missionLeakWord } from './missionL
 import { missionKey, missionPassphrase } from './missionSecret.js';
 import { missionAddressForNumber, missionEssid } from './missionNetwork.js';
 import { missionTerms } from './missionTerms.js';
-import { missionRecords } from './missionRecords.js';
+import { missionAction, missionRecords } from './missionRecords.js';
 import { DATADIR_PATH } from '../mysql/datadir.js';
 import { writeAmount } from '../wallet/amount.js';
 
@@ -98,16 +98,19 @@ const storageDetail = (missionNumber: number, secret: string): string => {
 };
 
 /** What a tamper job is, as the report names it: its kind, its setting and its action. */
-const TAMPER_KIND = 'tamper, school, change';
+const tamperKind = (missionNumber: number): string =>
+  `tamper, school, ${missionAction(missionNumber)}`;
 
-/** Where a tamper job's records are kept and the one change it asks, where a key job's storage,
- *  key path and key go. */
+/** Where a tamper job's records are kept and the one change or erase it asks, where a key job's
+ *  storage, key path and key go. */
 const recordLines = (missionNumber: number): readonly string[] => {
   const { target } = missionRecords(missionNumber);
   return [
     '  Storage:  database, table grades',
     `  Records:  ${DATADIR_PATH}`,
-    `  Change:   ${target.student}, ${target.subject}: ${target.from} -> ${target.to}`,
+    target.action === 'erase'
+      ? `  Erase:    ${target.student}, ${target.subject} (${target.grade})`
+      : `  Change:   ${target.student}, ${target.subject}: ${target.from} -> ${target.to}`,
   ];
 };
 
@@ -170,7 +173,7 @@ export const showReport = (
     `  Target:   ${terms.targetCompany}, ${hosts.map((suffix) => `${shape.stem}-${suffix}`).join(' / ')}`,
     `  Pay:      ${writeAmount(terms.pay)}`,
     `  Template: ${frontBox === null ? 'single-hop' : 'two-hop'}`,
-    ...(shape.kind === 'tamper' ? [`  Kind:     ${TAMPER_KIND}`] : []),
+    ...(shape.kind === 'tamper' ? [`  Kind:     ${tamperKind(missionNumber)}`] : []),
     // One box needs no section, so its route heads the report as it always has.
     ...(frontBox === null ? [`  Route:    ${keyBox.route}`] : []),
     ...shape.forwards.map(

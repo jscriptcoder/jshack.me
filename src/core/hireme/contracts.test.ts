@@ -34,8 +34,26 @@ const FOURTH = 66051;
 
 /** Contracts asking for a record changed rather than a key: a single-hop one and a two-hop
  *  one. The first two-hop number above is one too. */
-const TAMPER_SINGLE_HOP = 70003;
-const TAMPER_TWO_HOP = 70008;
+const TAMPER_SINGLE_HOP = 70007;
+const TAMPER_TWO_HOP = 70013;
+
+/** Contracts asking for a record gone: a single-hop one and a two-hop one. */
+const ERASE_SINGLE_HOP = 70003;
+const ERASE_TWO_HOP = 70008;
+
+/** The row a change job asks changed, failing the test on an erase job. */
+const changeTargetOf = (missionNumber: number) => {
+  const { target } = missionRecords(missionNumber);
+  if (target.action !== 'change') throw new Error(`contract ${missionNumber} is not a change`);
+  return target;
+};
+
+/** The row an erase job asks gone, failing the test on a change job. */
+const eraseTargetOf = (missionNumber: number) => {
+  const { target } = missionRecords(missionNumber);
+  if (target.action !== 'erase') throw new Error(`contract ${missionNumber} is not an erase`);
+  return target;
+};
 
 /** A key job's terms, failing the test on anything else. */
 const keyTermsOf = (missionNumber: number): Extract<MissionTerms, { readonly job: 'key' }> => {
@@ -188,11 +206,13 @@ describe('reading a board', () => {
     expect(text).toContain('Ref: ccc');
   });
 
-  it('offers a tamper job by what it alters, on one hop and on two', async () => {
+  it('offers a tamper job by what it alters or erases, on one hop and on two', async () => {
     const { store } = boardStore({
       offers: [
         { number: TAMPER_SINGLE_HOP, ref: 'ttt' },
         { number: TAMPER_TWO_HOP, ref: 'uuu' },
+        { number: ERASE_SINGLE_HOP, ref: 'vvv' },
+        { number: ERASE_TWO_HOP, ref: 'www' },
       ],
     });
 
@@ -201,6 +221,8 @@ describe('reading a board', () => {
     for (const [missionNumber, line] of [
       [TAMPER_SINGLE_HOP, 'alter a school record'],
       [TAMPER_TWO_HOP, 'alter an internal school record'],
+      [ERASE_SINGLE_HOP, 'erase a school record'],
+      [ERASE_TWO_HOP, 'erase an internal school record'],
     ] as const) {
       const { client, pay } = missionTerms(missionNumber);
       expect(text).toContain(`${client.company} — ${line} — ${writeAmount(pay)}`);
@@ -387,13 +409,15 @@ describe('accepting an offer', () => {
         offers: [
           { number: TAMPER_SINGLE_HOP, ref: 'ttt' },
           { number: TAMPER_TWO_HOP, ref: 'uuu' },
+          { number: ERASE_SINGLE_HOP, ref: 'vvv' },
+          { number: ERASE_TWO_HOP, ref: 'www' },
         ],
       });
 
     it('writes a single-hop briefing naming the student, the subject and both grades', async () => {
       const { store, accepts } = offeredTamper();
       const terms = missionTerms(TAMPER_SINGLE_HOP);
-      const { target } = missionRecords(TAMPER_SINGLE_HOP);
+      const target = changeTargetOf(TAMPER_SINGLE_HOP);
 
       await accept('offer=ttt', store);
 
@@ -418,7 +442,7 @@ describe('accepting an offer', () => {
     it('tells a two-hop contractor the records are inside the network, not on the edge', async () => {
       const { store, accepts } = offeredTamper();
       const terms = missionTerms(TAMPER_TWO_HOP);
-      const { target } = missionRecords(TAMPER_TWO_HOP);
+      const target = changeTargetOf(TAMPER_TWO_HOP);
 
       await accept('offer=uuu', store);
 
@@ -441,9 +465,62 @@ describe('accepting an offer', () => {
       );
     });
 
+    it('writes a single-hop erase briefing naming the student, the subject and the failing grade', async () => {
+      const { store, accepts } = offeredTamper();
+      const terms = missionTerms(ERASE_SINGLE_HOP);
+      const target = eraseTargetOf(ERASE_SINGLE_HOP);
+
+      await accept('offer=vvv', store);
+
+      expect(accepts[0]!.briefing.subject).toBe(`Contract: ${terms.targetCompany}`);
+      expect(accepts[0]!.briefing.body).toBe(
+        [
+          terms.pitch,
+          '',
+          `The target is ${terms.targetCompany}. Their network is at ${missionAddressForNumber(ERASE_SINGLE_HOP)}.`,
+          '',
+          `There is a failing ${target.subject} grade for ${target.student}. It should not exist.`,
+          '',
+          'Mail this address when it is done, with your wallet address.',
+          'No change, no money. No wallet, no money.',
+          '',
+          `-- ${terms.client.company}`,
+          '',
+        ].join('\n'),
+      );
+    });
+
+    it('tells a two-hop erase contractor the records are inside the network', async () => {
+      const { store, accepts } = offeredTamper();
+      const terms = missionTerms(ERASE_TWO_HOP);
+      const target = eraseTargetOf(ERASE_TWO_HOP);
+
+      await accept('offer=www', store);
+
+      expect(accepts[0]!.briefing.body).toBe(
+        [
+          terms.pitch,
+          '',
+          `The target is ${terms.targetCompany}. Their network is at ${missionAddressForNumber(ERASE_TWO_HOP)}.`,
+          '',
+          `There is a failing ${target.subject} grade for ${target.student}. It should not exist.`,
+          '',
+          'The records are on a machine inside their network, not on the edge.',
+          '',
+          'Mail this address when it is done, with your wallet address.',
+          'No change, no money. No wallet, no money.',
+          '',
+          `-- ${terms.client.company}`,
+          '',
+        ].join('\n'),
+      );
+    });
+
     it.each([
-      ['single-hop', 'ttt', TAMPER_SINGLE_HOP],
-      ['two-hop', 'uuu', TAMPER_TWO_HOP],
+      ['single-hop change', 'ttt', TAMPER_SINGLE_HOP],
+      ['two-hop change', 'uuu', TAMPER_TWO_HOP],
+      ['single-hop erase', 'vvv', ERASE_SINGLE_HOP],
+      ['two-hop erase', 'www', ERASE_TWO_HOP],
     ])(
       'never names in a %s briefing the row, the table, the box or the path',
       async (_template, ref, missionNumber) => {

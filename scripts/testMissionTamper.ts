@@ -1,7 +1,7 @@
-// Wire-check for A TAMPER JOB: a contract whose client wants one school grade changed, and reads
-// its own records box to see that it was. Driven end to end against a running `vercel dev` +
-// supabase, staging each job through the REAL `scripts/hireme.ts` and working it through the
-// REAL /api endpoints.
+// Wire-check for A TAMPER JOB: a contract whose client wants one school grade changed or erased,
+// and reads its own records box to see that it was. Driven end to end against a running
+// `vercel dev` + supabase, staging each job through the REAL `scripts/hireme.ts` and working it
+// through the REAL /api endpoints.
 //
 // Net-new under test (the locally-untypechecked api/ runtime):
 //   - THE RECORDS BOX IS A DATABASE: nmap shows :3306, the sweep finds the application account,
@@ -15,6 +15,9 @@
 //     /boot/vmlinuz removed, and the client finds no records that read right.
 //   - TWO HOPS: the records box behind a web front box is changed from a root shell on the front
 //     box, over the LAN, and the mail pays.
+//   - AN ERASE JOB: `show` names the row to erase; a DELETE with no WHERE takes every row and the
+//     client says the records don't look right; on a fresh job the right DELETE ... WHERE pays
+//     once, and a second mail is told the job is closed.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testMissionTamper.ts
@@ -41,7 +44,11 @@ import {
 } from '../src/core/wordlist/defaultWordlist.js';
 import { missionShape, type MissionShape } from '../src/core/missions/missionShape.js';
 import { missionTerms } from '../src/core/missions/missionTerms.js';
-import { missionRecords } from '../src/core/missions/missionRecords.js';
+import {
+  missionAction,
+  missionRecords,
+  type RecordAction,
+} from '../src/core/missions/missionRecords.js';
 import { missionLeakPath } from '../src/core/missions/missionLeak.js';
 import {
   isMissionNumber,
@@ -107,33 +114,47 @@ const DATABASE_PORT = 3306;
 const SSH_PORT = 2222;
 const RUN = Date.now().toString(36).slice(-6);
 
-/** The first tamper jobs from `from` that `wanted` accepts. */
+/** The first tamper jobs from `from` asking for `action` that `wanted` accepts. */
 const tamperNumbers = (
   from: number,
   count: number,
+  action: RecordAction,
   wanted: (shape: MissionShape) => boolean,
 ): readonly number[] => {
   const found: number[] = [];
   for (let candidate = from; candidate < from + 60000 && found.length < count; candidate += 1) {
     if (!isMissionNumber(candidate)) continue;
     const shape = missionShape(candidate);
-    if (shape.kind === 'tamper' && wanted(shape)) found.push(candidate);
+    if (shape.kind === 'tamper' && missionAction(candidate) === action && wanted(shape)) {
+      found.push(candidate);
+    }
   }
   if (found.length < count) throw new Error(`only ${found.length} tamper jobs from ${from}`);
   return found;
 };
 
-// Single-hop jobs whose records box falls to hydra, so its root is on the list every player has.
-const [WRONG_JOB, PAID_JOB, BRICKED_JOB] = tamperNumbers(
-  400000,
-  3,
-  ({ frontBox, keyBox }) => frontBox === null && keyBox.route === 'hydra',
-) as [number, number, number];
-// A two-hop job behind a web front box, whose forgotten file gives the front box's root away.
-const [INSIDE_JOB] = tamperNumbers(400000, 1, ({ frontBox }) => frontBox?.route === 'web') as [
+/** A single-hop job whose records box falls to hydra, so its root is on the list every player
+ *  has. */
+const singleHopHydra = ({ frontBox, keyBox }: MissionShape): boolean =>
+  frontBox === null && keyBox.route === 'hydra';
+
+const [WRONG_JOB, PAID_JOB, BRICKED_JOB] = tamperNumbers(400000, 3, 'change', singleHopHydra) as [
+  number,
+  number,
   number,
 ];
-const JOBS = [WRONG_JOB, PAID_JOB, BRICKED_JOB, INSIDE_JOB] as const;
+// A two-hop job behind a web front box, whose forgotten file gives the front box's root away.
+const [INSIDE_JOB] = tamperNumbers(
+  400000,
+  1,
+  'change',
+  ({ frontBox }) => frontBox?.route === 'web',
+) as [number];
+const [WIPED_JOB, ERASED_JOB] = tamperNumbers(400000, 2, 'erase', singleHopHydra) as [
+  number,
+  number,
+];
+const JOBS = [WRONG_JOB, PAID_JOB, BRICKED_JOB, INSIDE_JOB, WIPED_JOB, ERASED_JOB] as const;
 
 type Job = {
   readonly missionNumber: number;
@@ -186,15 +207,30 @@ const WRONG = jobOf(WRONG_JOB, 'wrong', 0);
 const PAID = jobOf(PAID_JOB, 'paid', 1);
 const BRICKED = jobOf(BRICKED_JOB, 'bricked', 2);
 const INSIDE = jobOf(INSIDE_JOB, 'two-hop', 3);
-const ALL_JOBS = [WRONG, PAID, BRICKED, INSIDE] as const;
+const WIPED = jobOf(WIPED_JOB, 'wiped erase', 4);
+const ERASED = jobOf(ERASED_JOB, 'erase', 5);
+const ALL_JOBS = [WRONG, PAID, BRICKED, INSIDE, WIPED, ERASED] as const;
 
 const RECORDS_WRONG = "Our records don't look right. No change, no money.";
 const CLOSED = 'That job is already closed.';
 
+/** The row a change job asks changed, failing the check on an erase job. */
+const changeTargetOf = (missionNumber: number) => {
+  const { target } = missionRecords(missionNumber);
+  if (target.action !== 'change') throw new Error(`contract ${missionNumber} is not a change`);
+  return target;
+};
+
 /** The statement that changes the target's grade and nothing else. */
 const rightUpdate = (missionNumber: number): string => {
-  const { target } = missionRecords(missionNumber);
+  const target = changeTargetOf(missionNumber);
   return `UPDATE grades SET grade = '${target.to}' WHERE student = '${target.student}' AND subject = '${target.subject}'`;
+};
+
+/** The statement that deletes the target's row and nothing else. */
+const rightDelete = (missionNumber: number): string => {
+  const { target } = missionRecords(missionNumber);
+  return `DELETE FROM grades WHERE student = '${target.student}' AND subject = '${target.subject}'`;
 };
 
 const seedWordlist = async () => {
@@ -324,7 +360,7 @@ const cleanup = async () => {
 const workTheWrongJob = async () => {
   const job = WRONG;
   await stage(job);
-  const { target } = missionRecords(job.missionNumber);
+  const target = changeTargetOf(job.missionNumber);
 
   const shown = runHireme(['show', job.address]);
   check(
@@ -534,6 +570,86 @@ const workTheInsideJob = async () => {
   );
 };
 
+/** A careless contractor on an erase job: a DELETE with no WHERE takes every row. */
+const workTheWipedJob = async () => {
+  const job = WIPED;
+  await stage(job);
+
+  const before = await statement(job, 'SELECT COUNT(*) FROM grades');
+  const wiped = await statement(job, 'DELETE FROM grades');
+  const after = await statement(job, 'SELECT * FROM grades');
+  const mailed = await mailClient(job, `gone\n${job.wallet}\n`);
+  check(
+    'a DELETE with no WHERE lands, and the client says the records do not look right',
+    before.status === 200 &&
+      wiped.status === 200 &&
+      wiped.failed === false &&
+      !after.output.includes('|') &&
+      mailed.status === 200 &&
+      (await lastReply(job)).startsWith(RECORDS_WRONG),
+    `delete ${wiped.status}, mail ${mailed.status}`,
+  );
+  check(
+    'the wiped erase job stays accepted and pays nothing',
+    (await stateOf(job)) === 'accepted' && (await balanceOf(job.wallet)) <= 0,
+    `${await stateOf(job)}`,
+  );
+};
+
+/** The failing grade deleted on the one row: paid once, then closed. */
+const workTheErasedJob = async () => {
+  const job = ERASED;
+  await stage(job);
+  const { target } = missionRecords(job.missionNumber);
+  const pay = missionTerms(job.missionNumber).pay;
+
+  const shown = runHireme(['show', job.address]);
+  check(
+    'show names an erase job and the row it asks gone',
+    shown.includes('Kind:     tamper, school, erase') &&
+      shown.includes(`Erase:    ${target.student}, ${target.subject} (F)`),
+    shown.split('\n').find((line) => line.includes('Kind:')) ?? 'no Kind line',
+  );
+
+  const before = await statement(
+    job,
+    `SELECT grade FROM grades WHERE student = '${target.student}' AND subject = '${target.subject}'`,
+  );
+  check(
+    'the row the briefing names holds a failing grade',
+    before.status === 200 && before.output.includes('| F '),
+    `status ${before.status}`,
+  );
+
+  const deleted = await statement(job, rightDelete(job.missionNumber));
+  const paid = await mailClient(job, `it is gone\n${job.wallet}\n`);
+  check(
+    'the right DELETE and any mail complete the job and pay the quoted pay',
+    deleted.status === 200 &&
+      deleted.failed === false &&
+      paid.status === 200 &&
+      (await stateOf(job)) === 'completed' &&
+      (await balanceOf(job.wallet)) === pay,
+    `delete ${deleted.status}, mail ${paid.status}, balance ${await balanceOf(job.wallet)} (want ${pay})`,
+  );
+  check(
+    'the client says the records look right and names the wallet',
+    (await lastReply(job)).startsWith(
+      `The records look right. §${pay.toLocaleString('en-US')} sent to ${job.wallet}.`,
+    ),
+    'reply read',
+  );
+
+  const again = await mailClient(job, `once more\n${job.wallet}\n`);
+  check(
+    'a second mail on the erase job is told it is closed and pays nothing more',
+    again.status === 200 &&
+      (await lastReply(job)).startsWith(CLOSED) &&
+      (await balanceOf(job.wallet)) === pay,
+    `status ${again.status}, balance ${await balanceOf(job.wallet)}`,
+  );
+};
+
 const main = async () => {
   if (homeEssid === undefined || ALL_JOBS.some((job) => job.address === '')) {
     console.error('the world does not hold what this check assumes');
@@ -561,6 +677,8 @@ const main = async () => {
   await workThePaidJob();
   await workTheBrickedJob();
   await workTheInsideJob();
+  await workTheWipedJob();
+  await workTheErasedJob();
 
   await cleanup();
 

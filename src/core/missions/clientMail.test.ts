@@ -5,7 +5,7 @@ import { missionKey } from './missionSecret.js';
 import { missionTerms, type MissionClient } from './missionTerms.js';
 import { missionKind, missionShape } from './missionShape.js';
 import { missionFiles } from './missionLeak.js';
-import { missionRecords } from './missionRecords.js';
+import { missionAction, missionRecords } from './missionRecords.js';
 import { runStatement } from '../mysql/statements.js';
 import { DATADIR_PATH, databaseIn } from '../mysql/datadir.js';
 import { buildMissionKeyBoxFs } from '../generation/missionKeyBoxFs.js';
@@ -410,10 +410,15 @@ describe('a mail on a tamper job', () => {
   /** A tamper job whose records box needs no secret to lay, and its client. */
   const TAMPER_JOB = ALL_HOST_NUMBERS.find((missionNumber) => {
     const shape = missionShape(missionNumber);
-    return shape.kind === 'tamper' && shape.keyBox.route === 'hydra';
+    return (
+      shape.kind === 'tamper' &&
+      shape.keyBox.route === 'hydra' &&
+      missionAction(missionNumber) === 'change'
+    );
   })!;
   const TAMPER_TERMS = missionTerms(TAMPER_JOB);
   const { target } = missionRecords(TAMPER_JOB);
+  if (target.action !== 'change') throw new Error('the job asks for no change');
 
   /** The records box as the server lays it, after the application account ran `lines`. */
   const recordsBoxAfter = (...lines: readonly string[]): Directory => {

@@ -142,8 +142,9 @@ const insideLines = (what: string): readonly string[] => [
   '',
 ];
 
-/** What the job is and how it is paid: a key fetched and mailed back, or a record changed and
- *  the client told. A tamper job names whose record and what it should say, never where. */
+/** What the job is and how it is paid: a key fetched and mailed back, or a record changed or
+ *  erased and the client told. A tamper job names whose record and what it should say, or that
+ *  it should not exist, never where. */
 const jobLines = (
   missionNumber: number,
   terms: MissionTerms,
@@ -152,7 +153,9 @@ const jobLines = (
   if (terms.job === 'tamper') {
     const { target } = missionRecords(missionNumber);
     return [
-      `Their records give ${target.student} a ${target.from} in ${target.subject}. It should be a ${target.to}.`,
+      target.action === 'erase'
+        ? `There is a failing ${target.subject} grade for ${target.student}. It should not exist.`
+        : `Their records give ${target.student} a ${target.from} in ${target.subject}. It should be a ${target.to}.`,
       '',
       ...(inside ? insideLines('The records are') : []),
       'Mail this address when it is done, with your wallet address.',

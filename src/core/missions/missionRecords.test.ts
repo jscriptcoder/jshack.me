@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { missionRecords, recordsLookRight } from './missionRecords.js';
+import { missionRecords, recordsLookRight, type RecordTarget } from './missionRecords.js';
 import { missionFiles } from './missionLeak.js';
 import { missionShape } from './missionShape.js';
 import { mysqlTableSchema, type MysqlDatabase } from '../mysql/types.js';
@@ -16,6 +16,30 @@ const SAMPLE_NUMBERS = Array.from({ length: 400 }, (_unused, index) => index * 4
 );
 
 const LETTER_GRADES = ['A', 'B', 'C', 'D', 'F'];
+
+const isChange = (missionNumber: number): boolean =>
+  missionRecords(missionNumber).target.action === 'change';
+
+const CHANGE_NUMBERS = SAMPLE_NUMBERS.filter(isChange);
+const ERASE_NUMBERS = SAMPLE_NUMBERS.filter((missionNumber) => !isChange(missionNumber));
+
+/** The row a change job asks changed, failing the test on an erase job. */
+const changeTargetOf = (
+  missionNumber: number,
+): Extract<RecordTarget, { readonly action: 'change' }> => {
+  const { target } = missionRecords(missionNumber);
+  if (target.action !== 'change') throw new Error(`contract ${missionNumber} is not a change`);
+  return target;
+};
+
+/** The row an erase job asks gone, failing the test on a change job. */
+const eraseTargetOf = (
+  missionNumber: number,
+): Extract<RecordTarget, { readonly action: 'erase' }> => {
+  const { target } = missionRecords(missionNumber);
+  if (target.action !== 'erase') throw new Error(`contract ${missionNumber} is not an erase`);
+  return target;
+};
 
 describe('missionRecords', () => {
   it('draws the same records for the same number', () => {
@@ -80,9 +104,15 @@ describe('missionRecords', () => {
     expect(new Set(others)).toEqual(new Set(LETTER_GRADES));
   });
 
-  it('names a target row holding the old grade, the only row for that student and subject', () => {
-    for (const missionNumber of SAMPLE_NUMBERS) {
-      const { grades, target } = missionRecords(missionNumber);
+  it('asks about half the contracts to erase a record and the rest to change one', () => {
+    expect(ERASE_NUMBERS.length).toBeGreaterThan(SAMPLE_NUMBERS.length * 0.4);
+    expect(CHANGE_NUMBERS.length).toBeGreaterThan(SAMPLE_NUMBERS.length * 0.4);
+  });
+
+  it('names a change target holding the old grade, the only row for that student and subject', () => {
+    for (const missionNumber of CHANGE_NUMBERS) {
+      const { grades } = missionRecords(missionNumber);
+      const target = changeTargetOf(missionNumber);
       const matching = grades.rows.filter(
         ({ student, subject }) => student === target.student && subject === target.subject,
       );
@@ -93,8 +123,24 @@ describe('missionRecords', () => {
     }
   });
 
+  // The briefing calls the grade failing, so the row it names must hold the one failing grade.
+  it('names an erase target holding an F, the only row for that student and subject', () => {
+    for (const missionNumber of ERASE_NUMBERS) {
+      const { grades } = missionRecords(missionNumber);
+      const target = eraseTargetOf(missionNumber);
+      const matching = grades.rows.filter(
+        ({ student, subject }) => student === target.student && subject === target.subject,
+      );
+
+      expect(target.grade).toBe('F');
+      expect(matching, `contract ${missionNumber}`).toEqual([
+        { id: target.rowId, student: target.student, subject: target.subject, grade: 'F' },
+      ]);
+    }
+  });
+
   it('asks for a failing or middling grade to be raised to an A or a B', () => {
-    const asked = SAMPLE_NUMBERS.map((missionNumber) => missionRecords(missionNumber).target);
+    const asked = CHANGE_NUMBERS.map(changeTargetOf);
 
     expect(new Set(asked.map(({ from }) => from))).toEqual(new Set(['C', 'D', 'F']));
     expect(new Set(asked.map(({ to }) => to))).toEqual(new Set(['A', 'B']));
@@ -113,32 +159,35 @@ describe('missionRecords', () => {
   });
 });
 
-describe('recordsLookRight', () => {
-  /** A tamper job whose records box falls to hydra: its datadir is laid with no secret. */
-  const [TAMPER_NUMBER] = SAMPLE_NUMBERS.filter((missionNumber) => {
+/** A tamper job whose records box falls to hydra, so its datadir is laid with no secret. */
+const hydraTamperNumber = (numbers: readonly number[]): number => {
+  const [found] = numbers.filter((missionNumber) => {
     const shape = missionShape(missionNumber);
     return shape.kind === 'tamper' && shape.keyBox.route === 'hydra';
   });
-  if (TAMPER_NUMBER === undefined) throw new Error('no tamper hydra contract in the sample');
-  const { target } = missionRecords(TAMPER_NUMBER);
-  const AT_TARGET = `WHERE student = '${target.student}' AND subject = '${target.subject}'`;
+  if (found === undefined) throw new Error('no tamper hydra contract in the sample');
+  return found;
+};
 
-  /** The records box as the server lays it, before anybody has touched it. */
-  const laidBox = (): Directory =>
+const withDatadir = (box: Directory, content: string): Directory =>
+  withFiles(box, [[DATADIR_PATH, file(content, DATADIR_FILE)]]);
+
+type Rows = readonly Record<string, unknown>[];
+
+/** A records box as the server lays it; as it stands after the application account ran each
+ *  statement, each one landing; and after that with its grades rewritten by hand, as a root on
+ *  the box can. */
+const recordsBoxOf = (missionNumber: number) => {
+  const laid = (): Directory =>
     withFiles(
-      buildMissionKeyBoxFs(TAMPER_NUMBER),
+      buildMissionKeyBoxFs(missionNumber),
       missionFiles(
-        { missionNumber: TAMPER_NUMBER, role: 'key' },
+        { missionNumber, role: 'key' },
         { keySecret: undefined, rawSecrets: undefined },
       ).map(({ path, content, perms }) => [path, file(content, perms)] as const),
     );
-
-  const withDatadir = (box: Directory, content: string): Directory =>
-    withFiles(box, [[DATADIR_PATH, file(content, DATADIR_FILE)]]);
-
-  /** The laid box after the application account ran each statement, each one landing. */
-  const boxAfter = (...lines: readonly string[]): Directory => {
-    const laid = laidBox();
+  const after = (...lines: readonly string[]): Directory => {
+    const box = laid();
     const database = lines.reduce<MysqlDatabase | null>((current, line) => {
       if (current === null) return null;
       const result = runStatement({
@@ -150,9 +199,30 @@ describe('recordsLookRight', () => {
       });
       if (result.database === undefined) throw new Error(`did not land: ${line}`);
       return result.database;
-    }, databaseIn(laid));
-    return withDatadir(laid, JSON.stringify(database));
+    }, databaseIn(box));
+    return withDatadir(box, JSON.stringify(database));
   };
+  const rewritten = (lines: readonly string[], rewrite: (rows: Rows) => Rows): Directory => {
+    const database = databaseIn(after(...lines));
+    if (database === null) throw new Error('the datadir could not be read');
+    const grades = database.tables['grades'];
+    if (grades === undefined) throw new Error('the datadir has no grades');
+    return withDatadir(
+      laid(),
+      JSON.stringify({
+        ...database,
+        tables: { ...database.tables, grades: { ...grades, rows: rewrite(grades.rows) } },
+      }),
+    );
+  };
+  return { laid, after, rewritten };
+};
+
+describe('recordsLookRight on a change job', () => {
+  const TAMPER_NUMBER = hydraTamperNumber(CHANGE_NUMBERS);
+  const target = changeTargetOf(TAMPER_NUMBER);
+  const AT_TARGET = `WHERE student = '${target.student}' AND subject = '${target.subject}'`;
+  const { laid: laidBox, after: boxAfter, rewritten } = recordsBoxOf(TAMPER_NUMBER);
 
   /** A grade that is neither the old one nor the one asked for. */
   const THIRD_GRADE = ['A', 'B', 'C', 'D', 'F'].find(
@@ -255,20 +325,9 @@ describe('recordsLookRight', () => {
     ).toBe(false);
   });
 
-  /** The right change made, then the datadir rewritten by hand, as a root on the box can. */
-  const boxRewritten = (
-    rewrite: (rows: readonly Record<string, unknown>[]) => readonly Record<string, unknown>[],
-  ): Directory => {
-    const database = databaseIn(boxAfter(`UPDATE grades SET grade = '${target.to}' ${AT_TARGET}`));
-    if (database === null) throw new Error('the datadir could not be read');
-    const grades = database.tables['grades'];
-    if (grades === undefined) throw new Error('the datadir has no grades');
-    const rewritten = { ...grades, rows: rewrite(grades.rows) };
-    return withDatadir(
-      laidBox(),
-      JSON.stringify({ ...database, tables: { ...database.tables, grades: rewritten } }),
-    );
-  };
+  /** The right change made, then the datadir rewritten by hand. */
+  const boxRewritten = (rewrite: (rows: Rows) => Rows): Directory =>
+    rewritten([`UPDATE grades SET grade = '${target.to}' ${AT_TARGET}`], rewrite);
 
   it('reads right after the change when the datadir is rewritten by hand unchanged', () => {
     expect(
@@ -341,5 +400,96 @@ describe('recordsLookRight', () => {
 
     expect(databaseIn(removed)).toBeNull();
     expect(recordsLookRight(TAMPER_NUMBER, removed)).toBe(false);
+  });
+});
+
+describe('recordsLookRight on an erase job', () => {
+  const ERASE_NUMBER = hydraTamperNumber(ERASE_NUMBERS);
+  const target = eraseTargetOf(ERASE_NUMBER);
+  const AT_TARGET = `WHERE student = '${target.student}' AND subject = '${target.subject}'`;
+  const RIGHT_DELETE = `DELETE FROM grades ${AT_TARGET}`;
+  const OTHER_ID = target.rowId === 1 ? 2 : 1;
+  const { laid, after, rewritten } = recordsBoxOf(ERASE_NUMBER);
+
+  it('reads right once the target row is gone and nothing else moved', () => {
+    expect(recordsLookRight(ERASE_NUMBER, after(RIGHT_DELETE))).toBe(true);
+  });
+
+  it('reads right when the target row was deleted by its id', () => {
+    expect(
+      recordsLookRight(ERASE_NUMBER, after(`DELETE FROM grades WHERE id = '${target.rowId}'`)),
+    ).toBe(true);
+  });
+
+  it('reads right after the delete when the datadir is rewritten by hand unchanged', () => {
+    expect(
+      recordsLookRight(
+        ERASE_NUMBER,
+        rewritten([RIGHT_DELETE], (rows) => rows),
+      ),
+    ).toBe(true);
+  });
+
+  it('reads wrong while the target row is still there', () => {
+    expect(recordsLookRight(ERASE_NUMBER, laid())).toBe(false);
+  });
+
+  it('reads wrong when every row was deleted', () => {
+    expect(recordsLookRight(ERASE_NUMBER, after('DELETE FROM grades'))).toBe(false);
+  });
+
+  it('reads wrong when the target was given a passing grade instead of deleted', () => {
+    expect(
+      recordsLookRight(ERASE_NUMBER, after(`UPDATE grades SET grade = 'A' ${AT_TARGET}`)),
+    ).toBe(false);
+  });
+
+  it('reads wrong when another row went with the target', () => {
+    expect(
+      recordsLookRight(
+        ERASE_NUMBER,
+        after(RIGHT_DELETE, `DELETE FROM grades WHERE id = '${OTHER_ID}'`),
+      ),
+    ).toBe(false);
+  });
+
+  it('reads wrong when only another row is gone', () => {
+    expect(
+      recordsLookRight(ERASE_NUMBER, after(`DELETE FROM grades WHERE id = '${OTHER_ID}'`)),
+    ).toBe(false);
+  });
+
+  it('reads wrong when the target is gone and another row was touched', () => {
+    expect(
+      recordsLookRight(
+        ERASE_NUMBER,
+        after(RIGHT_DELETE, `UPDATE grades SET grade = 'A' WHERE id = '${OTHER_ID}'`),
+      ),
+    ).toBe(false);
+  });
+
+  it("reads wrong when a row was added in the target row's place", () => {
+    expect(
+      recordsLookRight(
+        ERASE_NUMBER,
+        rewritten([RIGHT_DELETE], (rows) => [
+          ...rows,
+          { id: target.rowId, student: target.student, subject: 'Latin', grade: 'A' },
+        ]),
+      ),
+    ).toBe(false);
+  });
+
+  it('reads wrong when the grades table is gone', () => {
+    const database = databaseIn(laid());
+    if (database === null) throw new Error('the datadir could not be read');
+    const { grades: _grades, ...others } = database.tables;
+
+    expect(
+      recordsLookRight(
+        ERASE_NUMBER,
+        withDatadir(laid(), JSON.stringify({ ...database, tables: others })),
+      ),
+    ).toBe(false);
   });
 });
