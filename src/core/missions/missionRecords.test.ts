@@ -32,7 +32,21 @@ describe('missionRecords', () => {
 
       expect(mysqlTableSchema.parse(grades)).toEqual(grades);
       expect(grades.columns.map(({ name }) => name)).toEqual(['id', 'student', 'subject', 'grade']);
-      expect(grades.columns[0]).toMatchObject({ type: 'INT', key: 'PRI' });
+      expect(grades.columns).toEqual([
+        { name: 'id', type: 'INT', nullable: false, key: 'PRI' },
+        { name: 'student', type: 'VARCHAR', nullable: false },
+        { name: 'subject', type: 'VARCHAR', nullable: false },
+        { name: 'grade', type: 'VARCHAR', nullable: false },
+      ]);
+    }
+  });
+
+  it('names every student by a first and last name and every subject by one word', () => {
+    for (const missionNumber of SAMPLE_NUMBERS) {
+      for (const { student, subject } of missionRecords(missionNumber).grades.rows) {
+        expect(student).toMatch(/^[A-Z][a-z]+ [A-Z][a-z]+$/);
+        expect(subject).toMatch(/^[A-Z][a-z]+$/);
+      }
     }
   });
 
@@ -55,6 +69,15 @@ describe('missionRecords', () => {
       expect(new Set(pairs).size, `contract ${missionNumber}`).toBe(rows.length);
       for (const { grade } of rows) expect(LETTER_GRADES).toContain(grade);
     }
+  });
+
+  it('leaves every other row the grade it drew, A and B among them', () => {
+    const others = SAMPLE_NUMBERS.flatMap((missionNumber) => {
+      const { grades, target } = missionRecords(missionNumber);
+      return grades.rows.filter(({ id }) => id !== target.rowId).map(({ grade }) => grade);
+    });
+
+    expect(new Set(others)).toEqual(new Set(LETTER_GRADES));
   });
 
   it('names a target row holding the old grade, the only row for that student and subject', () => {
@@ -227,6 +250,54 @@ describe('recordsLookRight', () => {
         boxAfter(
           `UPDATE grades SET grade = '${target.to}' ${AT_TARGET}`,
           `DELETE FROM grades WHERE id = '${otherId}'`,
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  /** The right change made, then the datadir rewritten by hand, as a root on the box can. */
+  const boxRewritten = (
+    rewrite: (rows: readonly Record<string, unknown>[]) => readonly Record<string, unknown>[],
+  ): Directory => {
+    const database = databaseIn(boxAfter(`UPDATE grades SET grade = '${target.to}' ${AT_TARGET}`));
+    if (database === null) throw new Error('the datadir could not be read');
+    const grades = database.tables['grades'];
+    if (grades === undefined) throw new Error('the datadir has no grades');
+    const rewritten = { ...grades, rows: rewrite(grades.rows) };
+    return withDatadir(
+      laidBox(),
+      JSON.stringify({ ...database, tables: { ...database.tables, grades: rewritten } }),
+    );
+  };
+
+  it('reads right after the change when the datadir is rewritten by hand unchanged', () => {
+    expect(
+      recordsLookRight(
+        TAMPER_NUMBER,
+        boxRewritten((rows) => rows),
+      ),
+    ).toBe(true);
+  });
+
+  it('reads wrong when a row was added beside the change', () => {
+    expect(
+      recordsLookRight(
+        TAMPER_NUMBER,
+        boxRewritten((rows) => [
+          ...rows,
+          { id: rows.length + 1, student: target.student, subject: 'Latin', grade: 'A' },
+        ]),
+      ),
+    ).toBe(false);
+  });
+
+  it('reads wrong when another row gained a cell the records never had', () => {
+    const otherId = target.rowId === 1 ? 2 : 1;
+    expect(
+      recordsLookRight(
+        TAMPER_NUMBER,
+        boxRewritten((rows) =>
+          rows.map((row) => (row['id'] === otherId ? { ...row, note: 'retake' } : row)),
         ),
       ),
     ).toBe(false);

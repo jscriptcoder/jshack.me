@@ -1,7 +1,8 @@
 # missions architecture (as-built)
 
 How a player takes paid work: a contract offered on their hireme.io board, accepted with a form,
-briefed by mail, worked on a network of its own and paid by mailing the client the key. This is
+briefed by mail, worked on a network of its own and paid by mailing the client the key — or, on
+a tamper job, by changing the client's records and mailing them anything. This is
 the shipped model of the missions epic, complete at **v0.441.0** (four slices, v0.438.0–v0.441.0,
 PRs #746–#749, 2026-11-01 to 2026-11-03), with the routes that leak a login added by the epic
 that followed (four slices, v0.442.0–v0.445.0, PRs #750–#753, 2026-11-03 to 2026-11-04), and a
@@ -30,11 +31,16 @@ From that follow the rest:
 - **The network is persistent and shared.** Whoever holds the address reaches it: the
   contractor, someone they told, or someone who read it where it leaked. What one visitor changes
   stays for the next. Sharing an address is how a mission is shared; there is no other code.
-- **The proof is a key, not the network's state.** Completion compares the mailed key with the
-  contract's key and never reads the boxes, so nothing a later visitor does there can break a
+- **A key job's proof is a key, not the network's state.** Completion compares the mailed key with
+  the contract's key and never reads the boxes, so nothing a later visitor does there can break a
   completion.
-- **The key comes from a server-only secret**, because the generator ships in the bundle and the
-  seed is public.
+- **A tamper job's proof is the network's state.** The job asks for a record changed, so the
+  client reads its own records box on every mail and pays when the records read right. What a
+  later visitor does there can break the job until it is paid, and never after: a completed job is
+  closed without reading the box. See [Tamper jobs](#tamper-jobs).
+- **A key comes from a server-only secret**, because the generator ships in the bundle and the
+  seed is public. A tamper job needs none: what it asks for is in its briefing, and the box only
+  has to read right.
 
 ## 1. The block and the lookup
 
@@ -488,6 +494,54 @@ boards' server's fetch handler (`resolveHttpFetch.ts`); the doors and their word
 - **A payout shows on chainit as any mint does**: a mint to an address, never which job paid it.
   Recognition for completed jobs (the other half of a reward) is not built.
 
+## Tamper jobs
+
+The second kind of contract (v0.454.0): a school wants one grade in its records changed. The
+number decides the kind on its own stream, `mission-kind-<n>`, half and half
+(`missionKind`, `core/missions/missionShape.ts`). A key number's shape and terms are exactly what
+they were before the kind existed; the kind is a new stream, never a new draw on an old one.
+
+- **The records box is the key box with records instead of a key.** Same octet, route, decoys,
+  front box and hostname (`<stem>-files`); storage is always the database. It runs mysqld as
+  database key storage does — a crackable application account, a shut database root, `:3306`
+  forwarded on single-hop, the inside door on two-hop — and holds no key file and no `api_keys`, so
+  laying it in needs no `MISSION_KEY_SECRET`. On the mysql leak route its datadir also holds
+  `settings`.
+- **The records** (`missionRecords`, `core/missions/missionRecords.ts`, stream
+  `mission-records-<n>`): a `grades` table (`id`, `student`, `subject`, `grade`) of 5–8 students
+  by 4–5 subjects, 20–40 rows. One row is the target; its grade is drawn from C, D or F, and the
+  grade asked for from A or B.
+- **The terms**: `<Client> — alter a school record — §<pay>`, 1,000–2,500 single-hop, and
+  `alter an internal school record`, 2,500–5,000 two-hop, rounded to 50; the target is
+  `<Stem> Academy`. `MissionTerms` is a union on `job: 'key' | 'tamper'`, and only a key job has
+  `keyOpens`.
+- **The briefing** names the student, the subject, the grade they have and the grade they should
+  have, and the address: "Their records give Amara Okafor a D in Chemistry. It should be a B."
+  Never the row, the table, the box or the path. A two-hop briefing says the records are on a machine
+  inside their network. It ends "No change, no money. No wallet, no money."
+- **Any mail from the contractor reads the box.** `answerClientMail` asks for the records box
+  (`readRecordsBox`, wired by `handleResolveMail` through `generatedLanBox`, so the read sees the
+  lay-in, every journal row and whether the box still boots). `recordsLookRight` passes when the
+  table has exactly the generated rows in order, every cell equal as text to the generated one,
+  except the target's grade, which must equal the grade asked for after trimming, case-sensitive.
+  The mail's words do not matter; only its wallet does.
+
+  | The box                                                            | The reply                                                    | What changes              |
+  | ------------------------------------------------------------------ | ------------------------------------------------------------ | ------------------------- |
+  | The records read right, with a wallet                              | "The records look right. §1,450 sent to jsc…. Pleasure …"    | completed, the pay minted |
+  | The records read right, no wallet                                  | "The records look right. You sent no wallet, so there is …"  | completed, nothing minted |
+  | Unchanged, a third value, another row touched or gone, no `grades` | "Our records don't look right. No change, no money."         | nothing                   |
+  | The box does not boot, or has no datadir                           | "Our records don't look right. No change, no money."         | nothing                   |
+  | A completed job                                                    | "That job is already closed." (the box is not read)          | nothing                   |
+  | The read itself fails                                              | nothing: 500, as any store failure                           | nothing                   |
+
+- **A careless statement costs the job's pay until it is undone.** An `UPDATE` with no `WHERE`
+  gives every row the grade, and the records no longer read right; putting the other rows back
+  makes them read right again. A visitor who bricks the box before the contractor mails costs the
+  contractor the job, which is the shared network working as designed.
+- `hireme.ts show` adds `Kind: tamper, school, change` and, in place of the key lines, the storage
+  (`database, table grades`), the datadir's path and the change (`student, subject: from -> to`).
+
 ## 7. What a root finds
 
 On the boards' server, beside `/etc/hireme/boards`, **`/etc/hireme/contracts`**: one
@@ -528,8 +582,9 @@ of its row and the patches it left, as the wire-checks' cleanup does.
 The client carries the 195 block in `isPublicIp`, the `whois` record and the network's shape.
 The key, its paths, the terms, the board, the briefing, the replies and the root view are built
 on the server only. The leak routes added the slice's hashes and the route shapes, and the two-hop
-template the front box and the inside decoys. Each feature raises the main chunk's ceiling by its
-measured growth; at v0.452.0 the chunk is 299,314 B gzipped against a ceiling of 299,475 B.
+template the front box and the inside decoys, and the tamper kind its draw and the records'
+pools. Each feature raises the main chunk's ceiling by its measured growth; at v0.454.0 the chunk
+is 299,528 B gzipped against a ceiling of 299,575 B.
 
 ## 10. Proving it
 
@@ -553,7 +608,10 @@ measured growth; at v0.452.0 the chunk is 299,314 B gzipped against a ceiling of
   end on two staged contracts, then the hydra route paid beside three decoys); and
   `testMissionTwoHop.ts` (64: one web-fronted contract per key-box route, the key box absent from
   a public scan, the front route worked to root, the LAN scanned from it, every inside decoy worked
-  to its empty end, the key box's route worked from the hop, the key paid once). The board and pay
+  to its empty end, the key box's route worked from the hop, the key paid once);
+  `testMissionTamper.ts` (15: `show`, the scan, a mail before any change and after an `UPDATE`
+  with no `WHERE` refused, the right `UPDATE` paid once then closed, a box bricked by its own root
+  refused, and a two-hop job changed from a root shell on the front box and paid). The board and pay
   checks each post a two-hop offer on a chosen number (21 and 17 checks at v0.452.0). The decoys'
   doors are also proven in `decoyMissionDoors.test.ts`.
 - **Mutation**: every slice's scoped run left no survivor but equivalents.
@@ -615,7 +673,8 @@ needs attachments; recognition for completed jobs; a second, darknet operator.
   doors) and `api/patches.ts` (`missionFilePathsOf`).
 - **missions** (`core/missions/`): `missionNetwork.ts`, `missionShape.ts`, `pools.ts`,
   `leakablePool.ts` (bundle); `missionSecret.ts`, `missionLeak.ts`, `missionTerms.ts`,
-  `clientMail.ts`, `contractsList.ts`, `hiremeOrders.ts` (server and scripts).
+  `clientMail.ts`, `contractsList.ts`, `hiremeOrders.ts` (server and scripts); `missionRecords.ts`
+  (a tamper job's records and the check).
 - **The lay-in and the doors**: `core/network/missionBoxFiles.ts`, `core/sessions/doorAdmission.ts`,
   `core/generation/missionKeyBoxFs.ts`, `core/crypto/gpgCodec.ts` (the cipher the server seals a
   gpg contract's key with).
