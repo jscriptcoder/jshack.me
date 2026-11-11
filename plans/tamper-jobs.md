@@ -1,8 +1,9 @@
 # Plan: a contract that asks for a record to be changed
 
 **Status:** Grilled and planned 2026-11-11. Four slices, one PR each, merged in order. Slice 1
-merged (#766, v0.454.0); slice 2 merged (#767, v0.455.0). Slice 3 in progress on
-`feat/tamper-csv`; its criteria were approved with the detail written into the slice below.
+merged (#766, v0.454.0); slice 2 merged (#767, v0.455.0); slice 3 merged (#768, v0.456.0).
+Slice 4 in progress on `feat/tamper-settings`; its criteria were approved with the detail written
+into the slice below.
 
 A second kind of contract. Every contract today is a key job: find the key, mail it back, and the
 client compares the string. A **tamper job** asks the player to change or erase one record in the
@@ -371,21 +372,54 @@ and vehicle registry jobs beside the school's, and each records box holds the ta
 neighbours to look past.
 **Class:** behavior change. **Branch:** `feat/tamper-settings`.
 
-**Acceptance criteria**
+**Acceptance criteria** (approved 2026-11-11, detail settled with the owner)
 
-- A tamper contract draws one of the eight settings in the grill's table, each with its target
-  name, board noun, table and columns, change column and values, erase row (none for Payroll),
-  and 3–5 pitches. Payroll draws change only.
-- Each setting lays 2–3 tables (or CSVs in the one directory) with the target among them;
-  neighbours share no person with the target table, and the check reads only the target.
-- Every setting meets every storage, action (where allowed), route and two-hop placement; a
-  2,000-number test proves each target is unique, its old value present, and its new value
-  different from its old.
-- Club ages are numbers in the database and digits in the CSV; the check compares them as text.
+- **The draw.** A tamper contract draws one of eight settings, each equally likely, on a stream of
+  its own (`mission-setting-<n>`). Key contracts are unchanged to the byte (2,000 deep-equal a
+  fixture captured from `main`). A tamper contract keeps its kind, storage, topology, route,
+  decoys, two-hop placement, client and pay; only the target name, board line, pitch and records
+  follow the setting. Payroll is change-only: an erase drawn on a Payroll contract is a change.
+- **The content**, in the grill's table with these values:
+
+  | Setting    | Target           | Board noun       | Table / columns                               | Change                  | Erase                |
+  | ---------- | ---------------- | ---------------- | --------------------------------------------- | ----------------------- | -------------------- |
+  | School     | Academy          | school           | `grades` id, student, subject, grade          | grade C/D/F → A/B       | a failing grade      |
+  | Police     | Police Dept      | police           | `warrants` id, name, dob, offence, status     | `active` → `cleared`    | an active warrant    |
+  | Payroll    | Holdings         | payroll          | `payroll` id, name, dept, salary              | salary raised 10k–30k   | —                    |
+  | DMV        | Motor Registry   | motor registry   | `offences` id, licence, name, offence, points | points 3–12 → 0         | an offence           |
+  | Tournament | Esports League   | tournament       | `scores` id, player, game, score              | score raised 300–900    | a rival's score      |
+  | Admissions | University       | admissions       | `applicants` id, name, dob, program, status   | `rejected` → `admitted` | an applicant         |
+  | Club       | Members Club     | club             | `members` id, name, age, tier, status         | age 17 → 21             | a `banned` member    |
+  | Registry   | Vehicle Registry | vehicle registry | `vehicles` plate, owner, make, model, status  | owner → a new name      | the `stolen` vehicle |
+
+  Registry gains a `status` column (`registered` / `stolen`, the target the only `stolen` row) so
+  the erase is a flag, not just any car. Each setting has 3–5 pitches per action it allows (School
+  keeps its own). The board line takes its article (`alter an admissions record`,
+  `erase an internal police record`).
+- **The rows.** Each target table holds 20–40 rows; names are unique within a table (name and
+  subject for School), and plates are unique. People come from one shared pool large enough for
+  that. The briefing names who, which field and old → new, or that the record should not exist;
+  never the row id, table, file, box or path. The grade sentence takes its article ("an A").
+- **`hireme.ts show`** prints `Kind: tamper, <setting>, <action>`, `Storage: database, table
+  <table>` or `file, <path>`, and the setting's change or erase line.
+- **Neighbours.** Every setting lays two neighbour tables beside its target (School `attendance`,
+  `staff`; Police `incidents`, `officers`; Payroll `departments`, `expenses`; DMV `inspections`,
+  `examiners`; Tournament `teams`, `matches`; Admissions `programs`, `staff`; Club `events`,
+  `staff`; Registry `dealers`, `inspections`), 5–15 rows each, drawn on a stream of their own so the
+  target table does not move, and sharing no person with the target table. A database job holds
+  all three in the one datadir (`SHOW TABLES` lists them); a file job holds three root-only CSVs
+  together in `/srv/<stem>/records/`. The check reads only the target: a neighbour wrecked or
+  deleted still passes when the target reads right.
+- **Coverage.** Every setting meets every storage, action (where allowed), route and two-hop
+  placement. A 2,000-number test proves each contract's target fits exactly one row, its old value
+  is present and its new value differs from its old.
+- **Numbers.** Numeric columns (id, salary, points, score, age) are numbers in the database and
+  digits in the CSV; the check compares them as text (`21` and `'21'` pass, `21.0` fails).
 
 **Gates:** the usual; `testMissionTamper.ts` runs one contract per setting through its check
 (changed by the script as root in the datadir or CSV, not by hand play). Mutation on the changed
-lines. v0.457.0.
+lines. `missions-architecture.md` updated. The bundle ceiling is raised if the content needs it.
+v0.457.0.
 
 ### Close-out
 
