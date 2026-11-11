@@ -11,7 +11,7 @@ import { missionTerms } from '../missions/missionTerms.js';
 import { missionShape } from '../missions/missionShape.js';
 import { missionEssid } from '../missions/missionNetwork.js';
 import { missionFilesForBox } from '../missions/missionLeak.js';
-import { missionRecords } from '../missions/missionRecords.js';
+import { missionAction, missionRecords } from '../missions/missionRecords.js';
 import { generateHomeLan } from '../generation/generateHomeLan.js';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
 import { withMissionFiles } from '../network/missionBoxFiles.js';
@@ -565,7 +565,11 @@ describe('a mail on a tamper job is answered from its records box', () => {
     (missionNumber) => {
       if (missionNumber % 256 < 2 || missionNumber % 256 > 254) return false;
       const shape = missionShape(missionNumber);
-      return shape.kind === 'tamper' && shape.keyBox.route === 'hydra';
+      return (
+        shape.kind === 'tamper' &&
+        shape.keyBox.route === 'hydra' &&
+        missionAction(missionNumber) === 'change'
+      );
     },
   )!;
   const TERMS = missionTerms(TAMPER_JOB);
@@ -585,6 +589,7 @@ describe('a mail on a tamper job is answered from its records box', () => {
       baseFs,
     });
     const { target } = missionRecords(TAMPER_JOB);
+    if (target.action !== 'change') throw new Error('the job asks for no change');
     const changed = runStatement({
       database: databaseIn(laid!)!,
       line: `UPDATE grades SET grade = '${target.to}' WHERE student = '${target.student}' AND subject = '${target.subject}'`,

@@ -19,6 +19,7 @@
 
 import { createPrng } from '../generation/prng.js';
 import { missionKind, missionTopology } from './missionShape.js';
+import { missionAction, type RecordAction } from './missionRecords.js';
 
 export type MissionClient = {
   readonly company: string;
@@ -39,7 +40,7 @@ type CommonTerms = {
 };
 
 /** A key job's terms name what the key opens; a tamper job's promise no key at all. The
- *  record a tamper job asks changed is drawn with its records, not here. */
+ *  record a tamper job asks changed or gone is drawn with its records, not here. */
 export type MissionTerms =
   | ({ readonly job: 'key' } & CommonTerms & {
         /** What the key gives its holder, as the briefing names it. */
@@ -105,24 +106,41 @@ const KEY_OPENS: readonly string[] = [
 const SINGLE_HOP = { kind: 'retrieve an access key', minPay: 500, maxPay: 2000 } as const;
 const TWO_HOP = { kind: 'retrieve an internal access key', minPay: 2000, maxPay: 4000 } as const;
 
-/** A record changed is a riskier ask than a key fetched, so it pays more on either hop count,
- *  and a record behind a second box starts where a single-hop one tops out. */
-const SINGLE_HOP_TAMPER = { kind: 'alter a school record', minPay: 1000, maxPay: 2500 } as const;
-const TWO_HOP_TAMPER = {
-  kind: 'alter an internal school record',
-  minPay: 2500,
-  maxPay: 5000,
-} as const;
+/** What a template's job is called on the board and the range its pay is drawn from. */
+type JobTerms = { readonly kind: string; readonly minPay: number; readonly maxPay: number };
 
-/** Why a client wants a school's record changed, in the same two moral lights as a key job's. */
-const SCHOOL_PITCHES: readonly string[] = [
-  'A scholarship hangs on one grade. Our client would like it to hang the other way.',
-  'A parent is paying well for a report card that reads better than the truth.',
-  'One failing grade keeps our client off the team. It should not be failing.',
-  'An admissions offer depends on a transcript that is one grade short.',
-  'A teacher marked our client down out of spite. We are correcting that.',
-  'The grade was entered wrong and the school will not fix it. We will.',
-];
+/** A record changed is a riskier ask than a key fetched, so it pays more on either hop count,
+ *  and a record behind a second box starts where a single-hop one tops out. A record asked gone
+ *  pays as one asked changed: the work and the check are as strict. */
+const TAMPER_JOBS: Readonly<Record<RecordAction, { singleHop: JobTerms; twoHop: JobTerms }>> = {
+  change: {
+    singleHop: { kind: 'alter a school record', minPay: 1000, maxPay: 2500 },
+    twoHop: { kind: 'alter an internal school record', minPay: 2500, maxPay: 5000 },
+  },
+  erase: {
+    singleHop: { kind: 'erase a school record', minPay: 1000, maxPay: 2500 },
+    twoHop: { kind: 'erase an internal school record', minPay: 2500, maxPay: 5000 },
+  },
+};
+
+/** Why a client wants a school's record changed or gone, in the same two moral lights as a key
+ *  job's: a grade raised, or a failing grade that should not exist at all. */
+const SCHOOL_PITCHES: Readonly<Record<RecordAction, readonly string[]>> = {
+  change: [
+    'A scholarship hangs on one grade. Our client would like it to hang the other way.',
+    'A parent is paying well for a report card that reads better than the truth.',
+    'One failing grade keeps our client off the team. It should not be failing.',
+    'An admissions offer depends on a transcript that is one grade short.',
+    'A teacher marked our client down out of spite. We are correcting that.',
+    'The grade was entered wrong and the school will not fix it. We will.',
+  ],
+  erase: [
+    'One failing grade stands between our client and graduation. It should not be there.',
+    'A failed exam our client never sat is on their record. We want it gone.',
+    'Our client needs a clean transcript by the end of the month. One line has to go.',
+    'A failing mark is costing our client a place on the course. Make it disappear.',
+  ],
+};
 
 /** What a school is called, after its stem: "Halden Academy". */
 const SCHOOL_NAME = 'Academy';
@@ -141,13 +159,15 @@ export const missionTerms = (missionNumber: number): MissionTerms => {
   const { stem, frontBoxOctet } = missionTopology(missionNumber);
   const singleHop = frontBoxOctet === null;
   if (missionKind(missionNumber) === 'tamper') {
-    const job = singleHop ? SINGLE_HOP_TAMPER : TWO_HOP_TAMPER;
+    const action = missionAction(missionNumber);
+    const job = TAMPER_JOBS[action][singleHop ? 'singleHop' : 'twoHop'];
     return {
       job: 'tamper',
       client: prng.pick(CLIENTS),
       targetCompany: `${capitalised(stem)} ${SCHOOL_NAME}`,
       kind: job.kind,
-      pitch: prng.pick(SCHOOL_PITCHES),
+      // One draw from either list, so an erase job's pay is drawn where a change job's is.
+      pitch: prng.pick(SCHOOL_PITCHES[action]),
       pay: payFrom(prng, job),
     };
   }

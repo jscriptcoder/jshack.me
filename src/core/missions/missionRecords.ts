@@ -7,7 +7,8 @@
  * it did not. What proves the job is the box, never anything the contractor says.
  *
  * A school's grades: a handful of students, each with one grade in each of a handful of subjects.
- * The client wants one student's failing or middling grade in one subject raised.
+ * The client wants one student's failing or middling grade in one subject raised, or one
+ * student's failing grade in one subject gone.
  */
 
 import { createPrng } from '../generation/prng.js';
@@ -15,19 +16,21 @@ import { databaseIn } from '../mysql/datadir.js';
 import type { Directory } from '../filesystem/types.js';
 import type { MysqlRow, MysqlTable } from '../mysql/types.js';
 
-/** The one row the client wants changed: whose, in what, the grade it holds and the grade it
- *  should. `rowId` is the row's own id, which the briefing never gives. */
-export type RecordChange = {
+/** The one row the client wants changed or gone: whose, in what, and the grade it holds, with
+ *  the grade it should hold on a change. `rowId` is the row's own id, which the briefing never
+ *  gives. */
+export type RecordTarget = {
   readonly rowId: number;
   readonly student: string;
   readonly subject: string;
-  readonly from: string;
-  readonly to: string;
-};
+} & (
+  | { readonly action: 'change'; readonly from: string; readonly to: string }
+  | { readonly action: 'erase'; readonly grade: string }
+);
 
 export type MissionRecords = {
   readonly grades: MysqlTable;
-  readonly target: RecordChange;
+  readonly target: RecordTarget;
 };
 
 /** The people any setting's records name. Drawn without replacement within one table. */
@@ -87,6 +90,19 @@ const LETTER_GRADES: readonly string[] = ['A', 'B', 'C', 'D', 'F'];
 const GRADES_TO_RAISE: readonly string[] = ['C', 'D', 'F'];
 const GRADES_ASKED_FOR: readonly string[] = ['A', 'B'];
 
+/** The grade an erase job's row holds, so the briefing can call it failing. */
+const FAILING_GRADE = 'F';
+
+/** About half the tamper jobs ask for a record gone rather than changed. */
+const ERASE_SHARE = 1 / 2;
+
+export type RecordAction = 'change' | 'erase';
+
+/** Whether a tamper job asks for its record changed or gone. On a stream of its own, so drawing
+ *  it moved no change job's rows, target, grades or terms. */
+export const missionAction = (missionNumber: number): RecordAction =>
+  createPrng(`mission-action-${missionNumber}`).next() < ERASE_SHARE ? 'erase' : 'change';
+
 /** Five to eight students and four or five subjects: twenty to forty rows. */
 const MIN_STUDENTS = 5;
 const MAX_STUDENTS = 8;
@@ -101,6 +117,7 @@ const GRADES_COLUMNS: MysqlTable['columns'] = [
 ];
 
 export const missionRecords = (missionNumber: number): MissionRecords => {
+  const erase = missionAction(missionNumber) === 'erase';
   const prng = createPrng(`mission-records-${missionNumber}`);
   const students = prng.pickN(PEOPLE, prng.nextInt(MIN_STUDENTS, MAX_STUDENTS));
   const subjects = prng.pickN(SUBJECTS, prng.nextInt(MIN_SUBJECTS, MAX_SUBJECTS));
@@ -110,22 +127,20 @@ export const missionRecords = (missionNumber: number): MissionRecords => {
   const targetIndex = prng.nextInt(0, graded.length - 1);
   const from = prng.pick(GRADES_TO_RAISE);
   const to = prng.pick(GRADES_ASKED_FOR);
+  const targetGrade = erase ? FAILING_GRADE : from;
   const rows = graded.map((row, index) => ({
     id: index + 1,
     ...row,
-    grade: index === targetIndex ? from : row.grade,
+    grade: index === targetIndex ? targetGrade : row.grade,
   }));
   const targetRow = graded[targetIndex];
   if (targetRow === undefined) throw new Error(`contract ${missionNumber} drew no target row`);
+  const where = { rowId: targetIndex + 1, student: targetRow.student, subject: targetRow.subject };
   return {
     grades: { columns: GRADES_COLUMNS, rows },
-    target: {
-      rowId: targetIndex + 1,
-      student: targetRow.student,
-      subject: targetRow.subject,
-      from,
-      to,
-    },
+    target: erase
+      ? { ...where, action: 'erase', grade: targetGrade }
+      : { ...where, action: 'change', from, to },
   };
 };
 
@@ -140,19 +155,26 @@ const sameRow = (live: MysqlRow, generated: MysqlRow): boolean => {
 };
 
 /** What the client sees when the contractor mails in: the box's records as they stand now.
- *  They read right when the target row holds the grade asked for, trimmed and case-sensitive,
- *  and every other row is exactly the row the number drew. Anything else reads wrong:
- *  the old grade, another value, a row touched or gone beside it, or no records at all. */
+ *  On a change they read right when the target row holds the grade asked for, trimmed and
+ *  case-sensitive; on an erase, when the target row is gone. Either way every other row must be
+ *  exactly the row the number drew, in the order it drew them. Anything else reads wrong: the
+ *  old grade, another value, a row touched, gone or added beside it, or no records at all. */
 export const recordsLookRight = (missionNumber: number, fs: Directory): boolean => {
   const live = databaseIn(fs)?.tables['grades']?.rows;
   if (live === undefined) return false;
   const { grades, target } = missionRecords(missionNumber);
+  const expected =
+    target.action === 'erase'
+      ? grades.rows.filter((generated) => generated['id'] !== target.rowId)
+      : grades.rows;
   return (
-    live.length === grades.rows.length &&
-    grades.rows.every((generated, index) => {
+    live.length === expected.length &&
+    expected.every((generated, index) => {
       const row = live[index];
       if (row === undefined) return false;
-      if (generated['id'] !== target.rowId) return sameRow(row, generated);
+      if (target.action === 'erase' || generated['id'] !== target.rowId) {
+        return sameRow(row, generated);
+      }
       return (
         sameRow({ ...row, grade: target.from }, generated) && `${row['grade']}`.trim() === target.to
       );

@@ -45,7 +45,7 @@ import { DATADIR_PATH, databaseIn } from '../mysql/datadir.js';
 import { parseSnmpdConf, SNMPD_CONF_PATH, SNMPD_CONF_PERMISSIONS } from '../snmp/conf.js';
 import { parseMysqlDatabase } from '../mysql/types.js';
 import { runStatement } from '../mysql/statements.js';
-import { missionRecords } from './missionRecords.js';
+import { missionAction, missionRecords } from './missionRecords.js';
 import {
   COMMON_PASSWORDS,
   CRACKABLE_PASSWORDS,
@@ -1119,11 +1119,15 @@ describe("a tamper job's records box", () => {
   });
 
   it('lets the application account read the grades and change one', () => {
-    const missionNumber = firstTamperWithRoute('hydra');
+    const missionNumber = tamperNumbersWithRoute('hydra').find(
+      (candidate) => missionAction(candidate) === 'change',
+    );
+    if (missionNumber === undefined) throw new Error('no hydra change job in the sample');
     const database = laidDatabase(missionNumber);
     if (database === null) throw new Error('the datadir could not be read');
     const application = database.credentials.find(({ userType }) => userType !== 'root');
     const { target } = missionRecords(missionNumber);
+    if (target.action !== 'change') throw new Error('the job asks for no change');
     const asApplication = {
       username: application?.username ?? '',
       userType: application?.userType ?? 'guest',

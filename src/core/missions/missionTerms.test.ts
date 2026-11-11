@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CLIENT_HANDLES, clientByHandle, missionTerms, type MissionTerms } from './missionTerms.js';
 import { missionKind, missionShape, missionTopology } from './missionShape.js';
+import { missionAction } from './missionRecords.js';
 import { md5 } from '../generation/md5.js';
 import { validateUsername } from '../gameConfig/gameConfig.js';
 
@@ -23,6 +24,8 @@ const SINGLE_HOP_TAMPER_NUMBERS = TAMPER_NUMBERS.filter(
   (missionNumber) => !isTwoHop(missionNumber),
 );
 const TWO_HOP_TAMPER_NUMBERS = TAMPER_NUMBERS.filter(isTwoHop);
+
+const isErase = (missionNumber: number): boolean => missionAction(missionNumber) === 'erase';
 
 /** A key job's terms, failing the test on anything else. */
 const keyTermsOf = (missionNumber: number): Extract<MissionTerms, { readonly job: 'key' }> => {
@@ -100,11 +103,25 @@ describe('missionTerms', () => {
 
   describe('a tamper job', () => {
     it('is offered as altering a school record on one hop, an internal one on two', () => {
-      for (const missionNumber of SINGLE_HOP_TAMPER_NUMBERS) {
+      for (const missionNumber of SINGLE_HOP_TAMPER_NUMBERS.filter((number) => !isErase(number))) {
         expect(missionTerms(missionNumber).kind).toBe('alter a school record');
       }
-      for (const missionNumber of TWO_HOP_TAMPER_NUMBERS) {
+      for (const missionNumber of TWO_HOP_TAMPER_NUMBERS.filter((number) => !isErase(number))) {
         expect(missionTerms(missionNumber).kind).toBe('alter an internal school record');
+      }
+    });
+
+    it('is offered as erasing a school record on one hop, an internal one on two, when it asks a record gone', () => {
+      const singleHopErases = SINGLE_HOP_TAMPER_NUMBERS.filter(isErase);
+      const twoHopErases = TWO_HOP_TAMPER_NUMBERS.filter(isErase);
+
+      expect(singleHopErases.length).toBeGreaterThan(0);
+      expect(twoHopErases.length).toBeGreaterThan(0);
+      for (const missionNumber of singleHopErases) {
+        expect(missionTerms(missionNumber).kind).toBe('erase a school record');
+      }
+      for (const missionNumber of twoHopErases) {
+        expect(missionTerms(missionNumber).kind).toBe('erase an internal school record');
       }
     });
 
@@ -143,6 +160,18 @@ describe('missionTerms', () => {
         expect(pitch).toMatch(/^[A-Z].{20,}\.$/);
         expect(KEY_JOB_PITCHES.has(pitch)).toBe(false);
       }
+    });
+
+    // A pitch for raising a grade reads wrong on a job that deletes one, and the other way round.
+    it('pitches an erase job from reasons of its own, none a change job is pitched with', () => {
+      const pitchesOf = (numbers: readonly number[]) =>
+        new Set(numbers.map((missionNumber) => missionTerms(missionNumber).pitch));
+      const erasePitches = pitchesOf(TAMPER_NUMBERS.filter(isErase));
+      const changePitches = pitchesOf(TAMPER_NUMBERS.filter((number) => !isErase(number)));
+
+      expect(erasePitches.size).toBeGreaterThan(2);
+      expect(changePitches.size).toBeGreaterThan(2);
+      for (const pitch of erasePitches) expect(changePitches.has(pitch)).toBe(false);
     });
 
     it('promises no key', () => {

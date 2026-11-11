@@ -10,7 +10,7 @@ import { missionShape, type MissionShape } from './missionShape.js';
 import { missionKey, missionKeyPath, missionPassphrase } from './missionSecret.js';
 import { missionAddressForNumber, missionEssid } from './missionNetwork.js';
 import { missionTerms } from './missionTerms.js';
-import { missionRecords } from './missionRecords.js';
+import { missionAction, missionRecords, type RecordAction } from './missionRecords.js';
 import {
   COMMON_PASSWORDS,
   CRACKABLE_PASSWORDS,
@@ -437,23 +437,27 @@ describe('showReport on a two-hop contract', () => {
 
 describe('showReport on a tamper job', () => {
   const SECRET = 'operator-test-secret';
-  /** The first tamper job `wanted` accepts. */
-  const tamperJob = (wanted: (shape: MissionShape) => boolean): number =>
+  /** The first tamper job asking for `action` that `wanted` accepts. */
+  const tamperJob = (action: RecordAction, wanted: (shape: MissionShape) => boolean): number =>
     Array.from({ length: 4000 }, (_unused, index) => index * 256 + 2).find((candidate) => {
       const shape = missionShape(candidate);
-      return shape.kind === 'tamper' && wanted(shape);
+      return shape.kind === 'tamper' && missionAction(candidate) === action && wanted(shape);
     })!;
   const SINGLE_HOP = tamperJob(
+    'change',
     ({ frontBox, keyBox }) => frontBox === null && keyBox.route === 'hydra',
   );
   const TWO_HOP = tamperJob(
+    'change',
     ({ frontBox, keyBox }) => frontBox !== null && keyBox.route === 'hydra',
   );
+  const ERASE = tamperJob('erase', ({ frontBox }) => frontBox === null);
 
   /** What the report says the job is, and the record it asks changed, where a key job's
    *  storage, key path and key go. */
   const recordLines = (missionNumber: number, indent: string): readonly string[] => {
     const { target } = missionRecords(missionNumber);
+    if (target.action !== 'change') throw new Error(`contract ${missionNumber} is not a change`);
     return [
       `${indent}Storage:  database, table grades`,
       `${indent}Records:  /var/lib/mysql/data.json`,
@@ -501,6 +505,21 @@ describe('showReport on a tamper job', () => {
     expect(lines.slice(keyBoxAt)).toEqual(expect.arrayContaining([...recordLines(TWO_HOP, '  ')]));
     expect(report).not.toContain('Key:');
     expect(report).not.toContain('Key path:');
+  });
+
+  it('prints an erase job as one, with the row it asks gone and the grade on it', () => {
+    const { target } = missionRecords(ERASE);
+    const lines = showReport(ERASE, SECRET, undefined).split('\n');
+
+    expect(lines).toContain('  Kind:     tamper, school, erase');
+    const storageAt = lines.indexOf('  Storage:  database, table grades');
+
+    expect(lines.slice(storageAt, storageAt + 3)).toEqual([
+      '  Storage:  database, table grades',
+      '  Records:  /var/lib/mysql/data.json',
+      `  Erase:    ${target.student}, ${target.subject} (F)`,
+    ]);
+    expect(lines.some((line) => line.includes('Change:'))).toBe(false);
   });
 });
 
