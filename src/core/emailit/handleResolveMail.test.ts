@@ -8,6 +8,16 @@ import { md5 } from '../generation/md5.js';
 import type { OwnerPatchRow } from '../network/materializeWorkstationFs.js';
 import type { ClientMailStore } from '../missions/clientMail.js';
 import { missionTerms } from '../missions/missionTerms.js';
+import { missionShape } from '../missions/missionShape.js';
+import { missionEssid } from '../missions/missionNetwork.js';
+import { missionFilesForBox } from '../missions/missionLeak.js';
+import { missionRecords } from '../missions/missionRecords.js';
+import { generateHomeLan } from '../generation/generateHomeLan.js';
+import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
+import { withMissionFiles } from '../network/missionBoxFiles.js';
+import { runStatement } from '../mysql/statements.js';
+import { DATADIR_PATH, databaseIn } from '../mysql/datadir.js';
+import { DATADIR_FILE } from '../generation/baseFs.js';
 import {
   handleResolveMail,
   type ChangePassword,
@@ -50,6 +60,8 @@ const makeDeps = (
     readonly journal?: readonly OwnerPatchRow[];
     readonly clientOpened?: unknown;
     readonly missionSecret?: string | undefined;
+    readonly findPatches?: ResolveMailDeps['findPatches'];
+    readonly findMissionFiles?: ResolveMailDeps['findMissionFiles'];
   } = {},
 ) => {
   const openMessage = vi.fn(
@@ -86,13 +98,15 @@ const makeDeps = (
   const deps: ResolveMailDeps = {
     nonceStore: freshStore,
     findNetworkByPublicIp,
-    findPatches: async ({ machine_id }) => ({
-      data: machine_id === EMAILIT_ID ? (over.journal ?? []) : [],
-      error: null,
-    }),
+    findPatches:
+      over.findPatches ??
+      (async ({ machine_id }) => ({
+        data: machine_id === EMAILIT_ID ? (over.journal ?? []) : [],
+        error: null,
+      })),
     listOccupantsByEssid: async () => ({ data: [], error: null }),
     listLeasesByEssid: async () => ({ data: [], error: null }),
-    findMissionFiles: async () => ({ data: [], error: null }),
+    findMissionFiles: over.findMissionFiles ?? (async () => ({ data: [], error: null })),
     openInbox,
     openMessage,
     sendMessage,
@@ -542,6 +556,110 @@ describe('a mail to a client handle is answered by the client, never delivered',
     expect((await handleResolveMail(request, deps)).status).toBe(200);
     expect(sendMessage).toHaveBeenCalledOnce();
     expect(clientMail.open).not.toHaveBeenCalled();
+  });
+});
+
+describe('a mail on a tamper job is answered from its records box', () => {
+  /** A tamper job whose records box falls to hydra, so it is laid with no secret. */
+  const TAMPER_JOB = Array.from({ length: 4000 }, (_unused, index) => index * 263 + 70000).find(
+    (missionNumber) => {
+      if (missionNumber % 256 < 2 || missionNumber % 256 > 254) return false;
+      const shape = missionShape(missionNumber);
+      return shape.kind === 'tamper' && shape.keyBox.route === 'hydra';
+    },
+  )!;
+  const TERMS = missionTerms(TAMPER_JOB);
+  const ESSID = missionEssid(TAMPER_JOB);
+  const RECORDS_HOST = generateHomeLan(ESSID).hosts.find(({ hostname }) =>
+    hostname.endsWith('-files'),
+  )!;
+  const { machineId: RECORDS_BOX_ID, baseFs } = resolveLanHostIdentity(RECORDS_HOST, ESSID);
+  const findMissionFiles: ResolveMailDeps['findMissionFiles'] = (query) =>
+    missionFilesForBox(query, { keySecret: undefined, rawSecrets: undefined });
+
+  /** The journal row the database writes once the application account changed the grade. */
+  const changedDatadir = async (): Promise<OwnerPatchRow> => {
+    const laid = await withMissionFiles(findMissionFiles, {
+      essid: ESSID,
+      machineId: RECORDS_BOX_ID,
+      baseFs,
+    });
+    const { target } = missionRecords(TAMPER_JOB);
+    const changed = runStatement({
+      database: databaseIn(laid!)!,
+      line: `UPDATE grades SET grade = '${target.to}' WHERE student = '${target.student}' AND subject = '${target.subject}'`,
+      username: 'app',
+      userType: 'user',
+      sourceIp: '198.51.100.7',
+    });
+    return {
+      path: DATADIR_PATH,
+      content: JSON.stringify(changed.database),
+      owner: 'root',
+      permissions: DATADIR_FILE,
+      node_type: 'file',
+      updated_at: '2026-11-11T12:00:00Z',
+      writer_key: 'mysqld',
+    };
+  };
+
+  const journalOf =
+    (rows: readonly OwnerPatchRow[]): ResolveMailDeps['findPatches'] =>
+    async ({ machine_id }) => ({ data: machine_id === RECORDS_BOX_ID ? rows : [], error: null });
+
+  const doneRequest = () =>
+    inboxRequest({ op: 'send', to: TERMS.client.handle, subject: 'done', body: 'it is done' });
+
+  const holdingTheJob = { outcome: 'opened', jobs: [{ number: TAMPER_JOB, state: 'accepted' }] };
+
+  it('completes the job once the journal leaves the records reading right', async () => {
+    const { deps, clientMail } = makeDeps({
+      clientOpened: holdingTheJob,
+      findPatches: journalOf([await changedDatadir()]),
+      findMissionFiles,
+    });
+
+    expect(await handleResolveMail(doneRequest(), deps)).toEqual({
+      status: 200,
+      body: { ok: true },
+    });
+    expect(clientMail.complete).toHaveBeenCalledOnce();
+    expect(clientMail.complete.mock.calls[0]?.[0]).toMatchObject({
+      number: TAMPER_JOB,
+      pay: TERMS.pay,
+    });
+  });
+
+  it('says the records do not look right while the journal holds no change', async () => {
+    const { deps, clientMail } = makeDeps({
+      clientOpened: holdingTheJob,
+      findPatches: journalOf([]),
+      findMissionFiles,
+    });
+
+    expect((await handleResolveMail(doneRequest(), deps)).status).toBe(200);
+    expect(clientMail.complete).not.toHaveBeenCalled();
+    expect(clientMail.reply.mock.calls[0]?.[0].reply.body).toBe(
+      `Our records don't look right. No change, no money.\n\n-- ${TERMS.client.company}\n`,
+    );
+  });
+
+  it('reports a records box whose journal could not be read as a server error', async () => {
+    const { deps, clientMail } = makeDeps({
+      clientOpened: holdingTheJob,
+      findPatches: async ({ machine_id }) =>
+        machine_id === RECORDS_BOX_ID
+          ? { data: null, error: new Error('down') }
+          : { data: [], error: null },
+      findMissionFiles,
+    });
+
+    expect(await handleResolveMail(doneRequest(), deps)).toEqual({
+      status: 500,
+      body: { error: 'mail_failed' },
+    });
+    expect(clientMail.complete).not.toHaveBeenCalled();
+    expect(clientMail.reply).not.toHaveBeenCalled();
   });
 });
 

@@ -53,8 +53,16 @@ import { EMAILIT_DOMAIN } from '../generation/fixedSites.js';
 import { md5 } from '../generation/md5.js';
 import { validatePassword } from '../gameConfig/gameConfig.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
-import { answerClientMail, type ClientMailStore } from '../missions/clientMail.js';
+import {
+  answerClientMail,
+  type ClientMailStore,
+  type RecordsBoxRead,
+} from '../missions/clientMail.js';
 import { clientByHandle } from '../missions/missionTerms.js';
+import { missionEssid } from '../missions/missionNetwork.js';
+import { missionTopology } from '../missions/missionShape.js';
+import { generateHomeLan } from '../generation/generateHomeLan.js';
+import { generatedLanBox } from '../network/generatedLanBox.js';
 import { requireMissionSecret } from '../missions/missionSecret.js';
 import { listedMessageSchema, openedMessageSchema } from './inbox.js';
 
@@ -113,6 +121,17 @@ export type ResolveMailDeps = WebTargetDeps & {
   /** The deployment's mission secret, as the environment holds it. */
   readonly missionSecret: string | undefined;
 };
+
+/** A tamper job's records box as every door reads it: the box the contract's number generates,
+ *  with the server's files laid on and its journal replayed, so the client sees exactly what a
+ *  player's statements and edits left there. */
+const recordsBoxReader =
+  (deps: WebTargetDeps) =>
+  (missionNumber: number): Promise<RecordsBoxRead> => {
+    const essid = missionEssid(missionNumber);
+    const address = `${generateHomeLan(essid).subnet}.${missionTopology(missionNumber).keyBoxOctet}`;
+    return generatedLanBox(deps.findPatches, essid, address, deps.findMissionFiles);
+  };
 
 const inboxAnswerSchema = z.discriminatedUnion('outcome', [
   z.object({ outcome: z.literal('opened'), messages: z.array(listedMessageSchema) }),
@@ -247,6 +266,7 @@ export const handleResolveMail = async (
       body: payload.body,
       secret,
       store: deps.clientMail,
+      readRecordsBox: recordsBoxReader(deps),
     });
     if (answer === null) return MAIL_FAILED;
     if (answer !== 'replied') return refused(answer);

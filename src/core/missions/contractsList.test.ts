@@ -64,9 +64,9 @@ describe("the boards' server /etc/hireme/contracts", () => {
 
     // Contracts 2 and 131330 are two-hop, so their lines carry a two-hop job's pay.
     expect(contentAt(tree, '/etc/hireme/contracts')).toBe(
-      'neo bellwether-desk 195.12.40.7 1400\n' +
+      'neo bellwether-desk 195.12.40.7 1150\n' +
         'trin marlowe-ops 195.0.0.2 2550\n' +
-        'morph greyline-jobs 195.2.1.2 2750\n',
+        'morph greyline-jobs 195.2.1.2 2650\n',
     );
   });
 
@@ -95,7 +95,7 @@ describe("the boards' server /etc/hireme/contracts", () => {
       contract({ handle: 'neo', number: 796679 }),
     ]);
 
-    expect(contentAt(tree, '/etc/hireme/contracts')).toBe('neo bellwether-desk 195.12.40.7 1400\n');
+    expect(contentAt(tree, '/etc/hireme/contracts')).toBe('neo bellwether-desk 195.12.40.7 1150\n');
   });
 
   it('leaves the box it was given unchanged', () => {

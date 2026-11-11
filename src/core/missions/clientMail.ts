@@ -22,6 +22,11 @@
  *   - a completed job's key: the job is already closed;
  *   - otherwise: the key opens nothing.
  *
+ * A tamper job asks for no key: whatever the mail says, the client reads the job's records box
+ * as it stands and completes the job when its records read right, or says they do not. A box
+ * that is not up holds no records that read right. Once a tamper job is completed, and nothing
+ * else is accepted here, any mail is told the job is closed without the box being read.
+ *
  * Completing is one step in the store under the handle's lock: a second right mail racing
  * the first finds the job completed and is told it is closed, so a job pays once. A store
  * that failed, or answered a word nobody taught it, has not said what happened, so the door
@@ -31,8 +36,11 @@
 import { z } from 'zod';
 import { EMAILIT_DOMAIN } from '../generation/fixedSites.js';
 import type { ContractMail } from '../hireme/contracts.js';
+import type { Directory } from '../filesystem/types.js';
 import { writeAmount } from '../wallet/amount.js';
 import { missionKey } from './missionSecret.js';
+import { missionKind } from './missionShape.js';
+import { recordsLookRight } from './missionRecords.js';
 import { missionTerms, type MissionClient, type MissionTerms } from './missionTerms.js';
 
 type StoreReply = Promise<{ readonly data: unknown; readonly error: unknown }>;
@@ -61,6 +69,12 @@ export type ClientMailStore = {
   }) => StoreReply;
 };
 
+/** A tamper job's records box as it stands: up with its tree, not up, or not readable. */
+export type RecordsBoxRead =
+  | { readonly kind: 'up'; readonly fs: Directory }
+  | { readonly kind: 'absent' }
+  | { readonly kind: 'error' };
+
 /** What became of the mail: answered by the client, or refused before it was read. */
 export type ClientMailAnswer = 'replied' | 'login_failed' | 'throttled' | 'send_limited';
 
@@ -80,8 +94,11 @@ const KEY_SHAPE = /\bACCESS(?:-[0-9A-HJKMNP-TV-Z]{4}){3}(?![0-9A-Z])/i;
 const WALLET_SHAPE = /\bjsc[0-9a-f]{40}(?![0-9a-f])/i;
 
 const NO_KEY = 'No key, no money. Send the key.';
-const NO_WALLET =
-  'Key received. You sent no wallet, so there is nothing to pay. No wallet, no money.';
+/** How the client opens a reply to a job done: the key it was sent, or the records it read. */
+const KEY_RECEIVED = 'Key received.';
+const RECORDS_RECEIVED = 'The records look right.';
+const NO_WALLET = 'You sent no wallet, so there is nothing to pay. No wallet, no money.';
+const RECORDS_WRONG = "Our records don't look right. No change, no money.";
 const WRONG_KEY = 'That key opens nothing of ours.';
 const CLOSED = 'That job is already closed.';
 const NO_CONTRACT = 'We have no contract with you.';
@@ -109,7 +126,10 @@ const noContractFrom = (client: MissionClient): ContractMail => ({
 
 type Decision =
   | { readonly kind: 'complete'; readonly number: number }
+  | { readonly kind: 'checkRecords'; readonly number: number }
   | { readonly kind: 'reply'; readonly reply: ContractMail };
+
+const isTamperJob = (missionNumber: number): boolean => missionKind(missionNumber) === 'tamper';
 
 const decide = ({
   client,
@@ -125,7 +145,9 @@ const decide = ({
   const withClient = jobs.filter((job) => missionTerms(job.number).client.handle === client.handle);
   const accepted = withClient.find((job) => job.state === 'accepted');
   const closed = withClient.find(
-    (job) => job.state === 'completed' && missionKey(job.number, secret) === key,
+    (job) =>
+      job.state === 'completed' &&
+      (isTamperJob(job.number) || missionKey(job.number, secret) === key),
   );
   const reply = (missionNumber: number, line: string): Decision => ({
     kind: 'reply',
@@ -137,6 +159,7 @@ const decide = ({
       ? { kind: 'reply', reply: noContractFrom(client) }
       : reply(closed.number, CLOSED);
   }
+  if (isTamperJob(accepted.number)) return { kind: 'checkRecords', number: accepted.number };
   if (key === null) return reply(accepted.number, NO_KEY);
   if (missionKey(accepted.number, secret) === key) {
     return { kind: 'complete', number: accepted.number };
@@ -163,6 +186,7 @@ export const answerClientMail = async ({
   body,
   secret,
   store,
+  readRecordsBox,
 }: {
   readonly login: {
     readonly handle: string;
@@ -175,6 +199,8 @@ export const answerClientMail = async ({
   /** The deployment's mission secret, already checked present. */
   readonly secret: string;
   readonly store: ClientMailStore;
+  /** The records box of the tamper job numbered so, as it stands right now. */
+  readonly readRecordsBox: (missionNumber: number) => Promise<RecordsBoxRead>;
 }): Promise<ClientMailAnswer | null> => {
   const opened = await store.open(login);
   const read = openedSchema.safeParse(opened.data);
@@ -187,6 +213,14 @@ export const answerClientMail = async ({
   if (decision.kind === 'reply') return sendReply(store, login.handle, decision.reply);
 
   const terms = missionTerms(decision.number);
+  if (decision.kind === 'checkRecords') {
+    const box = await readRecordsBox(decision.number);
+    if (box.kind === 'error') return null;
+    if (box.kind === 'absent' || !recordsLookRight(decision.number, box.fs)) {
+      return sendReply(store, login.handle, replyAbout(terms, RECORDS_WRONG));
+    }
+  }
+  const received = decision.kind === 'checkRecords' ? RECORDS_RECEIVED : KEY_RECEIVED;
   const wallet = firstMatch(text, WALLET_SHAPE)?.toLowerCase() ?? null;
   const completed = await store.complete({
     handle: login.handle,
@@ -196,8 +230,8 @@ export const answerClientMail = async ({
     reply: replyAbout(
       terms,
       wallet === null
-        ? NO_WALLET
-        : `Key received. ${writeAmount(terms.pay)} sent to ${wallet}. Pleasure doing business.`,
+        ? `${received} ${NO_WALLET}`
+        : `${received} ${writeAmount(terms.pay)} sent to ${wallet}. Pleasure doing business.`,
     ),
   });
   const outcome = completeOutcomeSchema.safeParse(completed.data);

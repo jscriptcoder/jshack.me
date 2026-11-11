@@ -59,8 +59,9 @@ import {
  *  generates for one) added 268 B, rounded up to 300; then a contract's front box (the
  *  template draw, the second box the shape and the LAN carry, and its builder) added 332 B,
  *  rounded up to 400; then a two-hop key box's own decoys (their draw and the report's tags)
- *  added 115 B, rounded up to 200. */
-const BUNDLE_CEILING_BYTES = 299_475;
+ *  added 115 B, rounded up to 200; then the tamper kind (its draw, and a records box's names,
+ *  subjects and grades) added 58 B, rounded up to 100. */
+const BUNDLE_CEILING_BYTES = 299_575;
 
 /** About a tenth of that before world content, so a loaded machine's noise cannot fail
  *  the check while a content change that makes boxes ten times dearer still does. */

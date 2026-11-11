@@ -10,6 +10,7 @@ import { missionShape, type MissionShape } from './missionShape.js';
 import { missionKey, missionKeyPath, missionPassphrase } from './missionSecret.js';
 import { missionAddressForNumber, missionEssid } from './missionNetwork.js';
 import { missionTerms } from './missionTerms.js';
+import { missionRecords } from './missionRecords.js';
 import {
   COMMON_PASSWORDS,
   CRACKABLE_PASSWORDS,
@@ -101,11 +102,11 @@ describe('readMissionOrder', () => {
 
 describe('showReport', () => {
   const SECRET = 'operator-test-secret';
-  /** The first single-hop contract `wanted` accepts: every report below reads one box. */
+  /** The first single-hop key job `wanted` accepts: every report below reads one box. */
   const singleHop = (wanted: (shape: MissionShape) => boolean): number =>
     Array.from({ length: 4000 }, (_unused, index) => index * 256 + 2).find((candidate) => {
       const shape = missionShape(candidate);
-      return shape.frontBox === null && wanted(shape);
+      return shape.kind === 'key' && shape.frontBox === null && wanted(shape);
     })!;
   // One number per route, so the report is checked on both. The hydra one keeps its key in a
   // plain file, so the whole report below reads as the simplest contract does.
@@ -328,11 +329,11 @@ describe('showReport on a two-hop contract', () => {
     COMMON_PASSWORDS,
     WIFI_PASSWORDS,
   });
-  /** The first two-hop contract `wanted` accepts. */
+  /** The first two-hop key job `wanted` accepts. */
   const twoHop = (wanted: (shape: MissionShape) => boolean): number =>
     Array.from({ length: 4000 }, (_unused, index) => index * 256 + 2).find((candidate) => {
       const shape = missionShape(candidate);
-      return shape.frontBox !== null && wanted(shape);
+      return shape.kind === 'key' && shape.frontBox !== null && wanted(shape);
     })!;
   const frontOf = (shape: MissionShape) => {
     if (shape.frontBox === null) throw new Error(`contract ${shape.missionNumber} has one hop`);
@@ -431,6 +432,75 @@ describe('showReport on a two-hop contract', () => {
       shape.keyBox.decoys.length,
     );
     expect(lines).toContain('  Storage:  database, table api_keys');
+  });
+});
+
+describe('showReport on a tamper job', () => {
+  const SECRET = 'operator-test-secret';
+  /** The first tamper job `wanted` accepts. */
+  const tamperJob = (wanted: (shape: MissionShape) => boolean): number =>
+    Array.from({ length: 4000 }, (_unused, index) => index * 256 + 2).find((candidate) => {
+      const shape = missionShape(candidate);
+      return shape.kind === 'tamper' && wanted(shape);
+    })!;
+  const SINGLE_HOP = tamperJob(
+    ({ frontBox, keyBox }) => frontBox === null && keyBox.route === 'hydra',
+  );
+  const TWO_HOP = tamperJob(
+    ({ frontBox, keyBox }) => frontBox !== null && keyBox.route === 'hydra',
+  );
+
+  /** What the report says the job is, and the record it asks changed, where a key job's
+   *  storage, key path and key go. */
+  const recordLines = (missionNumber: number, indent: string): readonly string[] => {
+    const { target } = missionRecords(missionNumber);
+    return [
+      `${indent}Storage:  database, table grades`,
+      `${indent}Records:  /var/lib/mysql/data.json`,
+      `${indent}Change:   ${target.student}, ${target.subject}: ${target.from} -> ${target.to}`,
+    ];
+  };
+
+  it('prints the report line by line, the kind and the record in place of a key', () => {
+    const shape = missionShape(SINGLE_HOP);
+    const terms = missionTerms(SINGLE_HOP);
+
+    expect(showReport(SINGLE_HOP, SECRET, undefined)).toBe(
+      [
+        `Contract ${SINGLE_HOP} at ${missionAddressForNumber(SINGLE_HOP)} (essid ${missionEssid(SINGLE_HOP)})`,
+        `  Client:   ${terms.client.company} (${terms.client.handle}@emailit.io)`,
+        `  Target:   ${terms.targetCompany}, ${shape.stem}-gw / ${shape.stem}-files`,
+        `  Pay:      §${terms.pay.toLocaleString('en-US')}`,
+        '  Template: single-hop',
+        '  Kind:     tamper, school, change',
+        '  Route:    hydra',
+        ...shape.forwards.map(
+          (forward, index) =>
+            `  Forward:  :${forward.publicPort} -> key box :${forward.internalPort}` +
+            (index >= shape.forwards.length - shape.keyBox.decoys.length ? ' (decoy)' : ''),
+        ),
+        '  Services:',
+        ...shape.keyBox.services.map(
+          (service) =>
+            // The hydra route runs no daemon of its own: the database holding the records is the
+            // one real service, and whatever else listens is a decoy.
+            `    ${service.service} (${service.package} ${service.version}) :${service.port}` +
+            (service.port === 3306 ? '' : ' (decoy)'),
+        ),
+        ...recordLines(SINGLE_HOP, '  '),
+      ].join('\n'),
+    );
+  });
+
+  it('prints the record in the key box section of a two-hop job, and no key', () => {
+    const report = showReport(TWO_HOP, SECRET, undefined);
+    const lines = report.split('\n');
+    const keyBoxAt = lines.findIndex((line) => line.startsWith('  Key box:'));
+
+    expect(lines).toContain('  Kind:     tamper, school, change');
+    expect(lines.slice(keyBoxAt)).toEqual(expect.arrayContaining([...recordLines(TWO_HOP, '  ')]));
+    expect(report).not.toContain('Key:');
+    expect(report).not.toContain('Key path:');
   });
 });
 

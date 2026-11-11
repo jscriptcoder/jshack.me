@@ -103,6 +103,18 @@ const INSIDE_DOOR_COUNTS = [2, 3] as const;
 /** The share of contracts whose key box sits behind a front box. */
 const TWO_HOP_SHARE = 1 / 3;
 
+/** What a contract asks for: a key the client wants brought back, or a record on the box the
+ *  client wants changed, proved by the box itself when the contractor mails in. */
+export type MissionKind = 'key' | 'tamper';
+
+/** The share of contracts asking for a record changed rather than a key. */
+const TAMPER_SHARE = 1 / 2;
+
+/** Whether a contract asks for a key or a changed record. Drawn on a stream of its own, so a
+ *  contract that stays a key job keeps its network and its terms to the byte. */
+export const missionKind = (missionNumber: number): MissionKind =>
+  createPrng(`mission-kind-${missionNumber}`).next() < TAMPER_SHARE ? 'tamper' : 'key';
+
 /** One forward on the gateway: the public port it answers on, the box behind the gateway it
  *  reaches (by its last octet), and the port it reaches there. */
 export type MissionForward = {
@@ -164,9 +176,12 @@ export type MissionBoxRef = { readonly missionNumber: number; readonly role: Mis
 
 export type MissionShape = {
   readonly missionNumber: number;
+  readonly kind: MissionKind;
   readonly stem: string;
+  /** Where the key box keeps what the job is about: the key, or on a tamper job the records,
+   *  which sit in its database. */
   readonly storage: MissionStorage;
-  /** The box holding the key. */
+  /** The box holding the key, or on a tamper job the records. */
   readonly keyBox: MissionBox;
   /** On a two-hop contract, the box the gateway forwards onto instead of the key box: it falls
    *  to a route of its own and holds nothing, and the key box is worked from a shell on it.
@@ -512,8 +527,11 @@ export const missionShape = (missionNumber: number): MissionShape => {
   const drawn = drawRoute(route, versionPrng);
   const gatewayAdminHash = versionPrng.pick(SHUT_HASHES);
 
-  // On a stream of its own, so adding it moved no contract's topology, route or hashes.
-  const storage = createPrng(`mission-storage-${missionNumber}`).pick(STORAGES);
+  // On a stream of its own, so adding it moved no contract's topology, route or hashes. A tamper
+  // job's records sit in the box's database, which is then reached as a key kept in one is.
+  const kind = missionKind(missionNumber);
+  const storage =
+    kind === 'tamper' ? 'database' : createPrng(`mission-storage-${missionNumber}`).pick(STORAGES);
 
   // A key in the database is reached as a database user, so off the database route the key
   // box gains one. Drawn after everything above, so a contract's way in reads the same
@@ -546,6 +564,7 @@ export const missionShape = (missionNumber: number): MissionShape => {
     const entry = withDecoys(front.box, front.forwards, missionNumber);
     return {
       missionNumber,
+      kind,
       stem,
       storage,
       keyBox: withInsideDecoys(keyBox, missionNumber),
@@ -563,6 +582,7 @@ export const missionShape = (missionNumber: number): MissionShape => {
   const entry = withDecoys(keyBox, realForwards, missionNumber);
   return {
     missionNumber,
+    kind,
     stem,
     storage,
     keyBox: entry.box,

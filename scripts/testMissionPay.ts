@@ -39,7 +39,7 @@ import { HIREME_DOMAIN } from '../src/core/generation/fixedSites.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { missionAddressForNumber } from '../src/core/missions/missionNetwork.js';
 import { missionKey } from '../src/core/missions/missionSecret.js';
-import { missionTopology } from '../src/core/missions/missionShape.js';
+import { missionKind, missionTopology } from '../src/core/missions/missionShape.js';
 import { missionTerms } from '../src/core/missions/missionTerms.js';
 
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
@@ -211,11 +211,32 @@ const mintsTo = async (address: string): Promise<readonly number[]> => {
   return transfers.filter((transfer) => transfer.from === null).map(({ amount }) => amount);
 };
 
-/** Accept the first offer on a board through its real form; the job it took. */
+/** The ref of a key job on the handle's board. Half the offers ask for a record changed
+ *  instead, which no key pays, so a board offering none is burned and read again to top up. */
+const keyOfferRef = async (handle: string, board: string): Promise<string> => {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    await fetchAt(board, '/');
+    const { data, error } = await sr
+      .from('hireme_missions')
+      .select('number, ref')
+      .eq('handle', handle)
+      .eq('state', 'offered');
+    if (error || data === null) throw new Error(`no offers for ${handle}`);
+    const offers = data as readonly { readonly number: number; readonly ref: string }[];
+    const keyOffer = offers.find(({ number }) => missionKind(number) === 'key');
+    if (keyOffer !== undefined) return keyOffer.ref;
+    await sr
+      .from('hireme_missions')
+      .update({ state: 'burned' })
+      .eq('handle', handle)
+      .eq('state', 'offered');
+  }
+  throw new Error(`no key job offered to ${handle}`);
+};
+
+/** Accept a key job on a board through its real form; the job it took. */
 const acceptOn = async (handle: string, board: string): Promise<number> => {
-  const page = contentOf((await fetchAt(board, '/')).body);
-  const ref = page.match(/Ref: ([0-9a-f]{6})/)?.[1];
-  if (ref === undefined) throw new Error(`no offer on ${handle}'s board`);
+  const ref = await keyOfferRef(handle, board);
   await fetchAt(board, '/accept', `offer=${ref}`);
   return acceptedOf(handle);
 };
@@ -235,11 +256,12 @@ const numberOutside = async (client: string): Promise<number> => {
   throw new Error('no free contract number outside the client');
 };
 
-/** A two-hop contract number nobody holds. */
+/** A two-hop key job's number nobody holds. */
 const freeTwoHopNumber = async (): Promise<number> => {
   for (let attempt = 0; attempt < 200; attempt += 1) {
     const candidate = 0x520000 + attempt * 256 + 11;
     if (missionTopology(candidate).frontBoxOctet === null) continue;
+    if (missionKind(candidate) !== 'key') continue;
     const { data } = await sr
       .from('hireme_missions')
       .select('number')

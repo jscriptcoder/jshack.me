@@ -7,10 +7,13 @@ import {
   type ContractMail,
   type OfferCandidate,
 } from './contracts.js';
-import { missionTerms } from '../missions/missionTerms.js';
+import { missionTerms, type MissionTerms } from '../missions/missionTerms.js';
 import { missionAddressForNumber } from '../missions/missionNetwork.js';
 import { missionKeyPath } from '../missions/missionSecret.js';
 import { missionShape } from '../missions/missionShape.js';
+import { missionRecords } from '../missions/missionRecords.js';
+import { DATADIR_PATH } from '../mysql/datadir.js';
+import { writeAmount } from '../wallet/amount.js';
 import { FRONT_BOX_SUFFIX, GATEWAY_SUFFIX, KEY_BOX_SUFFIX } from '../missions/pools.js';
 
 /**
@@ -28,6 +31,18 @@ const FIRST = 100000;
 const SECOND = 100003;
 const THIRD = 70000;
 const FOURTH = 66051;
+
+/** Contracts asking for a record changed rather than a key: a single-hop one and a two-hop
+ *  one. The first two-hop number above is one too. */
+const TAMPER_SINGLE_HOP = 70003;
+const TAMPER_TWO_HOP = 70008;
+
+/** A key job's terms, failing the test on anything else. */
+const keyTermsOf = (missionNumber: number): Extract<MissionTerms, { readonly job: 'key' }> => {
+  const terms = missionTerms(missionNumber);
+  if (terms.job !== 'key') throw new Error(`contract ${missionNumber} is not a key job`);
+  return terms;
+};
 
 type Slot = OfferCandidate;
 type StoreReply = { readonly data: unknown; readonly error: unknown };
@@ -173,6 +188,25 @@ describe('reading a board', () => {
     expect(text).toContain('Ref: ccc');
   });
 
+  it('offers a tamper job by what it alters, on one hop and on two', async () => {
+    const { store } = boardStore({
+      offers: [
+        { number: TAMPER_SINGLE_HOP, ref: 'ttt' },
+        { number: TAMPER_TWO_HOP, ref: 'uuu' },
+      ],
+    });
+
+    const text = textOf(await board(store));
+
+    for (const [missionNumber, line] of [
+      [TAMPER_SINGLE_HOP, 'alter a school record'],
+      [TAMPER_TWO_HOP, 'alter an internal school record'],
+    ] as const) {
+      const { client, pay } = missionTerms(missionNumber);
+      expect(text).toContain(`${client.company} — ${line} — ${writeAmount(pay)}`);
+    }
+  });
+
   it('draws again while numbers or refs collide, and stops once the board is full', async () => {
     const { store, posts } = boardStore({ landing: 1 });
     const first = boardStore();
@@ -263,7 +297,7 @@ describe('accepting an offer', () => {
 
   it('mails a briefing from the client, naming the target, the address and the rules', async () => {
     const { store, accepts } = offered();
-    const terms = missionTerms(SECOND);
+    const terms = keyTermsOf(SECOND);
 
     await accept('offer=bbb', store);
     const briefing = accepts[0]!.briefing;
@@ -280,7 +314,7 @@ describe('accepting an offer', () => {
 
   it('writes a single-hop briefing as the client would, line by line', async () => {
     const { store, accepts } = offered();
-    const terms = missionTerms(THIRD);
+    const terms = keyTermsOf(THIRD);
 
     await accept('offer=ccc', store);
 
@@ -306,7 +340,7 @@ describe('accepting an offer', () => {
   // Working out what "inside" means is the job, so the briefing says only that much.
   it('tells a two-hop contractor the key is inside the network, not on the edge', async () => {
     const { store, accepts } = offered();
-    const terms = missionTerms(SECOND);
+    const terms = keyTermsOf(SECOND);
 
     await accept('offer=bbb', store);
 
@@ -346,6 +380,86 @@ describe('accepting an offer', () => {
       expect(body).not.toMatch(/hydra|msfconsole|exploit|password/i);
     },
   );
+
+  describe('on a tamper job', () => {
+    const offeredTamper = () =>
+      boardStore({
+        offers: [
+          { number: TAMPER_SINGLE_HOP, ref: 'ttt' },
+          { number: TAMPER_TWO_HOP, ref: 'uuu' },
+        ],
+      });
+
+    it('writes a single-hop briefing naming the student, the subject and both grades', async () => {
+      const { store, accepts } = offeredTamper();
+      const terms = missionTerms(TAMPER_SINGLE_HOP);
+      const { target } = missionRecords(TAMPER_SINGLE_HOP);
+
+      await accept('offer=ttt', store);
+
+      expect(accepts[0]!.briefing.subject).toBe(`Contract: ${terms.targetCompany}`);
+      expect(accepts[0]!.briefing.body).toBe(
+        [
+          terms.pitch,
+          '',
+          `The target is ${terms.targetCompany}. Their network is at ${missionAddressForNumber(TAMPER_SINGLE_HOP)}.`,
+          '',
+          `Their records give ${target.student} a ${target.from} in ${target.subject}. It should be a ${target.to}.`,
+          '',
+          'Mail this address when it is done, with your wallet address.',
+          'No change, no money. No wallet, no money.',
+          '',
+          `-- ${terms.client.company}`,
+          '',
+        ].join('\n'),
+      );
+    });
+
+    it('tells a two-hop contractor the records are inside the network, not on the edge', async () => {
+      const { store, accepts } = offeredTamper();
+      const terms = missionTerms(TAMPER_TWO_HOP);
+      const { target } = missionRecords(TAMPER_TWO_HOP);
+
+      await accept('offer=uuu', store);
+
+      expect(accepts[0]!.briefing.body).toBe(
+        [
+          terms.pitch,
+          '',
+          `The target is ${terms.targetCompany}. Their network is at ${missionAddressForNumber(TAMPER_TWO_HOP)}.`,
+          '',
+          `Their records give ${target.student} a ${target.from} in ${target.subject}. It should be a ${target.to}.`,
+          '',
+          'The records are on a machine inside their network, not on the edge.',
+          '',
+          'Mail this address when it is done, with your wallet address.',
+          'No change, no money. No wallet, no money.',
+          '',
+          `-- ${terms.client.company}`,
+          '',
+        ].join('\n'),
+      );
+    });
+
+    it.each([
+      ['single-hop', 'ttt', TAMPER_SINGLE_HOP],
+      ['two-hop', 'uuu', TAMPER_TWO_HOP],
+    ])(
+      'never names in a %s briefing the row, the table, the box or the path',
+      async (_template, ref, missionNumber) => {
+        const { store, accepts } = offeredTamper();
+        const { stem } = missionShape(missionNumber);
+
+        await accept(`offer=${ref}`, store);
+        const { body } = accepts[0]!.briefing;
+
+        expect(body).not.toMatch(/\bid\b|grades|table|database|mysql|ACCESS-/i);
+        expect(body).not.toContain(DATADIR_PATH);
+        expect(body).not.toContain(`${stem}-`);
+        expect(body.match(/\d+\.\d+\.\d+\.\d+/g)).toEqual([missionAddressForNumber(missionNumber)]);
+      },
+    );
+  });
 
   it('names no box, route, count of machines or address of a two-hop network but its own', async () => {
     const { store, accepts } = offered();

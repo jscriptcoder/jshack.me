@@ -131,16 +131,40 @@ describe('missionShape', () => {
     }
   });
 
+  it('makes about half the contracts tamper jobs and the rest key jobs', () => {
+    const tamperJobs = SAMPLE_SHAPES.filter(({ kind }) => kind === 'tamper');
+    const keyJobs = SAMPLE_SHAPES.filter(({ kind }) => kind === 'key');
+
+    expect(tamperJobs.length + keyJobs.length).toBe(SAMPLE_SHAPES.length);
+    expect(tamperJobs.length / SAMPLE_SHAPES.length).toBeGreaterThan(0.44);
+    expect(tamperJobs.length / SAMPLE_SHAPES.length).toBeLessThan(0.56);
+  });
+
   it('keeps the key in a file, encrypted, or in a database, each about a third of the time', () => {
-    const counts = SAMPLE_SHAPES.reduce<Record<string, number>>((tally, { storage }) => {
+    const keyJobs = SAMPLE_SHAPES.filter(({ kind }) => kind === 'key');
+    const counts = keyJobs.reduce<Record<string, number>>((tally, { storage }) => {
       return { ...tally, [storage]: (tally[storage] ?? 0) + 1 };
     }, {});
 
     expect(Object.keys(counts).sort()).toEqual(['database', 'file', 'gpg']);
     for (const count of Object.values(counts)) {
-      expect(count / SAMPLE_NUMBERS.length).toBeGreaterThan(0.28);
-      expect(count / SAMPLE_NUMBERS.length).toBeLessThan(0.39);
+      expect(count / keyJobs.length).toBeGreaterThan(0.28);
+      expect(count / keyJobs.length).toBeLessThan(0.39);
     }
+  });
+
+  it("keeps a tamper job's records in its database, on every route and on both hop counts", () => {
+    // The records box is reached as a box keeping its key in a database is: mysqld, a login a
+    // sweep finds, and on one hop a :3306 forward. The tests on such a contract below hold it.
+    const tamperJobs = SAMPLE_SHAPES.filter(({ kind }) => kind === 'tamper');
+
+    expect(new Set(tamperJobs.map(({ storage }) => storage))).toEqual(new Set(['database']));
+    expect(new Set(tamperJobs.map(({ keyBox }) => keyBox.route))).toEqual(
+      new Set(['hydra', 'msfconsole', 'web', 'ftp', 'mysql', 'snmp']),
+    );
+    expect(new Set(tamperJobs.map(({ frontBox }) => frontBox === null))).toEqual(
+      new Set([true, false]),
+    );
   });
 
   it('draws where the key is kept without moving anything a contract already had', () => {
@@ -163,52 +187,36 @@ describe('missionShape', () => {
   describe('two hops', () => {
     const twoHopShapes = SAMPLE_SHAPES.filter((shape) => shape.frontBox !== null);
 
-    /** One single-hop contract of every route and storage, and the digest of its whole shape
+    /** Single-hop contracts across the routes and storages, and the digest of each whole shape
      *  taken from the generator before a contract could have two hops. Two hops draw on a
-     *  stream of their own, so a contract that stays single-hop keeps its network to the byte. */
+     *  stream of their own, so a contract that stays single-hop keeps its network to the byte.
+     *  Only key jobs: a contract that became a tamper job keeps its records in its database. */
     const SINGLE_HOP_BEFORE: readonly (readonly [number, string])[] = [
       [16764, '406a2ac2a2ac5d9d8aba524c1552d5a7'], // mysql, database
-      [25145, '2899c72c38899a20775eacd862504e63'], // ftp, database
       [41907, 'dfe62d63aeea34374499dda4f52983c6'], // snmp, file
       [50288, '9100465eaeba93b353353a2130fe2bc5'], // web, file
-      [58669, '460336488108903f6ca870a6ae665233'], // web, gpg
-      [83812, '4992d3b22a2f5a86f6460309d57f079d'], // snmp, gpg
-      [92193, '9f84ae6624ea30640ce8b1404ac188ec'], // msfconsole, database
-      [117336, '8793081a9cd2857ce6d6f7f779dbffe9'], // web, database
       [125717, 'aa7ad61e60fc856f7acba2cd601b660f'], // snmp, database
       [142479, '0a14a7ee3735bccd7c9d9d50b64efc8d'], // ftp, file
       [209527, 'f2edad300e3e6bf84d40b81bff149c01'], // msfconsole, file
-      [217908, 'dc3a04e3012e1bccb373cab3f1975e75'], // ftp, gpg
-      [226289, 'e2e8599af2ac001cbde658e3f22522e4'], // mysql, gpg
       [243051, 'a661feaeb8e04ba2ad1a2f1dd140f0a4'], // hydra, file
-      [276575, 'f47cdc65a5812f79fa6d583b4ac70b94'], // hydra, gpg
-      [284956, 'dc3f3053467b53a0ade9856e027f45bc'], // mysql, file
       [368766, '78215693e7d17d17c3da2ba4e9f7aaa1'], // hydra, database
-      [435814, '22849ccf16a47a53d089e9214473d82f'], // msfconsole, gpg
     ];
 
-    /** One two-hop contract of every route and storage, and the digest of its key box as it
+    /** Two-hop key jobs across the routes and storages, and the digest of each key box as it
      *  stood before the contract had two hops, its forwards and decoys aside: its names, route,
      *  hashes and the doors it ran for its route and its storage. */
     const KEY_BOX_BEFORE: readonly (readonly [number, string])[] = [
       [2, 'adc2e9aaac7cf6b183456923667a518c'], // hydra, gpg
       [8383, 'aaee771c5cc6118f6546fc3a4cd4f013'], // ftp, file
-      [75431, '58748b0b87078d192708cdcc76a6f4ba'], // ftp, database
       [134098, 'dcbef343e36fdf2840eedb351fc86040'], // mysql, file
-      [192765, '3164c5ec5dcc7e3d1b57611ae6a1c968'], // snmp, database
       [259813, '52911d8541f1ce5b163d1965fede88ab'], // mysql, database
-      [310099, '9614d3b678fb2665836f8bfab5e6cc89'], // msfconsole, database
-      [326861, 'e59e6a512b82f15e98b745db194293e2'], // hydra, database
       [377147, 'd1d2955652ce68aea09d51c1ee238c4e'], // web, gpg
       [452576, '7f574cedfb32bbf08bdf4ec1d0c0adc2'], // web, database
       [486100, '020cfae8783a805a9b0f791209f6e07f'], // snmp, file
-      [494481, '456f97cbbf36a0615d42b00a4ec05842'], // mysql, gpg
       [519624, '6c62e8268001b700677e05dee7a7e670'], // msfconsole, gpg
-      [528005, '2ebce9b6d65f2b192fabe23be37c80da'], // web, file
       [754292, '003e65afea43e84312c9f16c5dac3fc6'], // msfconsole, file
       [762673, 'a9b0a1a88b572b9c314902f636e4ace6'], // ftp, gpg
       [1047627, 'f2547fb5f6635ed4b2d5f041fdd1ae32'], // hydra, file
-      [1651059, 'c74f61b70032f807db40773f5b3bf9e5'], // snmp, gpg
     ];
 
     it('puts the key box behind a front box about a third of the time', () => {
@@ -218,8 +226,9 @@ describe('missionShape', () => {
 
     it('leaves a single-hop contract exactly as it was', () => {
       for (const [missionNumber, digest] of SINGLE_HOP_BEFORE) {
-        const { frontBox, ...shape } = missionShape(missionNumber);
+        const { frontBox, kind, ...shape } = missionShape(missionNumber);
         expect(frontBox, `contract ${missionNumber}`).toBeNull();
+        expect(kind, `contract ${missionNumber}`).toBe('key');
         expect(md5(JSON.stringify(shape)), `contract ${missionNumber}`).toBe(digest);
       }
     });
@@ -250,32 +259,25 @@ describe('missionShape', () => {
       }
     });
 
-    /** One two-hop contract of every route on each box, and the digest of everything but its key
+    /** Two-hop key jobs across the routes on each box, and the digest of everything but the key
      *  box, taken from the generator before the key box ran decoys of its own. */
     const BESIDE_KEY_BOX_BEFORE: readonly (readonly [number, string])[] = [
       [2, 'a3a1bb095c73666239a3285dc036efc7'], // hydra, front ftp
       [8383, '6f6f3067dd12250be4531b6a7a680890'], // ftp, front msfconsole
-      [75431, '68c86a61c3a293ef8e3c8b8a170d6b68'], // ftp, front msfconsole
       [134098, '3d8cd43ac152027f6eb3e5a142dec083'], // mysql, front hydra
-      [192765, 'e6e4d2c52412fe3556391a14db8883b6'], // snmp, front mysql
       [259813, 'ee11d59ed33255db9e7d8c5013b200e6'], // mysql, front msfconsole
-      [310099, 'ae3444ad514b15132962c6f0cde0ab0c'], // msfconsole, front hydra
-      [326861, 'a65f9cc2cd900c2c5565b72904e93ce5'], // hydra, front web
       [377147, 'ed0b378fa2081ff277a31583d26804fb'], // web, front web
       [452576, 'fbb1a6d118de208d11a970785af2f169'], // web, front hydra
       [486100, 'c356fa209f4fec49e6c8b9a6e359dd89'], // snmp, front hydra
-      [494481, '386e173bda970afc24839be1ebee3b73'], // mysql, front ftp
       [519624, '1874be1d39e76a597b1813269fcb3bca'], // msfconsole, front web
-      [528005, '32542f9949f19360044556dfdceb3eb2'], // web, front mysql
       [754292, '10e4a17d13d754700d5f93172421f7e5'], // msfconsole, front web
       [762673, 'a73e206ed1310fbcf41a6773f30fb61f'], // ftp, front snmp
       [1047627, '2126d38910890ae0e2783d301f3e699b'], // hydra, front snmp
-      [1651059, 'bd4283496b1db56abd06450ee78dbf69'], // snmp, front snmp
     ];
 
     it('leaves the front box, the forwards and the gateway as they were', () => {
       for (const [missionNumber, digest] of BESIDE_KEY_BOX_BEFORE) {
-        const { keyBox: _keyBox, ...besideKeyBox } = missionShape(missionNumber);
+        const { keyBox: _keyBox, kind: _kind, ...besideKeyBox } = missionShape(missionNumber);
         expect(md5(JSON.stringify(besideKeyBox)), `contract ${missionNumber}`).toBe(digest);
       }
     });
@@ -501,27 +503,17 @@ describe('missionShape', () => {
       );
     };
 
-    /** One single-hop contract of every route and storage, and the digest of what it had
+    /** Single-hop key jobs across the routes and storages, and the digest of what each had
      *  before decoys, taken from the generator as it stood then. */
     const BEFORE_DECOYS: readonly (readonly [number, string])[] = [
-      [276575, 'ec468c5de19605040fc3a0c16c81324e'], // hydra, gpg
       [142479, '1110188b6fd5637a7cca7794d0a8797b'], // ftp, file
       [16764, '646ccb637762c304422bd9971fc3befc'], // mysql, database
-      [25145, '82ce6de46a91a30b00ea3035a7332fad'], // ftp, database
       [41907, 'bf8c66bf1de205869667465a64a01786'], // snmp, file
       [50288, '7267dc78e1fc632f631c363951dd4330'], // web, file
-      [58669, 'cb05365ca18db26904b0aad1db72edd1'], // web, gpg
-      [83812, '0b1c897db7b8604765a5d928d0a82fa0'], // snmp, gpg
-      [92193, '2c7418f13f45f6cc6783f384c0d089e7'], // msfconsole, database
-      [117336, 'bc52de232c69d51a7215e482cc453904'], // web, database
       [125717, '49e62e4ace55181ab445f5cfafd49bfb'], // snmp, database
-      [284956, 'e1d6038c52c28a5dee58fb3a401e7287'], // mysql, file
       [209527, 'edbbe13c6e744a84e0fb468b77a27048'], // msfconsole, file
-      [217908, '336ca5ac3e27ac7b4221a209e62e4854'], // ftp, gpg
-      [226289, '2fda4ce88d9d688d6fc7d1807a8a6527'], // mysql, gpg
       [243051, 'fdc080efe1512df31eba9c8dac360134'], // hydra, file
       [368766, '0f43c51a9a909c61a5c73cc41a964bc3'], // hydra, database
-      [435814, 'dc9971575f323c423e3cf2d6caf9e0d1'], // msfconsole, gpg
     ];
 
     /** The public port each decoy kind answers on. */

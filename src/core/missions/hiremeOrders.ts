@@ -21,6 +21,8 @@ import { missionKeyFilePath, missionLeakPath, missionLeakWord } from './missionL
 import { missionKey, missionPassphrase } from './missionSecret.js';
 import { missionAddressForNumber, missionEssid } from './missionNetwork.js';
 import { missionTerms } from './missionTerms.js';
+import { missionRecords } from './missionRecords.js';
+import { DATADIR_PATH } from '../mysql/datadir.js';
 import { writeAmount } from '../wallet/amount.js';
 
 export type MissionOrder =
@@ -95,6 +97,20 @@ const storageDetail = (missionNumber: number, secret: string): string => {
   return storage === 'database' ? 'database, table api_keys' : storage;
 };
 
+/** What a tamper job is, as the report names it: its kind, its setting and its action. */
+const TAMPER_KIND = 'tamper, school, change';
+
+/** Where a tamper job's records are kept and the one change it asks, where a key job's storage,
+ *  key path and key go. */
+const recordLines = (missionNumber: number): readonly string[] => {
+  const { target } = missionRecords(missionNumber);
+  return [
+    '  Storage:  database, table grades',
+    `  Records:  ${DATADIR_PATH}`,
+    `  Change:   ${target.student}, ${target.subject}: ${target.from} -> ${target.to}`,
+  ];
+};
+
 /** The multi-line report `show <address>` prints for a contract number: the address and
  *  essid it answers at, its template, the gateway's forwards naming the box they reach, each
  *  box's route and services, and — the operator-only half — how the key is stored, the key and
@@ -121,11 +137,14 @@ export const showReport = (
     .slice(keyBox.services.length - keyBox.decoys.length)
     .map(({ port }) => port);
   const reached = frontBox === null ? 'key box' : 'front box';
-  const keyLines = [
-    `  Storage:  ${storageDetail(missionNumber, secret)}`,
-    `  Key path: ${missionKeyFilePath(missionNumber)}`,
-    `  Key:      ${missionKey(missionNumber, secret)}`,
-  ];
+  const keyLines =
+    shape.kind === 'tamper'
+      ? recordLines(missionNumber)
+      : [
+          `  Storage:  ${storageDetail(missionNumber, secret)}`,
+          `  Key path: ${missionKeyFilePath(missionNumber)}`,
+          `  Key:      ${missionKey(missionNumber, secret)}`,
+        ];
   const boxes =
     frontBox === null
       ? [
@@ -151,6 +170,7 @@ export const showReport = (
     `  Target:   ${terms.targetCompany}, ${hosts.map((suffix) => `${shape.stem}-${suffix}`).join(' / ')}`,
     `  Pay:      ${writeAmount(terms.pay)}`,
     `  Template: ${frontBox === null ? 'single-hop' : 'two-hop'}`,
+    ...(shape.kind === 'tamper' ? [`  Kind:     ${TAMPER_KIND}`] : []),
     // One box needs no section, so its route heads the report as it always has.
     ...(frontBox === null ? [`  Route:    ${keyBox.route}`] : []),
     ...shape.forwards.map(
