@@ -444,7 +444,11 @@ describe('a mail on a tamper job', () => {
     return withFiles(laid, [[DATADIR_PATH, file(JSON.stringify(database), DATADIR_FILE)]]);
   };
 
-  const CHANGED = `UPDATE grades SET grade = '${target.to}' WHERE student = '${target.student}' AND subject = '${target.subject}'`;
+  const CHANGED = `UPDATE ${target.table} SET ${target.column} = '${target.to}' WHERE ${Object.entries(
+    target.namedBy,
+  )
+    .map(([column, value]) => `${column} = '${value}'`)
+    .join(' AND ')}`;
 
   /** A box read answering with `read`, keeping every number it was asked for. */
   const recordsBox = (read: RecordsBoxRead) => {

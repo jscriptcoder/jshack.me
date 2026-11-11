@@ -21,7 +21,12 @@ import { missionKeyFilePath, missionLeakPath, missionLeakWord } from './missionL
 import { missionKey, missionPassphrase } from './missionSecret.js';
 import { missionAddressForNumber, missionEssid } from './missionNetwork.js';
 import { missionTerms } from './missionTerms.js';
-import { missionAction, missionRecords, recordsFilePath } from './missionRecords.js';
+import {
+  missionAction,
+  missionRecords,
+  missionSetting,
+  recordsFilePath,
+} from './missionRecords.js';
 import { DATADIR_PATH } from '../mysql/datadir.js';
 import { writeAmount } from '../wallet/amount.js';
 
@@ -99,7 +104,7 @@ const storageDetail = (missionNumber: number, secret: string): string => {
 
 /** What a tamper job is, as the report names it: its kind, its setting and its action. */
 const tamperKind = (missionNumber: number): string =>
-  `tamper, school, ${missionAction(missionNumber)}`;
+  `tamper, ${missionSetting(missionNumber)}, ${missionAction(missionNumber)}`;
 
 /** Where a tamper job's records are kept and the one change or erase it asks, where a key job's
  *  storage, key path and key go. */
@@ -108,12 +113,13 @@ const recordLines = (missionNumber: number): readonly string[] => {
   const storage =
     missionShape(missionNumber).storage === 'file'
       ? [`  Storage:  file, ${recordsFilePath(missionNumber)}`]
-      : ['  Storage:  database, table grades', `  Records:  ${DATADIR_PATH}`];
+      : [`  Storage:  database, table ${target.table}`, `  Records:  ${DATADIR_PATH}`];
+  const names = Object.values(target.namedBy).join(', ');
   return [
     ...storage,
     target.action === 'erase'
-      ? `  Erase:    ${target.student}, ${target.subject} (${target.grade})`
-      : `  Change:   ${target.student}, ${target.subject}: ${target.from} -> ${target.to}`,
+      ? `  Erase:    ${names}`
+      : `  Change:   ${names}: ${target.column} ${target.from} -> ${target.to}`,
   ];
 };
 

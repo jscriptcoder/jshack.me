@@ -23,7 +23,11 @@ import { z } from 'zod';
 import { EMAILIT_DOMAIN } from '../generation/fixedSites.js';
 import { missionAddressForNumber } from '../missions/missionNetwork.js';
 import { missionTopology } from '../missions/missionShape.js';
-import { missionRecords } from '../missions/missionRecords.js';
+import {
+  missionRecords,
+  type RecordSetting,
+  type RecordTarget,
+} from '../missions/missionRecords.js';
 import { missionTerms, type MissionTerms } from '../missions/missionTerms.js';
 import { contractBoardPage, type BoardNotice } from './contractBoard.js';
 
@@ -142,6 +146,59 @@ const insideLines = (what: string): readonly string[] => [
   '',
 ];
 
+/** A grade as it is said aloud: "an A", "a B". */
+const aGrade = (grade: string): string => `${grade === 'A' || grade === 'F' ? 'an' : 'a'} ${grade}`;
+
+/** How a briefing names the record a change job is about, in its setting's words: whose it is,
+ *  what it says now and what it should say. */
+const CHANGE_SENTENCES: Readonly<
+  Record<RecordSetting, (at: (column: string) => string, from: string, to: string) => string>
+> = {
+  school: (at, from, to) =>
+    `Their records give ${at('student')} ${aGrade(from)} in ${at('subject')}. It should be ${aGrade(to)}.`,
+  police: (at, _from, to) =>
+    `Their records hold an active warrant for ${at('name')}, for ${at('offence')}. It should read ${to}.`,
+  payroll: (at, from, to) => `They pay ${at('name')} ${from} a year. It should be ${to}.`,
+  dmv: (at, from, to) =>
+    `Their records give ${at('name')} ${from} points for ${at('offence')}. It should be ${to}.`,
+  tournament: (at, from, to) =>
+    `Their league has ${at('player')} on ${from} in ${at('game')}. It should read ${to}.`,
+  admissions: (at, _from, to) =>
+    `Their records have ${at('name')} rejected for ${at('program')}. It should read ${to}.`,
+  club: (at, from, to) => `The club has ${at('name')} down as ${from}. It should say ${to}.`,
+  registry: (at, from, to) =>
+    `Their registry has ${at('plate')} registered to ${from}. It should be registered to ${to}.`,
+};
+
+/** How a briefing names the record an erase job is about, and that it should not exist. A
+ *  setting that never asks a record gone has no sentence for it. */
+const ERASE_SENTENCES: Readonly<Record<RecordSetting, (at: (column: string) => string) => string>> =
+  {
+    school: (at) =>
+      `There is a failing ${at('subject')} grade for ${at('student')}. It should not exist.`,
+    police: (at) =>
+      `Their records hold an active warrant for ${at('name')}, for ${at('offence')}. It should not exist.`,
+    payroll: () => '',
+    dmv: (at) =>
+      `Their records hold a ${at('offence')} offence against ${at('name')}. It should not exist.`,
+    tournament: (at) =>
+      `Their league has ${at('player')} on ${at('score')} in ${at('game')}. That score should not exist.`,
+    admissions: (at) =>
+      `Their records have ${at('name')} applying for ${at('program')}. That application should not exist.`,
+    club: (at) => `The club has ${at('name')} banned. That ban should not exist.`,
+    registry: (at) =>
+      `Their registry flags ${at('plate')} as stolen. That record should not exist.`,
+  };
+
+/** The sentence naming the record a tamper job is about: who, which field and old to new, or
+ *  that it should not exist. Never the row's id, its table, its file or its box. */
+const askedSentence = (setting: RecordSetting, target: RecordTarget): string => {
+  const at = (column: string): string => `${target.row[column]}`;
+  return target.action === 'erase'
+    ? ERASE_SENTENCES[setting](at)
+    : CHANGE_SENTENCES[setting](at, target.from, target.to);
+};
+
 /** What the job is and how it is paid: a key fetched and mailed back, or a record changed or
  *  erased and the client told. A tamper job names whose record and what it should say, or that
  *  it should not exist, never where. */
@@ -151,11 +208,9 @@ const jobLines = (
   inside: boolean,
 ): readonly string[] => {
   if (terms.job === 'tamper') {
-    const { target } = missionRecords(missionNumber);
+    const { setting, target } = missionRecords(missionNumber);
     return [
-      target.action === 'erase'
-        ? `There is a failing ${target.subject} grade for ${target.student}. It should not exist.`
-        : `Their records give ${target.student} a ${target.from} in ${target.subject}. It should be a ${target.to}.`,
+      askedSentence(setting, target),
       '',
       ...(inside ? insideLines('The records are') : []),
       'Mail this address when it is done, with your wallet address.',

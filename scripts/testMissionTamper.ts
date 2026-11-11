@@ -1,5 +1,5 @@
-// Wire-check for A TAMPER JOB: a contract whose client wants one school grade changed or erased,
-// and reads its own records box to see that it was. Driven end to end against a running
+// Wire-check for A TAMPER JOB: a contract whose client wants one record changed or erased (a
+// school grade, a police warrant, a salary, ...), and reads its own records box to see that it was. Driven end to end against a running
 // `vercel dev` + supabase, staging each job through the REAL `scripts/hireme.ts` and working it
 // through the REAL /api endpoints.
 //
@@ -22,6 +22,10 @@
 //     the CSV; saving it as `nano` saves it, the opened text as the base, with the target line
 //     right pays once; on a fresh job the same save with another line deleted too is told the
 //     records don't look right.
+//   - EVERY SETTING: one job in each of the eight settings, kept in a database or in files, is
+//     worked by the route's root saving the datadir or the CSV with the target done right; the box
+//     holds the target's two neighbour tables beside it, `show` names the setting, and the mail
+//     pays.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testMissionTamper.ts
@@ -40,7 +44,8 @@ import { machineIdForLanHost } from '../src/core/generation/lanTopology.js';
 import { buildMissionKeyBoxFs } from '../src/core/generation/missionKeyBoxFs.js';
 import { RIDGEMONT } from '../src/core/generation/world.js';
 import { md5 } from '../src/core/generation/md5.js';
-import { databaseIn } from '../src/core/mysql/datadir.js';
+import { DATADIR_PATH, databaseIn } from '../src/core/mysql/datadir.js';
+import { parseMysqlDatabase } from '../src/core/mysql/types.js';
 import { deserializeTree, type SerializedDirectory } from '../src/core/filesystem/treeCodec.js';
 import { defaultFilePermissions } from '../src/core/filesystem/defaultPermissions.js';
 import type { Directory, FileNode } from '../src/core/filesystem/types.js';
@@ -55,9 +60,13 @@ import { missionTerms } from '../src/core/missions/missionTerms.js';
 import {
   missionAction,
   missionRecords,
+  missionSetting,
   recordsFilePath,
   type RecordAction,
+  type RecordSetting,
+  type RecordTarget,
 } from '../src/core/missions/missionRecords.js';
+import type { MissionStorage } from '../src/core/missions/missionShape.js';
 import { missionLeakPath } from '../src/core/missions/missionLeak.js';
 import {
   isMissionNumber,
@@ -123,18 +132,24 @@ const DATABASE_PORT = 3306;
 const SSH_PORT = 2222;
 const RUN = Date.now().toString(36).slice(-6);
 
-/** The first tamper jobs from `from` asking for `action` that `wanted` accepts. */
+/** The first tamper jobs from `from` asking for `action` in `setting` that `wanted` accepts. */
 const tamperNumbers = (
   from: number,
   count: number,
   action: RecordAction,
   wanted: (shape: MissionShape) => boolean,
+  setting: RecordSetting = 'school',
 ): readonly number[] => {
   const found: number[] = [];
   for (let candidate = from; candidate < from + 60000 && found.length < count; candidate += 1) {
     if (!isMissionNumber(candidate)) continue;
     const shape = missionShape(candidate);
-    if (shape.kind === 'tamper' && missionAction(candidate) === action && wanted(shape)) {
+    if (
+      shape.kind === 'tamper' &&
+      missionSetting(candidate) === setting &&
+      missionAction(candidate) === action &&
+      wanted(shape)
+    ) {
       found.push(candidate);
     }
   }
@@ -174,6 +189,30 @@ const [FILED_JOB, BROKEN_JOB] = tamperNumbers(
   'change',
   (shape) => singleHopHydraFile(shape) && !shape.keyBox.decoys.includes('mysql'),
 ) as [number, number];
+/** One job in each setting, worked by a root saving the records: the storage and the action
+ *  spread so each storage meets four settings and each action four. */
+const SETTING_PLAN: readonly (readonly [RecordSetting, MissionStorage, RecordAction])[] = [
+  ['school', 'file', 'erase'],
+  ['police', 'database', 'erase'],
+  ['payroll', 'file', 'change'],
+  ['dmv', 'database', 'change'],
+  ['tournament', 'file', 'erase'],
+  ['admissions', 'database', 'change'],
+  ['club', 'file', 'change'],
+  ['registry', 'database', 'erase'],
+];
+const SETTING_JOBS = SETTING_PLAN.map(([setting, storage, action]) => {
+  const [found] = tamperNumbers(
+    400000,
+    1,
+    action,
+    ({ frontBox, keyBox, storage: kept }) =>
+      frontBox === null && keyBox.route === 'hydra' && kept === storage,
+    setting,
+  );
+  if (found === undefined) throw new Error(`no ${setting} ${storage} ${action} job`);
+  return found;
+});
 const JOBS = [
   WRONG_JOB,
   PAID_JOB,
@@ -183,6 +222,7 @@ const JOBS = [
   ERASED_JOB,
   FILED_JOB,
   BROKEN_JOB,
+  ...SETTING_JOBS,
 ] as const;
 
 type Job = {
@@ -249,7 +289,10 @@ const WIPED = jobOf(WIPED_JOB, 'wiped erase', 4);
 const ERASED = jobOf(ERASED_JOB, 'erase', 5);
 const FILED = jobOf(FILED_JOB, 'file', 6);
 const BROKEN = jobOf(BROKEN_JOB, 'broken file', 7);
-const ALL_JOBS = [WRONG, PAID, BRICKED, INSIDE, WIPED, ERASED, FILED, BROKEN] as const;
+const SETTINGS = SETTING_JOBS.map((missionNumber, index) =>
+  jobOf(missionNumber, missionSetting(missionNumber), 8 + index),
+);
+const ALL_JOBS = [WRONG, PAID, BRICKED, INSIDE, WIPED, ERASED, FILED, BROKEN, ...SETTINGS] as const;
 
 const RECORDS_WRONG = "Our records don't look right. No change, no money.";
 const CLOSED = 'That job is already closed.';
@@ -261,16 +304,25 @@ const changeTargetOf = (missionNumber: number) => {
   return target;
 };
 
-/** The statement that changes the target's grade and nothing else. */
+/** The WHERE naming the target row by the names the briefing gives it. */
+const whereTarget = (target: RecordTarget): string =>
+  `WHERE ${Object.entries(target.namedBy)
+    .map(([column, value]) => `${column} = '${value}'`)
+    .join(' AND ')}`;
+
+/** The names the target row goes by, as `show` lists them. */
+const namesOf = (target: RecordTarget): string => Object.values(target.namedBy).join(', ');
+
+/** The statement that changes the target's value and nothing else. */
 const rightUpdate = (missionNumber: number): string => {
   const target = changeTargetOf(missionNumber);
-  return `UPDATE grades SET grade = '${target.to}' WHERE student = '${target.student}' AND subject = '${target.subject}'`;
+  return `UPDATE ${target.table} SET ${target.column} = '${target.to}' ${whereTarget(target)}`;
 };
 
 /** The statement that deletes the target's row and nothing else. */
 const rightDelete = (missionNumber: number): string => {
   const { target } = missionRecords(missionNumber);
-  return `DELETE FROM grades WHERE student = '${target.student}' AND subject = '${target.subject}'`;
+  return `DELETE FROM ${target.table} ${whereTarget(target)}`;
 };
 
 const seedWordlist = async () => {
@@ -407,9 +459,7 @@ const workTheWrongJob = async () => {
     'show names the kind, the storage and the change',
     shown.includes('Kind:     tamper, school, change') &&
       shown.includes('Storage:  database, table grades') &&
-      shown.includes(
-        `Change:   ${target.student}, ${target.subject}: ${target.from} -> ${target.to}`,
-      ),
+      shown.includes(`Change:   ${namesOf(target)}: grade ${target.from} -> ${target.to}`),
     shown.split('\n').find((line) => line.includes('Kind:')) ?? 'no Kind line',
   );
 
@@ -448,10 +498,7 @@ const workTheWrongJob = async () => {
       !tables.output.includes('api_keys'),
     `status ${tables.status}`,
   );
-  const before = await statement(
-    job,
-    `SELECT grade FROM grades WHERE student = '${target.student}' AND subject = '${target.subject}'`,
-  );
+  const before = await statement(job, `SELECT grade FROM grades ${whereTarget(target)}`);
   check(
     'the target row holds the grade the briefing names',
     before.status === 200 && before.output.includes(`| ${target.from} `),
@@ -649,14 +696,11 @@ const workTheErasedJob = async () => {
   check(
     'show names an erase job and the row it asks gone',
     shown.includes('Kind:     tamper, school, erase') &&
-      shown.includes(`Erase:    ${target.student}, ${target.subject} (F)`),
+      shown.includes(`Erase:    ${namesOf(target)}`),
     shown.split('\n').find((line) => line.includes('Kind:')) ?? 'no Kind line',
   );
 
-  const before = await statement(
-    job,
-    `SELECT grade FROM grades WHERE student = '${target.student}' AND subject = '${target.subject}'`,
-  );
+  const before = await statement(job, `SELECT grade FROM grades ${whereTarget(target)}`);
   check(
     'the row the briefing names holds a failing grade',
     before.status === 200 && before.output.includes('| F '),
@@ -727,25 +771,34 @@ const nodeAt = (tree: Directory, path: string): FileNode | undefined =>
       tree,
     );
 
-/** The records file as the caller's root shell reads it, or null when it cannot. */
-const readRecordsFile = async (job: Job): Promise<string | null> => {
+/** The box as the caller's root shell reads it, or null when it cannot. */
+const readBox = async (job: Job): Promise<Directory | null> => {
   const answer = await post(
     NETWORK,
     signRequest(contractor, 'resolveCrossPlayerFs', { machine_id: job.recordsBox }),
   );
   if (answer.status !== 200) return null;
-  const tree = deserializeTree((answer.body as { tree: SerializedDirectory }).tree);
-  const node = nodeAt(tree, recordsFilePath(job.missionNumber));
+  return deserializeTree((answer.body as { tree: SerializedDirectory }).tree);
+};
+
+/** A file on the box as the caller's root shell reads it, or null when it cannot. */
+const readFileOnBox = async (job: Job, path: string): Promise<string | null> => {
+  const tree = await readBox(job);
+  const node = tree === null ? undefined : nodeAt(tree, path);
   return node?.kind === 'file' ? node.content : null;
 };
 
-/** A root's `nano` save of the records file: the whole new text, judged against what it opened. */
-const saveRecordsFile = (job: Job, opened: string, content: string) =>
+/** The records file as the caller's root shell reads it, or null when it cannot. */
+const readRecordsFile = (job: Job): Promise<string | null> =>
+  readFileOnBox(job, recordsFilePath(job.missionNumber));
+
+/** A root's `nano` save of a file: the whole new text, judged against what it opened. */
+const saveFile = (job: Job, path: string, opened: string, content: string) =>
   post(
     PATCHES,
     signRequest(contractor, 'upsertPatch', {
       machine_id: job.recordsBox,
-      path: recordsFilePath(job.missionNumber),
+      path,
       content,
       owner: 'root',
       permissions: defaultFilePermissions('root'),
@@ -754,15 +807,50 @@ const saveRecordsFile = (job: Job, opened: string, content: string) =>
     }),
   );
 
-/** The file's lines with the target's grade set to the one asked for: the header is line 0, so a
- *  row's line is its id. */
+/** A root's `nano` save of the records file. */
+const saveRecordsFile = (job: Job, opened: string, content: string) =>
+  saveFile(job, recordsFilePath(job.missionNumber), opened, content);
+
+/** The file's lines with the job done right: the target's value set to the one asked for, or
+ *  its line gone. The header is line 0, so a row's line is one past its place. */
+const withTargetDone = (missionNumber: number, opened: string): readonly string[] => {
+  const { target } = missionRecords(missionNumber);
+  const lines = opened.split('\n');
+  const targetLine = target.rowIndex + 1;
+  if (target.action === 'erase') return lines.filter((_line, index) => index !== targetLine);
+  const column = (lines[0] ?? '').split(',').indexOf(target.column);
+  return lines.map((line, index) =>
+    index === targetLine
+      ? line
+          .split(',')
+          .map((value, at) => (at === column ? target.to : value))
+          .join(',')
+      : line,
+  );
+};
+
+/** The file's lines with the target's value set to the one asked for. */
 const withTargetChanged = (missionNumber: number, opened: string): readonly string[] => {
-  const target = changeTargetOf(missionNumber);
-  return opened
-    .split('\n')
-    .map((line, index) =>
-      index === target.rowId ? line.replace(new RegExp(`,${target.from}$`), `,${target.to}`) : line,
-    );
+  changeTargetOf(missionNumber);
+  return withTargetDone(missionNumber, opened);
+};
+
+/** The datadir's text with the job done right in the target table, as a root could save it. */
+const datadirDone = (missionNumber: number, opened: string): string | null => {
+  const database = parseMysqlDatabase(opened);
+  const { target } = missionRecords(missionNumber);
+  const table = database?.tables[target.table];
+  if (database === null || table === undefined) return null;
+  const rows =
+    target.action === 'erase'
+      ? table.rows.filter((_row, index) => index !== target.rowIndex)
+      : table.rows.map((row, index) =>
+          index === target.rowIndex ? { ...row, [target.column]: target.to } : row,
+        );
+  return JSON.stringify({
+    ...database,
+    tables: { ...database.tables, [target.table]: { ...table, rows } },
+  });
 };
 
 /** A root opens the CSV in `nano`, sets the target line's grade and saves: paid once, then closed. */
@@ -792,12 +880,13 @@ const workTheFiledJob = async () => {
   const rooted = await rootOnTheBox(job, `ssh-filed-${RUN}`);
   const opened = await readRecordsFile(job);
   const target = changeTargetOf(job.missionNumber);
+  const { row } = target;
   check(
     "the route's root reads the CSV, the target line holding the grade the briefing names",
     rooted.landed &&
       opened !== null &&
       opened.startsWith('id,student,subject,grade\n') &&
-      opened.includes(`\n${target.rowId},${target.student},${target.subject},${target.from}\n`),
+      opened.includes(`\n${row['id']},${row['student']},${row['subject']},${target.from}\n`),
     rooted.detail,
   );
 
@@ -838,7 +927,7 @@ const workTheBrokenJob = async () => {
   const job = BROKEN;
   await stage(job);
   const target = changeTargetOf(job.missionNumber);
-  const otherLine = target.rowId === 1 ? 2 : 1;
+  const otherLine = target.rowIndex === 0 ? 2 : 1;
 
   const rooted = await rootOnTheBox(job, `ssh-broken-${RUN}`);
   const opened = (await readRecordsFile(job)) ?? '';
@@ -859,6 +948,50 @@ const workTheBrokenJob = async () => {
     'the broken file job stays accepted and pays nothing',
     (await stateOf(job)) === 'accepted' && (await balanceOf(job.wallet)) <= 0,
     `${await stateOf(job)}`,
+  );
+};
+
+/** A job in one setting: `show` names it, the route's root reads the records with both
+ *  neighbours beside them, saves the datadir or the CSV with the target done right, and the mail
+ *  pays. */
+const workTheSettingJob = async (job: Job) => {
+  // One contractor works every job here, and the client mails are held to 20 an hour per
+  // player; the limit is not what this check is about, so each setting job starts its hour clean.
+  await sr.from('email_sends').delete().eq('player_key', contractor.publicKeyHex);
+  await stage(job);
+  const { setting, tables } = missionRecords(job.missionNumber);
+  const kept = missionShape(job.missionNumber).storage;
+  const pay = missionTerms(job.missionNumber).pay;
+  const shown = runHireme(['show', job.address]);
+  const rooted = await rootOnTheBox(job, `ssh-${setting}-${RUN}`);
+  const box = await readBox(job);
+  const names = tables.map(({ name }) => name);
+  const { stem } = missionShape(job.missionNumber);
+  const path = kept === 'database' ? DATADIR_PATH : recordsFilePath(job.missionNumber);
+  const opened = (await readFileOnBox(job, path)) ?? '';
+  const held =
+    kept === 'database'
+      ? Object.keys(parseMysqlDatabase(opened)?.tables ?? {})
+      : names.filter(
+          (name) =>
+            box !== null && nodeAt(box, `/srv/${stem}/records/${name}.csv`)?.kind === 'file',
+        );
+  const done =
+    kept === 'database'
+      ? (datadirDone(job.missionNumber, opened) ?? '')
+      : withTargetDone(job.missionNumber, opened).join('\n');
+  const saved = await saveFile(job, path, opened, done);
+  const paid = await mailClient(job, `done\n${job.wallet}\n`);
+  check(
+    `a ${setting} job kept in ${kept}: show names it, the box holds ${names.join(', ')}, and a root's right save pays`,
+    shown.includes(`Kind:     tamper, ${setting}, ${missionAction(job.missionNumber)}`) &&
+      names.every((name) => held.includes(name)) &&
+      rooted.landed &&
+      saved.status === 200 &&
+      paid.status === 200 &&
+      (await stateOf(job)) === 'completed' &&
+      (await balanceOf(job.wallet)) === pay,
+    `${rooted.detail}, held [${held.join(',')}], save ${saved.status}, mail ${paid.status}, balance ${await balanceOf(job.wallet)} (want ${pay})`,
   );
 };
 
@@ -893,6 +1026,7 @@ const main = async () => {
   await workTheErasedJob();
   await workTheFiledJob();
   await workTheBrokenJob();
+  for (const job of SETTINGS) await workTheSettingJob(job);
 
   await cleanup();
 

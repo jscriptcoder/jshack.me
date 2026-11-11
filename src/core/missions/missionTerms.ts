@@ -19,7 +19,12 @@
 
 import { createPrng } from '../generation/prng.js';
 import { missionKind, missionTopology } from './missionShape.js';
-import { missionAction, type RecordAction } from './missionRecords.js';
+import {
+  missionAction,
+  missionSetting,
+  type RecordAction,
+  type RecordSetting,
+} from './missionRecords.js';
 
 export type MissionClient = {
   readonly company: string;
@@ -106,44 +111,164 @@ const KEY_OPENS: readonly string[] = [
 const SINGLE_HOP = { kind: 'retrieve an access key', minPay: 500, maxPay: 2000 } as const;
 const TWO_HOP = { kind: 'retrieve an internal access key', minPay: 2000, maxPay: 4000 } as const;
 
-/** What a template's job is called on the board and the range its pay is drawn from. */
-type JobTerms = { readonly kind: string; readonly minPay: number; readonly maxPay: number };
+/** What a tamper job pays: a record changed is a riskier ask than a key fetched, so it pays
+ *  more on either hop count, and a record behind a second box starts where a single-hop one
+ *  tops out. A record asked gone pays as one asked changed: the work and the check are as
+ *  strict. */
+const TAMPER_PAY = {
+  singleHop: { minPay: 1000, maxPay: 2500 },
+  twoHop: { minPay: 2500, maxPay: 5000 },
+} as const;
 
-/** A record changed is a riskier ask than a key fetched, so it pays more on either hop count,
- *  and a record behind a second box starts where a single-hop one tops out. A record asked gone
- *  pays as one asked changed: the work and the check are as strict. */
-const TAMPER_JOBS: Readonly<Record<RecordAction, { singleHop: JobTerms; twoHop: JobTerms }>> = {
-  change: {
-    singleHop: { kind: 'alter a school record', minPay: 1000, maxPay: 2500 },
-    twoHop: { kind: 'alter an internal school record', minPay: 2500, maxPay: 5000 },
+/** What a setting's target is called after its stem ("Halden Academy"), what the board calls
+ *  its records, and why a client wants one changed or gone, in the same two moral lights as a
+ *  key job's. A setting that asks nothing gone has no erase pitches. */
+type SettingTerms = {
+  readonly institution: string;
+  readonly noun: string;
+  readonly pitches: Readonly<Record<RecordAction, readonly string[]>>;
+};
+
+const SETTING_TERMS: Readonly<Record<RecordSetting, SettingTerms>> = {
+  school: {
+    institution: 'Academy',
+    noun: 'school',
+    pitches: {
+      change: [
+        'A scholarship hangs on one grade. Our client would like it to hang the other way.',
+        'A parent is paying well for a report card that reads better than the truth.',
+        'One failing grade keeps our client off the team. It should not be failing.',
+        'An admissions offer depends on a transcript that is one grade short.',
+        'A teacher marked our client down out of spite. We are correcting that.',
+        'The grade was entered wrong and the school will not fix it. We will.',
+      ],
+      erase: [
+        'One failing grade stands between our client and graduation. It should not be there.',
+        'A failed exam our client never sat is on their record. We want it gone.',
+        'Our client needs a clean transcript by the end of the month. One line has to go.',
+        'A failing mark is costing our client a place on the course. Make it disappear.',
+      ],
+    },
   },
-  erase: {
-    singleHop: { kind: 'erase a school record', minPay: 1000, maxPay: 2500 },
-    twoHop: { kind: 'erase an internal school record', minPay: 2500, maxPay: 5000 },
+  police: {
+    institution: 'Police Dept',
+    noun: 'police',
+    pitches: {
+      change: [
+        'Our client cannot cross a border with a warrant hanging over them. Close it.',
+        'The warrant was served months ago and nobody updated the file. We will.',
+        'A job offer depends on a background check coming back clean.',
+        'Our client settled the matter in court. The police records never heard.',
+      ],
+      erase: [
+        'An old warrant keeps turning up at traffic stops. Our client wants it gone for good.',
+        'The warrant names the wrong person, and the department will not admit it.',
+        'Our client is moving abroad next week. That warrant cannot follow them.',
+      ],
+    },
+  },
+  payroll: {
+    institution: 'Holdings',
+    noun: 'payroll',
+    pitches: {
+      change: [
+        'Our client was promised a raise in writing. The payroll never got the memo.',
+        'A mortgage application needs a bigger salary than our client is paid.',
+        'Our client does twice the work of the person beside them, for less. Fix the number.',
+        'A bonus was agreed and quietly forgotten. Put it in the salary.',
+      ],
+      erase: [],
+    },
+  },
+  dmv: {
+    institution: 'Motor Registry',
+    noun: 'motor registry',
+    pitches: {
+      change: [
+        'One more set of points and our client loses their licence. Bring them to zero.',
+        'Our client drives for a living, and the points on their licence are costing work.',
+        'An insurance renewal is due, and the premium follows the points.',
+      ],
+      erase: [
+        'Our client was never behind the wheel that day. The offence should not be on record.',
+        'A delivery job needs a clean licence by Monday. One offence has to go.',
+        'The camera caught the wrong car. Our client wants the offence gone.',
+      ],
+    },
+  },
+  tournament: {
+    institution: 'Esports League',
+    noun: 'tournament',
+    pitches: {
+      change: [
+        'A sponsor signs whoever tops the ladder. Our client needs a few hundred more points.',
+        'The final seedings close tonight, and our client is one bracket short.',
+        'A lag spike cost our client the match. The score should show what they earned.',
+      ],
+      erase: [
+        'A rival is one score ahead of our client on the ladder. Take theirs off the board.',
+        'That score was set with a cheat. The league will not act, so we will.',
+        'Our client loses a sponsorship to one entry on that ladder. Make it vanish.',
+      ],
+    },
+  },
+  admissions: {
+    institution: 'University',
+    noun: 'admissions',
+    pitches: {
+      change: [
+        'Our client was rejected by one vote. The decision should go the other way.',
+        'A family has paid for a place that the admissions office will not give.',
+        'The rejection was a clerical error, and the deadline to appeal has passed.',
+      ],
+      erase: [
+        'There is one place on the course and two people after it. Our client wants the other gone.',
+        'A rival applicant is ahead of our client in the queue. They should not be in it.',
+        'One application stands between our client and a place. Remove it.',
+      ],
+    },
+  },
+  club: {
+    institution: 'Members Club',
+    noun: 'club',
+    pitches: {
+      change: [
+        'Our client wants into the club before their birthday. The age on file says no.',
+        'A member is a few years too young for the bar. The list should say otherwise.',
+        'The door checks the members list, not the passport. Make the list agree.',
+      ],
+      erase: [
+        'Our client was banned over a misunderstanding. The ban should not exist.',
+        'A ban keeps our client out of the one room where the deals are made.',
+        'The owner banned our client to settle a grudge. Take the ban off the list.',
+      ],
+    },
+  },
+  registry: {
+    institution: 'Vehicle Registry',
+    noun: 'vehicle registry',
+    pitches: {
+      change: [
+        'A car changed hands for cash and the paperwork never followed. Fix the owner.',
+        'Our client bought a car the registry still says belongs to someone else.',
+        'An inheritance dispute is holding up a car our client already owns.',
+      ],
+      erase: [
+        'Our client bought that car in good faith. The stolen flag is not their problem.',
+        'A stolen flag on a car our client is selling has stopped the sale.',
+        'The car was recovered weeks ago. Nobody took the flag off, so we will.',
+      ],
+    },
   },
 };
 
-/** Why a client wants a school's record changed or gone, in the same two moral lights as a key
- *  job's: a grade raised, or a failing grade that should not exist at all. */
-const SCHOOL_PITCHES: Readonly<Record<RecordAction, readonly string[]>> = {
-  change: [
-    'A scholarship hangs on one grade. Our client would like it to hang the other way.',
-    'A parent is paying well for a report card that reads better than the truth.',
-    'One failing grade keeps our client off the team. It should not be failing.',
-    'An admissions offer depends on a transcript that is one grade short.',
-    'A teacher marked our client down out of spite. We are correcting that.',
-    'The grade was entered wrong and the school will not fix it. We will.',
-  ],
-  erase: [
-    'One failing grade stands between our client and graduation. It should not be there.',
-    'A failed exam our client never sat is on their record. We want it gone.',
-    'Our client needs a clean transcript by the end of the month. One line has to go.',
-    'A failing mark is costing our client a place on the course. Make it disappear.',
-  ],
+/** The board line for a tamper job: what it does to which setting's records, and `internal`
+ *  for one behind a second box. */
+const tamperKind = (action: RecordAction, noun: string, singleHop: boolean): string => {
+  const verb = action === 'erase' ? 'erase' : 'alter';
+  if (!singleHop) return `${verb} an internal ${noun} record`;
+  return `${verb} ${/^[aeiou]/.test(noun) ? 'an' : 'a'} ${noun} record`;
 };
-
-/** What a school is called, after its stem: "Halden Academy". */
-const SCHOOL_NAME = 'Academy';
 
 const PAY_STEP = 50;
 
@@ -160,15 +285,15 @@ export const missionTerms = (missionNumber: number): MissionTerms => {
   const singleHop = frontBoxOctet === null;
   if (missionKind(missionNumber) === 'tamper') {
     const action = missionAction(missionNumber);
-    const job = TAMPER_JOBS[action][singleHop ? 'singleHop' : 'twoHop'];
+    const { institution, noun, pitches } = SETTING_TERMS[missionSetting(missionNumber)];
     return {
       job: 'tamper',
       client: prng.pick(CLIENTS),
-      targetCompany: `${capitalised(stem)} ${SCHOOL_NAME}`,
-      kind: job.kind,
-      // One draw from either list, so an erase job's pay is drawn where a change job's is.
-      pitch: prng.pick(SCHOOL_PITCHES[action]),
-      pay: payFrom(prng, job),
+      targetCompany: `${capitalised(stem)} ${institution}`,
+      kind: tamperKind(action, noun, singleHop),
+      // One draw from any list, so every setting's pay is drawn where the school's was.
+      pitch: prng.pick(pitches[action]),
+      pay: payFrom(prng, TAMPER_PAY[singleHop ? 'singleHop' : 'twoHop']),
     };
   }
   const job = singleHop ? SINGLE_HOP : TWO_HOP;

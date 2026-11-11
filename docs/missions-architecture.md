@@ -496,78 +496,102 @@ boards' server's fetch handler (`resolveHttpFetch.ts`); the doors and their word
 
 ## Tamper jobs
 
-The second kind of contract: a school wants one grade in its records changed (v0.454.0), or one
-failing grade erased (v0.455.0), the records kept in a database or a CSV file (v0.456.0). The
-number decides the kind on its own stream, `mission-kind-<n>`, half and half (`missionKind`,
-`core/missions/missionShape.ts`); a tamper job's action on another, `mission-action-<n>`, half
-change and half erase (`missionAction`, `core/missions/missionRecords.ts`); and its storage on a
-third, `mission-records-storage-<n>`, half database and half file (`recordsStorage`,
-`missionShape.ts`). A key number's shape and terms are exactly what they were before the kind
-existed, a change job's records, terms and briefing exactly what they were before erase existed,
-and a database job exactly what it was before files existed; each is a new stream, never a new
-draw on an old one.
+The second kind of contract: a client wants one record changed (v0.454.0) or erased (v0.455.0),
+kept in a database or in CSV files (v0.456.0), in one of eight settings, each with tables beside
+the target to look past (v0.457.0). The number decides the kind on its own stream,
+`mission-kind-<n>`, half and half (`missionKind`, `core/missions/missionShape.ts`); a tamper job's
+setting on another, `mission-setting-<n>`, an eighth each (`missionSetting`,
+`core/missions/missionRecords.ts`); its action on a third, `mission-action-<n>`, half change and
+half erase, but always a change in a setting with nothing worth erasing (`missionAction`); and its
+storage on a fourth, `mission-records-storage-<n>`, half database and half file
+(`recordsStorage`, `missionShape.ts`). A key number's shape and terms are exactly what they were
+before the kind existed, and a tamper number's shape, client and pay exactly what they were before
+settings existed; each is a new stream, never a new draw on an old one.
 
 - **The records box is the key box with records instead of a key.** Same octet, route, decoys,
   front box and hostname (`<stem>-files`). It holds no key file and no `api_keys`, so laying it in
   needs no `MISSION_KEY_SECRET`.
   - **Database storage**: it runs mysqld as database key storage does — a crackable application
     account, a shut database root, `:3306` forwarded on single-hop, the inside door on two-hop —
-    and the records are a `grades` table in its datadir. On the mysql leak route the datadir also
-    holds `settings`.
+    and the setting's three tables sit in its datadir, so `SHOW TABLES` lists them all. On the
+    mysql leak route the datadir also holds `settings`.
   - **File storage**: no mysqld and no `:3306` for the records (the mysql route keeps its own
-    door, and its datadir holds only `settings`). The records are
-    `/srv/<stem>/records/grades.csv` (`recordsFilePath`), root-only, a header
-    `id,student,subject,grade` then one line per row and a final newline
-    (`recordsFileContent`). The route's root reads it and edits it in `nano`; the file is in
-    `missionFilePaths`, so the write gate lets that root save it, and the save is one journal row
-    the client's read replays over the lay-in.
-- **The records** (`missionRecords`, `core/missions/missionRecords.ts`, stream
-  `mission-records-<n>`): a `grades` table (`id`, `student`, `subject`, `grade`) of 5–8 students
-  by 4–5 subjects, 20–40 rows. One row is the target. On a change its grade is drawn from C, D or
-  F, and the grade asked for from A or B; on an erase it always holds an F, so the briefing can
-  call it failing. Other rows may hold an F too; the student and subject pick out the one row.
-- **The terms**: `<Client> — alter a school record — §<pay>`, 1,000–2,500 single-hop, and
-  `alter an internal school record`, 2,500–5,000 two-hop, rounded to 50; the target is
-  `<Stem> Academy`. An erase job reads `erase a school record` (`erase an internal school
-  record` on two-hop) at the same pay, and is pitched from reasons of its own. `MissionTerms` is
-  a union on `job: 'key' | 'tamper'`, and only a key job has `keyOpens`.
-- **The briefing** names the student, the subject, the grade they have and the grade they should
-  have, and the address: "Their records give Amara Okafor a D in Chemistry. It should be a B."
-  An erase names the student and the subject: "There is a failing Chemistry grade for Amara
-  Okafor. It should not exist." Never the row, the table, the box or the path. A two-hop
-  briefing says the records are on a machine inside their network. It ends "No change, no money.
-  No wallet, no money."
+    door, and its datadir holds only `settings`). Each table is a root-only file
+    `/srv/<stem>/records/<table>.csv` (`recordsFiles`; the target's is `recordsFilePath`): a header
+    naming the columns, then one line per row and a final newline. The route's root reads them and
+    edits them in `nano`; they are in `missionFilePaths`, so the write gate lets that root save
+    them, and a save is one journal row the client's read replays over the lay-in.
+- **The settings** (`core/missions/recordSettings.ts`, rows on `mission-records-<n>`). Each brings
+  the table the job is about, which column a change moves and what an erase takes, and two tables
+  beside it:
+
+  | Setting    | Target           | Table                                         | Change                   | Erase                    | Beside it                  |
+  | ---------- | ---------------- | --------------------------------------------- | ------------------------ | ------------------------ | -------------------------- |
+  | school     | Academy          | `grades` id, student, subject, grade          | a C, D or F to an A or B | a failing grade          | `attendance`, `staff`      |
+  | police     | Police Dept      | `warrants` id, name, dob, offence, status     | `active` to `cleared`    | an active warrant        | `incidents`, `officers`    |
+  | payroll    | Holdings         | `payroll` id, name, dept, salary              | raised by 10,000–30,000  | none: a change only      | `departments`, `expenses`  |
+  | dmv        | Motor Registry   | `offences` id, licence, name, offence, points | 3–12 points to 0         | an offence               | `inspections`, `examiners` |
+  | tournament | Esports League   | `scores` id, player, game, score              | raised by 300–900        | a rival's score          | `teams`, `matches`         |
+  | admissions | University       | `applicants` id, name, dob, program, status   | `rejected` to `admitted` | an application           | `programs`, `staff`        |
+  | club       | Members Club     | `members` id, name, age, tier, status         | an age of 17 to 21       | a `banned` member        | `events`, `staff`          |
+  | registry   | Vehicle Registry | `vehicles` plate, owner, make, model, status  | the owner to a new name  | the one `stolen` vehicle | `dealers`, `inspections`   |
+
+  A target table holds 20–40 rows (School: 5–8 students by 4–5 subjects), named people unique
+  within it (a student and a subject together at a school; a plate in the registry), so the names
+  the briefing gives fit exactly one row (`RecordTarget.namedBy`). People come from one pool of
+  first and last names. The tables beside it hold 5–15 rows each, drawn on
+  `mission-neighbours-<n>` so the target never moves for them, and name nobody the target does.
+  Numeric columns (id, salary, points, score, age) are numbers in the datadir and digits in a CSV.
+  No value holds a quote, a comma or the word "and", since a player types each back into a quoted
+  condition or a comma-separated line.
+
+- **The terms**: `<Client> — alter a school record — §<pay>`, the setting's noun on the board
+  (`alter a police record`, `erase an admissions record`, `alter a vehicle registry record`), and
+  `alter an internal … record` two-hop. Pay is 1,000–2,500 single-hop and 2,500–5,000 two-hop,
+  rounded to 50, whatever the setting, action or storage. The target is `<Stem> <institution>`
+  (`Halden Academy`, `Halden Police Dept`). Each setting pitches from three to six reasons of its
+  own for each action. `MissionTerms` is a union on `job: 'key' | 'tamper'`, and only a key job
+  has `keyOpens`.
+- **The briefing** names who, which field and old to new, or that the record should not exist,
+  in the setting's words: "Their records give Amara Okafor a D in Chemistry. It should be an A.",
+  "Their records hold an active warrant for Ben Holloway, for fraud. It should read cleared.",
+  "The club has Zoe Lambert down as 17. It should say 21.", "Their registry flags KX21 LMR as
+  stolen. That record should not exist." Never the row's id, a table, a file, the box or the
+  path. A two-hop briefing says the records are on a machine inside their network. It ends "No
+  change, no money. No wallet, no money."
 - **Any mail from the contractor reads the box.** `answerClientMail` asks for the records box
   (`readRecordsBox`, wired by `handleResolveMail` through `generatedLanBox`, so the read sees the
-  lay-in, every journal row and whether the box still boots). `recordsLookRight` passes when the
-  table has exactly the generated rows in order, every cell equal as text to the generated one,
-  except the target's grade, which must equal the grade asked for after trimming, case-sensitive.
-  On an erase it passes when the table holds exactly the generated rows but the target, in order,
-  each equal as text. A file job's CSV is read into the same rows first: LF or CRLF line endings,
-  blank lines skipped, each value trimmed and out of its surrounding double quotes, every row keyed
-  by the header's names (so column order does not count), and a line with more or fewer values
-  than the header has no rows at all. A header naming a column missing, extra or renamed leaves
-  rows that cannot equal the generated ones. The mail's words do not matter; only its wallet does.
+  lay-in, every journal row and whether the box still boots). `recordsLookRight` reads only the
+  target table, and passes when it has exactly the generated rows in order, every cell equal as
+  text to the generated one, except the target's changed column, which must equal the value asked
+  for after trimming, case-sensitive (an age set to `21` passes, `21.0` does not). On an erase it
+  passes when the table holds exactly the generated rows but the target, in order, each equal as
+  text. The tables beside it are never read: emptying or deleting them costs nothing. A file job's
+  CSV is read into the same rows first: LF or CRLF line endings, blank lines skipped, each value
+  trimmed and out of its surrounding double quotes, every row keyed by the header's names (so
+  column order does not count), and a line with more or fewer values than the header has no rows
+  at all. A header naming a column missing, extra or renamed leaves rows that cannot equal the
+  generated ones. The mail's words do not matter; only its wallet does.
 
-  | The box                                                            | The reply                                                    | What changes              |
-  | ------------------------------------------------------------------ | ------------------------------------------------------------ | ------------------------- |
-  | The records read right, with a wallet                              | "The records look right. §1,450 sent to jsc…. Pleasure …"    | completed, the pay minted |
-  | The records read right, no wallet                                  | "The records look right. You sent no wallet, so there is …"  | completed, nothing minted |
-  | Unchanged, a third value, another row touched or gone, no `grades` | "Our records don't look right. No change, no money."         | nothing                   |
-  | The box does not boot, or has no datadir or readable CSV           | "Our records don't look right. No change, no money."         | nothing                   |
-  | A completed job                                                    | "That job is already closed." (the box is not read)          | nothing                   |
-  | The read itself fails                                              | nothing: 500, as any store failure                           | nothing                   |
+  | The box                                                                | The reply                                                   | What changes              |
+  | ---------------------------------------------------------------------- | ----------------------------------------------------------- | ------------------------- |
+  | The records read right, with a wallet                                  | "The records look right. §1,450 sent to jsc…. Pleasure …"   | completed, the pay minted |
+  | The records read right, no wallet                                      | "The records look right. You sent no wallet, so there is …" | completed, nothing minted |
+  | Unchanged, a third value, another row touched or gone, no target table | "Our records don't look right. No change, no money."        | nothing                   |
+  | The box does not boot, or has no datadir or readable CSV               | "Our records don't look right. No change, no money."        | nothing                   |
+  | A completed job                                                        | "That job is already closed." (the box is not read)         | nothing                   |
+  | The read itself fails                                                  | nothing: 500, as any store failure                          | nothing                   |
 
 - **A careless statement costs the job's pay until it is undone.** An `UPDATE` with no `WHERE`
-  gives every row the grade, and the records no longer read right; putting the other rows back
+  gives every row the value, and the records no longer read right; putting the other rows back
   makes them read right again. A `DELETE` with no `WHERE` takes every row, and the game's `mysql`
   has no `INSERT`, so only a root retyping the datadir can bring them back. A visitor who bricks
   the box before the contractor mails costs the contractor the job, which is the shared network
   working as designed.
-- `hireme.ts show` adds `Kind: tamper, school, change` (or `erase`) and, in place of the key
-  lines, the storage (`database, table grades` and the datadir's path, or `file, <the CSV's
-  path>`) and the change (`Change: student, subject: from -> to`) or the row to erase
-  (`Erase: student, subject (F)`).
+- `hireme.ts show` adds `Kind: tamper, <setting>, <action>` and, in place of the key lines, the
+  storage (`database, table <table>` and the datadir's path, or `file, <the target CSV's path>`)
+  and the change (`Change: <names>: <column> <from> -> <to>`) or the row to erase
+  (`Erase: <names>`).
 
 ## 7. What a root finds
 
@@ -610,8 +634,8 @@ The client carries the 195 block in `isPublicIp`, the `whois` record and the net
 The key, its paths, the terms, the board, the briefing, the replies and the root view are built
 on the server only. The leak routes added the slice's hashes and the route shapes, and the two-hop
 template the front box and the inside decoys, and the tamper kind its draw and the records'
-pools. Each feature raises the main chunk's ceiling by its measured growth; at v0.456.0 the chunk
-is 299,557 B gzipped against a ceiling of 299,575 B.
+pools. Each feature raises the main chunk's ceiling by its measured growth; at v0.457.0 the chunk
+is 299,557 B gzipped against a ceiling of 299,575 B (the settings' content is not in it).
 
 ## 10. Proving it
 
@@ -636,13 +660,15 @@ is 299,557 B gzipped against a ceiling of 299,575 B.
   `testMissionTwoHop.ts` (64: one web-fronted contract per key-box route, the key box absent from
   a public scan, the front route worked to root, the LAN scanned from it, every inside decoy worked
   to its empty end, the key box's route worked from the hop, the key paid once);
-  `testMissionTamper.ts` (30: `show`, the scan, a mail before any change and after an `UPDATE`
+  `testMissionTamper.ts` (38: `show`, the scan, a mail before any change and after an `UPDATE`
   with no `WHERE` refused, the right `UPDATE` paid once then closed, a box bricked by its own root
   refused, a two-hop job changed from a root shell on the front box and paid, and on erase jobs a
   `DELETE` with no `WHERE` refused and the right `DELETE … WHERE` paid once then closed, and on
   file jobs `show` naming the CSV, no `:3306`, the route's root reading the CSV, a save as `nano`
   makes it with the target line right paid once then closed, and one with another line deleted
-  refused). The
+  refused; and one job in each of the eight settings, four kept in a database and four in files,
+  holding both tables beside the target, worked by a root saving the datadir or the CSV right and
+  paid). The
   board and pay checks each post a two-hop offer on a chosen number (21 and 17 checks at
   v0.452.0). The decoys' doors are also proven in `decoyMissionDoors.test.ts`.
 - **Mutation**: every slice's scoped run left no survivor but equivalents.
@@ -705,7 +731,8 @@ needs attachments; recognition for completed jobs; a second, darknet operator.
 - **missions** (`core/missions/`): `missionNetwork.ts`, `missionShape.ts`, `pools.ts`,
   `leakablePool.ts` (bundle); `missionSecret.ts`, `missionLeak.ts`, `missionTerms.ts`,
   `clientMail.ts`, `contractsList.ts`, `hiremeOrders.ts` (server and scripts); `missionRecords.ts`
-  (a tamper job's records and the check).
+  (a tamper job's setting, records and the check) and `recordSettings.ts` (the eight settings'
+  tables).
 - **The lay-in and the doors**: `core/network/missionBoxFiles.ts`, `core/sessions/doorAdmission.ts`,
   `core/generation/missionKeyBoxFs.ts`, `core/crypto/gpgCodec.ts` (the cipher the server seals a
   gpg contract's key with).

@@ -45,7 +45,7 @@ import { DATADIR_PATH, databaseIn } from '../mysql/datadir.js';
 import { parseSnmpdConf, SNMPD_CONF_PATH, SNMPD_CONF_PERMISSIONS } from '../snmp/conf.js';
 import { parseMysqlDatabase } from '../mysql/types.js';
 import { runStatement } from '../mysql/statements.js';
-import { missionAction, missionRecords } from './missionRecords.js';
+import { missionAction, missionRecords, missionSetting } from './missionRecords.js';
 import {
   COMMON_PASSWORDS,
   CRACKABLE_PASSWORDS,
@@ -1091,32 +1091,54 @@ describe("a tamper job's records box", () => {
     }
   });
 
-  it('adds the grades the number draws to the database the box generates, and no key', () => {
+  /** The datadir's tables split into the records' own, by name, and every other. */
+  const recordsAndOthers = (missionNumber: number) => {
+    const tables = laidDatabase(missionNumber)?.tables ?? {};
+    const names = new Set(missionRecords(missionNumber).tables.map(({ name }) => name));
+    return {
+      records: Object.entries(tables)
+        .filter(([name]) => names.has(name))
+        .map(([name, table]) => ({ name, table })),
+      others: Object.fromEntries(Object.entries(tables).filter(([name]) => !names.has(name))),
+    };
+  };
+
+  it('adds the tables the number draws to the database the box generates, and no key', () => {
     for (const route of ['hydra', 'snmp', 'ftp'] as const) {
       const missionNumber = firstTamperWithRoute(route);
-      const laid = laidDatabase(missionNumber);
       const generated = databaseIn(buildMissionKeyBoxFs(missionNumber));
-      const { grades, ...others } = laid?.tables ?? {};
+      const { records, others } = recordsAndOthers(missionNumber);
 
-      expect(grades, `${route} contract ${missionNumber}`).toEqual(
-        missionRecords(missionNumber).grades,
+      expect(records, `${route} contract ${missionNumber}`).toEqual(
+        missionRecords(missionNumber).tables,
       );
       expect(others, `${route} contract ${missionNumber}`).toEqual(generated?.tables);
-      expect(laid?.credentials).toEqual(generated?.credentials);
+      expect(laidDatabase(missionNumber)?.credentials).toEqual(generated?.credentials);
     }
+  });
+
+  it('holds the target table and both tables beside it, whatever the setting', () => {
+    const settings = tamperNumbersWithRoute('hydra').map((missionNumber) => {
+      expect(recordsAndOthers(missionNumber).records).toHaveLength(3);
+      return missionSetting(missionNumber);
+    });
+
+    expect(new Set(settings).size).toBe(8);
   });
 
   it('keeps the grades beside the word in the one datadir on the database route', () => {
     const missionNumber = firstTamperWithRoute('mysql');
     const laid = laidDatabase(missionNumber);
     const generated = databaseIn(buildMissionKeyBoxFs(missionNumber));
-    const { grades, settings, ...others } = laid?.tables ?? {};
+    const { records, others } = recordsAndOthers(missionNumber);
+    const { settings, ...generatedOthers } = others;
     const word = plaintextFor(missionShape(missionNumber).keyBox.rootHash);
 
     expect(missionFilePaths(keyOf(missionNumber))).toEqual([DATADIR_PATH]);
-    expect(grades).toEqual(missionRecords(missionNumber).grades);
+    expect(records).toEqual(missionRecords(missionNumber).tables);
     expect(settings?.rows[2]?.['value'] === word).toBe(true);
-    expect(others).toEqual(generated?.tables);
+    expect(generatedOthers).toEqual(generated?.tables);
+    expect(laid?.name).toBe(generated?.name);
   });
 
   it('lays the datadir after the leak on a leak route with a file of its own', () => {
@@ -1130,9 +1152,10 @@ describe("a tamper job's records box", () => {
 
   it('lets the application account read the grades and change one', () => {
     const missionNumber = tamperNumbersWithRoute('hydra').find(
-      (candidate) => missionAction(candidate) === 'change',
+      (candidate) =>
+        missionAction(candidate) === 'change' && missionSetting(candidate) === 'school',
     );
-    if (missionNumber === undefined) throw new Error('no hydra change job in the sample');
+    if (missionNumber === undefined) throw new Error('no hydra school change job in the sample');
     const database = laidDatabase(missionNumber);
     if (database === null) throw new Error('the datadir could not be read');
     const application = database.credentials.find(({ userType }) => userType !== 'root');
@@ -1147,12 +1170,12 @@ describe("a tamper job's records box", () => {
     const changed = runStatement({
       ...asApplication,
       database,
-      line: `UPDATE grades SET grade = '${target.to}' WHERE student = '${target.student}' AND subject = '${target.subject}'`,
+      line: `UPDATE grades SET grade = '${target.to}' WHERE student = '${target.row['student']}' AND subject = '${target.row['subject']}'`,
     });
     const read = runStatement({
       ...asApplication,
       database: changed.database ?? database,
-      line: `SELECT grade FROM grades WHERE id = '${target.rowId}'`,
+      line: `SELECT grade FROM grades WHERE id = '${target.row['id']}'`,
     });
 
     expect(changed.failed).toBe(false);
@@ -1166,7 +1189,13 @@ describe("a tamper job's records box", () => {
     });
     if (missionNumber === undefined) throw new Error('no two-hop tamper contract fronted by mysql');
 
-    expect(Object.keys(laidFrontDatabase(missionNumber)?.tables ?? {})).not.toContain('grades');
+    const recordTables = missionRecords(missionNumber).tables.map(({ name }) => name);
+
+    expect(
+      Object.keys(laidFrontDatabase(missionNumber)?.tables ?? {}).filter((name) =>
+        recordTables.includes(name),
+      ),
+    ).toEqual([]);
   });
 
   const laidFrontDatabase = (missionNumber: number) =>
@@ -1179,30 +1208,39 @@ describe("a tamper job's records box", () => {
 describe("a tamper job's records kept in a file", () => {
   const NO_SECRETS = { keySecret: undefined, rawSecrets: undefined };
 
-  /** Where a file job's records sit: under the stem the boxes are named on. */
-  const csvPathOf = (missionNumber: number): string =>
-    `/srv/${missionShape(missionNumber).stem}/records/grades.csv`;
+  /** Where a file job keeps a table: under the stem the boxes are named on, a file a table. */
+  const csvPathOf = (missionNumber: number, table: string): string =>
+    `/srv/${missionShape(missionNumber).stem}/records/${table}.csv`;
 
-  /** The grades as a CSV: a header naming the columns, then one line per row, in order. */
-  const csvOf = (missionNumber: number): string => {
-    const { rows } = missionRecords(missionNumber).grades;
-    const lines = rows.map(
-      ({ id, student, subject, grade }) => `${id},${student},${subject},${grade}`,
+  /** A table as a CSV: a header naming the columns, then one line per row, in order. */
+  const csvOf = (missionNumber: number, table: string): string => {
+    const found = missionRecords(missionNumber).tables.find(({ name }) => name === table);
+    const names = (found?.table.columns ?? []).map(({ name }) => name);
+    const lines = (found?.table.rows ?? []).map((row) =>
+      names.map((name) => `${row[name]}`).join(','),
     );
-    return `${['id,student,subject,grade', ...lines].join('\n')}\n`;
+    return `${[names.join(','), ...lines].join('\n')}\n`;
   };
 
-  it('lays only the CSV, root-only, and needs no secret off the database route', () => {
+  /** Each of a contract's tables as the file it is laid in, the target's first. */
+  const csvFilesOf = (missionNumber: number) =>
+    missionRecords(missionNumber).tables.map(({ name }) => ({
+      path: csvPathOf(missionNumber, name),
+      content: csvOf(missionNumber, name),
+      perms: ROOT_FILE,
+    }));
+
+  it('lays only the CSVs, a file a table, root-only, and needs no secret off the database route', () => {
     for (const route of ['hydra', 'msfconsole'] as const) {
       const missionNumber = firstTamperWithRoute(route, 'file');
+      const files = csvFilesOf(missionNumber);
 
+      expect(files).toHaveLength(3);
       expect(
         missionFiles(keyOf(missionNumber), NO_SECRETS),
         `${route} contract ${missionNumber}`,
-      ).toEqual([
-        { path: csvPathOf(missionNumber), content: csvOf(missionNumber), perms: ROOT_FILE },
-      ]);
-      expect(missionFilePaths(keyOf(missionNumber))).toEqual([csvPathOf(missionNumber)]);
+      ).toEqual(files);
+      expect(missionFilePaths(keyOf(missionNumber))).toEqual(files.map(({ path }) => path));
     }
   });
 
@@ -1211,7 +1249,7 @@ describe("a tamper job's records kept in a file", () => {
 
     expect(missionFilePaths(keyOf(missionNumber))).toEqual([
       missionLeakPath(keyOf(missionNumber)),
-      csvPathOf(missionNumber),
+      ...csvFilesOf(missionNumber).map(({ path }) => path),
     ]);
   });
 
@@ -1225,12 +1263,19 @@ describe("a tamper job's records kept in a file", () => {
       laid.find(({ path }) => path === DATADIR_PATH)?.content ?? '',
     );
 
-    expect(laid.map(({ path }) => path)).toEqual([DATADIR_PATH, csvPathOf(missionNumber)]);
-    expect(Object.keys(database?.tables ?? {})).not.toContain('grades');
+    const recordTables = missionRecords(missionNumber).tables.map(({ name }) => name);
+
+    expect(laid.map(({ path }) => path)).toEqual([
+      DATADIR_PATH,
+      ...csvFilesOf(missionNumber).map(({ path }) => path),
+    ]);
+    expect(
+      Object.keys(database?.tables ?? {}).filter((name) => recordTables.includes(name)),
+    ).toEqual([]);
     expect(Object.keys(database?.tables ?? {})).toContain('settings');
   });
 
-  it('lets a root on the box read the CSV, and nobody else', async () => {
+  it('lets a root on the box read every CSV, and nobody else', async () => {
     const missionNumber = firstTamperWithRoute('hydra', 'file');
     const box = await withMissionFiles(
       async () => ({ data: missionFiles(keyOf(missionNumber), NO_SECRETS), error: null }),
@@ -1241,13 +1286,14 @@ describe("a tamper job's records kept in a file", () => {
       },
     );
     if (box === null) throw new Error('the files could not be made');
-    const path = asAbsPath(csvPathOf(missionNumber));
 
-    expect(createFsView(box, { userType: 'root' }).read(path)).toEqual({
-      ok: true,
-      content: csvOf(missionNumber),
-    });
-    expect(createFsView(box, { userType: 'user' }).read(path).ok).toBe(false);
-    expect(createFsView(box, { userType: 'guest' }).read(path).ok).toBe(false);
+    for (const { path, content } of csvFilesOf(missionNumber)) {
+      expect(createFsView(box, { userType: 'root' }).read(asAbsPath(path))).toEqual({
+        ok: true,
+        content,
+      });
+      expect(createFsView(box, { userType: 'user' }).read(asAbsPath(path)).ok).toBe(false);
+      expect(createFsView(box, { userType: 'guest' }).read(asAbsPath(path)).ok).toBe(false);
+    }
   });
 });
