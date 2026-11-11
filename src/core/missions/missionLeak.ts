@@ -62,7 +62,7 @@ import {
   type MissionRoute,
 } from './missionShape.js';
 import { GUESSABLE_COMMUNITIES } from './pools.js';
-import { missionRecords, recordsFileContent, recordsFilePath } from './missionRecords.js';
+import { missionRecords, recordsFiles } from './missionRecords.js';
 
 /** A file the server lays onto a key box before its journal replays. */
 export type MissionFile = {
@@ -347,14 +347,18 @@ const laysDatadir = (ref: MissionBoxRef): boolean =>
   boxOf(ref).route === 'mysql' || keepsKeyInDatabase(ref) || holdsRecordsInDatabase(ref);
 
 /** The datadir as laid: the word's table on the database route, beside the key's on a key box
- *  keeping it there or the records on a records box. */
+ *  keeping it there or the records' tables on a records box. */
 const datadirFile = (ref: MissionBoxRef, env: MissionSecretsEnv): MissionFile => {
   const { missionNumber } = ref;
   const tables = {
     ...(boxOf(ref).route === 'mysql'
       ? { settings: settingsTable(missionLeakWord(ref, env.rawSecrets)) }
       : {}),
-    ...(holdsRecordsInDatabase(ref) ? { grades: missionRecords(missionNumber).grades } : {}),
+    ...(holdsRecordsInDatabase(ref)
+      ? Object.fromEntries(
+          missionRecords(missionNumber).tables.map(({ name, table }) => [name, table]),
+        )
+      : {}),
     ...(keepsKeyInDatabase(ref)
       ? {
           api_keys: apiKeysTable(
@@ -367,12 +371,10 @@ const datadirFile = (ref: MissionBoxRef, env: MissionSecretsEnv): MissionFile =>
   return { path: DATADIR_PATH, content: databaseWith(ref, tables), perms: DATADIR_FILE };
 };
 
-/** The records a job keeping them in a file holds, only root may read or write. */
-const recordsFile = (missionNumber: number): MissionFile => ({
-  path: recordsFilePath(missionNumber),
-  content: recordsFileContent(missionNumber),
-  perms: ROOT_FILE,
-});
+/** The records a job keeping them in files holds, a file a table, only root may read or
+ *  write. */
+const recordsFilesLaid = (missionNumber: number): readonly MissionFile[] =>
+  recordsFiles(missionNumber).map(({ path, content }) => ({ path, content, perms: ROOT_FILE }));
 
 /** The leak when it is a file of its own; on the database route the leak is the datadir. */
 const ownLeakFile = (ref: MissionBoxRef, rawSecrets: string | undefined): MissionFile | null =>
@@ -404,7 +406,7 @@ export const missionFiles = (
     ...keyFilesLaid,
     ...(leak === null ? [] : [leak]),
     ...(laysDatadir(ref) ? [datadirFile(ref, env)] : []),
-    ...(holdsRecordsInFile(ref) ? [recordsFile(ref.missionNumber)] : []),
+    ...(holdsRecordsInFile(ref) ? recordsFilesLaid(ref.missionNumber) : []),
   ];
 };
 
@@ -434,6 +436,6 @@ export const missionFilePaths = (ref: MissionBoxRef): readonly string[] => {
     ...(holdsKey(ref) ? keyFilePaths(ref.missionNumber) : []),
     ...(leakPath === null ? [] : [leakPath]),
     ...(laysDatadir(ref) ? [DATADIR_PATH] : []),
-    ...(holdsRecordsInFile(ref) ? [recordsFilePath(ref.missionNumber)] : []),
+    ...(holdsRecordsInFile(ref) ? recordsFiles(ref.missionNumber).map(({ path }) => path) : []),
   ];
 };

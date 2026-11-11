@@ -593,7 +593,11 @@ describe('a mail on a tamper job is answered from its records box', () => {
     if (target.action !== 'change') throw new Error('the job asks for no change');
     const changed = runStatement({
       database: databaseIn(laid!)!,
-      line: `UPDATE grades SET grade = '${target.to}' WHERE student = '${target.student}' AND subject = '${target.subject}'`,
+      line: `UPDATE ${target.table} SET ${target.column} = '${target.to}' WHERE ${Object.entries(
+        target.namedBy,
+      )
+        .map(([column, value]) => `${column} = '${value}'`)
+        .join(' AND ')}`,
       username: 'app',
       userType: 'user',
       sourceIp: '198.51.100.7',

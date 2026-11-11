@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CLIENT_HANDLES, clientByHandle, missionTerms, type MissionTerms } from './missionTerms.js';
 import { missionKind, missionShape, missionTopology } from './missionShape.js';
-import { missionAction } from './missionRecords.js';
+import { missionAction, missionSetting, type RecordSetting } from './missionRecords.js';
 import { md5 } from '../generation/md5.js';
 import { validateUsername } from '../gameConfig/gameConfig.js';
 
@@ -43,6 +43,27 @@ const KEY_JOB_PITCHES = new Set(
 );
 
 const capitalised = (word: string): string => word.charAt(0).toUpperCase() + word.slice(1);
+
+/** What each setting's target is called after its stem, and what the board calls its records. */
+const SETTING_NAMES: Readonly<Record<RecordSetting, { institution: string; noun: string }>> = {
+  school: { institution: 'Academy', noun: 'school' },
+  police: { institution: 'Police Dept', noun: 'police' },
+  payroll: { institution: 'Holdings', noun: 'payroll' },
+  dmv: { institution: 'Motor Registry', noun: 'motor registry' },
+  tournament: { institution: 'Esports League', noun: 'tournament' },
+  admissions: { institution: 'University', noun: 'admissions' },
+  club: { institution: 'Members Club', noun: 'club' },
+  registry: { institution: 'Vehicle Registry', noun: 'vehicle registry' },
+};
+
+/** The board line a tamper job is offered with: its verb, then its records, with an article
+ *  that reads. */
+const tamperKindOf = (missionNumber: number): string => {
+  const verb = isErase(missionNumber) ? 'erase' : 'alter';
+  const { noun } = SETTING_NAMES[missionSetting(missionNumber)];
+  if (isTwoHop(missionNumber)) return `${verb} an internal ${noun} record`;
+  return `${verb} ${/^[aeiou]/.test(noun) ? 'an' : 'a'} ${noun} record`;
+};
 
 describe('missionTerms', () => {
   it('gives the same terms for the same number', () => {
@@ -102,27 +123,30 @@ describe('missionTerms', () => {
   });
 
   describe('a tamper job', () => {
-    it('is offered as altering a school record on one hop, an internal one on two', () => {
-      for (const missionNumber of SINGLE_HOP_TAMPER_NUMBERS.filter((number) => !isErase(number))) {
-        expect(missionTerms(missionNumber).kind).toBe('alter a school record');
-      }
-      for (const missionNumber of TWO_HOP_TAMPER_NUMBERS.filter((number) => !isErase(number))) {
-        expect(missionTerms(missionNumber).kind).toBe('alter an internal school record');
+    it("is offered as altering or erasing its setting's record, an internal one on two hops", () => {
+      for (const missionNumber of TAMPER_NUMBERS) {
+        expect(missionTerms(missionNumber).kind, `contract ${missionNumber}`).toBe(
+          tamperKindOf(missionNumber),
+        );
       }
     });
 
-    it('is offered as erasing a school record on one hop, an internal one on two, when it asks a record gone', () => {
-      const singleHopErases = SINGLE_HOP_TAMPER_NUMBERS.filter(isErase);
-      const twoHopErases = TWO_HOP_TAMPER_NUMBERS.filter(isErase);
+    it('offers every setting, altering on one hop and two, and erasing wherever it may', () => {
+      const offered = new Set(
+        TAMPER_NUMBERS.map((missionNumber) => missionTerms(missionNumber).kind),
+      );
 
-      expect(singleHopErases.length).toBeGreaterThan(0);
-      expect(twoHopErases.length).toBeGreaterThan(0);
-      for (const missionNumber of singleHopErases) {
-        expect(missionTerms(missionNumber).kind).toBe('erase a school record');
+      for (const [setting, { noun }] of Object.entries(SETTING_NAMES)) {
+        expect(offered).toContain(`alter an internal ${noun} record`);
+        if (setting === 'payroll') {
+          expect(offered).not.toContain(`erase an internal ${noun} record`);
+        } else {
+          expect(offered).toContain(`erase an internal ${noun} record`);
+        }
       }
-      for (const missionNumber of twoHopErases) {
-        expect(missionTerms(missionNumber).kind).toBe('erase an internal school record');
-      }
+      expect(offered).toContain('alter a school record');
+      expect(offered).toContain('erase an admissions record');
+      expect(offered).toContain('alter a vehicle registry record');
     });
 
     it('pays 1,000 to 2,500 JSC on one hop, in steps of 50, reaching both ends', () => {
@@ -143,14 +167,17 @@ describe('missionTerms', () => {
       expect(Math.max(...pays)).toBe(5000);
     });
 
-    it('names the school after the stem its boxes are named for', () => {
-      for (const missionNumber of TAMPER_NUMBERS.slice(0, 200)) {
+    it('names the target after the stem its boxes are named for and what its setting is', () => {
+      for (const missionNumber of TAMPER_NUMBERS) {
         const { stem } = missionShape(missionNumber);
-        expect(missionTerms(missionNumber).targetCompany).toBe(`${capitalised(stem)} Academy`);
+        const { institution } = SETTING_NAMES[missionSetting(missionNumber)];
+        expect(missionTerms(missionNumber).targetCompany).toBe(
+          `${capitalised(stem)} ${institution}`,
+        );
       }
     });
 
-    it('draws every client, and pitches a reason a school record is worth changing', () => {
+    it('draws every client, and pitches a reason the record is worth changing', () => {
       const terms = TAMPER_NUMBERS.map(missionTerms);
       const pitches = new Set(terms.map(({ pitch }) => pitch));
 
@@ -172,6 +199,27 @@ describe('missionTerms', () => {
       expect(erasePitches.size).toBeGreaterThan(2);
       expect(changePitches.size).toBeGreaterThan(2);
       for (const pitch of erasePitches) expect(changePitches.has(pitch)).toBe(false);
+    });
+
+    // A pitch about a grade reads wrong on a job at a police department, so each setting brings
+    // three to five of its own for each thing it asks.
+    it('pitches each setting from three to five reasons of its own for each action', () => {
+      const pitchesBy = new Map<string, Set<string>>();
+      for (const missionNumber of TAMPER_NUMBERS) {
+        const asked = `${missionSetting(missionNumber)} ${missionAction(missionNumber)}`;
+        pitchesBy.set(
+          asked,
+          new Set([...(pitchesBy.get(asked) ?? []), missionTerms(missionNumber).pitch]),
+        );
+      }
+      const all = [...pitchesBy.values()].flatMap((pitches) => [...pitches]);
+
+      expect([...pitchesBy.keys()].sort()).toHaveLength(15);
+      for (const [asked, pitches] of pitchesBy) {
+        expect(pitches.size, asked).toBeGreaterThanOrEqual(3);
+        expect(pitches.size, asked).toBeLessThanOrEqual(6);
+      }
+      expect(new Set(all).size).toBe(all.length);
     });
 
     it('promises no key', () => {

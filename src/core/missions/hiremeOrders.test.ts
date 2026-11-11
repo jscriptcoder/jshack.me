@@ -10,7 +10,14 @@ import { missionShape, type MissionShape } from './missionShape.js';
 import { missionKey, missionKeyPath, missionPassphrase } from './missionSecret.js';
 import { missionAddressForNumber, missionEssid } from './missionNetwork.js';
 import { missionTerms } from './missionTerms.js';
-import { missionAction, missionRecords, type RecordAction } from './missionRecords.js';
+import {
+  RECORD_SETTINGS,
+  missionAction,
+  missionRecords,
+  missionSetting,
+  type RecordAction,
+  type RecordSetting,
+} from './missionRecords.js';
 import {
   COMMON_PASSWORDS,
   CRACKABLE_PASSWORDS,
@@ -437,11 +444,21 @@ describe('showReport on a two-hop contract', () => {
 
 describe('showReport on a tamper job', () => {
   const SECRET = 'operator-test-secret';
-  /** The first tamper job asking for `action` that `wanted` accepts. */
-  const tamperJob = (action: RecordAction, wanted: (shape: MissionShape) => boolean): number =>
-    Array.from({ length: 4000 }, (_unused, index) => index * 256 + 2).find((candidate) => {
+  /** The first tamper job asking for `action` that `wanted` accepts, in `setting` when one is
+   *  named. */
+  const tamperJob = (
+    action: RecordAction,
+    wanted: (shape: MissionShape) => boolean,
+    setting?: RecordSetting,
+  ): number =>
+    Array.from({ length: 8000 }, (_unused, index) => index * 256 + 2).find((candidate) => {
       const shape = missionShape(candidate);
-      return shape.kind === 'tamper' && missionAction(candidate) === action && wanted(shape);
+      return (
+        shape.kind === 'tamper' &&
+        missionAction(candidate) === action &&
+        (setting === undefined || missionSetting(candidate) === setting) &&
+        wanted(shape)
+      );
     })!;
   const SINGLE_HOP = tamperJob(
     'change',
@@ -460,17 +477,28 @@ describe('showReport on a tamper job', () => {
   const FILE_CHANGE = tamperJob('change', ({ storage }) => storage === 'file');
   const FILE_ERASE = tamperJob('erase', ({ storage }) => storage === 'file');
 
+  /** The names a job's target row goes by, as the report lists them. */
+  const namesOf = (missionNumber: number): string =>
+    Object.values(missionRecords(missionNumber).target.namedBy).join(', ');
+
+  /** The line naming the record a job asks changed or gone. */
+  const askedLine = (missionNumber: number, indent: string): string => {
+    const { target } = missionRecords(missionNumber);
+    return target.action === 'erase'
+      ? `${indent}Erase:    ${namesOf(missionNumber)}`
+      : `${indent}Change:   ${namesOf(missionNumber)}: ${target.column} ${target.from} -> ${target.to}`;
+  };
+
   /** What the report says the job is, and the record it asks changed, where a key job's
    *  storage, key path and key go. */
-  const recordLines = (missionNumber: number, indent: string): readonly string[] => {
-    const { target } = missionRecords(missionNumber);
-    if (target.action !== 'change') throw new Error(`contract ${missionNumber} is not a change`);
-    return [
-      `${indent}Storage:  database, table grades`,
-      `${indent}Records:  /var/lib/mysql/data.json`,
-      `${indent}Change:   ${target.student}, ${target.subject}: ${target.from} -> ${target.to}`,
-    ];
-  };
+  const recordLines = (missionNumber: number, indent: string): readonly string[] => [
+    `${indent}Storage:  database, table ${missionRecords(missionNumber).target.table}`,
+    `${indent}Records:  /var/lib/mysql/data.json`,
+    askedLine(missionNumber, indent),
+  ];
+
+  const kindLine = (missionNumber: number): string =>
+    `  Kind:     tamper, ${missionSetting(missionNumber)}, ${missionAction(missionNumber)}`;
 
   it('prints the report line by line, the kind and the record in place of a key', () => {
     const shape = missionShape(SINGLE_HOP);
@@ -483,7 +511,7 @@ describe('showReport on a tamper job', () => {
         `  Target:   ${terms.targetCompany}, ${shape.stem}-gw / ${shape.stem}-files`,
         `  Pay:      §${terms.pay.toLocaleString('en-US')}`,
         '  Template: single-hop',
-        '  Kind:     tamper, school, change',
+        kindLine(SINGLE_HOP),
         '  Route:    hydra',
         ...shape.forwards.map(
           (forward, index) =>
@@ -508,42 +536,44 @@ describe('showReport on a tamper job', () => {
     const lines = report.split('\n');
     const keyBoxAt = lines.findIndex((line) => line.startsWith('  Key box:'));
 
-    expect(lines).toContain('  Kind:     tamper, school, change');
+    expect(lines).toContain(kindLine(TWO_HOP));
     expect(lines.slice(keyBoxAt)).toEqual(expect.arrayContaining([...recordLines(TWO_HOP, '  ')]));
     expect(report).not.toContain('Key:');
     expect(report).not.toContain('Key path:');
   });
 
-  it('prints an erase job as one, with the row it asks gone and the grade on it', () => {
-    const { target } = missionRecords(ERASE);
+  it('prints an erase job as one, with the names of the row it asks gone', () => {
     const lines = showReport(ERASE, SECRET, undefined).split('\n');
+    const storageAt = lines.indexOf(recordLines(ERASE, '  ')[0] ?? '');
 
-    expect(lines).toContain('  Kind:     tamper, school, erase');
-    const storageAt = lines.indexOf('  Storage:  database, table grades');
-
-    expect(lines.slice(storageAt, storageAt + 3)).toEqual([
-      '  Storage:  database, table grades',
-      '  Records:  /var/lib/mysql/data.json',
-      `  Erase:    ${target.student}, ${target.subject} (F)`,
-    ]);
+    expect(lines).toContain(kindLine(ERASE));
+    expect(lines.slice(storageAt, storageAt + 3)).toEqual(recordLines(ERASE, '  '));
     expect(lines.some((line) => line.includes('Change:'))).toBe(false);
+  });
+
+  it.each(RECORD_SETTINGS)('names a %s job by its setting, its table and its row', (setting) => {
+    const actions: readonly RecordAction[] =
+      setting === 'payroll' ? ['change'] : ['change', 'erase'];
+    for (const action of actions) {
+      const missionNumber = tamperJob(action, ({ storage }) => storage === 'database', setting);
+      const lines = showReport(missionNumber, SECRET, undefined).split('\n');
+
+      expect(lines, `contract ${missionNumber}`).toContain(kindLine(missionNumber));
+      expect(lines).toEqual(expect.arrayContaining([...recordLines(missionNumber, '  ')]));
+    }
   });
 
   it('prints a job keeping its records in a file as one, with the file in place of a table', () => {
     for (const missionNumber of [FILE_CHANGE, FILE_ERASE]) {
-      const { target } = missionRecords(missionNumber);
+      const { table } = missionRecords(missionNumber).target;
       const lines = showReport(missionNumber, SECRET, undefined).split('\n');
-      const path = `/srv/${missionShape(missionNumber).stem}/records/grades.csv`;
+      const path = `/srv/${missionShape(missionNumber).stem}/records/${table}.csv`;
       const storageAt = lines.indexOf(`  Storage:  file, ${path}`);
 
       expect(storageAt, `contract ${missionNumber}`).toBeGreaterThan(0);
-      expect(lines[storageAt + 1]).toBe(
-        target.action === 'erase'
-          ? `  Erase:    ${target.student}, ${target.subject} (F)`
-          : `  Change:   ${target.student}, ${target.subject}: ${target.from} -> ${target.to}`,
-      );
+      expect(lines[storageAt + 1]).toBe(askedLine(missionNumber, '  '));
       expect(lines.some((line) => line.includes('Records:'))).toBe(false);
-      expect(lines.some((line) => line.includes('table grades'))).toBe(false);
+      expect(lines.some((line) => line.includes('table '))).toBe(false);
     }
   });
 });

@@ -11,7 +11,16 @@ import { missionTerms, type MissionTerms } from '../missions/missionTerms.js';
 import { missionAddressForNumber } from '../missions/missionNetwork.js';
 import { missionKeyPath } from '../missions/missionSecret.js';
 import { missionShape } from '../missions/missionShape.js';
-import { missionRecords } from '../missions/missionRecords.js';
+import {
+  RECORD_SETTINGS,
+  missionAction,
+  missionRecords,
+  missionSetting,
+  type RecordAction,
+  type RecordSetting,
+  type RecordTarget,
+} from '../missions/missionRecords.js';
+import { isMissionNumber } from '../missions/missionNetwork.js';
 import { DATADIR_PATH } from '../mysql/datadir.js';
 import { writeAmount } from '../wallet/amount.js';
 import { FRONT_BOX_SUFFIX, GATEWAY_SUFFIX, KEY_BOX_SUFFIX } from '../missions/pools.js';
@@ -32,14 +41,75 @@ const SECOND = 100003;
 const THIRD = 70000;
 const FOURTH = 66051;
 
-/** Contracts asking for a record changed rather than a key: a single-hop one and a two-hop
- *  one. The first two-hop number above is one too. */
-const TAMPER_SINGLE_HOP = 70007;
-const TAMPER_TWO_HOP = 70013;
+/** The first tamper contract from 70,000 up drawing `setting` and `action`, on one hop or
+ *  on two. */
+const tamperNumber = (setting: RecordSetting, action: RecordAction, twoHop: boolean): number => {
+  for (let candidate = 70_000; candidate < 2_000_000; candidate++) {
+    if (!isMissionNumber(candidate)) continue;
+    const shape = missionShape(candidate);
+    if (
+      shape.kind === 'tamper' &&
+      missionSetting(candidate) === setting &&
+      missionAction(candidate) === action &&
+      (shape.frontBox !== null) === twoHop
+    ) {
+      return candidate;
+    }
+  }
+  throw new Error(`no ${setting} ${action} contract`);
+};
 
-/** Contracts asking for a record gone: a single-hop one and a two-hop one. */
-const ERASE_SINGLE_HOP = 70003;
-const ERASE_TWO_HOP = 70008;
+/** School contracts asking for a grade changed rather than a key: a single-hop one and a
+ *  two-hop one. */
+const TAMPER_SINGLE_HOP = tamperNumber('school', 'change', false);
+const TAMPER_TWO_HOP = tamperNumber('school', 'change', true);
+
+/** School contracts asking for a grade gone: a single-hop one and a two-hop one. */
+const ERASE_SINGLE_HOP = tamperNumber('school', 'erase', false);
+const ERASE_TWO_HOP = tamperNumber('school', 'erase', true);
+
+/** A grade as said aloud: "an A", "a B". */
+const aGrade = (grade: string): string => `${grade === 'A' || grade === 'F' ? 'an' : 'a'} ${grade}`;
+
+/** The sentence a briefing names its target with: who, which field and old to new, or that the
+ *  record should not exist. */
+const askedSentence = (setting: RecordSetting, target: RecordTarget): string => {
+  const at = (column: string): string => `${target.row[column]}`;
+  if (target.action === 'erase') {
+    return {
+      school: `There is a failing ${at('subject')} grade for ${at('student')}. It should not exist.`,
+      police: `Their records hold an active warrant for ${at('name')}, for ${at('offence')}. It should not exist.`,
+      payroll: '',
+      dmv: `Their records hold a ${at('offence')} offence against ${at('name')}. It should not exist.`,
+      tournament: `Their league has ${at('player')} on ${at('score')} in ${at('game')}. That score should not exist.`,
+      admissions: `Their records have ${at('name')} applying for ${at('program')}. That application should not exist.`,
+      club: `The club has ${at('name')} banned. That ban should not exist.`,
+      registry: `Their registry flags ${at('plate')} as stolen. That record should not exist.`,
+    }[setting];
+  }
+  const { from, to } = target;
+  return {
+    school: `Their records give ${at('student')} ${aGrade(from)} in ${at('subject')}. It should be ${aGrade(to)}.`,
+    police: `Their records hold an active warrant for ${at('name')}, for ${at('offence')}. It should read ${to}.`,
+    payroll: `They pay ${at('name')} ${from} a year. It should be ${to}.`,
+    dmv: `Their records give ${at('name')} ${from} points for ${at('offence')}. It should be ${to}.`,
+    tournament: `Their league has ${at('player')} on ${from} in ${at('game')}. It should read ${to}.`,
+    admissions: `Their records have ${at('name')} rejected for ${at('program')}. It should read ${to}.`,
+    club: `The club has ${at('name')} down as ${from}. It should say ${to}.`,
+    registry: `Their registry has ${at('plate')} registered to ${from}. It should be registered to ${to}.`,
+  }[setting];
+};
+
+/** Every setting with every action it asks, on one hop. */
+const SETTING_JOBS: readonly (readonly [RecordSetting, RecordAction])[] = RECORD_SETTINGS.flatMap(
+  (setting): (readonly [RecordSetting, RecordAction])[] =>
+    setting === 'payroll'
+      ? [[setting, 'change']]
+      : [
+          [setting, 'change'],
+          [setting, 'erase'],
+        ],
+);
 
 /** The row a change job asks changed, failing the test on an erase job. */
 const changeTargetOf = (missionNumber: number) => {
@@ -428,7 +498,7 @@ describe('accepting an offer', () => {
           '',
           `The target is ${terms.targetCompany}. Their network is at ${missionAddressForNumber(TAMPER_SINGLE_HOP)}.`,
           '',
-          `Their records give ${target.student} a ${target.from} in ${target.subject}. It should be a ${target.to}.`,
+          askedSentence('school', target),
           '',
           'Mail this address when it is done, with your wallet address.',
           'No change, no money. No wallet, no money.',
@@ -452,7 +522,7 @@ describe('accepting an offer', () => {
           '',
           `The target is ${terms.targetCompany}. Their network is at ${missionAddressForNumber(TAMPER_TWO_HOP)}.`,
           '',
-          `Their records give ${target.student} a ${target.from} in ${target.subject}. It should be a ${target.to}.`,
+          askedSentence('school', target),
           '',
           'The records are on a machine inside their network, not on the edge.',
           '',
@@ -479,7 +549,7 @@ describe('accepting an offer', () => {
           '',
           `The target is ${terms.targetCompany}. Their network is at ${missionAddressForNumber(ERASE_SINGLE_HOP)}.`,
           '',
-          `There is a failing ${target.subject} grade for ${target.student}. It should not exist.`,
+          askedSentence('school', target),
           '',
           'Mail this address when it is done, with your wallet address.',
           'No change, no money. No wallet, no money.',
@@ -503,7 +573,7 @@ describe('accepting an offer', () => {
           '',
           `The target is ${terms.targetCompany}. Their network is at ${missionAddressForNumber(ERASE_TWO_HOP)}.`,
           '',
-          `There is a failing ${target.subject} grade for ${target.student}. It should not exist.`,
+          askedSentence('school', target),
           '',
           'The records are on a machine inside their network, not on the edge.',
           '',
@@ -534,6 +604,26 @@ describe('accepting an offer', () => {
         expect(body).not.toContain(DATADIR_PATH);
         expect(body).not.toContain(`${stem}-`);
         expect(body.match(/\d+\.\d+\.\d+\.\d+/g)).toEqual([missionAddressForNumber(missionNumber)]);
+      },
+    );
+
+    it.each(SETTING_JOBS)(
+      'names the record a %s %s job is about, and nothing of where it is kept',
+      async (setting, action) => {
+        const missionNumber = tamperNumber(setting, action, false);
+        const { store, accepts } = boardStore({ offers: [{ number: missionNumber, ref: 'xyz' }] });
+        const { stem } = missionShape(missionNumber);
+        const { tables, target } = missionRecords(missionNumber);
+        const tableWords = new RegExp(`\\b(${tables.map(({ name }) => name).join('|')})\\b`, 'i');
+
+        await accept('offer=xyz', store);
+        const { body } = accepts[0]!.briefing;
+
+        expect(body.split('\n')[4]).toBe(askedSentence(setting, target));
+        expect(body).not.toMatch(/\b(id|table|database|mysql|csv)\b|\/srv\//i);
+        // The target's own name is the grill's ("a Members Club"), so only the rest is read.
+        expect(body.replace(missionTerms(missionNumber).targetCompany, '')).not.toMatch(tableWords);
+        expect(body).not.toContain(`${stem}-`);
       },
     );
   });
