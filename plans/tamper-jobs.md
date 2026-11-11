@@ -1,9 +1,8 @@
 # Plan: a contract that asks for a record to be changed
 
 **Status:** Grilled and planned 2026-11-11. Four slices, one PR each, merged in order. Slice 1
-merged (#766, v0.454.0). Slice 2 in progress on `feat/tamper-erase`; its criteria were approved
-with an erase target that always holds an F, erase pitches of its own, and a `show` line
-`Erase: <student>, <subject> (F)`.
+merged (#766, v0.454.0); slice 2 merged (#767, v0.455.0). Slice 3 in progress on
+`feat/tamper-csv`; its criteria were approved with the detail written into the slice below.
 
 A second kind of contract. Every contract today is a key job: find the key, mail it back, and the
 client compares the string. A **tamper job** asks the player to change or erase one record in the
@@ -335,24 +334,35 @@ route, edits one line of a root-only CSV in `nano`, and is paid; a broken line f
 
 **Acceptance criteria**
 
-- A tamper contract draws database or file on a stream of its own, about half each. A file
-  contract's records box runs no mysqld for the records and has no `:3306` forward for them
-  (the mysql route keeps its own door).
-- The records sit in `/srv/<stem>/records/grades.csv`, a header row then one line per row,
-  root-only, from the same generated rows a database contract would hold.
-- The check parses the CSV into rows by its header: quotes, surrounding spaces and line endings do
-  not count; a missing or unparseable file, or a header that no longer names the columns, fails.
-  Otherwise the same pass and fail rules as the table.
-- The briefing and the board do not say which storage; the pay ranges are the same.
-- `show` prints the storage and the file's path.
+- A tamper contract draws database or file on a stream of its own, about half each. A database
+  contract is exactly what it was at v0.455.0 (records, terms, `show`). A file contract's records
+  box runs no mysqld for the records and has no `:3306` forward for them (the mysql route keeps its
+  own door).
+- The records sit in `/srv/<stem>/records/grades.csv`, root-only (read and write), the header
+  `id,student,subject,grade` then one line per row and a final newline, from the same generated
+  rows a database contract would hold (the target, and an erase target's F, included).
+- The check reads the CSV: LF or CRLF line endings, blank lines skipped, each value trimmed, a
+  double-quoted value unquoted (`""` inside reads `"`). Rows are read by the header's column
+  names, so column order does not count, but the header must name exactly the four columns. Then
+  the same pass and fail rules as the table, rows in order.
+- A missing file, a directory at the path, a row whose field count differs from the header's, an
+  unclosed quote, or a header with a column missing, extra or renamed gets the one failure reply;
+  the job stays accepted.
+- The briefing, the board, the pitches and the pay do not depend on storage.
+- `show` prints `Storage:  file, /srv/<stem>/records/grades.csv` (a database contract keeps
+  `database, table grades`).
 
-**Gates:** the usual; `testMissionTamper.ts` gains a file contract worked by the route's root:
-`nano` the right line → paid; a contract with another line deleted → failure. Mutation on the
-changed lines, the CSV reader first. v0.456.0.
+**Gates:** the usual; `testMissionTamper.ts` gains a file contract worked by the route's root: the
+right line saved as `nano` saves it (with the opened text as the base) → paid once; a contract
+with another line also deleted → failure. Mutation on the changed lines, the CSV reader first.
+v0.456.0.
 
-**Carried risk:** `nano` is the only editor, and a save writes the whole file. Confirm before RED
-that a root's `nano` save on a mission box lands as one journal row the check reads back, as any
-root write there does today.
+**Carried risk, confirmed by reading the code (2026-11-11):** a root's `nano` save on a laid
+mission file lands as one journal row the check reads back. The write gate stands a root-only
+empty file at each path `missionFilePaths` lists, so root may write it once the CSV path is listed;
+the save's base is compared only against earlier journal rows for that path (none on a first
+save); the row holds the whole file; and `generatedLanBox` lays the files first, then replays the
+journal. The wire-check is the live proof.
 
 ### Slice 4 — eight settings, each with neighbours (v0.457.0)
 
