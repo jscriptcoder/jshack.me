@@ -1,9 +1,8 @@
 # Plan: a contract that asks for a record to be changed
 
 **Status:** Grilled and planned 2026-11-11. Four slices, one PR each, merged in order. Slice 1
-merged (#766, v0.454.0); slice 2 merged (#767, v0.455.0); slice 3 merged (#768, v0.456.0).
-Slice 4 in progress on `feat/tamper-settings`; its criteria were approved with the detail written
-into the slice below.
+merged (#766, v0.454.0); slice 2 merged (#767, v0.455.0); slice 3 merged (#768, v0.456.0);
+slice 4 merged (#769, v0.457.0). All four slices are in; the close-out below is next.
 
 A second kind of contract. Every contract today is a key job: find the key, mail it back, and the
 client compares the string. A **tamper job** asks the player to change or erase one record in the
