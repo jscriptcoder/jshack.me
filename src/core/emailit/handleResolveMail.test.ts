@@ -568,6 +568,7 @@ describe('a mail on a tamper job is answered from its records box', () => {
       return (
         shape.kind === 'tamper' &&
         shape.keyBox.route === 'hydra' &&
+        shape.storage === 'database' &&
         missionAction(missionNumber) === 'change'
       );
     },

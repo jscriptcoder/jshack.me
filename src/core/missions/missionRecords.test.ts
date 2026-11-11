@@ -1,14 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { missionRecords, recordsLookRight, type RecordTarget } from './missionRecords.js';
 import { missionFiles } from './missionLeak.js';
-import { missionShape } from './missionShape.js';
+import { missionShape, type MissionStorage } from './missionShape.js';
 import { mysqlTableSchema, type MysqlDatabase } from '../mysql/types.js';
 import { runStatement } from '../mysql/statements.js';
 import { DATADIR_PATH, databaseIn } from '../mysql/datadir.js';
 import { buildMissionKeyBoxFs } from '../generation/missionKeyBoxFs.js';
-import { DATADIR_FILE, file, withFiles } from '../generation/baseFs.js';
+import { DATADIR_FILE, ROOT_FILE, file, withFiles } from '../generation/baseFs.js';
 import { materializeMachineFs } from '../network/materializeMachineFs.js';
 import type { Directory } from '../filesystem/types.js';
+import { createFsView } from '../filesystem/fsView.js';
+import { asAbsPath } from '../types.js';
 
 /** A spread of contract numbers whose last octet is a host octet (2–254). */
 const SAMPLE_NUMBERS = Array.from({ length: 400 }, (_unused, index) => index * 41893 + 7).filter(
@@ -159,13 +161,17 @@ describe('missionRecords', () => {
   });
 });
 
-/** A tamper job whose records box falls to hydra, so its datadir is laid with no secret. */
-const hydraTamperNumber = (numbers: readonly number[]): number => {
+/** A tamper job whose records box falls to hydra, so its records are laid with no secret, kept
+ *  as `storage` says: in its database unless a test asks for a file. */
+const hydraTamperNumber = (
+  numbers: readonly number[],
+  storage: MissionStorage = 'database',
+): number => {
   const [found] = numbers.filter((missionNumber) => {
     const shape = missionShape(missionNumber);
-    return shape.kind === 'tamper' && shape.keyBox.route === 'hydra';
+    return shape.kind === 'tamper' && shape.keyBox.route === 'hydra' && shape.storage === storage;
   });
-  if (found === undefined) throw new Error('no tamper hydra contract in the sample');
+  if (found === undefined) throw new Error(`no tamper hydra ${storage} contract in the sample`);
   return found;
 };
 
@@ -489,6 +495,289 @@ describe('recordsLookRight on an erase job', () => {
       recordsLookRight(
         ERASE_NUMBER,
         withDatadir(laid(), JSON.stringify({ ...database, tables: others })),
+      ),
+    ).toBe(false);
+  });
+});
+
+/** A records box keeping a CSV: as the server lays it, and as it stands after a root on the box
+ *  saved the file with new text, the save replayed from the journal as every read replays it. */
+const csvBoxOf = (missionNumber: number) => {
+  const path = `/srv/${missionShape(missionNumber).stem}/records/grades.csv`;
+  const laid = (): Directory =>
+    withFiles(
+      buildMissionKeyBoxFs(missionNumber),
+      missionFiles(
+        { missionNumber, role: 'key' },
+        { keySecret: undefined, rawSecrets: undefined },
+      ).map(({ path: laidPath, content, perms }) => [laidPath, file(content, perms)] as const),
+    );
+  const saved = (content: string | null): Directory =>
+    materializeMachineFs(laid(), [
+      {
+        path,
+        content,
+        owner: 'root',
+        permissions: null,
+        node_type: null,
+        updated_at: '2026-11-11T12:00:00Z',
+        writer_key: 'a-root-on-the-box',
+      },
+    ]);
+  /** The laid file's lines, the header first, without the final newline. */
+  const laidLines = (): readonly string[] => {
+    const read = createFsView(laid(), { userType: 'root' }).read(asAbsPath(path));
+    if (!read.ok) throw new Error(`the records file could not be read: ${read.error}`);
+    return read.content.replace(/\n$/, '').split('\n');
+  };
+  /** The box after a root saved the laid lines as `edit` reshapes them, newline-terminated. */
+  const edited = (
+    edit: (lines: readonly string[]) => readonly string[],
+    lineEnding = '\n',
+  ): Directory => saved(`${edit(laidLines()).join(lineEnding)}${lineEnding}`);
+  return { path, laid, saved, laidLines, edited };
+};
+
+/** The CSV line of the row with `rowId`: rows follow the header in id order. */
+const lineIndexOf = (rowId: number): number => rowId;
+
+describe('recordsLookRight on a change job keeping a file', () => {
+  const FILE_NUMBER = hydraTamperNumber(CHANGE_NUMBERS, 'file');
+  const target = changeTargetOf(FILE_NUMBER);
+  const TARGET_LINE = lineIndexOf(target.rowId);
+  const OTHER_LINE = lineIndexOf(target.rowId === 1 ? 2 : 1);
+  const { path, laid, saved, edited } = csvBoxOf(FILE_NUMBER);
+
+  /** The laid lines with the target's grade set to the one asked for. */
+  const changed = (lines: readonly string[]): readonly string[] =>
+    lines.map((line, index) =>
+      index === TARGET_LINE ? line.replace(new RegExp(`,${target.from}$`), `,${target.to}`) : line,
+    );
+
+  /** Each line's values run through `rewrite`, comma-joined again. */
+  const eachValue =
+    (rewrite: (value: string) => string) =>
+    (lines: readonly string[]): readonly string[] =>
+      lines.map((line) => line.split(',').map(rewrite).join(','));
+
+  /** Each line's values reordered by `order`, the header with them. */
+  const reordered =
+    (order: readonly number[]) =>
+    (lines: readonly string[]): readonly string[] =>
+      lines.map((line) => {
+        const values = line.split(',');
+        return order.map((index) => values[index] ?? '').join(',');
+      });
+
+  it('keeps no database records on the box', () => {
+    expect(databaseIn(laid())?.tables['grades']).toBeUndefined();
+  });
+
+  it('reads right once the target line holds the grade asked for and nothing else moved', () => {
+    expect(recordsLookRight(FILE_NUMBER, edited(changed))).toBe(true);
+  });
+
+  it('reads wrong while the file is as laid', () => {
+    expect(recordsLookRight(FILE_NUMBER, laid())).toBe(false);
+  });
+
+  it('reads right with Windows line endings', () => {
+    expect(recordsLookRight(FILE_NUMBER, edited(changed, '\r\n'))).toBe(true);
+  });
+
+  it('reads right with blank lines before, between and after the rows', () => {
+    expect(
+      recordsLookRight(
+        FILE_NUMBER,
+        edited((lines) => ['', ...changed(lines).flatMap((line) => [line, '   ']), '']),
+      ),
+    ).toBe(true);
+  });
+
+  it('reads right with every value padded with spaces', () => {
+    expect(
+      recordsLookRight(
+        FILE_NUMBER,
+        edited((lines) => eachValue((value) => `  ${value} `)(changed(lines))),
+      ),
+    ).toBe(true);
+  });
+
+  it('reads right with every value in double quotes, padded outside them', () => {
+    expect(
+      recordsLookRight(
+        FILE_NUMBER,
+        edited((lines) => eachValue((value) => ` "${value}"  `)(changed(lines))),
+      ),
+    ).toBe(true);
+  });
+
+  it('reads wrong with a value whose quotes were opened and never closed', () => {
+    expect(
+      recordsLookRight(
+        FILE_NUMBER,
+        edited((lines) =>
+          changed(lines).map((line, index) =>
+            index === TARGET_LINE ? line.replace(/,(\w+)$/, ',"$1') : line,
+          ),
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  // Only a value quoted at both ends loses its quotes: one character either side of the grade
+  // asked for must not be taken for a quote.
+  it.each([
+    ['opens', `"${target.to}x`],
+    ['closes', `x${target.to}"`],
+  ])('reads wrong when a quote only %s the grade', (_end, grade) => {
+    expect(
+      recordsLookRight(
+        FILE_NUMBER,
+        edited((lines) =>
+          lines.map((line, index) =>
+            index === TARGET_LINE ? line.replace(/,\w+$/, `,${grade}`) : line,
+          ),
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  it('reads right with the columns in another order, the header naming them', () => {
+    expect(
+      recordsLookRight(
+        FILE_NUMBER,
+        edited((lines) => reordered([3, 1, 0, 2])(changed(lines))),
+      ),
+    ).toBe(true);
+  });
+
+  it('reads wrong once the header renames a column', () => {
+    expect(
+      recordsLookRight(
+        FILE_NUMBER,
+        edited((lines) => ['id,student,class,grade', ...changed(lines).slice(1)]),
+      ),
+    ).toBe(false);
+  });
+
+  it('reads wrong once a column is gone from the header and every row', () => {
+    expect(
+      recordsLookRight(
+        FILE_NUMBER,
+        edited((lines) => reordered([0, 1, 3])(changed(lines))),
+      ),
+    ).toBe(false);
+  });
+
+  it('reads wrong once a column is added to the header and every row', () => {
+    expect(
+      recordsLookRight(
+        FILE_NUMBER,
+        edited((lines) =>
+          changed(lines).map((line, index) => `${line},${index === 0 ? 'note' : 'none'}`),
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  it('reads wrong when the target line holds a value more than the header names', () => {
+    expect(
+      recordsLookRight(
+        FILE_NUMBER,
+        edited((lines) =>
+          changed(lines).map((line, index) => (index === TARGET_LINE ? `${line},retake` : line)),
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  it('reads wrong when another line is missing a value the header names', () => {
+    expect(
+      recordsLookRight(
+        FILE_NUMBER,
+        edited((lines) =>
+          changed(lines).map((line, index) =>
+            index === OTHER_LINE ? line.replace(/,\w+$/, '') : line,
+          ),
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  it('reads wrong when the target is right and another line is gone', () => {
+    expect(
+      recordsLookRight(
+        FILE_NUMBER,
+        edited((lines) => changed(lines).filter((_line, index) => index !== OTHER_LINE)),
+      ),
+    ).toBe(false);
+  });
+
+  it('reads wrong when every line was given the new grade', () => {
+    expect(
+      recordsLookRight(
+        FILE_NUMBER,
+        edited((lines) =>
+          lines.map((line, index) => (index === 0 ? line : line.replace(/,\w+$/, `,${target.to}`))),
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  it('reads wrong once the file is emptied', () => {
+    expect(recordsLookRight(FILE_NUMBER, saved(''))).toBe(false);
+  });
+
+  it("reads wrong once a root's rm took the file", () => {
+    expect(recordsLookRight(FILE_NUMBER, saved(null))).toBe(false);
+  });
+
+  it('reads wrong when a directory stands where the file was', () => {
+    const box = withFiles(buildMissionKeyBoxFs(FILE_NUMBER), [
+      [`${path}/grades.csv`, file('id,student,subject,grade', ROOT_FILE)],
+    ]);
+
+    expect(recordsLookRight(FILE_NUMBER, box)).toBe(false);
+  });
+});
+
+describe('recordsLookRight on an erase job keeping a file', () => {
+  const FILE_NUMBER = hydraTamperNumber(ERASE_NUMBERS, 'file');
+  const target = eraseTargetOf(FILE_NUMBER);
+  const TARGET_LINE = lineIndexOf(target.rowId);
+  const OTHER_LINE = lineIndexOf(target.rowId === 1 ? 2 : 1);
+  const { laid, edited } = csvBoxOf(FILE_NUMBER);
+
+  it('reads right once the target line is gone and nothing else moved', () => {
+    expect(
+      recordsLookRight(
+        FILE_NUMBER,
+        edited((lines) => lines.filter((_line, index) => index !== TARGET_LINE)),
+      ),
+    ).toBe(true);
+  });
+
+  it('reads wrong while the target line is still there', () => {
+    expect(recordsLookRight(FILE_NUMBER, laid())).toBe(false);
+  });
+
+  it('reads wrong when another line went with the target', () => {
+    expect(
+      recordsLookRight(
+        FILE_NUMBER,
+        edited((lines) =>
+          lines.filter((_line, index) => index !== TARGET_LINE && index !== OTHER_LINE),
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  it('reads wrong when every row is gone and only the header is left', () => {
+    expect(
+      recordsLookRight(
+        FILE_NUMBER,
+        edited((lines) => lines.slice(0, 1)),
       ),
     ).toBe(false);
   });

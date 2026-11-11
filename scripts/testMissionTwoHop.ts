@@ -133,8 +133,9 @@ const numbersByRoute = (from: number): ReadonlyMap<MissionRoute, number> => {
   const found = new Map<MissionRoute, number>();
   for (let candidate = from; candidate < from + 60000 && found.size < ROUTES.length; candidate++) {
     if (!isMissionNumber(candidate) || missionTopology(candidate).frontBoxOctet === null) continue;
-    const { keyBox, frontBox, storage } = missionShape(candidate);
-    if (frontBox?.route !== 'web' || storage !== 'file' || found.has(keyBox.route)) continue;
+    const { kind, keyBox, frontBox, storage } = missionShape(candidate);
+    if (kind !== 'key' || frontBox?.route !== 'web' || storage !== 'file') continue;
+    if (found.has(keyBox.route)) continue;
     found.set(keyBox.route, candidate);
   }
   return found;

@@ -56,12 +56,13 @@ import {
 import {
   missionKind,
   missionShape,
+  recordsStorage,
   type MissionBox,
   type MissionBoxRef,
   type MissionRoute,
 } from './missionShape.js';
 import { GUESSABLE_COMMUNITIES } from './pools.js';
-import { missionRecords } from './missionRecords.js';
+import { missionRecords, recordsFileContent, recordsFilePath } from './missionRecords.js';
 
 /** A file the server lays onto a key box before its journal replays. */
 export type MissionFile = {
@@ -331,11 +332,19 @@ const keepsKeyInDatabase = (ref: MissionBoxRef): boolean =>
 const holdsRecords = (ref: MissionBoxRef): boolean =>
   ref.role === 'key' && missionKind(ref.missionNumber) === 'tamper';
 
+/** Whether the box keeps a tamper job's records in its database. */
+const holdsRecordsInDatabase = (ref: MissionBoxRef): boolean =>
+  holdsRecords(ref) && recordsStorage(ref.missionNumber) === 'database';
+
+/** Whether the box keeps a tamper job's records in a root-only file. */
+const holdsRecordsInFile = (ref: MissionBoxRef): boolean =>
+  holdsRecords(ref) && recordsStorage(ref.missionNumber) === 'file';
+
 /** Whether the server lays the box's datadir: on the database route, where it holds the word,
- *  on the key box of a contract keeping its key in it, and on a tamper job's records box. Built
- *  once from every table they add. */
+ *  on the key box of a contract keeping its key in it, and on a records box keeping the records
+ *  in it. Built once from every table they add. */
 const laysDatadir = (ref: MissionBoxRef): boolean =>
-  boxOf(ref).route === 'mysql' || keepsKeyInDatabase(ref) || holdsRecords(ref);
+  boxOf(ref).route === 'mysql' || keepsKeyInDatabase(ref) || holdsRecordsInDatabase(ref);
 
 /** The datadir as laid: the word's table on the database route, beside the key's on a key box
  *  keeping it there or the records on a records box. */
@@ -345,7 +354,7 @@ const datadirFile = (ref: MissionBoxRef, env: MissionSecretsEnv): MissionFile =>
     ...(boxOf(ref).route === 'mysql'
       ? { settings: settingsTable(missionLeakWord(ref, env.rawSecrets)) }
       : {}),
-    ...(holdsRecords(ref) ? { grades: missionRecords(missionNumber).grades } : {}),
+    ...(holdsRecordsInDatabase(ref) ? { grades: missionRecords(missionNumber).grades } : {}),
     ...(keepsKeyInDatabase(ref)
       ? {
           api_keys: apiKeysTable(
@@ -357,6 +366,13 @@ const datadirFile = (ref: MissionBoxRef, env: MissionSecretsEnv): MissionFile =>
   };
   return { path: DATADIR_PATH, content: databaseWith(ref, tables), perms: DATADIR_FILE };
 };
+
+/** The records a job keeping them in a file holds, only root may read or write. */
+const recordsFile = (missionNumber: number): MissionFile => ({
+  path: recordsFilePath(missionNumber),
+  content: recordsFileContent(missionNumber),
+  perms: ROOT_FILE,
+});
 
 /** The leak when it is a file of its own; on the database route the leak is the datadir. */
 const ownLeakFile = (ref: MissionBoxRef, rawSecrets: string | undefined): MissionFile | null =>
@@ -373,8 +389,8 @@ type MissionSecretsEnv = {
 };
 
 /** Every file the server lays onto the box: on a key job's key box the key's files, then its
- *  leak and its datadir; on a records box or a front box its leak and its datadir alone, which
- *  never need the key's secret. A route with no leak never touches the pools, so a missing
+ *  leak and its datadir; on a records box or a front box its leak, its datadir and a records box's
+ *  file, which never need the key's secret. A route with no leak never touches the pools, so a missing
  *  `JSHACK_SECRETS` closes only the boxes that need it. */
 export const missionFiles = (
   ref: MissionBoxRef,
@@ -388,6 +404,7 @@ export const missionFiles = (
     ...keyFilesLaid,
     ...(leak === null ? [] : [leak]),
     ...(laysDatadir(ref) ? [datadirFile(ref, env)] : []),
+    ...(holdsRecordsInFile(ref) ? [recordsFile(ref.missionNumber)] : []),
   ];
 };
 
@@ -417,5 +434,6 @@ export const missionFilePaths = (ref: MissionBoxRef): readonly string[] => {
     ...(holdsKey(ref) ? keyFilePaths(ref.missionNumber) : []),
     ...(leakPath === null ? [] : [leakPath]),
     ...(laysDatadir(ref) ? [DATADIR_PATH] : []),
+    ...(holdsRecordsInFile(ref) ? [recordsFilePath(ref.missionNumber)] : []),
   ];
 };

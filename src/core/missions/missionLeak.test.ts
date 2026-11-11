@@ -90,16 +90,23 @@ const numbersWithStorage = (storage: MissionStorage): readonly number[] =>
     return shape.kind === 'key' && shape.storage === storage;
   });
 
-/** Tamper jobs whose records box falls to `route`, on either hop count. */
-const tamperNumbersWithRoute = (route: MissionRoute): readonly number[] =>
+/** Tamper jobs whose records box falls to `route`, on either hop count, keeping the records as
+ *  `storage` says: in its database unless a test asks for a file. */
+const tamperNumbersWithRoute = (
+  route: MissionRoute,
+  storage: MissionStorage = 'database',
+): readonly number[] =>
   SAMPLE_NUMBERS.filter((missionNumber) => {
     const shape = missionShape(missionNumber);
-    return shape.kind === 'tamper' && shape.keyBox.route === route;
+    return shape.kind === 'tamper' && shape.keyBox.route === route && shape.storage === storage;
   });
 
-const firstTamperWithRoute = (route: MissionRoute): number => {
-  const [found] = tamperNumbersWithRoute(route);
-  if (found === undefined) throw new Error(`no tamper ${route} contract in the sample`);
+const firstTamperWithRoute = (
+  route: MissionRoute,
+  storage: MissionStorage = 'database',
+): number => {
+  const [found] = tamperNumbersWithRoute(route, storage);
+  if (found === undefined) throw new Error(`no tamper ${route} ${storage} contract in the sample`);
   return found;
 };
 
@@ -521,7 +528,10 @@ describe('the files of a two-hop contract', () => {
   it('lays the key and the key box own leak on the key box, and only its own leak on the front box', () => {
     const missionNumber = twoHopWith(
       (shape) =>
-        shape.storage === 'file' && shape.keyBox.route === 'ftp' && shape.frontBox?.route === 'web',
+        shape.kind === 'key' &&
+        shape.storage === 'file' &&
+        shape.keyBox.route === 'ftp' &&
+        shape.frontBox?.route === 'web',
     );
     const keyLeak = missionLeakPath(keyOf(missionNumber));
     const frontLeak = missionLeakPath(frontOf(missionNumber));
@@ -1164,4 +1174,80 @@ describe("a tamper job's records box", () => {
       missionFiles(frontOf(missionNumber), HOLDING_BOTH).find((laid) => laid.path === DATADIR_PATH)
         ?.content ?? '',
     );
+});
+
+describe("a tamper job's records kept in a file", () => {
+  const NO_SECRETS = { keySecret: undefined, rawSecrets: undefined };
+
+  /** Where a file job's records sit: under the stem the boxes are named on. */
+  const csvPathOf = (missionNumber: number): string =>
+    `/srv/${missionShape(missionNumber).stem}/records/grades.csv`;
+
+  /** The grades as a CSV: a header naming the columns, then one line per row, in order. */
+  const csvOf = (missionNumber: number): string => {
+    const { rows } = missionRecords(missionNumber).grades;
+    const lines = rows.map(
+      ({ id, student, subject, grade }) => `${id},${student},${subject},${grade}`,
+    );
+    return `${['id,student,subject,grade', ...lines].join('\n')}\n`;
+  };
+
+  it('lays only the CSV, root-only, and needs no secret off the database route', () => {
+    for (const route of ['hydra', 'msfconsole'] as const) {
+      const missionNumber = firstTamperWithRoute(route, 'file');
+
+      expect(
+        missionFiles(keyOf(missionNumber), NO_SECRETS),
+        `${route} contract ${missionNumber}`,
+      ).toEqual([
+        { path: csvPathOf(missionNumber), content: csvOf(missionNumber), perms: ROOT_FILE },
+      ]);
+      expect(missionFilePaths(keyOf(missionNumber))).toEqual([csvPathOf(missionNumber)]);
+    }
+  });
+
+  it('lays the CSV after the leak on a leak route with a file of its own', () => {
+    const missionNumber = firstTamperWithRoute('web', 'file');
+
+    expect(missionFilePaths(keyOf(missionNumber))).toEqual([
+      missionLeakPath(keyOf(missionNumber)),
+      csvPathOf(missionNumber),
+    ]);
+  });
+
+  it("keeps no grades in the database route's datadir, only the word, and lays the CSV after it", () => {
+    const missionNumber = firstTamperWithRoute('mysql', 'file');
+    const laid = missionFiles(keyOf(missionNumber), {
+      keySecret: KEY_SECRET,
+      rawSecrets: RAW_SECRETS,
+    });
+    const database = parseMysqlDatabase(
+      laid.find(({ path }) => path === DATADIR_PATH)?.content ?? '',
+    );
+
+    expect(laid.map(({ path }) => path)).toEqual([DATADIR_PATH, csvPathOf(missionNumber)]);
+    expect(Object.keys(database?.tables ?? {})).not.toContain('grades');
+    expect(Object.keys(database?.tables ?? {})).toContain('settings');
+  });
+
+  it('lets a root on the box read the CSV, and nobody else', async () => {
+    const missionNumber = firstTamperWithRoute('hydra', 'file');
+    const box = await withMissionFiles(
+      async () => ({ data: missionFiles(keyOf(missionNumber), NO_SECRETS), error: null }),
+      {
+        essid: missionEssid(missionNumber),
+        machineId: 'records-box',
+        baseFs: buildMissionKeyBoxFs(missionNumber),
+      },
+    );
+    if (box === null) throw new Error('the files could not be made');
+    const path = asAbsPath(csvPathOf(missionNumber));
+
+    expect(createFsView(box, { userType: 'root' }).read(path)).toEqual({
+      ok: true,
+      content: csvOf(missionNumber),
+    });
+    expect(createFsView(box, { userType: 'user' }).read(path).ok).toBe(false);
+    expect(createFsView(box, { userType: 'guest' }).read(path).ok).toBe(false);
+  });
 });

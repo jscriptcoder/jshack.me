@@ -108,7 +108,9 @@ const numberWith = (route: 'hydra' | 'msfconsole', decoys: readonly MissionDecoy
     const shape = missionShape(candidate);
     // One hop: the gateway forwards straight onto the key box this check reaches.
     if (shape.frontBox !== null) continue;
-    if (shape.keyBox.route !== route || shape.storage !== 'file') continue;
+    if (shape.kind !== 'key' || shape.keyBox.route !== route || shape.storage !== 'file') {
+      continue;
+    }
     if ([...shape.keyBox.decoys].sort().join(',') === [...decoys].sort().join(',')) {
       return candidate;
     }

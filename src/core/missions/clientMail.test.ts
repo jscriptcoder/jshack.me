@@ -413,6 +413,7 @@ describe('a mail on a tamper job', () => {
     return (
       shape.kind === 'tamper' &&
       shape.keyBox.route === 'hydra' &&
+      shape.storage === 'database' &&
       missionAction(missionNumber) === 'change'
     );
   })!;

@@ -13,6 +13,9 @@
 
 import { createPrng } from '../generation/prng.js';
 import { databaseIn } from '../mysql/datadir.js';
+import { createFsView } from '../filesystem/fsView.js';
+import { asAbsPath } from '../types.js';
+import { missionTopology, recordsStorage } from './missionShape.js';
 import type { Directory } from '../filesystem/types.js';
 import type { MysqlRow, MysqlTable } from '../mysql/types.js';
 
@@ -144,6 +147,51 @@ export const missionRecords = (missionNumber: number): MissionRecords => {
   };
 };
 
+/** Where a job keeping its records in a file keeps them: under the stem its boxes are named on. */
+export const recordsFilePath = (missionNumber: number): string =>
+  `/srv/${missionTopology(missionNumber).stem}/records/grades.csv`;
+
+/** The grades as the file holds them: a header naming the columns, then one line per row in
+ *  order, and a final newline. */
+export const recordsFileContent = (missionNumber: number): string => {
+  const { columns, rows } = missionRecords(missionNumber).grades;
+  const names = columns.map(({ name }) => name);
+  const lines = rows.map((row) => names.map((name) => `${row[name]}`).join(','));
+  return `${[names.join(','), ...lines].join('\n')}\n`;
+};
+
+/** One value as the client reads it: trimmed, and out of the double quotes around it. */
+const csvValue = (raw: string): string => {
+  const value = raw.trim();
+  return value.length >= 2 && value.startsWith('"') && value.endsWith('"')
+    ? value.slice(1, -1)
+    : value;
+};
+
+/** The rows a CSV holds, each keyed by the header's names, or none when a line holds more or
+ *  fewer values than the header names. Line endings and blank lines do not count. */
+const csvRows = (content: string): readonly MysqlRow[] | undefined => {
+  const [header, ...lines] = content
+    .split(/\r?\n/)
+    .filter((line) => line.trim() !== '')
+    .map((line) => line.split(',').map(csvValue));
+  if (header === undefined) return undefined;
+  if (lines.some((values) => values.length !== header.length)) return undefined;
+  return lines.map((values) =>
+    Object.fromEntries(header.map((name, index) => [name, values[index]])),
+  );
+};
+
+/** The grades the box holds now, wherever the job keeps them, or undefined when there are none
+ *  to read: no table, no file, or a file the client cannot read as rows. */
+const liveGrades = (missionNumber: number, fs: Directory): readonly MysqlRow[] | undefined => {
+  if (recordsStorage(missionNumber) === 'database') return databaseIn(fs)?.tables['grades']?.rows;
+  const read = createFsView(fs, { userType: 'root' }).read(
+    asAbsPath(recordsFilePath(missionNumber)),
+  );
+  return read.ok ? csvRows(read.content) : undefined;
+};
+
 /** Whether two rows hold the same values in the same columns, each read as the text the
  *  database prints: a statement writes every value as text, so `3` and `'3'` are one id. */
 const sameRow = (live: MysqlRow, generated: MysqlRow): boolean => {
@@ -160,7 +208,7 @@ const sameRow = (live: MysqlRow, generated: MysqlRow): boolean => {
  *  exactly the row the number drew, in the order it drew them. Anything else reads wrong: the
  *  old grade, another value, a row touched, gone or added beside it, or no records at all. */
 export const recordsLookRight = (missionNumber: number, fs: Directory): boolean => {
-  const live = databaseIn(fs)?.tables['grades']?.rows;
+  const live = liveGrades(missionNumber, fs);
   if (live === undefined) return false;
   const { grades, target } = missionRecords(missionNumber);
   const expected =

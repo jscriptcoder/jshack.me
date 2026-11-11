@@ -153,18 +153,45 @@ describe('missionShape', () => {
     }
   });
 
-  it("keeps a tamper job's records in its database, on every route and on both hop counts", () => {
-    // The records box is reached as a box keeping its key in a database is: mysqld, a login a
-    // sweep finds, and on one hop a :3306 forward. The tests on such a contract below hold it.
+  it("keeps about half the tamper jobs' records in a database and the rest in a file, on every route and both hop counts", () => {
+    // A records box keeping a database is reached as a box keeping its key in one is: mysqld, a
+    // login a sweep finds, and on one hop a :3306 forward. The tests on such a contract below
+    // hold it. One keeping a file is reached by its route's root.
     const tamperJobs = SAMPLE_SHAPES.filter(({ kind }) => kind === 'tamper');
 
-    expect(new Set(tamperJobs.map(({ storage }) => storage))).toEqual(new Set(['database']));
-    expect(new Set(tamperJobs.map(({ keyBox }) => keyBox.route))).toEqual(
-      new Set(['hydra', 'msfconsole', 'web', 'ftp', 'mysql', 'snmp']),
+    expect(new Set(tamperJobs.map(({ storage }) => storage))).toEqual(
+      new Set(['database', 'file']),
     );
-    expect(new Set(tamperJobs.map(({ frontBox }) => frontBox === null))).toEqual(
-      new Set([true, false]),
+    for (const storage of ['database', 'file'] as const) {
+      const kept = tamperJobs.filter((shape) => shape.storage === storage);
+
+      expect(kept.length / tamperJobs.length, storage).toBeGreaterThan(0.42);
+      expect(kept.length / tamperJobs.length, storage).toBeLessThan(0.58);
+      expect(new Set(kept.map(({ keyBox }) => keyBox.route)), storage).toEqual(
+        new Set(['hydra', 'msfconsole', 'web', 'ftp', 'mysql', 'snmp']),
+      );
+      expect(new Set(kept.map(({ frontBox }) => frontBox === null)), storage).toEqual(
+        new Set([true, false]),
+      );
+    }
+  });
+
+  it('gives a records box keeping a file no database server and no :3306 forward of its own', () => {
+    const fileJobs = SAMPLE_SHAPES.filter(
+      ({ kind, storage }) => kind === 'tamper' && storage === 'file',
     );
+
+    for (const shape of fileJobs) {
+      const { keyBox } = shape;
+      const label = `${keyBox.route} contract ${shape.missionNumber}`;
+      const programs = realServices(keyBox).map(({ program }) => program);
+
+      // The database route runs its own mysqld, its door; no other route runs one.
+      expect(programs.includes('mysqld'), label).toBe(keyBox.route === 'mysql');
+      if (shape.frontBox === null) {
+        expect(realForwards(shape), label).toEqual(ROUTE_FORWARDS[keyBox.route]);
+      }
+    }
   });
 
   it('draws where the key is kept without moving anything a contract already had', () => {
