@@ -1,8 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { answerClientMail, type ClientMailStore } from './clientMail.js';
+import { answerClientMail, type ClientMailStore, type RecordsBoxRead } from './clientMail.js';
 import type { ContractMail } from '../hireme/contracts.js';
 import { missionKey } from './missionSecret.js';
 import { missionTerms, type MissionClient } from './missionTerms.js';
+import { missionKind, missionShape } from './missionShape.js';
+import { missionFiles } from './missionLeak.js';
+import { missionRecords } from './missionRecords.js';
+import { runStatement } from '../mysql/statements.js';
+import { DATADIR_PATH, databaseIn } from '../mysql/datadir.js';
+import { buildMissionKeyBoxFs } from '../generation/missionKeyBoxFs.js';
+import { DATADIR_FILE, file, withFiles } from '../generation/baseFs.js';
+import type { Directory } from '../filesystem/types.js';
 
 /**
  * A mail to a client's handle: the client reads the sender's contracts with it, finds the key
@@ -17,8 +25,14 @@ const LOGIN = { handle: HANDLE, passwordMd5: 'a'.repeat(32), playerKey: 'b'.repe
 const WALLET = `jsc${'0123456789abcdef'.repeat(2)}01234567`;
 
 /** Contract numbers whose last octet is a host octet. */
-const HOST_NUMBERS = Array.from({ length: 4000 }, (_unused, index) => index * 257 + 1000).filter(
-  (missionNumber) => missionNumber % 256 >= 2 && missionNumber % 256 <= 254,
+const ALL_HOST_NUMBERS = Array.from(
+  { length: 4000 },
+  (_unused, index) => index * 257 + 1000,
+).filter((missionNumber) => missionNumber % 256 >= 2 && missionNumber % 256 <= 254);
+
+/** The key jobs among them, which is what the mails proving a key are about. */
+const HOST_NUMBERS = ALL_HOST_NUMBERS.filter(
+  (missionNumber) => missionKind(missionNumber) === 'key',
 );
 
 /** The job the sender holds, and its client. */
@@ -85,9 +99,19 @@ const clientStore = ({
   return { store, opens, completes, replies };
 };
 
+/** A records box nobody should be asked for: a key job's mail never reads one. */
+const NO_RECORDS_BOX = async (): Promise<RecordsBoxRead> => {
+  throw new Error('a key job read a records box');
+};
+
 const mailTo = (
   store: ClientMailStore,
-  mail: { readonly to?: MissionClient; readonly subject?: string; readonly body?: string } = {},
+  mail: {
+    readonly to?: MissionClient;
+    readonly subject?: string;
+    readonly body?: string;
+    readonly readRecordsBox?: (missionNumber: number) => Promise<RecordsBoxRead>;
+  } = {},
 ) =>
   answerClientMail({
     login: LOGIN,
@@ -96,6 +120,7 @@ const mailTo = (
     body: mail.body ?? `${KEY}\n${WALLET}\n`,
     secret: SECRET,
     store,
+    readRecordsBox: mail.readRecordsBox ?? NO_RECORDS_BOX,
   });
 
 /** What the client signs every reply with. */
@@ -378,5 +403,179 @@ describe('a mail the client never reads', () => {
     const { store } = clientStore({ jobs: [], ...over });
 
     expect(await mailTo(store)).toBeNull();
+  });
+});
+
+describe('a mail on a tamper job', () => {
+  /** A tamper job whose records box needs no secret to lay, and its client. */
+  const TAMPER_JOB = ALL_HOST_NUMBERS.find((missionNumber) => {
+    const shape = missionShape(missionNumber);
+    return shape.kind === 'tamper' && shape.keyBox.route === 'hydra';
+  })!;
+  const TAMPER_TERMS = missionTerms(TAMPER_JOB);
+  const { target } = missionRecords(TAMPER_JOB);
+
+  /** The records box as the server lays it, after the application account ran `lines`. */
+  const recordsBoxAfter = (...lines: readonly string[]): Directory => {
+    const laid = withFiles(
+      buildMissionKeyBoxFs(TAMPER_JOB),
+      missionFiles(
+        { missionNumber: TAMPER_JOB, role: 'key' },
+        { keySecret: undefined, rawSecrets: undefined },
+      ).map(({ path, content, perms }) => [path, file(content, perms)] as const),
+    );
+    const database = lines.reduce(
+      (current, line) =>
+        runStatement({
+          database: current,
+          line,
+          username: 'app',
+          userType: 'user',
+          sourceIp: '198.51.100.7',
+        }).database ?? current,
+      databaseIn(laid)!,
+    );
+    return withFiles(laid, [[DATADIR_PATH, file(JSON.stringify(database), DATADIR_FILE)]]);
+  };
+
+  const CHANGED = `UPDATE grades SET grade = '${target.to}' WHERE student = '${target.student}' AND subject = '${target.subject}'`;
+
+  /** A box read answering with `read`, keeping every number it was asked for. */
+  const recordsBox = (read: RecordsBoxRead) => {
+    const reads: number[] = [];
+    return {
+      reads,
+      readRecordsBox: async (missionNumber: number): Promise<RecordsBoxRead> => {
+        reads.push(missionNumber);
+        return read;
+      },
+    };
+  };
+
+  const fromTamperClient = (line: string): ContractMail => ({
+    sender: `${TAMPER_TERMS.client.handle}@emailit.io`,
+    subject: `Contract: ${TAMPER_TERMS.targetCompany}`,
+    body: signed(line, TAMPER_TERMS.client.company),
+  });
+
+  const mailOnTamperJob = (
+    store: ClientMailStore,
+    readRecordsBox: (missionNumber: number) => Promise<RecordsBoxRead>,
+    body = `it is done\n${WALLET}\n`,
+  ) => mailTo(store, { to: TAMPER_TERMS.client, body, readRecordsBox });
+
+  const RIGHT_LINE = `The records look right. §${TAMPER_TERMS.pay.toLocaleString('en-US')} sent to ${WALLET}. Pleasure doing business.`;
+  const WRONG_LINE = "Our records don't look right. No change, no money.";
+
+  it('reads the records box of the job held, and pays once they read right', async () => {
+    const { store, completes, replies } = clientStore({
+      jobs: [{ number: TAMPER_JOB, state: 'accepted' }],
+    });
+    const box = recordsBox({ kind: 'up', fs: recordsBoxAfter(CHANGED) });
+
+    expect(await mailOnTamperJob(store, box.readRecordsBox)).toBe('replied');
+    expect(box.reads).toEqual([TAMPER_JOB]);
+    expect(completes).toEqual([
+      {
+        number: TAMPER_JOB,
+        wallet: WALLET,
+        pay: TAMPER_TERMS.pay,
+        reply: fromTamperClient(RIGHT_LINE),
+      },
+    ]);
+    expect(replies).toEqual([]);
+  });
+
+  it('completes and pays nothing when the mail names no wallet', async () => {
+    const { store, completes } = clientStore({ jobs: [{ number: TAMPER_JOB, state: 'accepted' }] });
+    const box = recordsBox({ kind: 'up', fs: recordsBoxAfter(CHANGED) });
+
+    expect(await mailOnTamperJob(store, box.readRecordsBox, 'done.\n')).toBe('replied');
+    expect(completes).toEqual([
+      {
+        number: TAMPER_JOB,
+        wallet: null,
+        pay: TAMPER_TERMS.pay,
+        reply: fromTamperClient(
+          'The records look right. You sent no wallet, so there is nothing to pay. No wallet, no money.',
+        ),
+      },
+    ]);
+  });
+
+  it.each([
+    [
+      'the records still hold the old grade',
+      (): RecordsBoxRead => ({ kind: 'up', fs: recordsBoxAfter() }),
+    ],
+    [
+      'every row was given the new grade',
+      (): RecordsBoxRead => ({
+        kind: 'up',
+        fs: recordsBoxAfter(`UPDATE grades SET grade = '${target.to}'`),
+      }),
+    ],
+    ['the box is not up', (): RecordsBoxRead => ({ kind: 'absent' })],
+  ])('says the records do not look right when %s, and keeps the job open', async (_why, read) => {
+    const { store, completes, replies } = clientStore({
+      jobs: [{ number: TAMPER_JOB, state: 'accepted' }],
+    });
+
+    expect(await mailOnTamperJob(store, recordsBox(read()).readRecordsBox)).toBe('replied');
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromTamperClient(WRONG_LINE)]);
+  });
+
+  it('answers nothing when the box could not be read', async () => {
+    const { store, completes, replies } = clientStore({
+      jobs: [{ number: TAMPER_JOB, state: 'accepted' }],
+    });
+
+    expect(await mailOnTamperJob(store, recordsBox({ kind: 'error' }).readRecordsBox)).toBeNull();
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([]);
+  });
+
+  it('says the job is already closed once it is completed, without reading the box', async () => {
+    const { store, completes, replies } = clientStore({
+      jobs: [{ number: TAMPER_JOB, state: 'completed' }],
+    });
+    const box = recordsBox({ kind: 'up', fs: recordsBoxAfter(CHANGED) });
+
+    expect(await mailOnTamperJob(store, box.readRecordsBox)).toBe('replied');
+    expect(box.reads).toEqual([]);
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromTamperClient(CLOSED_LINE)]);
+  });
+
+  it('says the job is already closed when the store finds it completed in between', async () => {
+    const { store, replies } = clientStore({
+      jobs: [{ number: TAMPER_JOB, state: 'accepted' }],
+      completeWord: 'already_done',
+    });
+    const box = recordsBox({ kind: 'up', fs: recordsBoxAfter(CHANGED) });
+
+    expect(await mailOnTamperJob(store, box.readRecordsBox)).toBe('replied');
+    expect(replies).toEqual([fromTamperClient(CLOSED_LINE)]);
+  });
+
+  it('says there is no contract when the tamper job is for another client', async () => {
+    const otherClient = [JOB, ELSEWHERE]
+      .map((missionNumber) => missionTerms(missionNumber).client)
+      .find(({ handle }) => handle !== TAMPER_TERMS.client.handle)!;
+    const { store, replies } = clientStore({ jobs: [{ number: TAMPER_JOB, state: 'accepted' }] });
+    const box = recordsBox({ kind: 'up', fs: recordsBoxAfter(CHANGED) });
+
+    expect(await mailTo(store, { to: otherClient, readRecordsBox: box.readRecordsBox })).toBe(
+      'replied',
+    );
+    expect(box.reads).toEqual([]);
+    expect(replies).toEqual([
+      {
+        sender: `${otherClient.handle}@emailit.io`,
+        subject: 'No contract',
+        body: signed('We have no contract with you.', otherClient.company),
+      },
+    ]);
   });
 });

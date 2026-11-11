@@ -331,9 +331,11 @@ const main = async () => {
       briefing?.sender === `${takenTerms.client.handle}@emailit.io` &&
       briefing.subject === `Contract: ${takenTerms.targetCompany}` &&
       briefing.body.includes(takenAddress) &&
-      briefing.body.includes(takenTerms.keyOpens) &&
-      briefing.body.includes('ACCESS-XXXX-XXXX-XXXX') &&
-      briefing.body.includes('No key, no money. No wallet, no money.'),
+      (takenTerms.job === 'key'
+        ? briefing.body.includes(takenTerms.keyOpens) &&
+          briefing.body.includes('ACCESS-XXXX-XXXX-XXXX') &&
+          briefing.body.includes('No key, no money. No wallet, no money.')
+        : briefing.body.includes('No change, no money. No wallet, no money.')),
     `${briefing?.sender ?? 'no mail'} / ${briefing?.subject ?? ''}`,
   );
   const scanAfterAccept = await scanOf(takenAddress);

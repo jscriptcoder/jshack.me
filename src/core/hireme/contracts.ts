@@ -23,6 +23,7 @@ import { z } from 'zod';
 import { EMAILIT_DOMAIN } from '../generation/fixedSites.js';
 import { missionAddressForNumber } from '../missions/missionNetwork.js';
 import { missionTopology } from '../missions/missionShape.js';
+import { missionRecords } from '../missions/missionRecords.js';
 import { missionTerms, type MissionTerms } from '../missions/missionTerms.js';
 import { contractBoardPage, type BoardNotice } from './contractBoard.js';
 
@@ -136,7 +137,38 @@ const subjectOf = (terms: MissionTerms): string => `Contract: ${terms.targetComp
 
 /** What a two-hop briefing adds: that much and no more, since working out what "inside"
  *  means is the job. It names no machine, route or address. */
-const INSIDE_LINES = ['The key is on a machine inside their network, not on the edge.', ''];
+const insideLines = (what: string): readonly string[] => [
+  `${what} on a machine inside their network, not on the edge.`,
+  '',
+];
+
+/** What the job is and how it is paid: a key fetched and mailed back, or a record changed and
+ *  the client told. A tamper job names whose record and what it should say, never where. */
+const jobLines = (
+  missionNumber: number,
+  terms: MissionTerms,
+  inside: boolean,
+): readonly string[] => {
+  if (terms.job === 'tamper') {
+    const { target } = missionRecords(missionNumber);
+    return [
+      `Their records give ${target.student} a ${target.from} in ${target.subject}. It should be a ${target.to}.`,
+      '',
+      ...(inside ? insideLines('The records are') : []),
+      'Mail this address when it is done, with your wallet address.',
+      'No change, no money. No wallet, no money.',
+    ];
+  }
+  return [
+    `Somewhere on it is the key to ${terms.keyOpens}. It looks like this:`,
+    '',
+    '  ACCESS-XXXX-XXXX-XXXX',
+    '',
+    ...(inside ? insideLines('The key is') : []),
+    'Reply to this address with the key and your wallet address.',
+    'No key, no money. No wallet, no money.',
+  ];
+};
 
 const briefingOf = (missionNumber: number): ContractMail => {
   const terms = missionTerms(missionNumber);
@@ -149,13 +181,7 @@ const briefingOf = (missionNumber: number): ContractMail => {
       '',
       `The target is ${terms.targetCompany}. Their network is at ${missionAddressForNumber(missionNumber)}.`,
       '',
-      `Somewhere on it is the key to ${terms.keyOpens}. It looks like this:`,
-      '',
-      '  ACCESS-XXXX-XXXX-XXXX',
-      '',
-      ...(inside ? INSIDE_LINES : []),
-      'Reply to this address with the key and your wallet address.',
-      'No key, no money. No wallet, no money.',
+      ...jobLines(missionNumber, terms, inside),
       '',
       `-- ${terms.client.company}`,
       '',

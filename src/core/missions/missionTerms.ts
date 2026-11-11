@@ -18,14 +18,15 @@
  */
 
 import { createPrng } from '../generation/prng.js';
-import { missionTopology } from './missionShape.js';
+import { missionKind, missionTopology } from './missionShape.js';
 
 export type MissionClient = {
   readonly company: string;
   readonly handle: string;
 };
 
-export type MissionTerms = {
+/** What every contract's terms say, whatever the job. */
+type CommonTerms = {
   readonly client: MissionClient;
   /** The company owning the network, named after the stem its boxes carry. */
   readonly targetCompany: string;
@@ -33,11 +34,18 @@ export type MissionTerms = {
   readonly kind: string;
   /** One line of why the client wants it. */
   readonly pitch: string;
-  /** What the key gives its holder, as the briefing names it. */
-  readonly keyOpens: string;
   /** In JSC, a multiple of 50. */
   readonly pay: number;
 };
+
+/** A key job's terms name what the key opens; a tamper job's promise no key at all. The
+ *  record a tamper job asks changed is drawn with its records, not here. */
+export type MissionTerms =
+  | ({ readonly job: 'key' } & CommonTerms & {
+        /** What the key gives its holder, as the briefing names it. */
+        readonly keyOpens: string;
+      })
+  | ({ readonly job: 'tamper' } & CommonTerms);
 
 const CLIENTS: readonly MissionClient[] = [
   { company: 'Copper Systems', handle: 'copper-ops' },
@@ -97,21 +105,61 @@ const KEY_OPENS: readonly string[] = [
 const SINGLE_HOP = { kind: 'retrieve an access key', minPay: 500, maxPay: 2000 } as const;
 const TWO_HOP = { kind: 'retrieve an internal access key', minPay: 2000, maxPay: 4000 } as const;
 
+/** A record changed is a riskier ask than a key fetched, so it pays more on either hop count,
+ *  and a record behind a second box starts where a single-hop one tops out. */
+const SINGLE_HOP_TAMPER = { kind: 'alter a school record', minPay: 1000, maxPay: 2500 } as const;
+const TWO_HOP_TAMPER = {
+  kind: 'alter an internal school record',
+  minPay: 2500,
+  maxPay: 5000,
+} as const;
+
+/** Why a client wants a school's record changed, in the same two moral lights as a key job's. */
+const SCHOOL_PITCHES: readonly string[] = [
+  'A scholarship hangs on one grade. Our client would like it to hang the other way.',
+  'A parent is paying well for a report card that reads better than the truth.',
+  'One failing grade keeps our client off the team. It should not be failing.',
+  'An admissions offer depends on a transcript that is one grade short.',
+  'A teacher marked our client down out of spite. We are correcting that.',
+  'The grade was entered wrong and the school will not fix it. We will.',
+];
+
+/** What a school is called, after its stem: "Halden Academy". */
+const SCHOOL_NAME = 'Academy';
+
 const PAY_STEP = 50;
+
+const payFrom = (
+  prng: ReturnType<typeof createPrng>,
+  job: { readonly minPay: number; readonly maxPay: number },
+): number => prng.nextInt(job.minPay / PAY_STEP, job.maxPay / PAY_STEP) * PAY_STEP;
 
 const capitalised = (word: string): string => word.charAt(0).toUpperCase() + word.slice(1);
 
 export const missionTerms = (missionNumber: number): MissionTerms => {
   const prng = createPrng(`mission-terms-${missionNumber}`);
   const { stem, frontBoxOctet } = missionTopology(missionNumber);
-  const job = frontBoxOctet === null ? SINGLE_HOP : TWO_HOP;
+  const singleHop = frontBoxOctet === null;
+  if (missionKind(missionNumber) === 'tamper') {
+    const job = singleHop ? SINGLE_HOP_TAMPER : TWO_HOP_TAMPER;
+    return {
+      job: 'tamper',
+      client: prng.pick(CLIENTS),
+      targetCompany: `${capitalised(stem)} ${SCHOOL_NAME}`,
+      kind: job.kind,
+      pitch: prng.pick(SCHOOL_PITCHES),
+      pay: payFrom(prng, job),
+    };
+  }
+  const job = singleHop ? SINGLE_HOP : TWO_HOP;
   return {
+    job: 'key',
     client: prng.pick(CLIENTS),
     targetCompany: `${capitalised(stem)} ${prng.pick(TARGET_TRADES)}`,
     kind: job.kind,
     pitch: prng.pick(PITCHES),
     keyOpens: prng.pick(KEY_OPENS),
     // The last draw on the stream, so a template's own range moves nothing drawn before it.
-    pay: prng.nextInt(job.minPay / PAY_STEP, job.maxPay / PAY_STEP) * PAY_STEP,
+    pay: payFrom(prng, job),
   };
 };

@@ -1141,7 +1141,7 @@ describe("handleResolveCrossPlayerFs on the boards' server, whose contracts are 
 
     expect(result.status).toBe(200);
     expect(contentOf(tree, 'etc', 'hireme', 'contracts')).toBe(
-      `neo bellwether-desk ${NEO_MISSION} 1400\n`,
+      `neo bellwether-desk ${NEO_MISSION} 1150\n`,
     );
     expect(get(tree, 'etc', 'hireme', 'contracts')).toMatchObject({ perms: ROOT_FILE });
     expect(contentOf(tree, 'etc', 'hireme', 'boards')).toBe(`neo ${NEO_BOARD}\n`);

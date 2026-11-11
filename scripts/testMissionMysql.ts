@@ -123,6 +123,8 @@ const numberWith = (route: MissionRoute, storage: MissionStorage, from: number):
   for (let candidate = from; candidate < from + 20000; candidate += 1) {
     if (
       isMissionNumber(candidate) &&
+      // A key job: a tamper job keeps records in its database, never the key.
+      missionShape(candidate).kind === 'key' &&
       missionShape(candidate).keyBox.route === route &&
       missionShape(candidate).storage === storage &&
       // One hop: the gateway forwards straight onto the key box this check reaches.

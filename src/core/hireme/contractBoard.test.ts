@@ -7,7 +7,10 @@ import type { MissionTerms } from '../missions/missionTerms.js';
  * current contract if one is held, the offers, and what a form just did.
  */
 
-const getTerms = (overrides?: Partial<MissionTerms>): MissionTerms => ({
+const getTerms = (
+  overrides?: Partial<Extract<MissionTerms, { readonly job: 'key' }>>,
+): MissionTerms => ({
+  job: 'key',
   client: { company: 'Copper Systems', handle: 'copper-ops' },
   targetCompany: 'Halden Logistics',
   kind: 'retrieve an access key',

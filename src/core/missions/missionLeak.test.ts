@@ -45,6 +45,7 @@ import { DATADIR_PATH, databaseIn } from '../mysql/datadir.js';
 import { parseSnmpdConf, SNMPD_CONF_PATH, SNMPD_CONF_PERMISSIONS } from '../snmp/conf.js';
 import { parseMysqlDatabase } from '../mysql/types.js';
 import { runStatement } from '../mysql/statements.js';
+import { missionRecords } from './missionRecords.js';
 import {
   COMMON_PASSWORDS,
   CRACKABLE_PASSWORDS,
@@ -71,7 +72,7 @@ const SAMPLE_NUMBERS = Array.from({ length: 2000 }, (_unused, index) => index * 
   (missionNumber) => missionNumber % 256 >= 2 && missionNumber % 256 <= 254,
 );
 
-/** Contracts on this route that keep the key as `storage` says: a plain file unless told
+/** Key jobs on this route that keep the key as `storage` says: a plain file unless told
  *  otherwise, which is what every route's own tests are about. */
 const numbersWithRoute = (
   route: MissionRoute,
@@ -79,11 +80,28 @@ const numbersWithRoute = (
 ): readonly number[] =>
   SAMPLE_NUMBERS.filter((missionNumber) => {
     const shape = missionShape(missionNumber);
-    return shape.keyBox.route === route && shape.storage === storage;
+    return shape.kind === 'key' && shape.keyBox.route === route && shape.storage === storage;
   });
 
+/** Key jobs keeping the key as `storage` says. */
 const numbersWithStorage = (storage: MissionStorage): readonly number[] =>
-  SAMPLE_NUMBERS.filter((missionNumber) => missionShape(missionNumber).storage === storage);
+  SAMPLE_NUMBERS.filter((missionNumber) => {
+    const shape = missionShape(missionNumber);
+    return shape.kind === 'key' && shape.storage === storage;
+  });
+
+/** Tamper jobs whose records box falls to `route`, on either hop count. */
+const tamperNumbersWithRoute = (route: MissionRoute): readonly number[] =>
+  SAMPLE_NUMBERS.filter((missionNumber) => {
+    const shape = missionShape(missionNumber);
+    return shape.kind === 'tamper' && shape.keyBox.route === route;
+  });
+
+const firstTamperWithRoute = (route: MissionRoute): number => {
+  const [found] = tamperNumbersWithRoute(route);
+  if (found === undefined) throw new Error(`no tamper ${route} contract in the sample`);
+  return found;
+};
 
 const firstWithStorage = (storage: MissionStorage): number => {
   const [found] = numbersWithStorage(storage);
@@ -581,7 +599,8 @@ describe('the files of a two-hop contract', () => {
 
   it('lays a database front box its own datadir with its word, and the key only in the key box', () => {
     const missionNumber = twoHopWith(
-      (shape) => shape.frontBox?.route === 'mysql' && shape.storage === 'database',
+      (shape) =>
+        shape.kind === 'key' && shape.frontBox?.route === 'mysql' && shape.storage === 'database',
     );
     const [frontDatadir] = missionFiles(frontOf(missionNumber), HOLDING_BOTH);
     const keyDatadir = missionFiles(keyOf(missionNumber), HOLDING_BOTH).find(
@@ -1036,4 +1055,109 @@ describe('who can read what the server lays onto a key box', () => {
     expect(leak?.perms.write).toEqual(['root']);
     expect(leak?.perms.execute).toEqual([]);
   });
+});
+
+describe("a tamper job's records box", () => {
+  const HOLDING_BOTH = { keySecret: KEY_SECRET, rawSecrets: RAW_SECRETS };
+
+  const laidDatabase = (missionNumber: number) =>
+    parseMysqlDatabase(
+      missionFiles(keyOf(missionNumber), HOLDING_BOTH).find((laid) => laid.path === DATADIR_PATH)
+        ?.content ?? '',
+    );
+
+  it('lays only the datadir, root-only, and needs no secret off the database route', () => {
+    // There is no key to lay, so a deployment missing the key secret still opens the box.
+    for (const route of ['hydra', 'msfconsole'] as const) {
+      const missionNumber = firstTamperWithRoute(route);
+
+      expect(
+        missionFiles(keyOf(missionNumber), { keySecret: undefined, rawSecrets: undefined }).map(
+          ({ path, perms }) => ({ path, perms }),
+        ),
+        `${route} contract ${missionNumber}`,
+      ).toEqual([{ path: DATADIR_PATH, perms: DATADIR_FILE }]);
+      expect(missionFilePaths(keyOf(missionNumber))).toEqual([DATADIR_PATH]);
+    }
+  });
+
+  it('adds the grades the number draws to the database the box generates, and no key', () => {
+    for (const route of ['hydra', 'snmp', 'ftp'] as const) {
+      const missionNumber = firstTamperWithRoute(route);
+      const laid = laidDatabase(missionNumber);
+      const generated = databaseIn(buildMissionKeyBoxFs(missionNumber));
+      const { grades, ...others } = laid?.tables ?? {};
+
+      expect(grades, `${route} contract ${missionNumber}`).toEqual(
+        missionRecords(missionNumber).grades,
+      );
+      expect(others, `${route} contract ${missionNumber}`).toEqual(generated?.tables);
+      expect(laid?.credentials).toEqual(generated?.credentials);
+    }
+  });
+
+  it('keeps the grades beside the word in the one datadir on the database route', () => {
+    const missionNumber = firstTamperWithRoute('mysql');
+    const laid = laidDatabase(missionNumber);
+    const generated = databaseIn(buildMissionKeyBoxFs(missionNumber));
+    const { grades, settings, ...others } = laid?.tables ?? {};
+    const word = plaintextFor(missionShape(missionNumber).keyBox.rootHash);
+
+    expect(missionFilePaths(keyOf(missionNumber))).toEqual([DATADIR_PATH]);
+    expect(grades).toEqual(missionRecords(missionNumber).grades);
+    expect(settings?.rows[2]?.['value'] === word).toBe(true);
+    expect(others).toEqual(generated?.tables);
+  });
+
+  it('lays the datadir after the leak on a leak route with a file of its own', () => {
+    const missionNumber = firstTamperWithRoute('web');
+
+    expect(missionFilePaths(keyOf(missionNumber))).toEqual([
+      missionLeakPath(keyOf(missionNumber)),
+      DATADIR_PATH,
+    ]);
+  });
+
+  it('lets the application account read the grades and change one', () => {
+    const missionNumber = firstTamperWithRoute('hydra');
+    const database = laidDatabase(missionNumber);
+    if (database === null) throw new Error('the datadir could not be read');
+    const application = database.credentials.find(({ userType }) => userType !== 'root');
+    const { target } = missionRecords(missionNumber);
+    const asApplication = {
+      username: application?.username ?? '',
+      userType: application?.userType ?? 'guest',
+      sourceIp: '198.51.100.7',
+    } as const;
+
+    const changed = runStatement({
+      ...asApplication,
+      database,
+      line: `UPDATE grades SET grade = '${target.to}' WHERE student = '${target.student}' AND subject = '${target.subject}'`,
+    });
+    const read = runStatement({
+      ...asApplication,
+      database: changed.database ?? database,
+      line: `SELECT grade FROM grades WHERE id = '${target.rowId}'`,
+    });
+
+    expect(changed.failed).toBe(false);
+    expect(read.output.some((line) => line.includes(`| ${target.to} `))).toBe(true);
+  });
+
+  it('lays a two-hop front box only its own leak, never the records', () => {
+    const [missionNumber] = SAMPLE_NUMBERS.filter((candidate) => {
+      const shape = missionShape(candidate);
+      return shape.kind === 'tamper' && shape.frontBox?.route === 'mysql';
+    });
+    if (missionNumber === undefined) throw new Error('no two-hop tamper contract fronted by mysql');
+
+    expect(Object.keys(laidFrontDatabase(missionNumber)?.tables ?? {})).not.toContain('grades');
+  });
+
+  const laidFrontDatabase = (missionNumber: number) =>
+    parseMysqlDatabase(
+      missionFiles(frontOf(missionNumber), HOLDING_BOTH).find((laid) => laid.path === DATADIR_PATH)
+        ?.content ?? '',
+    );
 });
