@@ -1,8 +1,9 @@
 # Plan: a contract that asks for a record to be changed
 
 **Status:** Grilled and planned 2026-11-11. Four slices, one PR each, merged in order. Slice 1
-built on `feat/tamper-change-database` (v0.454.0), in review. Next: slice 2's acceptance criteria
-to the owner once slice 1 merges.
+merged (#766, v0.454.0). Slice 2 in progress on `feat/tamper-erase`; its criteria were approved
+with an erase target that always holds an F, erase pitches of its own, and a `show` line
+`Erase: <student>, <subject> (F)`.
 
 A second kind of contract. Every contract today is a key job: find the key, mail it back, and the
 client compares the string. A **tamper job** asks the player to change or erase one record in the
