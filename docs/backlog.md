@@ -56,8 +56,10 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   [`missions-architecture.md`](./missions-architecture.md)): one template, exfiltrate a key, on a
   two-box network with six routes, four of them leaking a login since v0.445.0, and the key kept in
   a file, sealed with `gpg` or in a database table since v0.448.0 ("Where the key is stored"),
-  decoy doors blurring the scan since v0.449.0 ("Decoys"), and a second template since v0.452.0,
-  the key box behind a front box, one contract in three ("Two hops"). Left for later:
+  decoy doors blurring the scan since v0.449.0 ("Decoys"), a second template since v0.452.0,
+  the key box behind a front box, one contract in three ("Two hops"), and a second kind of job
+  since v0.457.0, one record changed or erased in one of eight settings ("Tamper jobs"). Left for
+  later:
   - **Believable filler behind the doors.** A real door and a decoy are both the stock build (the
     `It works!` page, an empty `pub`, a `netops@corp.local` contact), which is what keeps them
     alike. A company homepage, mundane files in `pub` or a business contact would make the network
@@ -75,6 +77,12 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
     kept on a third box behind the key box (a twist on a third of contracts, not a template of its
     own); a lead to the key box's root on the front box (a deploy script, `.bash_history`, a cron
     line), which can join as a seventh inside route as the leak routes joined the six.
+  - **Tamper twists**, set aside in the tamper grill (2026-11-11): **adding a record**, which
+    needs an `INSERT` or a file-only add; **two copies**, the record also in a nightly CSV export
+    or a `.bak`, with the client checking both; **stealth**, a `changes.log` or `audit_log` table
+    the client also wants clean (a job that cares about stealth, above); **a white-hat fix**,
+    restoring a corrupted value (legacy's `db_fix`); and **direct clients** per setting, and more
+    settings.
   - **File exfiltration** (bring a file home and send it back), once emailit.io can carry one.
   - **Recognition for completed jobs**, the other half of a mission reward; completions are only
     in `hireme_missions` today.

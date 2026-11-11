@@ -1581,8 +1581,31 @@ agreed order:
     front box's forwards, `ssh -p 2222` rooted `northgate-web`, `nmap -sV 192.168.211.1-254` there
     found `northgate-files`, `gobuster` found only the decoy's stock page, anonymous `ftp` leaked
     the key box's word, `ssh root@192.168.211.99` read the key out of `data.json`, and the mailed
-    key paid §2,700 once. No defect. The plan was retired on close-out. **Pick up here
-    (2026-11-10):** the owner's choice from `backlog.md`.
+    key paid §2,700 once. No defect. The plan was retired on close-out.
+47. ✅ **Tamper jobs: a record changed or erased (v0.454.0–v0.457.0, PRs #766–#769, merged
+    2026-11-11).** Four slices; as-built: "Tamper jobs" in
+    [`missions-architecture.md`](./missions-architecture.md). Half the contracts, drawn from the
+    number, are tamper jobs: the client wants one record changed or erased, and pays when its
+    records box reads right. The proof is the network's state, not a key: the client reads the box
+    on every mail, and a careless `UPDATE` or `DELETE` with no `WHERE` costs the job until it is
+    undone. Each job draws one of eight settings (school, police, payroll, dmv, tournament,
+    admissions, club, registry), each with a target table and two neighbour tables. Half keep them
+    in the box's database, half in root-only CSVs that the route's root edits in `nano`. The board
+    reads `alter a police record` or `erase an admissions record` at 1,000–2,500 JSC, or
+    2,500–5,000 on two-hop. The briefing names who and what, never a table, file, box or path.
+    Key contracts are unchanged. Evidence: unit tests (10,630), `testMissionTamper` 38/38 and every
+    other mission and hireme wire-check green, mutation over the four slices 330/337, 237/244,
+    111/114 and 1,182/1,207. The survivors left open were unreachable guards and fallbacks, a `<`
+    against `<=` on a float draw, CSV edges only an empty value or a bare `"` would reach, and
+    Payroll's never-drawn erase words. The main-chunk ceiling rose to 299,575 B. **Close-out
+    (2026-11-11, v0.457.0):** one browser run on a fresh player on LINKSYS-1D41, the board turned
+    over by back-dating for each job. A club erase kept in a database took an `UPDATE` with no
+    `WHERE` (20 of 32 rows changed) and got "Our records don't look right. No change, no money.",
+    then was dropped. A university change in a database, accepted through the lynx form, took the
+    right `UPDATE … WHERE` and paid §1,350. A motor registry erase in files showed no `:3306`,
+    rooted over `:2222`, held three CSVs in `/srv/halden/records/`, lost its target line in `nano`
+    and paid §1,550. No defect. The plan was retired on close-out. **Pick up here (2026-11-11):**
+    the owner's choice from `backlog.md`.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

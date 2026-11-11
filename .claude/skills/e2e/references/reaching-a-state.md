@@ -500,3 +500,31 @@ Work out the leak word and the key root offline with `missionLeakWord({ missionN
 'key' }, process.env.JSHACK_SECRETS)` and `plaintextFor(missionShape(n).keyBox.rootHash)`; the
 front box's leak takes `role: 'front'`. Keep them in a scratch file and type them from it, so they
 never pass through a command line you read back.
+
+### Then: a tamper job, changed or erased, to a payout
+
+Verified 2026-11-11 (v0.457.0), the tamper close-out: a club erase in a database broken on
+purpose by an `UPDATE` with no `WHERE` and refused, a university change in a database paid
+§1,350, a motor registry erase in files paid §1,550. Half the contracts are tamper jobs; the board
+names one `alter a/an <setting> record` or `erase a/an <setting> record` (`internal` on two-hop).
+
+**Classify each offer offline.** Read the offered numbers from `hireme_missions` and, per number:
+`missionKind(n)`, `missionRecords(n)` (its `setting`, `target.action`, `target.table`,
+`target.namedBy`, and on a change `column`, `from`, `to`), `recordsStorage(n)` (`database` or
+`file`), `recordsFilePath(n)` on a file job, `missionShape(n).frontBox` and `keyBox.route`.
+Take the words from the box itself: `plaintextFor(missionShape(n).keyBox.rootHash)` on the hydra
+route, and the application account from `databaseIn(buildMissionKeyBoxFs(n))?.credentials`
+(the `userType === 'user'` one, `plaintextFor` its `passwordHash`). Write them to a scratch file.
+
+| # | Command | Trap |
+| --- | --- | --- |
+| 1 | Turn the board over until the job you need is offered | **A turnover burns every offer on the board**, a good one included: accept the moment a match shows. A combination such as a single-hop file erase on a hydra or msfconsole box is about 7% of a round, so script the back-date, the read and the classify in a loop that stops on a match |
+| 2 | Accept, read the briefing | **One job at a time**: the board's three slots hold the offers and the current job together, so finish or drop (`curl -d "confirm=yes" http://<board>/drop`) before the next |
+| 3a | Database: `hydra <address> mysql`, then `mysql <address> <account>` and its password at `Enter password:` | A single-hop database job forwards `:3306` whatever its route, so no root is needed. `SHOW TABLES` lists the target table, its two neighbours and `credentials`, beside whatever else the box keeps |
+| 3b | Database: `UPDATE <table> SET <column> = '<to>' WHERE <col> = '<name>'` or `DELETE FROM <table> WHERE …`, `exit` | Match the briefing's names (`namedBy`). **An `UPDATE` with no `WHERE` is not worth undoing**: putting 20–40 rows back means one `UPDATE … WHERE` per row (a `DELETE` with no `WHERE` cannot be undone at all; there is no `INSERT`). So a deliberate failure costs the job: do it on a job you then drop |
+| 4a | File: root over the route (`ssh root@<address> -p 2222` on hydra), then `ls /srv/<stem>/records` | No `:3306` in the scan. The directory holds the target CSV and its two neighbours |
+| 4b | File: `nano <the target CSV>`, delete or edit the line, `^O`, then `close-nano.sh` | Delete a whole line from the textarea: find its start and end in `.value`, `setSelectionRange(start, end + 1)` (the `\n` included), press `Backspace`, then read `.value` back before saving |
+| 5 | `exit`, then `mail reply <briefing n>` with the wallet address on the top line | The client's words don't matter, only the wallet. "The records look right. §<pay> sent to jsc…" pays at once; "Our records don't look right. No change, no money." leaves the job open |
+
+Mail is limited to 20 sends an hour per player (`email_sends`); a scripted run that mails many
+clients as one player gets a `429` from the twenty-first.

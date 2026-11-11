@@ -7,7 +7,8 @@ the shipped model of the missions epic, complete at **v0.441.0** (four slices, v
 PRs #746–#749, 2026-11-01 to 2026-11-03), with the routes that leak a login added by the epic
 that followed (four slices, v0.442.0–v0.445.0, PRs #750–#753, 2026-11-03 to 2026-11-04), and a
 second template, a key box behind a front box ("Two hops", four slices, v0.450.0–v0.452.0, PRs
-#761–#764, 2026-11-09 to 2026-11-10). It sits
+#761–#764, 2026-11-09 to 2026-11-10), and a second kind of job, a record changed or erased
+("Tamper jobs", four slices, v0.454.0–v0.457.0, PRs #766–#769, 2026-11-11). It sits
 on top of the contractor boards
 ([`hireme-architecture.md`](./hireme-architecture.md)), emailit.io
 ([`email-architecture.md`](./email-architecture.md)) and the wallet
@@ -712,6 +713,21 @@ is 299,557 B gzipped against a ceiling of 299,575 B (the settings' content is no
   `data.json` held the key. The mailed key got "Key received. §2,700", the balance 2,700; the key
   again got "That job is already closed." and one mint stood. No defect. `nmap` takes a range,
   not a CIDR block.
+- **One browser run at the tamper close-out** (2026-11-11, v0.457.0), one fresh player on
+  LINKSYS-1D41. The board's lines read "alter an admissions record", "erase an internal admissions
+  record" and "alter an internal vehicle registry record"; it was turned over by back-dating until
+  each job came up. The failure first: a club erase kept in a database (contract 5275525), its
+  briefing "The club has Hannah Demir banned. That ban should not exist." `hydra <address> mysql`
+  found the application account, `SHOW TABLES` listed `members` beside `events` and `staff`, and
+  `UPDATE members SET status = 'active'` with no `WHERE` changed 20 of 32 rows. The reply said
+  "Our records don't look right. No change, no money.", the balance stayed 0, and the job was
+  dropped. Then a university change in a database (contract 3540213), accepted through the lynx
+  form: "Their records have Fatima Haddad rejected for Economics. It should read admitted." The
+  `UPDATE … WHERE name = 'Fatima Haddad'` changed one row, and the reply paid §1,350. Then a motor
+  registry erase in files (contract 4195674): no `:3306` in the scan, root over `:2222`,
+  `/srv/halden/records/` holding `offences.csv`, `inspections.csv` and `examiners.csv`, and
+  Isaac Okafor's line deleted in `nano`. The reply paid §1,550, the balance 2,900. No defect.
+  Words were masked on every read of the screen.
 
 ## What follows
 
@@ -719,7 +735,9 @@ Deferred, in `backlog.md` under "missions — deferred": believable filler behin
 decoys alike; further templates (deep chains, switches, the gpg passphrase on a third box, the
 library route, stealth, deadlines, a harder leak); a lead to the key box on the front box, as a
 seventh inside route; file exfiltration, which
-needs attachments; recognition for completed jobs; a second, darknet operator.
+needs attachments; recognition for completed jobs; a second, darknet operator; and for tamper
+jobs, adding a record, a second copy the client also checks, an audit log to keep clean, a
+white-hat fix, and clients and settings of their own.
 
 ## Key files
 
