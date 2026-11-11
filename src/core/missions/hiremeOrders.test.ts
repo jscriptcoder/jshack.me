@@ -445,13 +445,20 @@ describe('showReport on a tamper job', () => {
     })!;
   const SINGLE_HOP = tamperJob(
     'change',
-    ({ frontBox, keyBox }) => frontBox === null && keyBox.route === 'hydra',
+    ({ frontBox, keyBox, storage }) =>
+      frontBox === null && keyBox.route === 'hydra' && storage === 'database',
   );
   const TWO_HOP = tamperJob(
     'change',
-    ({ frontBox, keyBox }) => frontBox !== null && keyBox.route === 'hydra',
+    ({ frontBox, keyBox, storage }) =>
+      frontBox !== null && keyBox.route === 'hydra' && storage === 'database',
   );
-  const ERASE = tamperJob('erase', ({ frontBox }) => frontBox === null);
+  const ERASE = tamperJob(
+    'erase',
+    ({ frontBox, storage }) => frontBox === null && storage === 'database',
+  );
+  const FILE_CHANGE = tamperJob('change', ({ storage }) => storage === 'file');
+  const FILE_ERASE = tamperJob('erase', ({ storage }) => storage === 'file');
 
   /** What the report says the job is, and the record it asks changed, where a key job's
    *  storage, key path and key go. */
@@ -520,6 +527,24 @@ describe('showReport on a tamper job', () => {
       `  Erase:    ${target.student}, ${target.subject} (F)`,
     ]);
     expect(lines.some((line) => line.includes('Change:'))).toBe(false);
+  });
+
+  it('prints a job keeping its records in a file as one, with the file in place of a table', () => {
+    for (const missionNumber of [FILE_CHANGE, FILE_ERASE]) {
+      const { target } = missionRecords(missionNumber);
+      const lines = showReport(missionNumber, SECRET, undefined).split('\n');
+      const path = `/srv/${missionShape(missionNumber).stem}/records/grades.csv`;
+      const storageAt = lines.indexOf(`  Storage:  file, ${path}`);
+
+      expect(storageAt, `contract ${missionNumber}`).toBeGreaterThan(0);
+      expect(lines[storageAt + 1]).toBe(
+        target.action === 'erase'
+          ? `  Erase:    ${target.student}, ${target.subject} (F)`
+          : `  Change:   ${target.student}, ${target.subject}: ${target.from} -> ${target.to}`,
+      );
+      expect(lines.some((line) => line.includes('Records:'))).toBe(false);
+      expect(lines.some((line) => line.includes('table grades'))).toBe(false);
+    }
   });
 });
 

@@ -497,19 +497,30 @@ boards' server's fetch handler (`resolveHttpFetch.ts`); the doors and their word
 ## Tamper jobs
 
 The second kind of contract: a school wants one grade in its records changed (v0.454.0), or one
-failing grade erased (v0.455.0). The number decides the kind on its own stream,
-`mission-kind-<n>`, half and half (`missionKind`, `core/missions/missionShape.ts`), and a tamper
-job's action on another, `mission-action-<n>`, half change and half erase (`missionAction`,
-`core/missions/missionRecords.ts`). A key number's shape and terms are exactly what they were
-before the kind existed, and a change job's records, terms and briefing exactly what they were
-before erase existed; each is a new stream, never a new draw on an old one.
+failing grade erased (v0.455.0), the records kept in a database or a CSV file (v0.456.0). The
+number decides the kind on its own stream, `mission-kind-<n>`, half and half (`missionKind`,
+`core/missions/missionShape.ts`); a tamper job's action on another, `mission-action-<n>`, half
+change and half erase (`missionAction`, `core/missions/missionRecords.ts`); and its storage on a
+third, `mission-records-storage-<n>`, half database and half file (`recordsStorage`,
+`missionShape.ts`). A key number's shape and terms are exactly what they were before the kind
+existed, a change job's records, terms and briefing exactly what they were before erase existed,
+and a database job exactly what it was before files existed; each is a new stream, never a new
+draw on an old one.
 
 - **The records box is the key box with records instead of a key.** Same octet, route, decoys,
-  front box and hostname (`<stem>-files`); storage is always the database. It runs mysqld as
-  database key storage does — a crackable application account, a shut database root, `:3306`
-  forwarded on single-hop, the inside door on two-hop — and holds no key file and no `api_keys`, so
-  laying it in needs no `MISSION_KEY_SECRET`. On the mysql leak route its datadir also holds
-  `settings`.
+  front box and hostname (`<stem>-files`). It holds no key file and no `api_keys`, so laying it in
+  needs no `MISSION_KEY_SECRET`.
+  - **Database storage**: it runs mysqld as database key storage does — a crackable application
+    account, a shut database root, `:3306` forwarded on single-hop, the inside door on two-hop —
+    and the records are a `grades` table in its datadir. On the mysql leak route the datadir also
+    holds `settings`.
+  - **File storage**: no mysqld and no `:3306` for the records (the mysql route keeps its own
+    door, and its datadir holds only `settings`). The records are
+    `/srv/<stem>/records/grades.csv` (`recordsFilePath`), root-only, a header
+    `id,student,subject,grade` then one line per row and a final newline
+    (`recordsFileContent`). The route's root reads it and edits it in `nano`; the file is in
+    `missionFilePaths`, so the write gate lets that root save it, and the save is one journal row
+    the client's read replays over the lay-in.
 - **The records** (`missionRecords`, `core/missions/missionRecords.ts`, stream
   `mission-records-<n>`): a `grades` table (`id`, `student`, `subject`, `grade`) of 5–8 students
   by 4–5 subjects, 20–40 rows. One row is the target. On a change its grade is drawn from C, D or
@@ -532,14 +543,18 @@ before erase existed; each is a new stream, never a new draw on an old one.
   table has exactly the generated rows in order, every cell equal as text to the generated one,
   except the target's grade, which must equal the grade asked for after trimming, case-sensitive.
   On an erase it passes when the table holds exactly the generated rows but the target, in order,
-  each equal as text. The mail's words do not matter; only its wallet does.
+  each equal as text. A file job's CSV is read into the same rows first: LF or CRLF line endings,
+  blank lines skipped, each value trimmed and out of its surrounding double quotes, every row keyed
+  by the header's names (so column order does not count), and a line with more or fewer values
+  than the header has no rows at all. A header naming a column missing, extra or renamed leaves
+  rows that cannot equal the generated ones. The mail's words do not matter; only its wallet does.
 
   | The box                                                            | The reply                                                    | What changes              |
   | ------------------------------------------------------------------ | ------------------------------------------------------------ | ------------------------- |
   | The records read right, with a wallet                              | "The records look right. §1,450 sent to jsc…. Pleasure …"    | completed, the pay minted |
   | The records read right, no wallet                                  | "The records look right. You sent no wallet, so there is …"  | completed, nothing minted |
   | Unchanged, a third value, another row touched or gone, no `grades` | "Our records don't look right. No change, no money."         | nothing                   |
-  | The box does not boot, or has no datadir                           | "Our records don't look right. No change, no money."         | nothing                   |
+  | The box does not boot, or has no datadir or readable CSV           | "Our records don't look right. No change, no money."         | nothing                   |
   | A completed job                                                    | "That job is already closed." (the box is not read)          | nothing                   |
   | The read itself fails                                              | nothing: 500, as any store failure                           | nothing                   |
 
@@ -550,8 +565,9 @@ before erase existed; each is a new stream, never a new draw on an old one.
   the box before the contractor mails costs the contractor the job, which is the shared network
   working as designed.
 - `hireme.ts show` adds `Kind: tamper, school, change` (or `erase`) and, in place of the key
-  lines, the storage (`database, table grades`), the datadir's path and the change
-  (`Change: student, subject: from -> to`) or the row to erase (`Erase: student, subject (F)`).
+  lines, the storage (`database, table grades` and the datadir's path, or `file, <the CSV's
+  path>`) and the change (`Change: student, subject: from -> to`) or the row to erase
+  (`Erase: student, subject (F)`).
 
 ## 7. What a root finds
 
@@ -594,8 +610,8 @@ The client carries the 195 block in `isPublicIp`, the `whois` record and the net
 The key, its paths, the terms, the board, the briefing, the replies and the root view are built
 on the server only. The leak routes added the slice's hashes and the route shapes, and the two-hop
 template the front box and the inside decoys, and the tamper kind its draw and the records'
-pools. Each feature raises the main chunk's ceiling by its measured growth; at v0.455.0 the chunk
-is 299,528 B gzipped against a ceiling of 299,575 B.
+pools. Each feature raises the main chunk's ceiling by its measured growth; at v0.456.0 the chunk
+is 299,557 B gzipped against a ceiling of 299,575 B.
 
 ## 10. Proving it
 
@@ -620,10 +636,13 @@ is 299,528 B gzipped against a ceiling of 299,575 B.
   `testMissionTwoHop.ts` (64: one web-fronted contract per key-box route, the key box absent from
   a public scan, the front route worked to root, the LAN scanned from it, every inside decoy worked
   to its empty end, the key box's route worked from the hop, the key paid once);
-  `testMissionTamper.ts` (22: `show`, the scan, a mail before any change and after an `UPDATE`
+  `testMissionTamper.ts` (30: `show`, the scan, a mail before any change and after an `UPDATE`
   with no `WHERE` refused, the right `UPDATE` paid once then closed, a box bricked by its own root
   refused, a two-hop job changed from a root shell on the front box and paid, and on erase jobs a
-  `DELETE` with no `WHERE` refused and the right `DELETE … WHERE` paid once then closed). The
+  `DELETE` with no `WHERE` refused and the right `DELETE … WHERE` paid once then closed, and on
+  file jobs `show` naming the CSV, no `:3306`, the route's root reading the CSV, a save as `nano`
+  makes it with the target line right paid once then closed, and one with another line deleted
+  refused). The
   board and pay checks each post a two-hop offer on a chosen number (21 and 17 checks at
   v0.452.0). The decoys' doors are also proven in `decoyMissionDoors.test.ts`.
 - **Mutation**: every slice's scoped run left no survivor but equivalents.

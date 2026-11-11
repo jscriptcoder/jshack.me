@@ -116,6 +116,7 @@ const ftpNumber = (from: number): number => {
     // A contract that keeps its key in a plain file, which is where this check reads it.
     if (
       isMissionNumber(candidate) &&
+      missionShape(candidate).kind === 'key' &&
       missionShape(candidate).keyBox.route === 'ftp' &&
       missionShape(candidate).storage === 'file' &&
       // One hop: the gateway forwards straight onto the key box this check reaches.

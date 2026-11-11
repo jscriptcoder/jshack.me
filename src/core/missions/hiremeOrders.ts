@@ -21,7 +21,7 @@ import { missionKeyFilePath, missionLeakPath, missionLeakWord } from './missionL
 import { missionKey, missionPassphrase } from './missionSecret.js';
 import { missionAddressForNumber, missionEssid } from './missionNetwork.js';
 import { missionTerms } from './missionTerms.js';
-import { missionAction, missionRecords } from './missionRecords.js';
+import { missionAction, missionRecords, recordsFilePath } from './missionRecords.js';
 import { DATADIR_PATH } from '../mysql/datadir.js';
 import { writeAmount } from '../wallet/amount.js';
 
@@ -105,9 +105,12 @@ const tamperKind = (missionNumber: number): string =>
  *  storage, key path and key go. */
 const recordLines = (missionNumber: number): readonly string[] => {
   const { target } = missionRecords(missionNumber);
+  const storage =
+    missionShape(missionNumber).storage === 'file'
+      ? [`  Storage:  file, ${recordsFilePath(missionNumber)}`]
+      : ['  Storage:  database, table grades', `  Records:  ${DATADIR_PATH}`];
   return [
-    '  Storage:  database, table grades',
-    `  Records:  ${DATADIR_PATH}`,
+    ...storage,
     target.action === 'erase'
       ? `  Erase:    ${target.student}, ${target.subject} (${target.grade})`
       : `  Change:   ${target.student}, ${target.subject}: ${target.from} -> ${target.to}`,

@@ -82,6 +82,17 @@ const STORAGES = ['file', 'gpg', 'database'] as const;
 
 export type MissionStorage = (typeof STORAGES)[number];
 
+/** Where a tamper job's records box keeps them, each equally likely: a table in its database, or
+ *  a root-only CSV file. */
+const RECORDS_STORAGES = ['database', 'file'] as const;
+
+export type RecordsStorage = (typeof RECORDS_STORAGES)[number];
+
+/** Where a tamper job keeps its records. On a stream of its own, so drawing it moved no
+ *  contract's topology, route, hashes, records or terms. */
+export const recordsStorage = (missionNumber: number): RecordsStorage =>
+  createPrng(`mission-records-storage-${missionNumber}`).pick(RECORDS_STORAGES);
+
 /** The doors a decoy can be: every kind some route is won through, since a port that is never
  *  a way in is dismissed at a glance and blurs nothing. */
 const DECOY_KINDS = ['ssh', 'web', 'ftp', 'mysql', 'snmp'] as const;
@@ -179,7 +190,7 @@ export type MissionShape = {
   readonly kind: MissionKind;
   readonly stem: string;
   /** Where the key box keeps what the job is about: the key, or on a tamper job the records,
-   *  which sit in its database. */
+   *  which sit in its database or in a file. */
   readonly storage: MissionStorage;
   /** The box holding the key, or on a tamper job the records. */
   readonly keyBox: MissionBox;
@@ -528,10 +539,13 @@ export const missionShape = (missionNumber: number): MissionShape => {
   const gatewayAdminHash = versionPrng.pick(SHUT_HASHES);
 
   // On a stream of its own, so adding it moved no contract's topology, route or hashes. A tamper
-  // job's records sit in the box's database, which is then reached as a key kept in one is.
+  // job's records in the box's database are then reached as a key kept in one is; in a file, by
+  // the route's root.
   const kind = missionKind(missionNumber);
   const storage =
-    kind === 'tamper' ? 'database' : createPrng(`mission-storage-${missionNumber}`).pick(STORAGES);
+    kind === 'tamper'
+      ? recordsStorage(missionNumber)
+      : createPrng(`mission-storage-${missionNumber}`).pick(STORAGES);
 
   // A key in the database is reached as a database user, so off the database route the key
   // box gains one. Drawn after everything above, so a contract's way in reads the same

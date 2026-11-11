@@ -18,6 +18,10 @@
 //   - AN ERASE JOB: `show` names the row to erase; a DELETE with no WHERE takes every row and the
 //     client says the records don't look right; on a fresh job the right DELETE ... WHERE pays
 //     once, and a second mail is told the job is closed.
+//   - A JOB KEEPING A FILE: `show` names the CSV, nmap shows no :3306, and the route's root reads
+//     the CSV; saving it as `nano` saves it, the opened text as the base, with the target line
+//     right pays once; on a fresh job the same save with another line deleted too is told the
+//     records don't look right.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testMissionTamper.ts
@@ -37,6 +41,10 @@ import { buildMissionKeyBoxFs } from '../src/core/generation/missionKeyBoxFs.js'
 import { RIDGEMONT } from '../src/core/generation/world.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { databaseIn } from '../src/core/mysql/datadir.js';
+import { deserializeTree, type SerializedDirectory } from '../src/core/filesystem/treeCodec.js';
+import { defaultFilePermissions } from '../src/core/filesystem/defaultPermissions.js';
+import type { Directory, FileNode } from '../src/core/filesystem/types.js';
+import { contentHash } from '../src/core/patches/contentHash.js';
 import {
   DEFAULT_WORDLIST,
   WORDLIST_PATH,
@@ -47,6 +55,7 @@ import { missionTerms } from '../src/core/missions/missionTerms.js';
 import {
   missionAction,
   missionRecords,
+  recordsFilePath,
   type RecordAction,
 } from '../src/core/missions/missionRecords.js';
 import { missionLeakPath } from '../src/core/missions/missionLeak.js';
@@ -134,9 +143,13 @@ const tamperNumbers = (
 };
 
 /** A single-hop job whose records box falls to hydra, so its root is on the list every player
- *  has. */
-const singleHopHydra = ({ frontBox, keyBox }: MissionShape): boolean =>
-  frontBox === null && keyBox.route === 'hydra';
+ *  has, keeping its records in its database. */
+const singleHopHydra = ({ frontBox, keyBox, storage }: MissionShape): boolean =>
+  frontBox === null && keyBox.route === 'hydra' && storage === 'database';
+
+/** The same, keeping its records in a file. */
+const singleHopHydraFile = ({ frontBox, keyBox, storage }: MissionShape): boolean =>
+  frontBox === null && keyBox.route === 'hydra' && storage === 'file';
 
 const [WRONG_JOB, PAID_JOB, BRICKED_JOB] = tamperNumbers(400000, 3, 'change', singleHopHydra) as [
   number,
@@ -148,13 +161,29 @@ const [INSIDE_JOB] = tamperNumbers(
   400000,
   1,
   'change',
-  ({ frontBox }) => frontBox?.route === 'web',
+  ({ frontBox, storage }) => frontBox?.route === 'web' && storage === 'database',
 ) as [number];
 const [WIPED_JOB, ERASED_JOB] = tamperNumbers(400000, 2, 'erase', singleHopHydra) as [
   number,
   number,
 ];
-const JOBS = [WRONG_JOB, PAID_JOB, BRICKED_JOB, INSIDE_JOB, WIPED_JOB, ERASED_JOB] as const;
+// No mysql decoy, so a scan finding no :3306 says the records keep no database door.
+const [FILED_JOB, BROKEN_JOB] = tamperNumbers(
+  400000,
+  2,
+  'change',
+  (shape) => singleHopHydraFile(shape) && !shape.keyBox.decoys.includes('mysql'),
+) as [number, number];
+const JOBS = [
+  WRONG_JOB,
+  PAID_JOB,
+  BRICKED_JOB,
+  INSIDE_JOB,
+  WIPED_JOB,
+  ERASED_JOB,
+  FILED_JOB,
+  BROKEN_JOB,
+] as const;
 
 type Job = {
   readonly missionNumber: number;
@@ -167,7 +196,8 @@ type Job = {
   readonly front: string | null;
   readonly gateway: string;
   readonly wallet: string;
-  readonly login: { readonly username: string; readonly password: string };
+  /** The application account a database job's records box keeps; none on a file job. */
+  readonly login: { readonly username: string; readonly password: string } | null;
 };
 
 const jobOf = (missionNumber: number, label: string, index: number): Job => {
@@ -182,8 +212,6 @@ const jobOf = (missionNumber: number, label: string, index: number): Job => {
   const account = databaseIn(buildMissionKeyBoxFs(missionNumber))?.credentials.find(
     (credential) => credential.userType === 'user',
   );
-  if (account === undefined)
-    throw new Error(`${label}: the records box has no application account`);
   return {
     missionNumber,
     label,
@@ -195,8 +223,18 @@ const jobOf = (missionNumber: number, label: string, index: number): Job => {
     front: shape.frontBox === null ? null : machineAt(shape.frontBox.octet),
     gateway: computeApGatewayId(essid),
     wallet: `jsc${md5(`${RUN}:${missionNumber}`)}${md5(String(missionNumber)).slice(0, 8)}`,
-    login: { username: account.username, password: plaintextFor(account.passwordHash) },
+    login:
+      account === undefined
+        ? null
+        : { username: account.username, password: plaintextFor(account.passwordHash) },
   };
+};
+
+/** The application account a database job's statements run as. */
+const loginOf = (job: Job): { readonly username: string; readonly password: string } => {
+  if (job.login === null)
+    throw new Error(`${job.label}: the records box has no application account`);
+  return job.login;
 };
 
 const contractor = generateIdentityIn(RIDGEMONT);
@@ -209,7 +247,9 @@ const BRICKED = jobOf(BRICKED_JOB, 'bricked', 2);
 const INSIDE = jobOf(INSIDE_JOB, 'two-hop', 3);
 const WIPED = jobOf(WIPED_JOB, 'wiped erase', 4);
 const ERASED = jobOf(ERASED_JOB, 'erase', 5);
-const ALL_JOBS = [WRONG, PAID, BRICKED, INSIDE, WIPED, ERASED] as const;
+const FILED = jobOf(FILED_JOB, 'file', 6);
+const BROKEN = jobOf(BROKEN_JOB, 'broken file', 7);
+const ALL_JOBS = [WRONG, PAID, BRICKED, INSIDE, WIPED, ERASED, FILED, BROKEN] as const;
 
 const RECORDS_WRONG = "Our records don't look right. No change, no money.";
 const CLOSED = 'That job is already closed.';
@@ -257,7 +297,7 @@ const statement = async (job: Job, line: string) => {
       essid: homeEssid,
       target_ip: job.address,
       port: DATABASE_PORT,
-      ...job.login,
+      ...loginOf(job),
       statement: line,
     }),
   );
@@ -394,7 +434,9 @@ const workTheWrongJob = async () => {
   const usernames = crackedOf(swept.body).map(({ username }) => username);
   check(
     'hydra <address> mysql finds the application account and not database root',
-    swept.status === 200 && usernames.includes(job.login.username) && !usernames.includes('root'),
+    swept.status === 200 &&
+      usernames.includes(loginOf(job).username) &&
+      !usernames.includes('root'),
     `status ${swept.status} cracked ${usernames.length}`,
   );
 
@@ -552,7 +594,7 @@ const workTheInsideJob = async () => {
       essid: job.essid,
       target_ip: job.recordsBoxIp,
       port: DATABASE_PORT,
-      ...job.login,
+      ...loginOf(job),
       statement: rightUpdate(job.missionNumber),
       caller_machine_id: job.front,
     }),
@@ -650,6 +692,176 @@ const workTheErasedJob = async () => {
   );
 };
 
+/** Hydra cracks the records box's root over :2222, and ssh lands a root shell there. */
+const rootOnTheBox = async (job: Job, sessionId: string) => {
+  const rootSweep = await hydra(job, 'ssh', SSH_PORT);
+  const root = crackedOf(rootSweep.body).find(({ username }) => username === 'root');
+  const shell = await post(
+    SESSIONS,
+    signRequest(contractor, 'authCreateSessionPublic', {
+      session_id: sessionId,
+      target: job.address,
+      port: SSH_PORT,
+      username: 'root',
+      password: root?.password ?? '',
+      parent_session_id: null,
+      source_ip: null,
+      kind: 'ssh',
+    }),
+  );
+  return {
+    landed:
+      root !== undefined &&
+      shell.status === 200 &&
+      field(shell.body, 'machine_id') === job.recordsBox,
+    detail: `sweep ${rootSweep.status}, ssh ${shell.status}`,
+  };
+};
+
+const nodeAt = (tree: Directory, path: string): FileNode | undefined =>
+  path
+    .split('/')
+    .filter((segment) => segment !== '')
+    .reduce<FileNode | undefined>(
+      (node, segment) => (node?.kind === 'directory' ? node.entries.get(segment) : undefined),
+      tree,
+    );
+
+/** The records file as the caller's root shell reads it, or null when it cannot. */
+const readRecordsFile = async (job: Job): Promise<string | null> => {
+  const answer = await post(
+    NETWORK,
+    signRequest(contractor, 'resolveCrossPlayerFs', { machine_id: job.recordsBox }),
+  );
+  if (answer.status !== 200) return null;
+  const tree = deserializeTree((answer.body as { tree: SerializedDirectory }).tree);
+  const node = nodeAt(tree, recordsFilePath(job.missionNumber));
+  return node?.kind === 'file' ? node.content : null;
+};
+
+/** A root's `nano` save of the records file: the whole new text, judged against what it opened. */
+const saveRecordsFile = (job: Job, opened: string, content: string) =>
+  post(
+    PATCHES,
+    signRequest(contractor, 'upsertPatch', {
+      machine_id: job.recordsBox,
+      path: recordsFilePath(job.missionNumber),
+      content,
+      owner: 'root',
+      permissions: defaultFilePermissions('root'),
+      node_type: 'file',
+      base_hash: contentHash(opened),
+    }),
+  );
+
+/** The file's lines with the target's grade set to the one asked for: the header is line 0, so a
+ *  row's line is its id. */
+const withTargetChanged = (missionNumber: number, opened: string): readonly string[] => {
+  const target = changeTargetOf(missionNumber);
+  return opened
+    .split('\n')
+    .map((line, index) =>
+      index === target.rowId ? line.replace(new RegExp(`,${target.from}$`), `,${target.to}`) : line,
+    );
+};
+
+/** A root opens the CSV in `nano`, sets the target line's grade and saves: paid once, then closed. */
+const workTheFiledJob = async () => {
+  const job = FILED;
+  await stage(job);
+  const pay = missionTerms(job.missionNumber).pay;
+
+  const shown = runHireme(['show', job.address]);
+  check(
+    'show names a job keeping its records in a file, and the file',
+    shown.includes(`Storage:  file, ${recordsFilePath(job.missionNumber)}`) &&
+      !shown.includes('table grades'),
+    shown.split('\n').find((line) => line.includes('Storage:')) ?? 'no Storage line',
+  );
+
+  const scan = await post(
+    NETWORK,
+    signRequest(contractor, 'resolvePublicScan', { target: job.address }),
+  );
+  check(
+    'nmap <address> shows no :3306 on a job keeping a file',
+    scan.status === 200 && !portsOf(scan.body).includes(DATABASE_PORT),
+    `status ${scan.status} ports=[${portsOf(scan.body).join(',')}]`,
+  );
+
+  const rooted = await rootOnTheBox(job, `ssh-filed-${RUN}`);
+  const opened = await readRecordsFile(job);
+  const target = changeTargetOf(job.missionNumber);
+  check(
+    "the route's root reads the CSV, the target line holding the grade the briefing names",
+    rooted.landed &&
+      opened !== null &&
+      opened.startsWith('id,student,subject,grade\n') &&
+      opened.includes(`\n${target.rowId},${target.student},${target.subject},${target.from}\n`),
+    rooted.detail,
+  );
+
+  const early = await mailClient(job, 'it is done');
+  check(
+    'a mail before the file is saved is told the records do not look right',
+    early.status === 200 && (await lastReply(job)).startsWith(RECORDS_WRONG),
+    `status ${early.status}`,
+  );
+
+  const saved = await saveRecordsFile(
+    job,
+    opened ?? '',
+    withTargetChanged(job.missionNumber, opened ?? '').join('\n'),
+  );
+  const paid = await mailClient(job, `it is done\n${job.wallet}\n`);
+  check(
+    'saving the target line right and any mail complete the job and pay the quoted pay',
+    saved.status === 200 &&
+      paid.status === 200 &&
+      (await stateOf(job)) === 'completed' &&
+      (await balanceOf(job.wallet)) === pay,
+    `save ${saved.status}, mail ${paid.status}, balance ${await balanceOf(job.wallet)} (want ${pay})`,
+  );
+
+  const again = await mailClient(job, `once more\n${job.wallet}\n`);
+  check(
+    'a second mail on the file job is told it is closed and pays nothing more',
+    again.status === 200 &&
+      (await lastReply(job)).startsWith(CLOSED) &&
+      (await balanceOf(job.wallet)) === pay,
+    `status ${again.status}, balance ${await balanceOf(job.wallet)}`,
+  );
+};
+
+/** The target line saved right, and another line deleted with it: the records read wrong. */
+const workTheBrokenJob = async () => {
+  const job = BROKEN;
+  await stage(job);
+  const target = changeTargetOf(job.missionNumber);
+  const otherLine = target.rowId === 1 ? 2 : 1;
+
+  const rooted = await rootOnTheBox(job, `ssh-broken-${RUN}`);
+  const opened = (await readRecordsFile(job)) ?? '';
+  const broken = withTargetChanged(job.missionNumber, opened).filter(
+    (_line, index) => index !== otherLine,
+  );
+  const saved = await saveRecordsFile(job, opened, broken.join('\n'));
+  const mailed = await mailClient(job, `done\n${job.wallet}\n`);
+  check(
+    'saving the target right with another line deleted is told the records do not look right',
+    rooted.landed &&
+      saved.status === 200 &&
+      mailed.status === 200 &&
+      (await lastReply(job)).startsWith(RECORDS_WRONG),
+    `${rooted.detail}, save ${saved.status}, mail ${mailed.status}`,
+  );
+  check(
+    'the broken file job stays accepted and pays nothing',
+    (await stateOf(job)) === 'accepted' && (await balanceOf(job.wallet)) <= 0,
+    `${await stateOf(job)}`,
+  );
+};
+
 const main = async () => {
   if (homeEssid === undefined || ALL_JOBS.some((job) => job.address === '')) {
     console.error('the world does not hold what this check assumes');
@@ -679,6 +891,8 @@ const main = async () => {
   await workTheInsideJob();
   await workTheWipedJob();
   await workTheErasedJob();
+  await workTheFiledJob();
+  await workTheBrokenJob();
 
   await cleanup();
 
