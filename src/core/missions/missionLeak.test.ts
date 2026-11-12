@@ -1067,6 +1067,60 @@ describe('who can read what the server lays onto a key box', () => {
   });
 });
 
+describe("a sabotage job's target", () => {
+  const NO_SECRETS = { keySecret: undefined, rawSecrets: undefined };
+
+  /** The first sabotage job in the sample whose target falls to `route`. */
+  const firstSabotageWithRoute = (route: MissionRoute): number => {
+    const [found] = SAMPLE_NUMBERS.filter((missionNumber) => {
+      const shape = missionShape(missionNumber);
+      return shape.kind === 'sabotage' && shape.keyBox.route === route;
+    });
+    if (found === undefined) throw new Error(`no sabotage ${route} contract in the sample`);
+    return found;
+  };
+
+  it('lays nothing off a leak route, and needs no secret: there is no key and no records', () => {
+    for (const route of ['hydra', 'msfconsole'] as const) {
+      const missionNumber = firstSabotageWithRoute(route);
+
+      expect(
+        missionFiles(keyOf(missionNumber), NO_SECRETS),
+        `${route} contract ${missionNumber}`,
+      ).toEqual([]);
+      expect(missionFilePaths(keyOf(missionNumber)), `${route} contract ${missionNumber}`).toEqual(
+        [],
+      );
+    }
+  });
+
+  it('lays a leak route only its own leak', () => {
+    for (const route of ['web', 'ftp'] as const) {
+      const missionNumber = firstSabotageWithRoute(route);
+
+      expect(missionFilePaths(keyOf(missionNumber)), `${route} contract ${missionNumber}`).toEqual([
+        missionLeakPath(keyOf(missionNumber)),
+      ]);
+    }
+  });
+
+  it('keeps only the word beside what the box generates in the datadir on the database route', () => {
+    const missionNumber = firstSabotageWithRoute('mysql');
+    const laid = parseMysqlDatabase(
+      // The word comes from the leak secrets; no key secret is needed, as there is no key.
+      missionFiles(keyOf(missionNumber), { keySecret: undefined, rawSecrets: RAW_SECRETS }).find(
+        ({ path }) => path === DATADIR_PATH,
+      )?.content ?? '',
+    );
+    const generated = databaseIn(buildMissionKeyBoxFs(missionNumber));
+    const { settings, ...others } = laid?.tables ?? {};
+
+    expect(missionFilePaths(keyOf(missionNumber))).toEqual([DATADIR_PATH]);
+    expect(settings).toBeDefined();
+    expect(others).toEqual(generated?.tables);
+  });
+});
+
 describe("a tamper job's records box", () => {
   const HOLDING_BOTH = { keySecret: KEY_SECRET, rawSecrets: RAW_SECRETS };
 

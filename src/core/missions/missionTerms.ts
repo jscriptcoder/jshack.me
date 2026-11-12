@@ -19,6 +19,7 @@
 
 import { createPrng } from '../generation/prng.js';
 import { missionKind, missionTopology } from './missionShape.js';
+import { sabotageRole } from './sabotageRoles.js';
 import {
   missionAction,
   missionSetting,
@@ -51,7 +52,8 @@ export type MissionTerms =
         /** What the key gives its holder, as the briefing names it. */
         readonly keyOpens: string;
       })
-  | ({ readonly job: 'tamper' } & CommonTerms);
+  | ({ readonly job: 'tamper' } & CommonTerms)
+  | ({ readonly job: 'sabotage' } & CommonTerms);
 
 const CLIENTS: readonly MissionClient[] = [
   { company: 'Copper Systems', handle: 'copper-ops' },
@@ -297,6 +299,18 @@ export const missionTerms = (missionNumber: number): MissionTerms => {
     };
   }
   const job = singleHop ? SINGLE_HOP : TWO_HOP;
+  if (missionKind(missionNumber) === 'sabotage') {
+    const { noun, pitches } = sabotageRole(missionNumber);
+    return {
+      job: 'sabotage',
+      client: prng.pick(CLIENTS),
+      targetCompany: `${capitalised(stem)} ${prng.pick(TARGET_TRADES)}`,
+      kind: `take down ${singleHop ? 'a' : 'an internal'} ${noun}`,
+      pitch: prng.pick(pitches),
+      // The work is a key job's, finding the way in and rooting the box, so the pay is too.
+      pay: payFrom(prng, job),
+    };
+  }
   return {
     job: 'key',
     client: prng.pick(CLIENTS),

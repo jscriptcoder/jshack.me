@@ -673,6 +673,98 @@ describe('a mail on a tamper job is answered from its records box', () => {
   });
 });
 
+describe('a mail on a sabotage job is answered from its target', () => {
+  /** A sabotage job whose target falls to hydra, so it is laid with no secret. */
+  const SABOTAGE_JOB = Array.from({ length: 4000 }, (_unused, index) => index * 263 + 70000).find(
+    (missionNumber) => {
+      if (missionNumber % 256 < 2 || missionNumber % 256 > 254) return false;
+      const shape = missionShape(missionNumber);
+      return shape.kind === 'sabotage' && shape.keyBox.route === 'hydra';
+    },
+  )!;
+  const TERMS = missionTerms(SABOTAGE_JOB);
+  const ESSID = missionEssid(SABOTAGE_JOB);
+  // The target is named for the machine it is, so it is found by that name.
+  const TARGET_HOST = generateHomeLan(ESSID).hosts.find(({ hostname }) =>
+    hostname.endsWith('-nvr'),
+  )!;
+  const { machineId: TARGET_ID } = resolveLanHostIdentity(TARGET_HOST, ESSID);
+  const findMissionFiles: ResolveMailDeps['findMissionFiles'] = (query) =>
+    missionFilesForBox(query, { keySecret: undefined, rawSecrets: undefined });
+
+  /** The journal row a root's `rm` of a boot file writes. */
+  const removed = (path: string): OwnerPatchRow => ({
+    path,
+    content: null,
+    owner: 'root',
+    permissions: null,
+    node_type: null,
+    updated_at: '2026-11-12T12:00:00Z',
+    writer_key: 'b'.repeat(64),
+  });
+
+  const journalOf =
+    (rows: readonly OwnerPatchRow[]): ResolveMailDeps['findPatches'] =>
+    async ({ machine_id }) => ({ data: machine_id === TARGET_ID ? rows : [], error: null });
+
+  const doneRequest = () =>
+    inboxRequest({ op: 'send', to: TERMS.client.handle, subject: 'done', body: 'it is done' });
+
+  const holdingTheJob = { outcome: 'opened', jobs: [{ number: SABOTAGE_JOB, state: 'accepted' }] };
+
+  it.each(['/boot/vmlinuz', '/boot/initrd.img'])(
+    'completes the job once the journal has %s gone, with no reboot',
+    async (bootFile) => {
+      const { deps, clientMail } = makeDeps({
+        clientOpened: holdingTheJob,
+        findPatches: journalOf([removed(bootFile)]),
+        findMissionFiles,
+      });
+
+      expect(await handleResolveMail(doneRequest(), deps)).toEqual({
+        status: 200,
+        body: { ok: true },
+      });
+      expect(clientMail.complete).toHaveBeenCalledOnce();
+      expect(clientMail.complete.mock.calls[0]?.[0]).toMatchObject({
+        number: SABOTAGE_JOB,
+        pay: TERMS.pay,
+      });
+    },
+  );
+
+  it('says the machine is still up while the journal leaves it booting', async () => {
+    const { deps, clientMail } = makeDeps({
+      clientOpened: holdingTheJob,
+      findPatches: journalOf([removed('/tmp/notes.txt')]),
+      findMissionFiles,
+    });
+
+    expect((await handleResolveMail(doneRequest(), deps)).status).toBe(200);
+    expect(clientMail.complete).not.toHaveBeenCalled();
+    expect(clientMail.reply.mock.calls[0]?.[0].reply.body).toBe(
+      `Their machine is still up. No outage, no money.\n\n-- ${TERMS.client.company}\n`,
+    );
+  });
+
+  it('reports a target whose journal could not be read as a server error', async () => {
+    const { deps, clientMail } = makeDeps({
+      clientOpened: holdingTheJob,
+      findPatches: async ({ machine_id }) =>
+        machine_id === TARGET_ID
+          ? { data: null, error: new Error('down') }
+          : { data: [], error: null },
+      findMissionFiles,
+    });
+
+    expect(await handleResolveMail(doneRequest(), deps)).toEqual({
+      status: 500,
+      body: { error: 'mail_failed' },
+    });
+    expect(clientMail.complete).not.toHaveBeenCalled();
+  });
+});
+
 describe('emailit.io deletes a message for whoever holds the password', () => {
   const deleteRequest = (fields: Record<string, unknown> = {}) =>
     inboxRequest({ op: 'delete', number: 2, ...fields });

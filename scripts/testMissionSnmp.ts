@@ -124,9 +124,11 @@ const runHireme = (args: readonly string[]): string =>
 
 const snmpNumber = (from: number): number => {
   for (let candidate = from; candidate < from + 20000; candidate += 1) {
-    // A contract that keeps its key in a plain file, which is where this check reads it.
+    // A key job that keeps its key in a plain file, which is where this check reads it. A tamper
+    // job's records may be kept in files too, and they hold no key.
     if (
       isMissionNumber(candidate) &&
+      missionShape(candidate).kind === 'key' &&
       missionShape(candidate).keyBox.route === 'snmp' &&
       missionShape(candidate).storage === 'file' &&
       // One hop: the gateway forwards straight onto the key box this check reaches.

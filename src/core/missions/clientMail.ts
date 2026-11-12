@@ -24,8 +24,10 @@
  *
  * A tamper job asks for no key: whatever the mail says, the client reads the job's records box
  * as it stands and completes the job when its records read right, or says they do not. A box
- * that is not up holds no records that read right. Once a tamper job is completed, and nothing
- * else is accepted here, any mail is told the job is closed without the box being read.
+ * that is not up holds no records that read right. A sabotage job asks for none either: the
+ * client reads its target and completes the job when the box no longer boots, whoever took it
+ * down, or says it is still up. Once either is completed, and nothing else is accepted here, any
+ * mail is told the job is closed without the box being read.
  *
  * Completing is one step in the store under the handle's lock: a second right mail racing
  * the first finds the job completed and is told it is closed, so a job pays once. A store
@@ -69,8 +71,9 @@ export type ClientMailStore = {
   }) => StoreReply;
 };
 
-/** A tamper job's records box as it stands: up with its tree, not up, or not readable. */
-export type RecordsBoxRead =
+/** The box a tamper or sabotage job is about, as it stands: up with its tree, not up, or not
+ *  readable. */
+export type TargetBoxRead =
   | { readonly kind: 'up'; readonly fs: Directory }
   | { readonly kind: 'absent' }
   | { readonly kind: 'error' };
@@ -94,11 +97,12 @@ const KEY_SHAPE = /\bACCESS(?:-[0-9A-HJKMNP-TV-Z]{4}){3}(?![0-9A-Z])/i;
 const WALLET_SHAPE = /\bjsc[0-9a-f]{40}(?![0-9a-f])/i;
 
 const NO_KEY = 'No key, no money. Send the key.';
-/** How the client opens a reply to a job done: the key it was sent, or the records it read. */
 const KEY_RECEIVED = 'Key received.';
 const RECORDS_RECEIVED = 'The records look right.';
+const MACHINE_DOWN = 'The machine is down.';
 const NO_WALLET = 'You sent no wallet, so there is nothing to pay. No wallet, no money.';
 const RECORDS_WRONG = "Our records don't look right. No change, no money.";
+const STILL_UP = 'Their machine is still up. No outage, no money.';
 const WRONG_KEY = 'That key opens nothing of ours.';
 const CLOSED = 'That job is already closed.';
 const NO_CONTRACT = 'We have no contract with you.';
@@ -127,9 +131,19 @@ const noContractFrom = (client: MissionClient): ContractMail => ({
 type Decision =
   | { readonly kind: 'complete'; readonly number: number }
   | { readonly kind: 'checkRecords'; readonly number: number }
+  | { readonly kind: 'checkDown'; readonly number: number }
   | { readonly kind: 'reply'; readonly reply: ContractMail };
 
-const isTamperJob = (missionNumber: number): boolean => missionKind(missionNumber) === 'tamper';
+/** How the client opens its reply to a job done: the key it was sent, the records it read, or
+ *  the machine it found down. */
+const RECEIVED: Readonly<Record<Exclude<Decision['kind'], 'reply'>, string>> = {
+  complete: KEY_RECEIVED,
+  checkRecords: RECORDS_RECEIVED,
+  checkDown: MACHINE_DOWN,
+};
+
+/** Whether the job is proved by a key mailed back, rather than by the box itself. */
+const isKeyJob = (missionNumber: number): boolean => missionKind(missionNumber) === 'key';
 
 const decide = ({
   client,
@@ -147,7 +161,7 @@ const decide = ({
   const closed = withClient.find(
     (job) =>
       job.state === 'completed' &&
-      (isTamperJob(job.number) || missionKey(job.number, secret) === key),
+      (!isKeyJob(job.number) || missionKey(job.number, secret) === key),
   );
   const reply = (missionNumber: number, line: string): Decision => ({
     kind: 'reply',
@@ -159,7 +173,9 @@ const decide = ({
       ? { kind: 'reply', reply: noContractFrom(client) }
       : reply(closed.number, CLOSED);
   }
-  if (isTamperJob(accepted.number)) return { kind: 'checkRecords', number: accepted.number };
+  const acceptedKind = missionKind(accepted.number);
+  if (acceptedKind === 'tamper') return { kind: 'checkRecords', number: accepted.number };
+  if (acceptedKind === 'sabotage') return { kind: 'checkDown', number: accepted.number };
   if (key === null) return reply(accepted.number, NO_KEY);
   if (missionKey(accepted.number, secret) === key) {
     return { kind: 'complete', number: accepted.number };
@@ -186,7 +202,7 @@ export const answerClientMail = async ({
   body,
   secret,
   store,
-  readRecordsBox,
+  readTargetBox,
 }: {
   readonly login: {
     readonly handle: string;
@@ -199,8 +215,8 @@ export const answerClientMail = async ({
   /** The deployment's mission secret, already checked present. */
   readonly secret: string;
   readonly store: ClientMailStore;
-  /** The records box of the tamper job numbered so, as it stands right now. */
-  readonly readRecordsBox: (missionNumber: number) => Promise<RecordsBoxRead>;
+  /** The box the tamper or sabotage job numbered so is about, as it stands right now. */
+  readonly readTargetBox: (missionNumber: number) => Promise<TargetBoxRead>;
 }): Promise<ClientMailAnswer | null> => {
   const opened = await store.open(login);
   const read = openedSchema.safeParse(opened.data);
@@ -214,13 +230,20 @@ export const answerClientMail = async ({
 
   const terms = missionTerms(decision.number);
   if (decision.kind === 'checkRecords') {
-    const box = await readRecordsBox(decision.number);
+    const box = await readTargetBox(decision.number);
     if (box.kind === 'error') return null;
     if (box.kind === 'absent' || !recordsLookRight(decision.number, box.fs)) {
       return sendReply(store, login.handle, replyAbout(terms, RECORDS_WRONG));
     }
   }
-  const received = decision.kind === 'checkRecords' ? RECORDS_RECEIVED : KEY_RECEIVED;
+  if (decision.kind === 'checkDown') {
+    const box = await readTargetBox(decision.number);
+    if (box.kind === 'error') return null;
+    // The target always stands at its address, so a box that is not up is one that no longer
+    // boots: the job done, whoever did it.
+    if (box.kind === 'up') return sendReply(store, login.handle, replyAbout(terms, STILL_UP));
+  }
+  const received = RECEIVED[decision.kind];
   const wallet = firstMatch(text, WALLET_SHAPE)?.toLowerCase() ?? null;
   const completed = await store.complete({
     handle: login.handle,

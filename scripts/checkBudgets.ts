@@ -60,8 +60,10 @@ import {
  *  template draw, the second box the shape and the LAN carry, and its builder) added 332 B,
  *  rounded up to 400; then a two-hop key box's own decoys (their draw and the report's tags)
  *  added 115 B, rounded up to 200; then the tamper kind (its draw, and a records box's names,
- *  subjects and grades) added 58 B, rounded up to 100. */
-const BUNDLE_CEILING_BYTES = 299_575;
+ *  subjects and grades) added 58 B, rounded up to 100; then the sabotage kind (its third of
+ *  the draw, and the role that names a target's hostname, with its noun and pitches) added
+ *  214 B, rounded up to 300. */
+const BUNDLE_CEILING_BYTES = 299_875;
 
 /** About a tenth of that before world content, so a loaded machine's noise cannot fail
  *  the check while a content change that makes boxes ten times dearer still does. */

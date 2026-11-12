@@ -14,8 +14,14 @@
  * needs to drive a test of the network and its mail door by hand.
  */
 
-import { missionShape, type MissionBox, type MissionBoxRef } from './missionShape.js';
-import { FRONT_BOX_SUFFIX, GATEWAY_SUFFIX, KEY_BOX_SUFFIX } from './pools.js';
+import {
+  missionShape,
+  type MissionBox,
+  type MissionBoxRef,
+  type MissionKind,
+} from './missionShape.js';
+import { FRONT_BOX_SUFFIX, GATEWAY_SUFFIX } from './pools.js';
+import { keyBoxSuffix, sabotageRole } from './sabotageRoles.js';
 import { EMAILIT_DOMAIN } from '../generation/fixedSites.js';
 import { missionKeyFilePath, missionLeakPath, missionLeakWord } from './missionLeak.js';
 import { missionKey, missionPassphrase } from './missionSecret.js';
@@ -99,12 +105,20 @@ const serviceLines = (box: MissionBox, decoyPorts: readonly number[], indent: st
 const storageDetail = (missionNumber: number, secret: string): string => {
   const { storage } = missionShape(missionNumber);
   if (storage === 'gpg') return `gpg, passphrase ${missionPassphrase(missionNumber, secret)}`;
-  return storage === 'database' ? 'database, table api_keys' : storage;
+  return storage === 'database' ? 'database, table api_keys' : 'file';
 };
 
-/** What a tamper job is, as the report names it: its kind, its setting and its action. */
-const tamperKind = (missionNumber: number): string =>
-  `tamper, ${missionSetting(missionNumber)}, ${missionAction(missionNumber)}`;
+/** What a tamper or sabotage job is, as the report names it: its kind, then a tamper job's
+ *  setting and action, or the machine a sabotage job asks taken down. A key job has no line. */
+const kindLine = (missionNumber: number, kind: MissionKind): readonly string[] => {
+  if (kind === 'tamper') {
+    return [
+      `  Kind:     tamper, ${missionSetting(missionNumber)}, ${missionAction(missionNumber)}`,
+    ];
+  }
+  if (kind === 'sabotage') return [`  Kind:     sabotage, ${sabotageRole(missionNumber).noun}`];
+  return [];
+};
 
 /** Where a tamper job's records are kept and the one change or erase it asks, where a key job's
  *  storage, key path and key go. */
@@ -120,6 +134,19 @@ const recordLines = (missionNumber: number): readonly string[] => {
     target.action === 'erase'
       ? `  Erase:    ${names}`
       : `  Change:   ${names}: ${target.column} ${target.from} -> ${target.to}`,
+  ];
+};
+
+/** What the report says of the job in the key-box slot: a key job's storage, key path and key,
+ *  a tamper job's records and the one change it asks, and nothing for a sabotage job, whose box
+ *  is the job and keeps nothing. */
+const jobLines = (missionNumber: number, kind: MissionKind, secret: string): readonly string[] => {
+  if (kind === 'tamper') return recordLines(missionNumber);
+  if (kind === 'sabotage') return [];
+  return [
+    `  Storage:  ${storageDetail(missionNumber, secret)}`,
+    `  Key path: ${missionKeyFilePath(missionNumber)}`,
+    `  Key:      ${missionKey(missionNumber, secret)}`,
   ];
 };
 
@@ -148,15 +175,10 @@ export const showReport = (
   const insideDecoyPorts = keyBox.services
     .slice(keyBox.services.length - keyBox.decoys.length)
     .map(({ port }) => port);
-  const reached = frontBox === null ? 'key box' : 'front box';
-  const keyLines =
-    shape.kind === 'tamper'
-      ? recordLines(missionNumber)
-      : [
-          `  Storage:  ${storageDetail(missionNumber, secret)}`,
-          `  Key path: ${missionKeyFilePath(missionNumber)}`,
-          `  Key:      ${missionKey(missionNumber, secret)}`,
-        ];
+  // A sabotage job's box is the job itself, so the report calls it the target, not a key box.
+  const slotName = shape.kind === 'sabotage' ? 'target' : 'key box';
+  const reached = frontBox === null ? slotName : 'front box';
+  const keyLines = jobLines(missionNumber, shape.kind, secret);
   const boxes =
     frontBox === null
       ? [
@@ -169,20 +191,26 @@ export const showReport = (
           `    Route:    ${frontBox.route}`,
           ...serviceLines(frontBox, decoyPorts, '    '),
           ...leakLines({ missionNumber, role: 'front' }, rawSecrets, '    '),
-          `  Key box:   ${shape.stem}-${KEY_BOX_SUFFIX}`,
+          shape.kind === 'sabotage'
+            ? `  Target box: ${shape.stem}-${keyBoxSuffix(missionNumber)}`
+            : `  Key box:   ${shape.stem}-${keyBoxSuffix(missionNumber)}`,
           `    Route:    ${keyBox.route}`,
           ...serviceLines(keyBox, insideDecoyPorts, '    '),
           ...leakLines(keyRef, rawSecrets, '    '),
           ...keyLines,
         ];
-  const hosts = [GATEWAY_SUFFIX, ...(frontBox === null ? [] : [FRONT_BOX_SUFFIX]), KEY_BOX_SUFFIX];
+  const hosts = [
+    GATEWAY_SUFFIX,
+    ...(frontBox === null ? [] : [FRONT_BOX_SUFFIX]),
+    keyBoxSuffix(missionNumber),
+  ];
   return [
     `Contract ${missionNumber} at ${address} (essid ${missionEssid(missionNumber)})`,
     `  Client:   ${terms.client.company} (${terms.client.handle}@${EMAILIT_DOMAIN})`,
     `  Target:   ${terms.targetCompany}, ${hosts.map((suffix) => `${shape.stem}-${suffix}`).join(' / ')}`,
     `  Pay:      ${writeAmount(terms.pay)}`,
     `  Template: ${frontBox === null ? 'single-hop' : 'two-hop'}`,
-    ...(shape.kind === 'tamper' ? [`  Kind:     ${tamperKind(missionNumber)}`] : []),
+    ...kindLine(missionNumber, shape.kind),
     // One box needs no section, so its route heads the report as it always has.
     ...(frontBox === null ? [`  Route:    ${keyBox.route}`] : []),
     ...shape.forwards.map(

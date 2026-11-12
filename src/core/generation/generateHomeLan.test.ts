@@ -545,7 +545,7 @@ describe('generateHomeLan for a network sized by its profile', () => {
 });
 
 describe('generateHomeLan for a contract network', () => {
-  const MISSION_ESSID = 'mission-66051';
+  const MISSION_ESSID = 'mission-66052';
 
   it('is a gateway and a key box alone, both named for one target company', () => {
     const lan = generateHomeLan(MISSION_ESSID);
@@ -577,7 +577,7 @@ describe('generateHomeLan for a contract network', () => {
   it('places the key box where the shape says, so the gateway forwards onto it', () => {
     // The topology and the shape draw the stem and the key-box octet independently off
     // one seed; the forward points at the octet, so the two must agree.
-    for (const missionNumber of [66051, 131587, 1000002, 16000002]) {
+    for (const missionNumber of [66052, 131587, 1000002, 16000002]) {
       const lan = generateHomeLan(`mission-${missionNumber}`);
       const shape = missionShape(missionNumber);
       const keyBox = lan.hosts[1];
@@ -588,7 +588,7 @@ describe('generateHomeLan for a contract network', () => {
   });
 
   it('stands a front box beside the key box on a two-hop contract, where the shape says', () => {
-    for (const missionNumber of [2, 8383, 134098, 326861]) {
+    for (const missionNumber of [8383, 66056, 134098, 326861]) {
       const lan = generateHomeLan(`mission-${missionNumber}`);
       const { stem, keyBox, frontBox } = missionShape(missionNumber);
 
@@ -600,6 +600,31 @@ describe('generateHomeLan for a contract network', () => {
           { ip: `${lan.subnet}.${frontBox?.octet}`, hostname: `${stem}-web`, kind: 'machine' },
         ]),
       );
+    }
+  });
+
+  it('names a sabotage target for the machine the client wants down, and every other key box as before', () => {
+    const numbers = Array.from({ length: 300 }, (_unused, index) => index * 8381 + 2).filter(
+      (missionNumber) => missionNumber % 256 >= 2 && missionNumber % 256 <= 254,
+    );
+    const sabotage = numbers.filter(
+      (missionNumber) => missionShape(missionNumber).kind === 'sabotage',
+    );
+
+    expect(
+      new Set(sabotage.map((missionNumber) => missionShape(missionNumber).frontBox === null)),
+    ).toEqual(new Set([true, false]));
+    for (const missionNumber of numbers) {
+      const lan = generateHomeLan(`mission-${missionNumber}`);
+      const { kind, stem, keyBox, frontBox } = missionShape(missionNumber);
+      const hostnameAt = (octet: number) =>
+        lan.hosts.find(({ ip }) => ip === `${lan.subnet}.${octet}`)?.hostname;
+
+      expect(hostnameAt(keyBox.octet), `contract ${missionNumber}`).toBe(
+        kind === 'sabotage' ? `${stem}-nvr` : `${stem}-files`,
+      );
+      if (frontBox !== null)
+        expect(hostnameAt(frontBox.octet), `contract ${missionNumber}`).toBe(`${stem}-web`);
     }
   });
 

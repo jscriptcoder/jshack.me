@@ -36,10 +36,10 @@ const BOARD_ADDRESS = '194.12.34.56';
 
 /** Contract numbers with a host last octet, each a different client and target. The first
  *  two are two-hop contracts, the last two single-hop. */
-const FIRST = 100000;
-const SECOND = 100003;
-const THIRD = 70000;
-const FOURTH = 66051;
+const FIRST = 100001;
+const SECOND = 100022;
+const THIRD = 70005;
+const FOURTH = 70011;
 
 /** The first tamper contract from 70,000 up drawing `setting` and `action`, on one hop or
  *  on two. */
@@ -58,6 +58,19 @@ const tamperNumber = (setting: RecordSetting, action: RecordAction, twoHop: bool
   }
   throw new Error(`no ${setting} ${action} contract`);
 };
+
+/** The first sabotage contract from 70,000 up, on one hop or on two. */
+const sabotageNumber = (twoHop: boolean): number => {
+  for (let candidate = 70_000; candidate < 2_000_000; candidate++) {
+    if (!isMissionNumber(candidate)) continue;
+    const shape = missionShape(candidate);
+    if (shape.kind === 'sabotage' && (shape.frontBox !== null) === twoHop) return candidate;
+  }
+  throw new Error('no sabotage contract');
+};
+
+const SABOTAGE_SINGLE_HOP = sabotageNumber(false);
+const SABOTAGE_TWO_HOP = sabotageNumber(true);
 
 /** School contracts asking for a grade changed rather than a key: a single-hop one and a
  *  two-hop one. */
@@ -473,6 +486,82 @@ describe('accepting an offer', () => {
     },
   );
 
+  describe('on a sabotage job', () => {
+    const offeredSabotage = () =>
+      boardStore({
+        offers: [
+          { number: SABOTAGE_SINGLE_HOP, ref: 'sss' },
+          { number: SABOTAGE_TWO_HOP, ref: 'rrr' },
+        ],
+      });
+
+    it('writes a single-hop briefing asking for the machine taken offline, and nothing more', async () => {
+      const { store, accepts } = offeredSabotage();
+      const terms = missionTerms(SABOTAGE_SINGLE_HOP);
+
+      await accept('offer=sss', store);
+
+      expect(accepts[0]!.briefing.subject).toBe(`Contract: ${terms.targetCompany}`);
+      expect(accepts[0]!.briefing.body).toBe(
+        [
+          terms.pitch,
+          '',
+          `The target is ${terms.targetCompany}. Their network is at ${missionAddressForNumber(SABOTAGE_SINGLE_HOP)}.`,
+          '',
+          'Take their CCTV recorder offline.',
+          '',
+          'Mail this address when it is done, with your wallet address.',
+          'No outage, no money. No wallet, no money.',
+          '',
+          `-- ${terms.client.company}`,
+          '',
+        ].join('\n'),
+      );
+    });
+
+    it('tells a two-hop contractor the machine is inside the network, not on the edge', async () => {
+      const { store, accepts } = offeredSabotage();
+      const terms = missionTerms(SABOTAGE_TWO_HOP);
+
+      await accept('offer=rrr', store);
+
+      expect(accepts[0]!.briefing.body).toBe(
+        [
+          terms.pitch,
+          '',
+          `The target is ${terms.targetCompany}. Their network is at ${missionAddressForNumber(SABOTAGE_TWO_HOP)}.`,
+          '',
+          'Take their CCTV recorder offline.',
+          '',
+          'It is a machine inside their network, not on the edge.',
+          '',
+          'Mail this address when it is done, with your wallet address.',
+          'No outage, no money. No wallet, no money.',
+          '',
+          `-- ${terms.client.company}`,
+          '',
+        ].join('\n'),
+      );
+    });
+
+    it('names no box, no address but the network and no path', async () => {
+      for (const [missionNumber, ref] of [
+        [SABOTAGE_SINGLE_HOP, 'sss'],
+        [SABOTAGE_TWO_HOP, 'rrr'],
+      ] as const) {
+        const { store, accepts } = offeredSabotage();
+        const { stem } = missionShape(missionNumber);
+
+        await accept(`offer=${ref}`, store);
+        const { body } = accepts[0]!.briefing;
+
+        expect(body).not.toContain(`${stem}-`);
+        expect(body).not.toMatch(/\/boot|vmlinuz|initrd|\bkey\b/i);
+        expect(body.match(/\d+\.\d+\.\d+\.\d+/g)).toEqual([missionAddressForNumber(missionNumber)]);
+      }
+    });
+  });
+
   describe('on a tamper job', () => {
     const offeredTamper = () =>
       boardStore({
@@ -621,8 +710,11 @@ describe('accepting an offer', () => {
 
         expect(body.split('\n')[4]).toBe(askedSentence(setting, target));
         expect(body).not.toMatch(/\b(id|table|database|mysql|csv)\b|\/srv\//i);
-        // The target's own name is the grill's ("a Members Club"), so only the rest is read.
-        expect(body.replace(missionTerms(missionNumber).targetCompany, '')).not.toMatch(tableWords);
+        // The target's own name is the grill's ("a Members Club"), and the pitch is the
+        // setting's prose ("The payroll never got the memo."), which says no more than the
+        // board's "alter a payroll record" already did, so only the rest is read.
+        const { targetCompany, pitch } = missionTerms(missionNumber);
+        expect(body.replace(targetCompany, '').replace(pitch, '')).not.toMatch(tableWords);
         expect(body).not.toContain(`${stem}-`);
       },
     );

@@ -29,6 +29,7 @@ import {
   type RecordTarget,
 } from '../missions/missionRecords.js';
 import { missionTerms, type MissionTerms } from '../missions/missionTerms.js';
+import { sabotageRole } from '../missions/sabotageRoles.js';
 import { contractBoardPage, type BoardNotice } from './contractBoard.js';
 
 export type OfferCandidate = {
@@ -199,14 +200,25 @@ const askedSentence = (setting: RecordSetting, target: RecordTarget): string => 
     : CHANGE_SENTENCES[setting](at, target.from, target.to);
 };
 
-/** What the job is and how it is paid: a key fetched and mailed back, or a record changed or
- *  erased and the client told. A tamper job names whose record and what it should say, or that
- *  it should not exist, never where. */
+/** What the job is and how it is paid: a key fetched and mailed back, a record changed or
+ *  erased and the client told, or a machine taken down and the client told. A tamper job names
+ *  whose record and what it should say, or that it should not exist, never where; a sabotage job
+ *  names what the machine is, never which box. */
 const jobLines = (
   missionNumber: number,
   terms: MissionTerms,
   inside: boolean,
 ): readonly string[] => {
+  if (terms.job === 'sabotage') {
+    return [
+      `Take their ${sabotageRole(missionNumber).noun} offline.`,
+      '',
+      // The machine is the job itself, so it is not "on" a machine as a key or records are.
+      ...(inside ? ['It is a machine inside their network, not on the edge.', ''] : []),
+      'Mail this address when it is done, with your wallet address.',
+      'No outage, no money. No wallet, no money.',
+    ];
+  }
   if (terms.job === 'tamper') {
     const { setting, target } = missionRecords(missionNumber);
     return [

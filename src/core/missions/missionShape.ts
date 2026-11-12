@@ -114,17 +114,32 @@ const INSIDE_DOOR_COUNTS = [2, 3] as const;
 /** The share of contracts whose key box sits behind a front box. */
 const TWO_HOP_SHARE = 1 / 3;
 
-/** What a contract asks for: a key the client wants brought back, or a record on the box the
- *  client wants changed, proved by the box itself when the contractor mails in. */
-export type MissionKind = 'key' | 'tamper';
+/** What a contract asks for: a key the client wants brought back, a record on the box the
+ *  client wants changed, or the box itself taken down for good. A tamper or sabotage job is
+ *  proved by the box itself when the contractor mails in. */
+export type MissionKind = 'key' | 'tamper' | 'sabotage';
 
-/** The share of contracts asking for a record changed rather than a key. */
-const TAMPER_SHARE = 1 / 2;
+/** Where the one draw on a contract's kind stops being tamper, and where it starts being key.
+ *  Sabotage takes the middle, so a contract drawn tamper or key before sabotage existed stays
+ *  what it was, and only the numbers in between changed kind. */
+const TAMPER_BELOW = 1 / 3;
+const KEY_FROM = 2 / 3;
 
-/** Whether a contract asks for a key or a changed record. Drawn on a stream of its own, so a
- *  contract that stays a key job keeps its network and its terms to the byte. */
-export const missionKind = (missionNumber: number): MissionKind =>
-  createPrng(`mission-kind-${missionNumber}`).next() < TAMPER_SHARE ? 'tamper' : 'key';
+/** Whether a contract asks for a key, a changed record or a machine taken down. Drawn on a
+ *  stream of its own, so a contract that keeps its kind keeps its network and its terms to the
+ *  byte. */
+export const missionKind = (missionNumber: number): MissionKind => {
+  const draw = createPrng(`mission-kind-${missionNumber}`).next();
+  if (draw < TAMPER_BELOW) return 'tamper';
+  return draw < KEY_FROM ? 'sabotage' : 'key';
+};
+
+/** Where a contract's key box keeps what its job is about, each kind on a stream of its own. */
+const storageOf = (kind: MissionKind, missionNumber: number): MissionStorage | null => {
+  if (kind === 'sabotage') return null;
+  if (kind === 'tamper') return recordsStorage(missionNumber);
+  return createPrng(`mission-storage-${missionNumber}`).pick(STORAGES);
+};
 
 /** One forward on the gateway: the public port it answers on, the box behind the gateway it
  *  reaches (by its last octet), and the port it reaches there. */
@@ -190,8 +205,9 @@ export type MissionShape = {
   readonly kind: MissionKind;
   readonly stem: string;
   /** Where the key box keeps what the job is about: the key, or on a tamper job the records,
-   *  which sit in its database or in a file. */
-  readonly storage: MissionStorage;
+   *  which sit in its database or in a file. A sabotage job's target keeps nothing: the job is
+   *  the box itself. */
+  readonly storage: MissionStorage | null;
   /** The box holding the key, or on a tamper job the records. */
   readonly keyBox: MissionBox;
   /** On a two-hop contract, the box the gateway forwards onto instead of the key box: it falls
@@ -542,10 +558,7 @@ export const missionShape = (missionNumber: number): MissionShape => {
   // job's records in the box's database are then reached as a key kept in one is; in a file, by
   // the route's root.
   const kind = missionKind(missionNumber);
-  const storage =
-    kind === 'tamper'
-      ? recordsStorage(missionNumber)
-      : createPrng(`mission-storage-${missionNumber}`).pick(STORAGES);
+  const storage = storageOf(kind, missionNumber);
 
   // A key in the database is reached as a database user, so off the database route the key
   // box gains one. Drawn after everything above, so a contract's way in reads the same
