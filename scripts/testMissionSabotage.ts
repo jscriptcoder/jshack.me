@@ -4,8 +4,6 @@
 // through the REAL /api endpoints.
 //
 // Net-new under test (the locally-untypechecked api/ runtime):
-//   - THE TARGET IS NAMED FOR WHAT IT IS: `show` names the kind and `<stem>-nvr`, and root's
-//     ssh lands on the box the LAN names so.
 //   - THE CLIENT READS THE TARGET ON ANY MAIL: before anything is done the reply is that the
 //     machine is still up, and the job stays accepted.
 //   - A BOOT FILE GONE PAYS ONCE, NO REBOOT: root cracked over :2222, /boot/vmlinuz removed and
@@ -15,6 +13,10 @@
 //     contractor, who did nothing, mails and is paid.
 //   - A BRICKED FRONT BOX LOSES A TWO-HOP JOB: the front box rooted and bricked, the client says
 //     the machine is still up, and ssh can no longer reach the front box the target sits behind.
+//   - EVERY MACHINE IS NAMED FOR WHAT IT IS: one job per machine a client can want down, from
+//     the CCTV recorder (`<stem>-nvr`) to the billing server (`<stem>-billing`). `show` names
+//     the machine and its box, root's ssh lands on the box the LAN names so, and its brick is
+//     paid.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testMissionSabotage.ts
@@ -126,7 +128,32 @@ const [UP_JOB, KERNEL_JOB, RIVAL_JOB, RAMDISK_JOB] = sabotageNumbers(400000, 4, 
 const [FRONT_JOB] = sabotageNumbers(400000, 1, ({ frontBox }) => frontBox?.route === 'hydra') as [
   number,
 ];
-const JOBS = [UP_JOB, KERNEL_JOB, RIVAL_JOB, RAMDISK_JOB, FRONT_JOB] as const;
+/** Every machine a client can want down, and the suffix its box is named with. */
+const ROLES = [
+  { noun: 'CCTV recorder', suffix: 'nvr' },
+  { noun: 'backup server', suffix: 'backup' },
+  { noun: 'monitoring station', suffix: 'mon' },
+  { noun: 'build server', suffix: 'ci' },
+  { noun: 'licence server', suffix: 'lic' },
+  { noun: 'door-access controller', suffix: 'access' },
+  { noun: 'billing server', suffix: 'billing' },
+] as const;
+
+/** The machine a job asks taken down, read off the board's line. */
+const machineOf = (missionNumber: number): string =>
+  missionTerms(missionNumber).kind.replace(/^take down (a|an internal) /, '');
+
+// One single-hop job per machine, from past the jobs above so none is worked twice.
+const ROLE_JOBS = ROLES.map(({ noun }) => {
+  const [found] = sabotageNumbers(
+    500000,
+    1,
+    (shape) => singleHopHydra(shape) && machineOf(shape.missionNumber) === noun,
+  );
+  if (found === undefined) throw new Error(`no single-hop hydra job on a ${noun}`);
+  return found;
+});
+const JOBS = [UP_JOB, KERNEL_JOB, RIVAL_JOB, RAMDISK_JOB, FRONT_JOB, ...ROLE_JOBS] as const;
 
 type Job = {
   readonly missionNumber: number;
@@ -175,7 +202,11 @@ const KERNEL = jobOf(KERNEL_JOB, 'kernel gone', 1);
 const RIVAL = jobOf(RIVAL_JOB, 'rival brick', 2);
 const RAMDISK = jobOf(RAMDISK_JOB, 'ramdisk gone', 3);
 const FRONT = jobOf(FRONT_JOB, 'front box bricked', 4);
-const ALL_JOBS = [UP, KERNEL, RIVAL, RAMDISK, FRONT] as const;
+const ROLE_WORK = ROLES.map((role, index) => ({
+  ...role,
+  job: jobOf(ROLE_JOBS[index]!, `${role.noun} down`, 5 + index),
+}));
+const ALL_JOBS = [UP, KERNEL, RIVAL, RAMDISK, FRONT, ...ROLE_WORK.map(({ job }) => job)] as const;
 
 const STILL_UP = 'Their machine is still up. No outage, no money.';
 const CLOSED = 'That job is already closed.';
@@ -329,15 +360,6 @@ const workTheUpJob = async () => {
   const job = UP;
   await stage(job);
 
-  const shown = runHireme(['show', job.address]);
-  check(
-    'show names the kind and the target box by its hostname',
-    shown.includes('Kind:     sabotage, CCTV recorder') &&
-      job.targetName.endsWith('-nvr') &&
-      shown.includes(job.targetName),
-    shown.split('\n').find((line) => line.includes('Kind:')) ?? 'no Kind line',
-  );
-
   const early = await mailClient(job, `it is done\n${job.wallet}\n`);
   check(
     'a mail before anything is done is told the machine is still up',
@@ -359,7 +381,7 @@ const workTheKernelJob = async () => {
 
   const rooted = await rootOver2222(contractor, job, 'kernel');
   check(
-    "hydra cracks the target's root over :2222, and ssh lands root on the box named -nvr",
+    "hydra cracks the target's root over :2222, and ssh lands root on the target box",
     rooted.landedOn === job.target,
     rooted.detail,
   );
@@ -436,6 +458,39 @@ const workTheRamdiskJob = async () => {
   );
 };
 
+/** Each machine a client can want down: named for what it is, and paid for once it is down. */
+const workTheRoleJobs = async () => {
+  for (const { noun, suffix, job } of ROLE_WORK) {
+    await stage(job);
+    const pay = missionTerms(job.missionNumber).pay;
+
+    const shown = runHireme(['show', job.address]);
+    check(
+      `show names a ${noun} and its box, -${suffix}`,
+      shown.includes(`Kind:     sabotage, ${noun}`) &&
+        job.targetName.endsWith(`-${suffix}`) &&
+        shown.includes(job.targetName),
+      shown.split('\n').find((line) => line.includes('Kind:')) ?? 'no Kind line',
+    );
+
+    const rooted = await rootOver2222(contractor, job, suffix);
+    const removed = await removeAsRoot(contractor, job.target, '/boot/vmlinuz');
+    const paid = await mailClient(job, `it is down\n${job.wallet}\n`);
+    check(
+      `root lands on ${job.targetName}, removes /boot/vmlinuz, and the mail is paid`,
+      rooted.landedOn === job.target &&
+        removed.status === 200 &&
+        paid.status === 200 &&
+        (await stateOf(job)) === 'completed' &&
+        (await balanceOf(job.wallet)) === pay &&
+        (await lastReply(job)).startsWith(
+          `The machine is down. §${pay.toLocaleString('en-US')} sent to ${job.wallet}.`,
+        ),
+      `${rooted.detail}, rm ${removed.status}, mail ${paid.status}, balance ${await balanceOf(job.wallet)} (want ${pay})`,
+    );
+  }
+};
+
 /** The front box bricked on a two-hop job: the target is still up, and out of reach. */
 const workTheFrontJob = async () => {
   const job = FRONT;
@@ -489,6 +544,7 @@ const main = async () => {
   await workTheRivalJob();
   await workTheRamdiskJob();
   await workTheFrontJob();
+  await workTheRoleJobs();
 
   await cleanup();
 

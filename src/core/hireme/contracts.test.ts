@@ -59,14 +59,19 @@ const tamperNumber = (setting: RecordSetting, action: RecordAction, twoHop: bool
   throw new Error(`no ${setting} ${action} contract`);
 };
 
-/** The first sabotage contract from 70,000 up, on one hop or on two. */
-const sabotageNumber = (twoHop: boolean): number => {
+/** The machine a sabotage contract asks taken down, read off the board's line. */
+const machineOf = (missionNumber: number): string =>
+  missionTerms(missionNumber).kind.replace(/^take down (a|an internal) /, '');
+
+/** The first sabotage contract from 70,000 up asking for `machine` down, on one hop or on two. */
+const sabotageNumber = (twoHop: boolean, machine = 'CCTV recorder'): number => {
   for (let candidate = 70_000; candidate < 2_000_000; candidate++) {
     if (!isMissionNumber(candidate)) continue;
     const shape = missionShape(candidate);
-    if (shape.kind === 'sabotage' && (shape.frontBox !== null) === twoHop) return candidate;
+    if (shape.kind !== 'sabotage' || (shape.frontBox !== null) !== twoHop) continue;
+    if (machineOf(candidate) === machine) return candidate;
   }
-  throw new Error('no sabotage contract');
+  throw new Error(`no sabotage contract on a ${machine}`);
 };
 
 const SABOTAGE_SINGLE_HOP = sabotageNumber(false);
@@ -559,6 +564,23 @@ describe('accepting an offer', () => {
         expect(body).not.toMatch(/\/boot|vmlinuz|initrd|\bkey\b/i);
         expect(body.match(/\d+\.\d+\.\d+\.\d+/g)).toEqual([missionAddressForNumber(missionNumber)]);
       }
+    });
+
+    it.each([
+      'CCTV recorder',
+      'backup server',
+      'monitoring station',
+      'build server',
+      'licence server',
+      'door-access controller',
+      'billing server',
+    ])('asks for a %s taken offline, in so many words', async (machine) => {
+      const missionNumber = sabotageNumber(false, machine);
+      const { store, accepts } = boardStore({ offers: [{ number: missionNumber, ref: 'mmm' }] });
+
+      await accept('offer=mmm', store);
+
+      expect(accepts[0]!.briefing.body.split('\n')).toContain(`Take their ${machine} offline.`);
     });
   });
 

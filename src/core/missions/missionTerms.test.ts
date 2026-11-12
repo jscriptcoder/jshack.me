@@ -22,6 +22,17 @@ const SABOTAGE_NUMBERS = SAMPLE_NUMBERS.filter(
   (missionNumber) => missionKind(missionNumber) === 'sabotage',
 );
 
+/** The machines a sabotage job can ask taken down. */
+const SABOTAGE_MACHINES = [
+  'CCTV recorder',
+  'backup server',
+  'monitoring station',
+  'build server',
+  'licence server',
+  'door-access controller',
+  'billing server',
+];
+
 const SINGLE_HOP_NUMBERS = KEY_NUMBERS.filter((missionNumber) => !isTwoHop(missionNumber));
 const TWO_HOP_NUMBERS = KEY_NUMBERS.filter(isTwoHop);
 const SINGLE_HOP_TAMPER_NUMBERS = TAMPER_NUMBERS.filter(
@@ -240,13 +251,40 @@ describe('missionTerms', () => {
     );
     const TWO_HOP_SABOTAGE_NUMBERS = SABOTAGE_NUMBERS.filter(isTwoHop);
 
-    it('is offered as taking down a CCTV recorder, an internal one on two hops', () => {
+    /** The machine a sabotage job is offered as taking down, read off the board's line. */
+    const machineOf = (missionNumber: number): string =>
+      missionTerms(missionNumber).kind.replace(/^take down (a|an internal) /, '');
+
+    it('is offered as taking down one of seven machines, an internal one on two hops', () => {
       for (const missionNumber of SINGLE_HOP_SABOTAGE_NUMBERS) {
-        expect(missionTerms(missionNumber).kind).toBe('take down a CCTV recorder');
+        expect(missionTerms(missionNumber).kind).toBe(`take down a ${machineOf(missionNumber)}`);
       }
       for (const missionNumber of TWO_HOP_SABOTAGE_NUMBERS) {
-        expect(missionTerms(missionNumber).kind).toBe('take down an internal CCTV recorder');
+        expect(missionTerms(missionNumber).kind).toBe(
+          `take down an internal ${machineOf(missionNumber)}`,
+        );
       }
+      expect(new Set(SABOTAGE_NUMBERS.map(machineOf))).toEqual(new Set(SABOTAGE_MACHINES));
+    });
+
+    it('asks for each machine about a seventh of the time', () => {
+      for (const machine of SABOTAGE_MACHINES) {
+        const share =
+          SABOTAGE_NUMBERS.filter((missionNumber) => machineOf(missionNumber) === machine).length /
+          SABOTAGE_NUMBERS.length;
+        expect(share, machine).toBeGreaterThan(0.1);
+        expect(share, machine).toBeLessThan(0.19);
+      }
+    });
+
+    it('keeps the client, the target and the pay it drew before its machine was drawn', () => {
+      const kept = SABOTAGE_NUMBERS.map(missionTerms).map(({ client, targetCompany, pay }) => ({
+        client,
+        targetCompany,
+        pay,
+      }));
+
+      expect(md5(JSON.stringify(kept))).toBe('fe61ed6b36849a895ef160ed1acfd9d8');
     });
 
     // The work is a key job's, finding the way in and rooting the box, so the pay is too.
@@ -276,20 +314,32 @@ describe('missionTerms', () => {
       }
     });
 
-    it('draws every client, and pitches from three to six reasons of its own', () => {
+    it("draws every client, and pitches from three to six reasons of its machine's own", () => {
       const terms = SABOTAGE_NUMBERS.map(missionTerms);
-      const pitches = new Set(terms.map(({ pitch }) => pitch));
       const tamperPitches = new Set(
         TAMPER_NUMBERS.map((missionNumber) => missionTerms(missionNumber).pitch),
       );
+      const pitchesFor = (machine: string) =>
+        new Set(
+          SABOTAGE_NUMBERS.filter((missionNumber) => machineOf(missionNumber) === machine).map(
+            (missionNumber) => missionTerms(missionNumber).pitch,
+          ),
+        );
+      const seen = new Set<string>();
 
       expect(new Set(terms.map(({ client }) => client.handle))).toEqual(new Set(CLIENT_HANDLES));
-      expect(pitches.size).toBeGreaterThanOrEqual(3);
-      expect(pitches.size).toBeLessThanOrEqual(6);
-      for (const pitch of pitches) {
-        expect(pitch).toMatch(/^[A-Z].{20,}\.$/);
-        expect(KEY_JOB_PITCHES.has(pitch)).toBe(false);
-        expect(tamperPitches.has(pitch)).toBe(false);
+      for (const machine of SABOTAGE_MACHINES) {
+        const pitches = pitchesFor(machine);
+        expect(pitches.size, machine).toBeGreaterThanOrEqual(3);
+        expect(pitches.size, machine).toBeLessThanOrEqual(6);
+        for (const pitch of pitches) {
+          expect(pitch).toMatch(/^[A-Z].{20,}\.$/);
+          expect(KEY_JOB_PITCHES.has(pitch)).toBe(false);
+          expect(tamperPitches.has(pitch)).toBe(false);
+          // A reason belongs to one machine: a backup server is not wanted down for its footage.
+          expect(seen.has(pitch), pitch).toBe(false);
+          seen.add(pitch);
+        }
       }
     });
 
