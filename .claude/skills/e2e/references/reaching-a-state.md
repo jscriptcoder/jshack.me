@@ -528,3 +528,23 @@ route, and the application account from `databaseIn(buildMissionKeyBoxFs(n))?.cr
 
 Mail is limited to 20 sends an hour per player (`email_sends`); a scripted run that mails many
 clients as one player gets a `429` from the twenty-first.
+
+### Then: a sabotage job, a machine taken down, to a payout
+
+Verified 2026-11-12 (v0.459.0), the sabotage close-out: a single-hop licence server paid §900 and
+a two-hop CCTV recorder paid §3,950. A third of the contracts are sabotage jobs; the board names
+one `take down a <machine>` (`an internal <machine>` on two-hop). There is no key and no records:
+the client reads whether the target still boots.
+
+**Classify each offer offline**, as for a tamper job: per offered number, `missionShape(n).kind`,
+`frontBox` (and its `route`), `keyBox.route` and `missionTerms(n).kind`. Hydra in front and on
+the target is the cleanest run: both roots come from `plaintextFor(missionShape(n).frontBox.rootHash)`
+and `plaintextFor(missionShape(n).keyBox.rootHash)`, written to a scratch file and typed from it.
+
+| # | Command | Trap |
+| --- | --- | --- |
+| 1 | Turn the board over until the job you need is offered | Script the back-date, the board read and the classify in one loop that stops on a match. A single-hop hydra sabotage job came up on the first turnover, a two-hop hydra/hydra one on the twelfth |
+| 2 | `mail reply <briefing n>` with the wallet address, before doing anything | Answers "Their machine is still up. No outage, no money." and the job stays open, so this is a free check of the reply path |
+| 3 | `ssh root@<address> -p 2222`, then `rm /boot/vmlinuz` | The prompt names the box for its machine (`<stem>-lic`, `<stem>-nvr`, …), which is how the player tells it is the target. `rm /boot/initrd.img` alone does the same. No reboot: the next mail reads the box |
+| 4 | Two-hop: root the front box over `:2222`, `apt install nmap` there, `nmap 192.168.<x>.1-254`, then `ssh root@<target>` | The sweep lists `<stem>-gw`, `<stem>-web` and the target by its machine's name. **Never `rm` a boot file on the front box**: it takes the target out of reach for good, and the client still says "still up" |
+| 5 | `exit` (twice on two-hop), then `mail reply <briefing n>` with the wallet | "The machine is down. §<pay> sent to jsc…" pays at once; a later mail gets "That job is already closed." |

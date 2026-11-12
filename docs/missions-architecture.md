@@ -10,7 +10,7 @@ that followed (four slices, v0.442.0–v0.445.0, PRs #750–#753, 2026-11-03 to 
 second template, a key box behind a front box ("Two hops", four slices, v0.450.0–v0.452.0, PRs
 #761–#764, 2026-11-09 to 2026-11-10), and a second kind of job, a record changed or erased
 ("Tamper jobs", four slices, v0.454.0–v0.457.0, PRs #766–#769, 2026-11-11), and a third, a
-machine taken down ("Sabotage jobs", from v0.458.0, seven machines from v0.459.0, 2026-11-12).
+machine taken down ("Sabotage jobs", two slices, v0.458.0–v0.459.0, PRs #770–#771, 2026-11-12).
 It sits
 on top of the contractor boards
 ([`hireme-architecture.md`](./hireme-architecture.md)), emailit.io
@@ -798,6 +798,21 @@ ceiling of 300,575 B (a tamper setting's content is not in it).
   `/srv/halden/records/` holding `offences.csv`, `inspections.csv` and `examiners.csv`, and
   Isaac Okafor's line deleted in `nano`. The reply paid §1,550, the balance 2,900. No defect.
   Words were masked on every read of the screen.
+- **One browser run at the sabotage close-out** (2026-11-12, v0.459.0), one fresh player on
+  THE-REILLYS in Ridgemont. The board was turned over by back-dating; across fourteen boards it
+  offered a licence server, a build server, a backup server, a monitoring station, a door-access
+  controller and CCTV recorders, on one hop and on two. First a single-hop licence server on the
+  hydra route (contract 8428464): the briefing opened "Their whole office runs on software that
+  checks in with that box every morning. Make the check fail." and asked "Take their licence
+  server offline." A reply sent before anything was done got "Their machine is still up. No
+  outage, no money." and the balance stayed 0. `nmap` showed `:2222` beside the `:80` and `:21`
+  decoys; root over `:2222` landed on `northgate-lic`, `rm /boot/vmlinuz` left `initrd.img`
+  alone in `/boot`, and the next reply paid §900. Then a two-hop CCTV recorder (contract
+  10490619), its briefing adding "It is a machine inside their network, not on the edge.": root
+  over `:2222` landed on `draycott-web`, `nmap 192.168.177.1-254` there listed `draycott-gw`,
+  `draycott-web` and `draycott-nvr`, `ssh root@192.168.177.158` landed on `draycott-nvr`, and
+  after `rm /boot/vmlinuz` and two `exit`s the reply paid §3,950, the balance 4,850. Both pays
+  matched the terms. No defect. Passwords stayed in a scratch file, never on a read line.
 
 ## What follows
 
@@ -807,7 +822,8 @@ library route, stealth, deadlines, a harder leak); a lead to the key box on the 
 seventh inside route; file exfiltration, which
 needs attachments; recognition for completed jobs; a second, darknet operator; and for tamper
 jobs, adding a record, a second copy the client also checks, an audit log to keep clean, a
-white-hat fix, and clients and settings of their own.
+white-hat fix, and clients and settings of their own; and for sabotage jobs, wiping a table
+(legacy's `db_sabotage`), filed with the tamper twists since it reads rows rather than a boot.
 
 ## Key files
 

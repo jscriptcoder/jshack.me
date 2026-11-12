@@ -1604,8 +1604,30 @@ agreed order:
     then was dropped. A university change in a database, accepted through the lynx form, took the
     right `UPDATE … WHERE` and paid §1,350. A motor registry erase in files showed no `:3306`,
     rooted over `:2222`, held three CSVs in `/srv/halden/records/`, lost its target line in `nano`
-    and paid §1,550. No defect. The plan was retired on close-out. **Pick up here (2026-11-11):**
-    the owner's choice from `backlog.md`.
+    and paid §1,550. No defect. The plan was retired on close-out.
+48. ✅ **Sabotage jobs: a machine taken down (v0.458.0–v0.459.0, PRs #770–#771, merged
+    2026-11-12).** Two slices; as-built: "Sabotage jobs" in
+    [`missions-architecture.md`](./missions-architecture.md). A third of the contracts, drawn from
+    the number, are sabotage jobs: the client wants one machine taken down for good, and pays when
+    it no longer boots. The target stands in the key box's slot with nothing in it, and a root's
+    `rm /boot/vmlinuz` or `rm /boot/initrd.img` takes it down with no reboot, whoever made the
+    brick. Each job draws one of seven machines (CCTV recorder, backup server, monitoring station,
+    build server, licence server, door-access controller, billing server), which names the box
+    `<stem>-nvr`, `-backup`, `-mon`, `-ci`, `-lic`, `-access` or `-billing` and gives the briefing
+    three or four reasons of its own. No machine lays files or runs services of its own. The board
+    reads `take down a backup server` at a key job's pay, 500–2,000 JSC or 2,000–4,000 on two-hop.
+    The briefing names the machine, never the box, its address or a path. Bricking the front box
+    of a two-hop job leaves the target out of reach for good. Evidence: unit tests (10,672),
+    `testMissionSabotage` 26/26 and every other mission and hireme wire-check green, mutation 225
+    killed and 2 timed out of 232 (slice 1; the five survivors equivalents or lines the slice did
+    not touch) and 58/58 (slice 2). The main-chunk ceiling rose to 300,575 B. **Close-out (2026-11-12, v0.459.0):** one
+    browser run on a fresh player on THE-REILLYS, the board turned over by back-dating. A
+    single-hop licence server answered "Their machine is still up. No outage, no money." to a mail
+    sent before anything was done, then rooted over `:2222` as `northgate-lic`, lost
+    `/boot/vmlinuz` and paid §900. A two-hop CCTV recorder was reached through `draycott-web`, found
+    as `draycott-nvr` by a sweep of the inside network, bricked the same way and paid §3,950. No
+    defect. The plan was retired on close-out. **Pick up here (2026-11-12):** the owner's choice
+    from `backlog.md`.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
