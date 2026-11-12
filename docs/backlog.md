@@ -82,7 +82,9 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
     or a `.bak`, with the client checking both; **stealth**, a `changes.log` or `audit_log` table
     the client also wants clean (a job that cares about stealth, above); **a white-hat fix**,
     restoring a corrupted value (legacy's `db_fix`); and **direct clients** per setting, and more
-    settings.
+    settings. Set aside in the sabotage grill (2026-11-12): **wiping a table**, legacy's
+    `db_sabotage` (the table dropped or every row deleted), which is tamper machinery rather than
+    the sabotage job's brick check.
   - **File exfiltration** (bring a file home and send it back), once emailit.io can carry one.
   - **Recognition for completed jobs**, the other half of a mission reward; completions are only
     in `hireme_missions` today.
