@@ -1626,8 +1626,8 @@ agreed order:
     sent before anything was done, then rooted over `:2222` as `northgate-lic`, lost
     `/boot/vmlinuz` and paid §900. A two-hop CCTV recorder was reached through `draycott-web`, found
     as `draycott-nvr` by a sweep of the inside network, bricked the same way and paid §3,950. No
-    defect. The plan was retired on close-out. **Pick up here (2026-11-12):** the owner's choice
-    from `backlog.md`.
+    defect. Announced on valleynews.io `/dev` (story 20). The plan was retired on close-out.
+    **Pick up here (2026-11-12):** the owner's choice from `backlog.md`.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
