@@ -993,7 +993,7 @@ describe('recordsLookRight on an erase job', () => {
     expect(
       recordsLookRight(
         ERASE_NUMBER,
-        after(RIGHT_DELETE, `UPDATE grades SET grade = 'A' WHERE id = '${OTHER_ID}'`),
+        after(RIGHT_DELETE, `UPDATE grades SET student = 'Someone Else' WHERE id = '${OTHER_ID}'`),
       ),
     ).toBe(false);
   });

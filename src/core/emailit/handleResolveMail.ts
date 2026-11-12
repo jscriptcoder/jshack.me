@@ -56,7 +56,7 @@ import type { NonceStore } from '../signedRequest/nonceStore.js';
 import {
   answerClientMail,
   type ClientMailStore,
-  type RecordsBoxRead,
+  type TargetBoxRead,
 } from '../missions/clientMail.js';
 import { clientByHandle } from '../missions/missionTerms.js';
 import { missionEssid } from '../missions/missionNetwork.js';
@@ -122,12 +122,13 @@ export type ResolveMailDeps = WebTargetDeps & {
   readonly missionSecret: string | undefined;
 };
 
-/** A tamper job's records box as every door reads it: the box the contract's number generates,
- *  with the server's files laid on and its journal replayed, so the client sees exactly what a
- *  player's statements and edits left there. */
-const recordsBoxReader =
+/** The box in a contract's key-box slot as every door reads it, a tamper job's records box or a
+ *  sabotage job's target: the box the contract's number generates, with the server's files laid
+ *  on and its journal replayed, so the client sees exactly what a player's statements, edits and
+ *  deletes left there, down to whether it still boots. */
+const targetBoxReader =
   (deps: WebTargetDeps) =>
-  (missionNumber: number): Promise<RecordsBoxRead> => {
+  (missionNumber: number): Promise<TargetBoxRead> => {
     const essid = missionEssid(missionNumber);
     const address = `${generateHomeLan(essid).subnet}.${missionTopology(missionNumber).keyBoxOctet}`;
     return generatedLanBox(deps.findPatches, essid, address, deps.findMissionFiles);
@@ -266,7 +267,7 @@ export const handleResolveMail = async (
       body: payload.body,
       secret,
       store: deps.clientMail,
-      readRecordsBox: recordsBoxReader(deps),
+      readTargetBox: targetBoxReader(deps),
     });
     if (answer === null) return MAIL_FAILED;
     if (answer !== 'replied') return refused(answer);

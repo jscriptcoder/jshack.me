@@ -13,10 +13,14 @@ const SAMPLE_NUMBERS = Array.from({ length: 2000 }, (_unused, index) => index * 
 const isTwoHop = (missionNumber: number): boolean =>
   missionTopology(missionNumber).frontBoxOctet !== null;
 
-const isKeyJob = (missionNumber: number): boolean => missionKind(missionNumber) === 'key';
+const KEY_NUMBERS = SAMPLE_NUMBERS.filter((missionNumber) => missionKind(missionNumber) === 'key');
+const TAMPER_NUMBERS = SAMPLE_NUMBERS.filter(
+  (missionNumber) => missionKind(missionNumber) === 'tamper',
+);
 
-const KEY_NUMBERS = SAMPLE_NUMBERS.filter(isKeyJob);
-const TAMPER_NUMBERS = SAMPLE_NUMBERS.filter((missionNumber) => !isKeyJob(missionNumber));
+const SABOTAGE_NUMBERS = SAMPLE_NUMBERS.filter(
+  (missionNumber) => missionKind(missionNumber) === 'sabotage',
+);
 
 const SINGLE_HOP_NUMBERS = KEY_NUMBERS.filter((missionNumber) => !isTwoHop(missionNumber));
 const TWO_HOP_NUMBERS = KEY_NUMBERS.filter(isTwoHop);
@@ -102,9 +106,10 @@ describe('missionTerms', () => {
 
   it('keeps the terms of every single-hop key job as they were', () => {
     // Taken before a two-hop job had terms of its own: every single-hop contract's client,
-    // target, pitch, key and pay.
+    // target, pitch, key and pay. Retaken when sabotage jobs took a third of the numbers, over
+    // the key jobs left, whose terms the earlier digest's own fixture held unchanged.
     expect(md5(JSON.stringify(SINGLE_HOP_NUMBERS.map(missionTerms).map(withoutJob)))).toBe(
-      'dca6fb2ad0d50ab224d7d38682eee693',
+      '523a64414ba3eea7b9c9b9c2dd326e80',
     );
   });
 
@@ -113,10 +118,10 @@ describe('missionTerms', () => {
       .map(withoutJob)
       .map(({ kind: _kind, pay: _pay, ...rest }) => rest);
 
-    expect(md5(JSON.stringify(beside))).toBe('ef39e6bae266b14600778ba4950c9746');
+    expect(md5(JSON.stringify(beside))).toBe('09642e1861ebe2b7d728c3d57e081f0f');
   });
 
-  it('marks each contract a key job or a tamper job, as its shape does', () => {
+  it('marks each contract a key job, a tamper job or a sabotage job, as its shape does', () => {
     for (const missionNumber of SAMPLE_NUMBERS) {
       expect(missionTerms(missionNumber).job).toBe(missionShape(missionNumber).kind);
     }
@@ -224,6 +229,72 @@ describe('missionTerms', () => {
 
     it('promises no key', () => {
       for (const missionNumber of TAMPER_NUMBERS) {
+        expect('keyOpens' in missionTerms(missionNumber)).toBe(false);
+      }
+    });
+  });
+
+  describe('a sabotage job', () => {
+    const SINGLE_HOP_SABOTAGE_NUMBERS = SABOTAGE_NUMBERS.filter(
+      (missionNumber) => !isTwoHop(missionNumber),
+    );
+    const TWO_HOP_SABOTAGE_NUMBERS = SABOTAGE_NUMBERS.filter(isTwoHop);
+
+    it('is offered as taking down a CCTV recorder, an internal one on two hops', () => {
+      for (const missionNumber of SINGLE_HOP_SABOTAGE_NUMBERS) {
+        expect(missionTerms(missionNumber).kind).toBe('take down a CCTV recorder');
+      }
+      for (const missionNumber of TWO_HOP_SABOTAGE_NUMBERS) {
+        expect(missionTerms(missionNumber).kind).toBe('take down an internal CCTV recorder');
+      }
+    });
+
+    // The work is a key job's, finding the way in and rooting the box, so the pay is too.
+    it('pays a key job: 500 to 2,000 JSC on one hop, 2,000 to 4,000 on two, in steps of 50', () => {
+      const paysOf = (numbers: readonly number[]) =>
+        numbers.map((missionNumber) => missionTerms(missionNumber).pay);
+      const singleHop = paysOf(SINGLE_HOP_SABOTAGE_NUMBERS);
+      const twoHop = paysOf(TWO_HOP_SABOTAGE_NUMBERS);
+
+      for (const pay of [...singleHop, ...twoHop]) expect(pay % 50).toBe(0);
+      expect([Math.min(...singleHop), Math.max(...singleHop)]).toEqual([500, 2000]);
+      expect([Math.min(...twoHop), Math.max(...twoHop)]).toEqual([2000, 4000]);
+    });
+
+    // Any business runs a CCTV recorder, so the target is a key job's: the stem and a trade.
+    it('names the target after its stem and a trade a key job is drawn from', () => {
+      const keyJobTrades = new Set(
+        KEY_NUMBERS.map((missionNumber) => missionTerms(missionNumber).targetCompany.split(' ')[1]),
+      );
+
+      for (const missionNumber of SABOTAGE_NUMBERS) {
+        const { stem } = missionShape(missionNumber);
+        const [company, trade, ...rest] = missionTerms(missionNumber).targetCompany.split(' ');
+        expect(company).toBe(capitalised(stem));
+        expect(keyJobTrades.has(trade ?? ''), `contract ${missionNumber}`).toBe(true);
+        expect(rest).toEqual([]);
+      }
+    });
+
+    it('draws every client, and pitches from three to six reasons of its own', () => {
+      const terms = SABOTAGE_NUMBERS.map(missionTerms);
+      const pitches = new Set(terms.map(({ pitch }) => pitch));
+      const tamperPitches = new Set(
+        TAMPER_NUMBERS.map((missionNumber) => missionTerms(missionNumber).pitch),
+      );
+
+      expect(new Set(terms.map(({ client }) => client.handle))).toEqual(new Set(CLIENT_HANDLES));
+      expect(pitches.size).toBeGreaterThanOrEqual(3);
+      expect(pitches.size).toBeLessThanOrEqual(6);
+      for (const pitch of pitches) {
+        expect(pitch).toMatch(/^[A-Z].{20,}\.$/);
+        expect(KEY_JOB_PITCHES.has(pitch)).toBe(false);
+        expect(tamperPitches.has(pitch)).toBe(false);
+      }
+    });
+
+    it('promises no key', () => {
+      for (const missionNumber of SABOTAGE_NUMBERS) {
         expect('keyOpens' in missionTerms(missionNumber)).toBe(false);
       }
     });

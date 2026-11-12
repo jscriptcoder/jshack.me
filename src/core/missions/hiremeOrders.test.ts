@@ -578,6 +578,60 @@ describe('showReport on a tamper job', () => {
   });
 });
 
+describe('showReport on a sabotage job', () => {
+  const SECRET = 'operator-test-secret';
+  /** The first sabotage job `wanted` accepts. */
+  const sabotageJob = (wanted: (shape: MissionShape) => boolean): number =>
+    Array.from({ length: 8000 }, (_unused, index) => index * 256 + 2).find((candidate) => {
+      const shape = missionShape(candidate);
+      return shape.kind === 'sabotage' && wanted(shape);
+    })!;
+  const SINGLE_HOP = sabotageJob(
+    ({ frontBox, keyBox }) => frontBox === null && keyBox.route === 'hydra',
+  );
+  const TWO_HOP = sabotageJob(({ frontBox }) => frontBox !== null);
+
+  it('prints the report line by line, the kind and the target in place of a key', () => {
+    const shape = missionShape(SINGLE_HOP);
+    const terms = missionTerms(SINGLE_HOP);
+
+    expect(showReport(SINGLE_HOP, SECRET, undefined)).toBe(
+      [
+        `Contract ${SINGLE_HOP} at ${missionAddressForNumber(SINGLE_HOP)} (essid ${missionEssid(SINGLE_HOP)})`,
+        `  Client:   ${terms.client.company} (${terms.client.handle}@emailit.io)`,
+        `  Target:   ${terms.targetCompany}, ${shape.stem}-gw / ${shape.stem}-nvr`,
+        `  Pay:      §${terms.pay.toLocaleString('en-US')}`,
+        '  Template: single-hop',
+        '  Kind:     sabotage, CCTV recorder',
+        '  Route:    hydra',
+        ...shape.forwards.map(
+          (forward, index) =>
+            `  Forward:  :${forward.publicPort} -> target :${forward.internalPort}` +
+            (index >= shape.forwards.length - shape.keyBox.decoys.length ? ' (decoy)' : ''),
+        ),
+        '  Services:',
+        ...shape.keyBox.services.map(
+          // The hydra route runs no daemon of its own and the target keeps nothing, so whatever
+          // listens is a decoy.
+          (service) =>
+            `    ${service.service} (${service.package} ${service.version}) :${service.port} (decoy)`,
+        ),
+      ].join('\n'),
+    );
+  });
+
+  it('names the target box by its hostname on a two-hop job, and prints no key', () => {
+    const { stem } = missionShape(TWO_HOP);
+    const report = showReport(TWO_HOP, SECRET, undefined);
+    const lines = report.split('\n');
+
+    expect(lines).toContain('  Kind:     sabotage, CCTV recorder');
+    expect(lines).toContain(`  Target box: ${stem}-nvr`);
+    expect(report).not.toContain('Key');
+    expect(report).not.toContain('Storage:');
+  });
+});
+
 describe('the lines the script prints with an address', () => {
   it('names the address an accepted contract now answers at', () => {
     const line = acceptedLine('alice', 66051, '195.1.2.3');

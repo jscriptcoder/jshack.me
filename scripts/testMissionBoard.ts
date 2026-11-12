@@ -39,7 +39,7 @@ import { apGatewayLogWriterKey } from '../src/core/logging/apGatewayLogWriter.js
 import { ACCESS_LOG_PATH } from '../src/core/logging/accessLog.js';
 import { md5 } from '../src/core/generation/md5.js';
 import { missionAddressForNumber } from '../src/core/missions/missionNetwork.js';
-import { missionTopology } from '../src/core/missions/missionShape.js';
+import { missionKind, missionTopology } from '../src/core/missions/missionShape.js';
 import { missionTerms } from '../src/core/missions/missionTerms.js';
 
 const NETWORK = process.env.NETWORK_ENDPOINT ?? 'http://localhost:3100/api/network';
@@ -140,10 +140,11 @@ const contractsOf = async (handle: string): Promise<readonly ContractRow[]> => {
   return (data ?? []) as ContractRow[];
 };
 
-/** A contract number nobody holds, of the template asked for. */
+/** A key job's contract number nobody holds, of the template asked for. */
 const freeNumber = async (twoHop: boolean): Promise<number> => {
   for (let attempt = 0; attempt < 200; attempt += 1) {
     const candidate = 0x510000 + attempt * 256 + 9;
+    if (missionKind(candidate) !== 'key') continue;
     if ((missionTopology(candidate).frontBoxOctet !== null) !== twoHop) continue;
     const { data } = await sr
       .from('hireme_missions')
@@ -335,7 +336,11 @@ const main = async () => {
         ? briefing.body.includes(takenTerms.keyOpens) &&
           briefing.body.includes('ACCESS-XXXX-XXXX-XXXX') &&
           briefing.body.includes('No key, no money. No wallet, no money.')
-        : briefing.body.includes('No change, no money. No wallet, no money.')),
+        : briefing.body.includes(
+            takenTerms.job === 'sabotage'
+              ? 'No outage, no money. No wallet, no money.'
+              : 'No change, no money. No wallet, no money.',
+          )),
     `${briefing?.sender ?? 'no mail'} / ${briefing?.subject ?? ''}`,
   );
   const scanAfterAccept = await scanOf(takenAddress);

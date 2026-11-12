@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { answerClientMail, type ClientMailStore, type RecordsBoxRead } from './clientMail.js';
+import { answerClientMail, type ClientMailStore, type TargetBoxRead } from './clientMail.js';
 import type { ContractMail } from '../hireme/contracts.js';
 import { missionKey } from './missionSecret.js';
 import { missionTerms, type MissionClient } from './missionTerms.js';
@@ -99,9 +99,9 @@ const clientStore = ({
   return { store, opens, completes, replies };
 };
 
-/** A records box nobody should be asked for: a key job's mail never reads one. */
-const NO_RECORDS_BOX = async (): Promise<RecordsBoxRead> => {
-  throw new Error('a key job read a records box');
+/** A box nobody should be asked for: a key job's mail never reads one. */
+const NO_TARGET_BOX = async (): Promise<TargetBoxRead> => {
+  throw new Error('a key job read a box');
 };
 
 const mailTo = (
@@ -110,7 +110,7 @@ const mailTo = (
     readonly to?: MissionClient;
     readonly subject?: string;
     readonly body?: string;
-    readonly readRecordsBox?: (missionNumber: number) => Promise<RecordsBoxRead>;
+    readonly readTargetBox?: (missionNumber: number) => Promise<TargetBoxRead>;
   } = {},
 ) =>
   answerClientMail({
@@ -120,7 +120,7 @@ const mailTo = (
     body: mail.body ?? `${KEY}\n${WALLET}\n`,
     secret: SECRET,
     store,
-    readRecordsBox: mail.readRecordsBox ?? NO_RECORDS_BOX,
+    readTargetBox: mail.readTargetBox ?? NO_TARGET_BOX,
   });
 
 /** What the client signs every reply with. */
@@ -451,11 +451,11 @@ describe('a mail on a tamper job', () => {
     .join(' AND ')}`;
 
   /** A box read answering with `read`, keeping every number it was asked for. */
-  const recordsBox = (read: RecordsBoxRead) => {
+  const recordsBox = (read: TargetBoxRead) => {
     const reads: number[] = [];
     return {
       reads,
-      readRecordsBox: async (missionNumber: number): Promise<RecordsBoxRead> => {
+      readTargetBox: async (missionNumber: number): Promise<TargetBoxRead> => {
         reads.push(missionNumber);
         return read;
       },
@@ -470,9 +470,9 @@ describe('a mail on a tamper job', () => {
 
   const mailOnTamperJob = (
     store: ClientMailStore,
-    readRecordsBox: (missionNumber: number) => Promise<RecordsBoxRead>,
+    readTargetBox: (missionNumber: number) => Promise<TargetBoxRead>,
     body = `it is done\n${WALLET}\n`,
-  ) => mailTo(store, { to: TAMPER_TERMS.client, body, readRecordsBox });
+  ) => mailTo(store, { to: TAMPER_TERMS.client, body, readTargetBox });
 
   const RIGHT_LINE = `The records look right. §${TAMPER_TERMS.pay.toLocaleString('en-US')} sent to ${WALLET}. Pleasure doing business.`;
   const WRONG_LINE = "Our records don't look right. No change, no money.";
@@ -483,7 +483,7 @@ describe('a mail on a tamper job', () => {
     });
     const box = recordsBox({ kind: 'up', fs: recordsBoxAfter(CHANGED) });
 
-    expect(await mailOnTamperJob(store, box.readRecordsBox)).toBe('replied');
+    expect(await mailOnTamperJob(store, box.readTargetBox)).toBe('replied');
     expect(box.reads).toEqual([TAMPER_JOB]);
     expect(completes).toEqual([
       {
@@ -500,7 +500,7 @@ describe('a mail on a tamper job', () => {
     const { store, completes } = clientStore({ jobs: [{ number: TAMPER_JOB, state: 'accepted' }] });
     const box = recordsBox({ kind: 'up', fs: recordsBoxAfter(CHANGED) });
 
-    expect(await mailOnTamperJob(store, box.readRecordsBox, 'done.\n')).toBe('replied');
+    expect(await mailOnTamperJob(store, box.readTargetBox, 'done.\n')).toBe('replied');
     expect(completes).toEqual([
       {
         number: TAMPER_JOB,
@@ -516,22 +516,22 @@ describe('a mail on a tamper job', () => {
   it.each([
     [
       'the records still hold the old grade',
-      (): RecordsBoxRead => ({ kind: 'up', fs: recordsBoxAfter() }),
+      (): TargetBoxRead => ({ kind: 'up', fs: recordsBoxAfter() }),
     ],
     [
       'every row was given the new grade',
-      (): RecordsBoxRead => ({
+      (): TargetBoxRead => ({
         kind: 'up',
         fs: recordsBoxAfter(`UPDATE grades SET grade = '${target.to}'`),
       }),
     ],
-    ['the box is not up', (): RecordsBoxRead => ({ kind: 'absent' })],
+    ['the box is not up', (): TargetBoxRead => ({ kind: 'absent' })],
   ])('says the records do not look right when %s, and keeps the job open', async (_why, read) => {
     const { store, completes, replies } = clientStore({
       jobs: [{ number: TAMPER_JOB, state: 'accepted' }],
     });
 
-    expect(await mailOnTamperJob(store, recordsBox(read()).readRecordsBox)).toBe('replied');
+    expect(await mailOnTamperJob(store, recordsBox(read()).readTargetBox)).toBe('replied');
     expect(completes).toEqual([]);
     expect(replies).toEqual([fromTamperClient(WRONG_LINE)]);
   });
@@ -541,7 +541,7 @@ describe('a mail on a tamper job', () => {
       jobs: [{ number: TAMPER_JOB, state: 'accepted' }],
     });
 
-    expect(await mailOnTamperJob(store, recordsBox({ kind: 'error' }).readRecordsBox)).toBeNull();
+    expect(await mailOnTamperJob(store, recordsBox({ kind: 'error' }).readTargetBox)).toBeNull();
     expect(completes).toEqual([]);
     expect(replies).toEqual([]);
   });
@@ -552,7 +552,7 @@ describe('a mail on a tamper job', () => {
     });
     const box = recordsBox({ kind: 'up', fs: recordsBoxAfter(CHANGED) });
 
-    expect(await mailOnTamperJob(store, box.readRecordsBox)).toBe('replied');
+    expect(await mailOnTamperJob(store, box.readTargetBox)).toBe('replied');
     expect(box.reads).toEqual([]);
     expect(completes).toEqual([]);
     expect(replies).toEqual([fromTamperClient(CLOSED_LINE)]);
@@ -565,7 +565,7 @@ describe('a mail on a tamper job', () => {
     });
     const box = recordsBox({ kind: 'up', fs: recordsBoxAfter(CHANGED) });
 
-    expect(await mailOnTamperJob(store, box.readRecordsBox)).toBe('replied');
+    expect(await mailOnTamperJob(store, box.readTargetBox)).toBe('replied');
     expect(replies).toEqual([fromTamperClient(CLOSED_LINE)]);
   });
 
@@ -576,7 +576,7 @@ describe('a mail on a tamper job', () => {
     const { store, replies } = clientStore({ jobs: [{ number: TAMPER_JOB, state: 'accepted' }] });
     const box = recordsBox({ kind: 'up', fs: recordsBoxAfter(CHANGED) });
 
-    expect(await mailTo(store, { to: otherClient, readRecordsBox: box.readRecordsBox })).toBe(
+    expect(await mailTo(store, { to: otherClient, readTargetBox: box.readTargetBox })).toBe(
       'replied',
     );
     expect(box.reads).toEqual([]);
@@ -587,5 +587,115 @@ describe('a mail on a tamper job', () => {
         body: signed('We have no contract with you.', otherClient.company),
       },
     ]);
+  });
+});
+
+describe('a mail on a sabotage job', () => {
+  const SABOTAGE_JOB = ALL_HOST_NUMBERS.find(
+    (missionNumber) => missionKind(missionNumber) === 'sabotage',
+  )!;
+  const SABOTAGE_TERMS = missionTerms(SABOTAGE_JOB);
+
+  /** A box read answering with `read`, keeping every number it was asked for. */
+  const targetBox = (read: TargetBoxRead) => {
+    const reads: number[] = [];
+    return {
+      reads,
+      readTargetBox: async (missionNumber: number): Promise<TargetBoxRead> => {
+        reads.push(missionNumber);
+        return read;
+      },
+    };
+  };
+
+  /** The target as it was laid: up, every boot file in place. */
+  const STILL_UP: TargetBoxRead = { kind: 'up', fs: buildMissionKeyBoxFs(SABOTAGE_JOB) };
+  const DOWN: TargetBoxRead = { kind: 'absent' };
+
+  const fromSabotageClient = (line: string): ContractMail => ({
+    sender: `${SABOTAGE_TERMS.client.handle}@emailit.io`,
+    subject: `Contract: ${SABOTAGE_TERMS.targetCompany}`,
+    body: signed(line, SABOTAGE_TERMS.client.company),
+  });
+
+  const mailOnSabotageJob = (
+    store: ClientMailStore,
+    readTargetBox: (missionNumber: number) => Promise<TargetBoxRead>,
+    body = `it is done\n${WALLET}\n`,
+  ) => mailTo(store, { to: SABOTAGE_TERMS.client, body, readTargetBox });
+
+  it('reads the target of the job held, and pays once it no longer comes up', async () => {
+    const { store, completes, replies } = clientStore({
+      jobs: [{ number: SABOTAGE_JOB, state: 'accepted' }],
+    });
+    const box = targetBox(DOWN);
+
+    expect(await mailOnSabotageJob(store, box.readTargetBox)).toBe('replied');
+    expect(box.reads).toEqual([SABOTAGE_JOB]);
+    expect(completes).toEqual([
+      {
+        number: SABOTAGE_JOB,
+        wallet: WALLET,
+        pay: SABOTAGE_TERMS.pay,
+        reply: fromSabotageClient(
+          `The machine is down. §${SABOTAGE_TERMS.pay.toLocaleString('en-US')} sent to ${WALLET}. Pleasure doing business.`,
+        ),
+      },
+    ]);
+    expect(replies).toEqual([]);
+  });
+
+  it('completes and pays nothing when the mail names no wallet', async () => {
+    const { store, completes } = clientStore({
+      jobs: [{ number: SABOTAGE_JOB, state: 'accepted' }],
+    });
+
+    expect(await mailOnSabotageJob(store, targetBox(DOWN).readTargetBox, 'done.\n')).toBe(
+      'replied',
+    );
+    expect(completes).toEqual([
+      {
+        number: SABOTAGE_JOB,
+        wallet: null,
+        pay: SABOTAGE_TERMS.pay,
+        reply: fromSabotageClient(
+          'The machine is down. You sent no wallet, so there is nothing to pay. No wallet, no money.',
+        ),
+      },
+    ]);
+  });
+
+  it('says the machine is still up while it comes up, and keeps the job open', async () => {
+    const { store, completes, replies } = clientStore({
+      jobs: [{ number: SABOTAGE_JOB, state: 'accepted' }],
+    });
+
+    expect(await mailOnSabotageJob(store, targetBox(STILL_UP).readTargetBox)).toBe('replied');
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([
+      fromSabotageClient('Their machine is still up. No outage, no money.'),
+    ]);
+  });
+
+  it('answers nothing when the target could not be read', async () => {
+    const { store, completes, replies } = clientStore({
+      jobs: [{ number: SABOTAGE_JOB, state: 'accepted' }],
+    });
+
+    expect(await mailOnSabotageJob(store, targetBox({ kind: 'error' }).readTargetBox)).toBeNull();
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([]);
+  });
+
+  it('says the job is already closed once it is completed, without reading the target', async () => {
+    const { store, completes, replies } = clientStore({
+      jobs: [{ number: SABOTAGE_JOB, state: 'completed' }],
+    });
+    const box = targetBox(DOWN);
+
+    expect(await mailOnSabotageJob(store, box.readTargetBox)).toBe('replied');
+    expect(box.reads).toEqual([]);
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromSabotageClient(CLOSED_LINE)]);
   });
 });

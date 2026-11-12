@@ -57,15 +57,15 @@ const contentAt = (tree: Directory, path: string): string | undefined => {
 describe("the boards' server /etc/hireme/contracts", () => {
   it('holds one handle, client handle, address and pay line per job, in the order they were accepted', () => {
     const tree = withContractsList(boardsBox(), [
-      contract({ handle: 'trin', number: 2, accepted_at: '2026-11-03T10:00:00Z' }),
+      contract({ handle: 'trin', number: 8, accepted_at: '2026-11-03T10:00:00Z' }),
       contract({ handle: 'neo', number: 796679, accepted_at: '2026-11-03T09:00:00Z' }),
       contract({ handle: 'morph', number: 131330, accepted_at: '2026-11-03T11:00:00Z' }),
     ]);
 
-    // Contracts 2 and 131330 are two-hop, so their lines carry a two-hop job's pay.
+    // Contracts 8 and 131330 are two-hop, so their lines carry a two-hop job's pay.
     expect(contentAt(tree, '/etc/hireme/contracts')).toBe(
       'neo bellwether-desk 195.12.40.7 1150\n' +
-        'trin marlowe-ops 195.0.0.2 2550\n' +
+        'trin copper-ops 195.0.0.8 2200\n' +
         'morph greyline-jobs 195.2.1.2 2650\n',
     );
   });

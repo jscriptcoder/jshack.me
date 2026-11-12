@@ -2,13 +2,15 @@
 
 How a player takes paid work: a contract offered on their hireme.io board, accepted with a form,
 briefed by mail, worked on a network of its own and paid by mailing the client the key — or, on
-a tamper job, by changing or erasing one of the client's records and mailing them anything. This is
+a tamper job, by changing or erasing one of the client's records and mailing them anything, or, on
+a sabotage job, by leaving one of the target's machines unable to boot and mailing them. This is
 the shipped model of the missions epic, complete at **v0.441.0** (four slices, v0.438.0–v0.441.0,
 PRs #746–#749, 2026-11-01 to 2026-11-03), with the routes that leak a login added by the epic
 that followed (four slices, v0.442.0–v0.445.0, PRs #750–#753, 2026-11-03 to 2026-11-04), and a
 second template, a key box behind a front box ("Two hops", four slices, v0.450.0–v0.452.0, PRs
 #761–#764, 2026-11-09 to 2026-11-10), and a second kind of job, a record changed or erased
-("Tamper jobs", four slices, v0.454.0–v0.457.0, PRs #766–#769, 2026-11-11). It sits
+("Tamper jobs", four slices, v0.454.0–v0.457.0, PRs #766–#769, 2026-11-11), and a third, a
+machine taken down ("Sabotage jobs", from v0.458.0, 2026-11-12). It sits
 on top of the contractor boards
 ([`hireme-architecture.md`](./hireme-architecture.md)), emailit.io
 ([`email-architecture.md`](./email-architecture.md)) and the wallet
@@ -39,9 +41,12 @@ From that follow the rest:
   so the client reads its own records box on every mail and pays when the records read right. What a
   later visitor does there can break the job until it is paid, and never after: a completed job is
   closed without reading the box. See [Tamper jobs](#tamper-jobs).
+- **A sabotage job's proof is the network's state too**, and the plainest one: the client reads
+  its target on every mail and pays once it no longer boots, however it was broken and by whoever.
+  A completed job is closed without reading it. See [Sabotage jobs](#sabotage-jobs).
 - **A key comes from a server-only secret**, because the generator ships in the bundle and the
-  seed is public. A tamper job needs none: what it asks for is in its briefing, and the box only
-  has to read right.
+  seed is public. A tamper or sabotage job needs none: what it asks for is in its briefing, and
+  the box only has to read right, or not come up at all.
 
 ## 1. The block and the lookup
 
@@ -500,7 +505,8 @@ boards' server's fetch handler (`resolveHttpFetch.ts`); the doors and their word
 The second kind of contract: a client wants one record changed (v0.454.0) or erased (v0.455.0),
 kept in a database or in CSV files (v0.456.0), in one of eight settings, each with tables beside
 the target to look past (v0.457.0). The number decides the kind on its own stream,
-`mission-kind-<n>`, half and half (`missionKind`, `core/missions/missionShape.ts`); a tamper job's
+`mission-kind-<n>`, a third each for tamper, sabotage and key (`missionKind`,
+`core/missions/missionShape.ts`; see [Sabotage jobs](#sabotage-jobs) for the split); a tamper job's
 setting on another, `mission-setting-<n>`, an eighth each (`missionSetting`,
 `core/missions/missionRecords.ts`); its action on a third, `mission-action-<n>`, half change and
 half erase, but always a change in a setting with nothing worth erasing (`missionAction`); and its
@@ -551,8 +557,8 @@ settings existed; each is a new stream, never a new draw on an old one.
   `alter an internal … record` two-hop. Pay is 1,000–2,500 single-hop and 2,500–5,000 two-hop,
   rounded to 50, whatever the setting, action or storage. The target is `<Stem> <institution>`
   (`Halden Academy`, `Halden Police Dept`). Each setting pitches from three to six reasons of its
-  own for each action. `MissionTerms` is a union on `job: 'key' | 'tamper'`, and only a key job
-  has `keyOpens`.
+  own for each action. `MissionTerms` is a union on `job: 'key' | 'tamper' | 'sabotage'`, and only
+  a key job has `keyOpens`.
 - **The briefing** names who, which field and old to new, or that the record should not exist,
   in the setting's words: "Their records give Amara Okafor a D in Chemistry. It should be an A.",
   "Their records hold an active warrant for Ben Holloway, for fraud. It should read cleared.",
@@ -561,7 +567,7 @@ settings existed; each is a new stream, never a new draw on an old one.
   path. A two-hop briefing says the records are on a machine inside their network. It ends "No
   change, no money. No wallet, no money."
 - **Any mail from the contractor reads the box.** `answerClientMail` asks for the records box
-  (`readRecordsBox`, wired by `handleResolveMail` through `generatedLanBox`, so the read sees the
+  (`readTargetBox`, wired by `handleResolveMail` through `generatedLanBox`, so the read sees the
   lay-in, every journal row and whether the box still boots). `recordsLookRight` reads only the
   target table, and passes when it has exactly the generated rows in order, every cell equal as
   text to the generated one, except the target's changed column, which must equal the value asked
@@ -593,6 +599,47 @@ settings existed; each is a new stream, never a new draw on an old one.
   storage (`database, table <table>` and the datadir's path, or `file, <the target CSV's path>`)
   and the change (`Change: <names>: <column> <from> -> <to>`) or the row to erase
   (`Erase: <names>`).
+
+## Sabotage jobs
+
+The third kind of contract (v0.458.0): a client wants one of the target's machines taken down
+for good. `mission-kind-<n>` is split in thirds: below ⅓ tamper, from ⅓ to ⅔ sabotage, from ⅔
+key. The middle third was carved out of both older kinds, so some numbers that were key or tamper
+jobs are now sabotage jobs. That was accepted before launch. Every number that kept its kind kept
+its shape, terms and LAN exactly.
+
+- **The target is the key box's slot with nothing in it.** It has the same octet, route, decoys
+  and front box. On two-hop it is the inside box. It has no storage (`MissionShape.storage` is
+  `null`): no key, no records, no mysqld for them, and no doors but the ones its route and leak
+  route run. Its hostname names its role, `<stem>-nvr` for a CCTV recorder (`sabotageRole`,
+  `keyBoxSuffix`, `core/missions/sabotageRoles.ts`). That is the one thing the LAN generator asks
+  of the kind, so the hostname module rides in the bundle.
+- **The terms**: `<Client> — take down a CCTV recorder — §<pay>`, and `take down an internal …`
+  on two-hop. The pay is the key job's: 500–2,000 single-hop and 2,000–4,000 two-hop, to the
+  nearest 50. The target company is drawn as a key job's is. The role pitches its own reasons.
+- **The briefing** names the role only: "Take their CCTV recorder offline." On two-hop it adds "It
+  is a machine inside their network, not on the edge." It never names the box, its address or its
+  hostname. It ends "No outage, no money. No wallet, no money."
+- **Any mail from the contractor reads the target** through the same `readTargetBox` a tamper job
+  uses. A read of `absent` means the box no longer boots. On a contract network that means it was
+  bricked: a tombstone on `/boot/vmlinuz` or `/boot/initrd.img` makes `canBoot` false. The job is
+  then done, with no reboot needed and no matter whose `rm` it was. The mail's words do not
+  matter; only its wallet does.
+
+  | The target                   | The reply                                                | What changes              |
+  | ---------------------------- | -------------------------------------------------------- | ------------------------- |
+  | Does not boot, with a wallet | "The machine is down. §1,450 sent to jsc…. Pleasure …"   | completed, the pay minted |
+  | Does not boot, no wallet     | "The machine is down. You sent no wallet, so there is …" | completed, nothing minted |
+  | Still boots                  | "Their machine is still up. No outage, no money."        | nothing                   |
+  | A completed job              | "That job is already closed." (the target is not read)   | nothing                   |
+  | The read itself fails        | nothing: 500, as any store failure                       | nothing                   |
+
+- **Bricking the front box loses a two-hop job.** The target behind it still boots, so the client
+  says it is still up. The front box was the only way in, so the target is now out of reach. No
+  warning is given.
+- `hireme.ts show` prints `Kind: sabotage, <role>`, calls the slot `target` in the forwards and
+  services, prints no storage, key path or key, and on two-hop heads the inside section
+  `Target box:`.
 
 ## 7. What a root finds
 
@@ -635,8 +682,10 @@ The client carries the 195 block in `isPublicIp`, the `whois` record and the net
 The key, its paths, the terms, the board, the briefing, the replies and the root view are built
 on the server only. The leak routes added the slice's hashes and the route shapes, and the two-hop
 template the front box and the inside decoys, and the tamper kind its draw and the records'
-pools. Each feature raises the main chunk's ceiling by its measured growth; at v0.457.0 the chunk
-is 299,557 B gzipped against a ceiling of 299,575 B (the settings' content is not in it).
+pools. The sabotage kind added its draw and its roles. The LAN names the target for its role, so
+each role's noun and pitches ride along with its hostname suffix. Each feature raises the main
+chunk's ceiling by its measured growth; at v0.458.0 the chunk is 299,771 B gzipped against a
+ceiling of 299,875 B (a tamper setting's content is not in it).
 
 ## 10. Proving it
 
@@ -669,7 +718,10 @@ is 299,557 B gzipped against a ceiling of 299,575 B (the settings' content is no
   makes it with the target line right paid once then closed, and one with another line deleted
   refused; and one job in each of the eight settings, four kept in a database and four in files,
   holding both tables beside the target, worked by a root saving the datadir or the CSV right and
-  paid). The
+  paid); `testMissionSabotage.ts` (13: `show` naming the kind and the `-nvr` target, a mail before
+  anything told the machine is still up, root over `:2222` and `rm /boot/vmlinuz` with no reboot
+  paid once then closed, a second player's brick paying the contractor, `rm /boot/initrd.img`
+  alone paid, and a two-hop job's front box bricked: still up, and the target out of reach). The
   board and pay checks each post a two-hop offer on a chosen number (21 and 17 checks at
   v0.452.0). The decoys' doors are also proven in `decoyMissionDoors.test.ts`.
 - **Mutation**: every slice's scoped run left no survivor but equivalents.
@@ -750,7 +802,7 @@ white-hat fix, and clients and settings of their own.
   `leakablePool.ts` (bundle); `missionSecret.ts`, `missionLeak.ts`, `missionTerms.ts`,
   `clientMail.ts`, `contractsList.ts`, `hiremeOrders.ts` (server and scripts); `missionRecords.ts`
   (a tamper job's setting, records and the check) and `recordSettings.ts` (the eight settings'
-  tables).
+  tables); `sabotageRoles.ts` (a sabotage job's role: the target's hostname, noun and pitches).
 - **The lay-in and the doors**: `core/network/missionBoxFiles.ts`, `core/sessions/doorAdmission.ts`,
   `core/generation/missionKeyBoxFs.ts`, `core/crypto/gpgCodec.ts` (the cipher the server seals a
   gpg contract's key with).

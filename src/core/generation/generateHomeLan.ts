@@ -31,8 +31,9 @@ import { HOSTNAME_PREFIXES, OFFICE_HOSTNAME_PREFIXES } from './pools/hostnames.j
 import { lanSubnetPrefix } from '../network/lanAddress.js';
 import { seedApGatewayHostname, seedInnerGatewayHostname } from './gatewayHostname.js';
 import { missionNumberFromEssid } from '../missions/missionNetwork.js';
-import { FRONT_BOX_SUFFIX, GATEWAY_SUFFIX, KEY_BOX_SUFFIX } from '../missions/pools.js';
+import { FRONT_BOX_SUFFIX, GATEWAY_SUFFIX } from '../missions/pools.js';
 import { missionTopology } from '../missions/missionShape.js';
+import { keyBoxSuffix } from '../missions/sabotageRoles.js';
 import type { Ipv4 } from '../network/interfaces.js';
 
 export type LanHostKind = 'machine' | 'router' | 'switch';
@@ -160,7 +161,11 @@ const missionLan = (subnet: string, missionNumber: number): HomeLan => {
     subnet,
     hosts: byOctet([
       { ip: `${subnet}.1`, hostname: `${stem}-${GATEWAY_SUFFIX}`, kind: 'router' },
-      { ip: `${subnet}.${keyBoxOctet}`, hostname: `${stem}-${KEY_BOX_SUFFIX}`, kind: 'machine' },
+      {
+        ip: `${subnet}.${keyBoxOctet}`,
+        hostname: `${stem}-${keyBoxSuffix(missionNumber)}`,
+        kind: 'machine',
+      },
       ...(frontBoxOctet === null
         ? []
         : [
