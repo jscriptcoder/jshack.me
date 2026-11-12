@@ -684,9 +684,10 @@ describe('a mail on a sabotage job is answered from its target', () => {
   )!;
   const TERMS = missionTerms(SABOTAGE_JOB);
   const ESSID = missionEssid(SABOTAGE_JOB);
-  // The target is named for the machine it is, so it is found by that name.
-  const TARGET_HOST = generateHomeLan(ESSID).hosts.find(({ hostname }) =>
-    hostname.endsWith('-nvr'),
+  // The target stands in the key-box slot, whatever machine it is named for.
+  const TARGET_LAN = generateHomeLan(ESSID);
+  const TARGET_HOST = TARGET_LAN.hosts.find(
+    ({ ip }) => ip === `${TARGET_LAN.subnet}.${missionShape(SABOTAGE_JOB).keyBox.octet}`,
   )!;
   const { machineId: TARGET_ID } = resolveLanHostIdentity(TARGET_HOST, ESSID);
   const findMissionFiles: ResolveMailDeps['findMissionFiles'] = (query) =>

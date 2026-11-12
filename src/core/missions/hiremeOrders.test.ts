@@ -586,10 +586,17 @@ describe('showReport on a sabotage job', () => {
       const shape = missionShape(candidate);
       return shape.kind === 'sabotage' && wanted(shape);
     })!;
+  /** The machine a sabotage job asks taken down, read off the board's line. */
+  const machineOf = (missionNumber: number): string =>
+    missionTerms(missionNumber).kind.replace(/^take down (a|an internal) /, '');
   const SINGLE_HOP = sabotageJob(
-    ({ frontBox, keyBox }) => frontBox === null && keyBox.route === 'hydra',
+    ({ missionNumber, frontBox, keyBox }) =>
+      frontBox === null && keyBox.route === 'hydra' && machineOf(missionNumber) === 'CCTV recorder',
   );
-  const TWO_HOP = sabotageJob(({ frontBox }) => frontBox !== null);
+  const TWO_HOP = sabotageJob(
+    ({ missionNumber, frontBox }) =>
+      frontBox !== null && machineOf(missionNumber) === 'CCTV recorder',
+  );
 
   it('prints the report line by line, the kind and the target in place of a key', () => {
     const shape = missionShape(SINGLE_HOP);
@@ -629,6 +636,25 @@ describe('showReport on a sabotage job', () => {
     expect(lines).toContain(`  Target box: ${stem}-nvr`);
     expect(report).not.toContain('Key');
     expect(report).not.toContain('Storage:');
+  });
+
+  it.each([
+    ['CCTV recorder', 'nvr'],
+    ['backup server', 'backup'],
+    ['monitoring station', 'mon'],
+    ['build server', 'ci'],
+    ['licence server', 'lic'],
+    ['door-access controller', 'access'],
+    ['billing server', 'billing'],
+  ])('prints a job taking down a %s and its box, named -%s', (machine, suffix) => {
+    const missionNumber = sabotageJob(
+      ({ missionNumber: candidate, frontBox }) =>
+        frontBox !== null && machineOf(candidate) === machine,
+    );
+    const lines = showReport(missionNumber, SECRET, undefined).split('\n');
+
+    expect(lines).toContain(`  Kind:     sabotage, ${machine}`);
+    expect(lines).toContain(`  Target box: ${missionShape(missionNumber).stem}-${suffix}`);
   });
 });
 

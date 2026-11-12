@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { generateHomeLan, type LanHost } from './generateHomeLan.js';
 import { missionShape } from '../missions/missionShape.js';
+import { missionTerms } from '../missions/missionTerms.js';
 import { assignHomeNetwork } from '../network/homeNetwork.js';
 import { seedApGatewayHostname, seedInnerGatewayHostname } from './gatewayHostname.js';
 import { DRAWN_ROLES, machineRole } from './machineRole.js';
@@ -25,6 +26,11 @@ import { keepsSnapshots } from './share.js';
  */
 
 const ESSID = 'BEAN-THERE-WIFI';
+
+/** A spread of contract numbers whose last octet is a host octet (2–254). */
+const CONTRACT_NUMBERS = Array.from({ length: 2000 }, (_unused, index) => index * 8381 + 2).filter(
+  (missionNumber) => missionNumber % 256 >= 2 && missionNumber % 256 <= 254,
+);
 
 // Captured from the seeded generator (see golden test below). Pins the edge gateway
 // at .1, the inner gateway (a second router) at .85, the switch (a second inner
@@ -604,27 +610,49 @@ describe('generateHomeLan for a contract network', () => {
   });
 
   it('names a sabotage target for the machine the client wants down, and every other key box as before', () => {
-    const numbers = Array.from({ length: 300 }, (_unused, index) => index * 8381 + 2).filter(
-      (missionNumber) => missionNumber % 256 >= 2 && missionNumber % 256 <= 254,
-    );
-    const sabotage = numbers.filter(
+    // The board names the machine; the box the contractor lands on carries the name to match.
+    const suffixByMachine: Readonly<Record<string, string>> = {
+      'CCTV recorder': 'nvr',
+      'backup server': 'backup',
+      'monitoring station': 'mon',
+      'build server': 'ci',
+      'licence server': 'lic',
+      'door-access controller': 'access',
+      'billing server': 'billing',
+    };
+    const sabotage = CONTRACT_NUMBERS.filter(
       (missionNumber) => missionShape(missionNumber).kind === 'sabotage',
     );
+    const suffixOf = (missionNumber: number): string => {
+      const machine = missionTerms(missionNumber).kind.replace(/^take down (a|an internal) /, '');
+      return suffixByMachine[machine] ?? `unknown machine ${machine}`;
+    };
 
     expect(
       new Set(sabotage.map((missionNumber) => missionShape(missionNumber).frontBox === null)),
     ).toEqual(new Set([true, false]));
-    for (const missionNumber of numbers) {
+    expect(new Set(sabotage.map(suffixOf))).toEqual(new Set(Object.values(suffixByMachine)));
+    for (const missionNumber of CONTRACT_NUMBERS) {
       const lan = generateHomeLan(`mission-${missionNumber}`);
       const { kind, stem, keyBox, frontBox } = missionShape(missionNumber);
       const hostnameAt = (octet: number) =>
         lan.hosts.find(({ ip }) => ip === `${lan.subnet}.${octet}`)?.hostname;
 
       expect(hostnameAt(keyBox.octet), `contract ${missionNumber}`).toBe(
-        kind === 'sabotage' ? `${stem}-nvr` : `${stem}-files`,
+        kind === 'sabotage' ? `${stem}-${suffixOf(missionNumber)}` : `${stem}-files`,
       );
       if (frontBox !== null)
         expect(hostnameAt(frontBox.octet), `contract ${missionNumber}`).toBe(`${stem}-web`);
+    }
+  });
+
+  it('never names two boxes on a contract network alike', () => {
+    for (const missionNumber of CONTRACT_NUMBERS) {
+      const hostnames = generateHomeLan(`mission-${missionNumber}`).hosts.map(
+        ({ hostname }) => hostname,
+      );
+
+      expect(new Set(hostnames).size, `contract ${missionNumber}`).toBe(hostnames.length);
     }
   });
 

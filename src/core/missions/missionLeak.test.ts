@@ -36,6 +36,7 @@ import { generateHomeLan } from '../generation/generateHomeLan.js';
 import { machineIdForLanHost } from '../generation/lanTopology.js';
 import { computeApGatewayId } from '../identity/router.js';
 import { missionEssid } from './missionNetwork.js';
+import { missionTerms } from './missionTerms.js';
 import { buildMissionKeyBoxFs } from '../generation/missionKeyBoxFs.js';
 import { withMissionFiles } from '../network/missionBoxFiles.js';
 import { createFsView } from '../filesystem/fsView.js';
@@ -1118,6 +1119,32 @@ describe("a sabotage job's target", () => {
     expect(missionFilePaths(keyOf(missionNumber))).toEqual([DATADIR_PATH]);
     expect(settings).toBeDefined();
     expect(others).toEqual(generated?.tables);
+  });
+
+  it('lays the same on every machine a client wants down: what its route lays, and no more', () => {
+    // A backup server holds no backups and a CCTV recorder no footage: filler on one kind of
+    // box alone would tell a contractor which box the job is on.
+    const sabotage = SAMPLE_NUMBERS.filter(
+      (missionNumber) => missionShape(missionNumber).kind === 'sabotage',
+    );
+    const machineOf = (missionNumber: number): string =>
+      missionTerms(missionNumber).kind.replace(/^take down (a|an internal) /, '');
+    /** Where a box's lay-in goes, with the box-specific leak named for what it is. */
+    const laidOn = (missionNumber: number): readonly string[] =>
+      missionFilePaths(keyOf(missionNumber)).map((path) =>
+        path === missionLeakPath(keyOf(missionNumber)) ? 'the leak' : path,
+      );
+    const laidByRoute = new Map<MissionRoute, string>();
+
+    expect(new Set(sabotage.map(machineOf)).size).toBe(7);
+    for (const missionNumber of sabotage) {
+      const { route } = missionShape(missionNumber).keyBox;
+      const laid = JSON.stringify(laidOn(missionNumber));
+      const label = `${machineOf(missionNumber)} on ${route}, contract ${missionNumber}`;
+
+      expect(laid, label).toBe(laidByRoute.get(route) ?? laid);
+      laidByRoute.set(route, laid);
+    }
   });
 });
 

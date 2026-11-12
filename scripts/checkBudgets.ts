@@ -62,8 +62,9 @@ import {
  *  added 115 B, rounded up to 200; then the tamper kind (its draw, and a records box's names,
  *  subjects and grades) added 58 B, rounded up to 100; then the sabotage kind (its third of
  *  the draw, and the role that names a target's hostname, with its noun and pitches) added
- *  214 B, rounded up to 300. */
-const BUNDLE_CEILING_BYTES = 299_875;
+ *  214 B, rounded up to 300; then the seven machines a client can want down (each one's noun,
+ *  suffix and reasons, and the draw between them) added 679 B, rounded up to 700. */
+const BUNDLE_CEILING_BYTES = 300_575;
 
 /** About a tenth of that before world content, so a loaded machine's noise cannot fail
  *  the check while a content change that makes boxes ten times dearer still does. */

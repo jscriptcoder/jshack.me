@@ -10,7 +10,8 @@ that followed (four slices, v0.442.0–v0.445.0, PRs #750–#753, 2026-11-03 to 
 second template, a key box behind a front box ("Two hops", four slices, v0.450.0–v0.452.0, PRs
 #761–#764, 2026-11-09 to 2026-11-10), and a second kind of job, a record changed or erased
 ("Tamper jobs", four slices, v0.454.0–v0.457.0, PRs #766–#769, 2026-11-11), and a third, a
-machine taken down ("Sabotage jobs", from v0.458.0, 2026-11-12). It sits
+machine taken down ("Sabotage jobs", from v0.458.0, seven machines from v0.459.0, 2026-11-12).
+It sits
 on top of the contractor boards
 ([`hireme-architecture.md`](./hireme-architecture.md)), emailit.io
 ([`email-architecture.md`](./email-architecture.md)) and the wallet
@@ -611,13 +612,29 @@ its shape, terms and LAN exactly.
 - **The target is the key box's slot with nothing in it.** It has the same octet, route, decoys
   and front box. On two-hop it is the inside box. It has no storage (`MissionShape.storage` is
   `null`): no key, no records, no mysqld for them, and no doors but the ones its route and leak
-  route run. Its hostname names its role, `<stem>-nvr` for a CCTV recorder (`sabotageRole`,
-  `keyBoxSuffix`, `core/missions/sabotageRoles.ts`). That is the one thing the LAN generator asks
-  of the kind, so the hostname module rides in the bundle.
-- **The terms**: `<Client> — take down a CCTV recorder — §<pay>`, and `take down an internal …`
+  route run. Its hostname names its role (`sabotageRole`, `keyBoxSuffix`,
+  `core/missions/sabotageRoles.ts`), one of seven drawn on `mission-sabotage-role-<n>` (v0.459.0),
+  so no earlier draw moved:
+
+  | Role                   | Hostname         |
+  | ---------------------- | ---------------- |
+  | CCTV recorder          | `<stem>-nvr`     |
+  | backup server          | `<stem>-backup`  |
+  | monitoring station     | `<stem>-mon`     |
+  | build server           | `<stem>-ci`      |
+  | licence server         | `<stem>-lic`     |
+  | door-access controller | `<stem>-access`  |
+  | billing server         | `<stem>-billing` |
+
+  The role names the box and nothing else: no role lays files or runs a service of its own, as
+  filler on one kind of box alone would tell a contractor which box the job is on. The hostname is
+  the one thing the LAN generator asks of the kind, so the roles ride in the bundle.
+
+- **The terms**: `<Client> — take down a backup server — §<pay>`, and `take down an internal …`
   on two-hop. The pay is the key job's: 500–2,000 single-hop and 2,000–4,000 two-hop, to the
-  nearest 50. The target company is drawn as a key job's is. The role pitches its own reasons.
-- **The briefing** names the role only: "Take their CCTV recorder offline." On two-hop it adds "It
+  nearest 50. The target company is drawn as a key job's is. Each role pitches three to six
+  reasons of its own, shared with no other role.
+- **The briefing** names the role only: "Take their backup server offline." On two-hop it adds "It
   is a machine inside their network, not on the edge." It never names the box, its address or its
   hostname. It ends "No outage, no money. No wallet, no money."
 - **Any mail from the contractor reads the target** through the same `readTargetBox` a tamper job
@@ -682,10 +699,10 @@ The client carries the 195 block in `isPublicIp`, the `whois` record and the net
 The key, its paths, the terms, the board, the briefing, the replies and the root view are built
 on the server only. The leak routes added the slice's hashes and the route shapes, and the two-hop
 template the front box and the inside decoys, and the tamper kind its draw and the records'
-pools. The sabotage kind added its draw and its roles. The LAN names the target for its role, so
+pools. The sabotage kind added its draw and its seven roles. The LAN names the target for its role, so
 each role's noun and pitches ride along with its hostname suffix. Each feature raises the main
-chunk's ceiling by its measured growth; at v0.458.0 the chunk is 299,771 B gzipped against a
-ceiling of 299,875 B (a tamper setting's content is not in it).
+chunk's ceiling by its measured growth; at v0.459.0 the chunk is 300,450 B gzipped against a
+ceiling of 300,575 B (a tamper setting's content is not in it).
 
 ## 10. Proving it
 
@@ -718,10 +735,11 @@ ceiling of 299,875 B (a tamper setting's content is not in it).
   makes it with the target line right paid once then closed, and one with another line deleted
   refused; and one job in each of the eight settings, four kept in a database and four in files,
   holding both tables beside the target, worked by a root saving the datadir or the CSV right and
-  paid); `testMissionSabotage.ts` (13: `show` naming the kind and the `-nvr` target, a mail before
-  anything told the machine is still up, root over `:2222` and `rm /boot/vmlinuz` with no reboot
+  paid); `testMissionSabotage.ts` (26: a mail before anything told the machine is still up, root over `:2222` and `rm /boot/vmlinuz` with no reboot
   paid once then closed, a second player's brick paying the contractor, `rm /boot/initrd.img`
-  alone paid, and a two-hop job's front box bricked: still up, and the target out of reach). The
+  alone paid, a two-hop job's front box bricked: still up, and the target out of reach; and one
+  job per machine, `show` naming it and its `-<suffix>` box, root landing there and its brick
+  paid). The
   board and pay checks each post a two-hop offer on a chosen number (21 and 17 checks at
   v0.452.0). The decoys' doors are also proven in `decoyMissionDoors.test.ts`.
 - **Mutation**: every slice's scoped run left no survivor but equivalents.
@@ -802,7 +820,8 @@ white-hat fix, and clients and settings of their own.
   `leakablePool.ts` (bundle); `missionSecret.ts`, `missionLeak.ts`, `missionTerms.ts`,
   `clientMail.ts`, `contractsList.ts`, `hiremeOrders.ts` (server and scripts); `missionRecords.ts`
   (a tamper job's setting, records and the check) and `recordSettings.ts` (the eight settings'
-  tables); `sabotageRoles.ts` (a sabotage job's role: the target's hostname, noun and pitches).
+  tables); `sabotageRoles.ts` (the seven machines a sabotage job can ask down: each target's hostname,
+  noun and pitches).
 - **The lay-in and the doors**: `core/network/missionBoxFiles.ts`, `core/sessions/doorAdmission.ts`,
   `core/generation/missionKeyBoxFs.ts`, `core/crypto/gpgCodec.ts` (the cipher the server seals a
   gpg contract's key with).
