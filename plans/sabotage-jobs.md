@@ -1,6 +1,7 @@
 # Plan: a contract that asks for a machine to be taken down
 
-**Status:** Grilled 2026-11-12. Slice plan to follow. Nothing is built.
+**Status:** Grilled and planned 2026-11-12. Two slices, one PR each, merged in order. Nothing is
+built. Next: slice 1's acceptance criteria to the owner, then RED.
 
 A third kind of contract. Key jobs compare a mailed key; tamper jobs read a records box. A
 **sabotage job** asks the player to take one of the target's machines down for good (a CCTV
@@ -113,3 +114,162 @@ rule (`canBoot`, `src/core/boot/bootFiles.ts`). As-built context:
     the client reading rows), not the brick check, and it would sit oddly beside tamper's "a
     `DELETE` with no `WHERE` costs the job". Filed in `docs/backlog.md` under the tamper twists, so
     sabotage means one thing: the box does not boot.
+
+---
+
+## Where it plugs in
+
+Read before slice 1; every path is today's code.
+
+- **The kind** is `missionKind` (`src/core/missions/missionShape.ts`), one draw on
+  `mission-kind-<n>`: under `TAMPER_SHARE` (1/2) tamper, else key. Thirds cut that same draw as
+  tamper below 1/3, sabotage from 1/3 to 2/3, key from 2/3: every number that stays tamper or key
+  keeps its kind, and only the third in the middle moves. `MissionKind` gains `'sabotage'`.
+- **The shape** keeps the key-box slot for the target: same octet, route, versions, decoys and
+  two-hop placement. A sabotage job draws no storage. `storage` today is the key's
+  (`mission-storage-<n>`) or the records' (`recordsStorage`), and every consumer that reads it
+  (`keptInDatabase`, `missionFiles`, `missionFilePaths`, `show`) learns that a sabotage box keeps
+  nothing, so no key file, no records and no database are laid or added.
+- **The hostname** comes from `missionLan` (`src/core/generation/generateHomeLan.ts`), which names
+  the slot `${stem}-${KEY_BOX_SUFFIX}` (`files`, `src/core/missions/pools.ts`). A sabotage number
+  names it from its role instead. `machineIdForLanHost` takes the host, so a sabotage box's machine
+  id differs from the `-files` box the number had before; only numbers that turn sabotage move,
+  which is free until launch. `missionBoxAt` finds the box by octet, so its `role: 'key'` reference
+  holds.
+- **Terms** (`src/core/missions/missionTerms.ts`): `MissionTerms` gains a `job: 'sabotage'` arm
+  beside `'tamper'`, with no `keyOpens`. It draws on `mission-terms-<n>` in the key job's order:
+  client, target company (`<Stem> <trade>` from `TARGET_TRADES`), the role's pitch, then pay from
+  the key job's `SINGLE_HOP` and `TWO_HOP` ranges as the last draw.
+- **The briefing** is `jobLines` (`src/core/hireme/contracts.ts`), which branches on `terms.job`.
+  A sabotage job gets the role's ask, `insideLines('The machine is')` on two-hop, "Mail this
+  address when it is done, with your wallet address." and "No outage, no money. No wallet, no
+  money."
+- **The client's check** is `answerClientMail` (`src/core/missions/clientMail.ts`). A tamper job
+  decides `checkRecords` and reads the box through the `readRecordsBox` dep, which `api/network.ts`
+  builds on `generatedLanBox` (`src/core/network/generatedLanBox.ts`). `generatedLanBox` answers
+  `absent` when no generated machine stands at the address or the one there cannot boot; the
+  target slot always holds a generated machine, so on a contract network `absent` means only that
+  it cannot boot. A sabotage job reads the same box and passes on `absent`, fails on `up`, and
+  answers nothing on `error`. The dep is renamed for what it now reads (the job's target box), with
+  no second read path.
+- **The brick already lands.** The write gate (`remoteWritePermission`, `api/patches.ts`) fences
+  only the files the server lays on a contract box, so a root's `rm /boot/vmlinuz` there is an
+  ordinary journal write; `testMissionTamper.ts` already bricks a records box that way and reads it
+  `absent`. The new wire-check proves it with no reboot.
+- **`show`** (`src/core/missions/hiremeOrders.ts`) prints `Key box:` and a `Kind:` line for tamper.
+  A sabotage report prints `Kind: sabotage, <role>` and names the target box by its hostname.
+- **What re-rolls on ship:** a third of all numbers turn sabotage. The wire-checks that pick
+  candidates by `kind === 'key'` or `kind === 'tamper'` keep finding them; every pinned number and
+  test factory that lands sabotage is re-picked, as the tamper epic re-picked numbers that turned
+  tamper.
+
+## Given by the plan, not the grill
+
+- **The target company** is a key job's, `<Stem> <trade>` (`Halden Logistics`): any business runs
+  a CCTV recorder or a backup server, so roles bring no institutions of their own.
+- **"Already closed"** answers a contractor holding no accepted job with the client and a completed
+  sabotage job with it, without reading the box, as for tamper.
+- **The ask** is one sentence per role ("Take their CCTV recorder offline."); the reasons are the
+  role's pitches, and the briefing opens with one of them as every briefing opens with its pitch.
+
+---
+
+## Slices
+
+Two slices, one PR each, merged in order. The browser run waits for the close-out after slice 2.
+Every slice loads `tdd`, `testing` and `refactoring` before code, and `mutation-testing` at its PR
+gate.
+
+### Slice 1 — a client hires a contractor to take down a CCTV recorder, and pays when it is down (v0.458.0)
+
+**Value:** a contractor takes a `take down a CCTV recorder` job off the board, roots the target by
+its route, deletes a boot file, mails the client anything, and is paid once; a target still up gets
+"Their machine is still up. No outage, no money."
+**Class:** behavior change. **Branch:** `feat/sabotage-job`.
+
+The walking skeleton: one role, the CCTV recorder (`<stem>-nvr`). Everything the grill decided
+about the proof, the share, the pay and the briefing lands here; slice 2 only widens the roles.
+
+**Acceptance criteria**
+
+- About a third of numbers are sabotage, a third tamper and a third key, on `mission-kind-<n>`.
+  Every number that stays key or tamper keeps its shape and terms exactly (a 2,000-number sample
+  deep-equals a fixture captured from `main`, captured and deleted inside the PR).
+- A sabotage number's target sits in the key-box slot (same octet, route, decoys and front box),
+  named `<stem>-nvr`, and holds no key file, no records and no database added for storage; its
+  public scan is the route's forwards plus decoys, and the mysql route keeps only its own door.
+- The board reads `<Client> — take down a CCTV recorder — §<pay>`, and `take down an internal CCTV
+recorder` on two-hop. Pay is 500–2,000 single-hop and 2,000–4,000 two-hop, rounded to 50. The
+  target is `<Stem> <trade>`.
+- The briefing opens with one of the role's 3–6 reasons, gives the target and the address, asks
+  "Take their CCTV recorder offline.", adds the "inside" lines on two-hop, and ends "No outage, no
+  money. No wallet, no money." Never the hostname, the box's address or a path.
+- Any mail from the contractor on an accepted sabotage job reads the target box:
+  - it cannot boot (`vmlinuz` or `initrd.img` gone, by anyone, no reboot needed) → completed, paid
+    once, "The machine is down. §X sent to jsc…. Pleasure doing business." (with no wallet: "The
+    machine is down. You sent no wallet, so there is nothing to pay. No wallet, no money.");
+  - it is up → "Their machine is still up. No outage, no money.", the job still accepted.
+- A later mail on the completed job → "That job is already closed.", without reading the box.
+- A box read that fails answers nothing (`null`, 500 at the handler), never a guessed reply.
+- `hireme.ts show` prints `Kind: sabotage, CCTV recorder` and the target box's hostname.
+- Key and tamper jobs offer, brief, complete, refuse and close exactly as before.
+
+**TDD order (RED first, each at its public surface)**
+
+1. `missionKind`: the three shares over a sample; key and tamper numbers that stay are unchanged.
+2. `missionShape` and the lay-in: a sabotage target holds no key, records or storage database;
+   `missionFilePaths` lists only the route's files.
+3. `generateHomeLan` for a sabotage number: the slot is `<stem>-nvr`; key and tamper hostnames
+   unchanged.
+4. `missionTerms`: the sabotage line, the internal line, the pay ranges, the target name.
+5. The briefing for a sabotage job.
+6. `answerClientMail`: down pays once, up replies, closed, a failed read answers null; key and
+   tamper jobs unchanged.
+7. `showReport` for a sabotage number.
+8. Factories and pinned wire-check numbers moved off numbers that landed sabotage.
+
+**Gates**
+
+- `npm run typecheck`, `npm run lint`, the full suite, `npm run build` with `checkBudgets` (raise
+  the ceiling if the pitches need it).
+- Wire-check `scripts/testMissionSabotage.ts` (new), staging numbers with `hireme.ts accept
+--number`: mail before anything → "still up"; the route's root, `rm /boot/vmlinuz` with no
+  reboot → paid once, a second mail → closed; a fresh contract bricked from a second player's
+  session, then mailed by the contractor → paid; `rm /boot/initrd.img` alone → paid; a two-hop
+  contract whose front box is bricked → "still up", the target out of reach. Every other mission
+  wire-check re-runs green.
+- Mutation gate on the changed lines of `missionShape.ts`, `missionTerms.ts`, `missionLeak.ts`,
+  `clientMail.ts`, `contracts.ts`, `generateHomeLan.ts` and `hiremeOrders.ts`.
+- `docs/missions-architecture.md`: the header and "the one idea" name the third kind (a sabotage
+  job reads whether the box boots), and a "Sabotage jobs" section for what this slice built.
+- v0.458.0 in `package.json` and `package-lock.json`.
+
+### Slice 2 — seven machines to take down (v0.459.0)
+
+**Value:** the board offers backup servers, monitoring stations, build servers, licence servers,
+door-access controllers and billing servers beside the CCTV recorder, each named for what it is and
+wanted down for reasons of its own.
+**Class:** behavior change. **Branch:** `feat/sabotage-roles`.
+
+**Acceptance criteria**
+
+- A sabotage contract draws one of the seven roles in the grill's table on
+  `mission-sabotage-role-<n>`, about a seventh each; slice 1's other draws (shape, client, target,
+  pay) do not move.
+- Each role names the target `<stem>-<suffix>` (`nvr`, `backup`, `mon`, `ci`, `lic`, `access`,
+  `billing`), gives the board its noun (`take down a backup server`, `take down an internal
+door-access controller`), asks its own sentence, and brings 3–6 reasons.
+- No role adds files or services: a 2,000-number test proves every sabotage target, whatever its
+  role, carries only the lay-in and doors its route and decoys give, and that every hostname on a
+  contract network is unique.
+- `show` prints the role.
+
+**Gates:** the usual; `testMissionSabotage.ts` pins one contract per role and checks its hostname
+and the paid reply after a brick by the script as root. Mutation on the changed lines. v0.459.0.
+
+### Close-out
+
+One browser run on a fresh player: a single-hop sabotage job worked from the board to the payout
+(mailed once while still up, for the "still up" reply), and a two-hop one taken through the front
+box to the target. Then `docs/missions-architecture.md` finished, `docs/project-status.md` given
+its entry, the plan retired, and the story offered for valleynews.io `/dev`.
