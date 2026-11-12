@@ -1,7 +1,16 @@
 # Plan: a contract that asks for a machine to be taken down
 
-**Status:** Grilled and planned 2026-11-12. Two slices, one PR each, merged in order. Nothing is
-built. Next: slice 1's acceptance criteria to the owner, then RED.
+**Status:** Grilled and planned 2026-11-12. Two slices, one PR each, merged in order. Slice 1
+merged 2026-11-12 (v0.458.0, PR #770): the whole job with the CCTV recorder only. As built, it
+differs from the plan below in four ways:
+- The two-hop briefing line is "It is a machine inside their network, not on the edge."
+- The target is read by `readTargetBox` in `handleResolveMail.ts`.
+- `show` calls the slot "target" and heads the two-hop inside section `Target box:`.
+- The roles live in `src/core/missions/sabotageRoles.ts`. `sabotageRole(n)` returns the one
+  role for now. `keyBoxSuffix(n)` names the slot for every kind, and the LAN generator uses it,
+  so the roles ride in the bundle; the main-chunk ceiling is 299,875 B.
+
+Next: slice 2's acceptance criteria to the owner, then RED.
 
 A third kind of contract. Key jobs compare a mailed key; tamper jobs read a records box. A
 **sabotage job** asks the player to take one of the target's machines down for good (a CCTV
