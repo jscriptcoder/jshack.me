@@ -27,6 +27,7 @@ import { missionKeyFilePath, missionLeakPath, missionLeakWord } from './missionL
 import { missionKey, missionPassphrase } from './missionSecret.js';
 import { missionAddressForNumber, missionEssid } from './missionNetwork.js';
 import { missionTerms } from './missionTerms.js';
+import { FIRMWARE_IMAGE, missionFileContent, missionFilePath } from './missionFileItem.js';
 import {
   missionAction,
   missionRecords,
@@ -108,8 +109,9 @@ const storageDetail = (missionNumber: number, secret: string): string => {
   return storage === 'database' ? 'database, table api_keys' : 'file';
 };
 
-/** What a tamper or sabotage job is, as the report names it: its kind, then a tamper job's
- *  setting and action, or the machine a sabotage job asks taken down. A key job has no line. */
+/** What a tamper, sabotage or file job is, as the report names it: its kind, then a tamper job's
+ *  setting and action, the machine a sabotage job asks taken down, or the item a file job asks
+ *  brought back. A key job has no line. */
 const kindLine = (missionNumber: number, kind: MissionKind): readonly string[] => {
   if (kind === 'tamper') {
     return [
@@ -117,6 +119,7 @@ const kindLine = (missionNumber: number, kind: MissionKind): readonly string[] =
     ];
   }
   if (kind === 'sabotage') return [`  Kind:     sabotage, ${sabotageRole(missionNumber).noun}`];
+  if (kind === 'file') return [`  Kind:     file, ${FIRMWARE_IMAGE.noun}`];
   return [];
 };
 
@@ -138,11 +141,15 @@ const recordLines = (missionNumber: number): readonly string[] => {
 };
 
 /** What the report says of the job in the key-box slot: a key job's storage, key path and key,
- *  a tamper job's records and the one change it asks, and nothing for a sabotage job, whose box
- *  is the job and keeps nothing. */
+ *  a tamper job's records and the one change it asks, a file job's file and its size under the
+ *  secret, and nothing for a sabotage job, whose box is the job and keeps nothing. */
 const jobLines = (missionNumber: number, kind: MissionKind, secret: string): readonly string[] => {
   if (kind === 'tamper') return recordLines(missionNumber);
   if (kind === 'sabotage') return [];
+  if (kind === 'file') {
+    const size = missionFileContent(missionNumber, secret).length.toLocaleString('en-US');
+    return [`  File:     ${missionFilePath(missionNumber)}, ${size} bytes`];
+  }
   return [
     `  Storage:  ${storageDetail(missionNumber, secret)}`,
     `  Key path: ${missionKeyFilePath(missionNumber)}`,

@@ -138,7 +138,7 @@ const numberForRoute = (
     if (!isMissionNumber(candidate)) continue;
     const shape = missionShape(candidate);
     // One hop: the gateway forwards straight onto the key box this check reaches.
-    if (shape.frontBox !== null) continue;
+    if (shape.frontBox !== null || shape.kind !== 'key') continue;
     if (shape.keyBox.route === route && shape.storage === storage) return candidate;
   }
   throw new Error(`no ${route}/${storage} number found from ${from}`);

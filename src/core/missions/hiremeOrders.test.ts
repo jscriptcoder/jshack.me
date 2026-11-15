@@ -10,6 +10,7 @@ import { missionShape, type MissionShape } from './missionShape.js';
 import { missionKey, missionKeyPath, missionPassphrase } from './missionSecret.js';
 import { missionAddressForNumber, missionEssid } from './missionNetwork.js';
 import { missionTerms } from './missionTerms.js';
+import { missionFileContent, missionFilePath } from './missionFileItem.js';
 import {
   RECORD_SETTINGS,
   missionAction,
@@ -655,6 +656,67 @@ describe('showReport on a sabotage job', () => {
 
     expect(lines).toContain(`  Kind:     sabotage, ${machine}`);
     expect(lines).toContain(`  Target box: ${missionShape(missionNumber).stem}-${suffix}`);
+  });
+});
+
+describe('showReport on a file job', () => {
+  const SECRET = 'operator-test-secret';
+  /** The first file job `wanted` accepts. */
+  const fileJob = (wanted: (shape: MissionShape) => boolean): number =>
+    Array.from({ length: 8000 }, (_unused, index) => index * 256 + 2).find((candidate) => {
+      const shape = missionShape(candidate);
+      return shape.kind === 'file' && wanted(shape);
+    })!;
+  const SINGLE_HOP = fileJob(
+    ({ frontBox, keyBox }) => frontBox === null && keyBox.route === 'hydra',
+  );
+  const TWO_HOP = fileJob(({ frontBox }) => frontBox !== null);
+
+  /** The line naming the file, its path and its size under the secret. */
+  const fileLine = (missionNumber: number, indent: string): string =>
+    `${indent}File:     ${missionFilePath(missionNumber)}, ` +
+    `${missionFileContent(missionNumber, SECRET).length.toLocaleString('en-US')} bytes`;
+
+  it('prints the report line by line, the item and its file in place of a key', () => {
+    const shape = missionShape(SINGLE_HOP);
+    const terms = missionTerms(SINGLE_HOP);
+
+    expect(showReport(SINGLE_HOP, SECRET, undefined)).toBe(
+      [
+        `Contract ${SINGLE_HOP} at ${missionAddressForNumber(SINGLE_HOP)} (essid ${missionEssid(SINGLE_HOP)})`,
+        `  Client:   ${terms.client.company} (${terms.client.handle}@emailit.io)`,
+        `  Target:   ${terms.targetCompany}, ${shape.stem}-gw / ${shape.stem}-files`,
+        `  Pay:      §${terms.pay.toLocaleString('en-US')}`,
+        '  Template: single-hop',
+        '  Kind:     file, firmware image',
+        '  Route:    hydra',
+        ...shape.forwards.map(
+          (forward, index) =>
+            `  Forward:  :${forward.publicPort} -> key box :${forward.internalPort}` +
+            (index >= shape.forwards.length - shape.keyBox.decoys.length ? ' (decoy)' : ''),
+        ),
+        '  Services:',
+        ...shape.keyBox.services.map(
+          // The hydra route runs no daemon of its own and the file needs none, so whatever
+          // listens is a decoy.
+          (service) =>
+            `    ${service.service} (${service.package} ${service.version}) :${service.port} (decoy)`,
+        ),
+        fileLine(SINGLE_HOP, '  '),
+      ].join('\n'),
+    );
+  });
+
+  it('prints the file in the key box section of a two-hop job, and no key or storage', () => {
+    const report = showReport(TWO_HOP, SECRET, undefined);
+    const lines = report.split('\n');
+
+    expect(lines).toContain('  Kind:     file, firmware image');
+    expect(lines).toContain(`  Key box:   ${missionShape(TWO_HOP).stem}-files`);
+    expect(lines.at(-1)).toBe(fileLine(TWO_HOP, '  '));
+    expect(report).not.toContain('Key:');
+    expect(report).not.toContain('Key path:');
+    expect(report).not.toContain('Storage:');
   });
 });
 

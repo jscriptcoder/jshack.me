@@ -33,8 +33,9 @@
  * for new mail every minute would bury the log.
  *
  * A send to a client's handle is never delivered: a client has no inbox, so the client
- * reads it as it is sent and answers in the sender's inbox (`answerClientMail`). That needs
- * the deployment's mission secret, to know a job's key; without one, such a send is refused
+ * reads it as it is sent and answers in the sender's inbox (`answerClientMail`), with the file
+ * the mail carries, if any. That needs the deployment's mission secret, to know a job's key or
+ * file; without one, such a send is refused
  * as `mission_secret_missing` before anything is read, and every other mail goes on as
  * before.
  */
@@ -281,6 +282,7 @@ export const handleResolveMail = async (
       client,
       subject: payload.subject,
       body: payload.body,
+      file: payload.attachment?.content ?? null,
       secret,
       store: deps.clientMail,
       readTargetBox: targetBoxReader(deps),

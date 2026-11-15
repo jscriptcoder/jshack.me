@@ -307,6 +307,12 @@ const main = async () => {
   );
 
   // === 4. ACCEPTING HIRES: THE BRIEFING, AND THE ADDRESS ANSWERS. ===
+  /** The line each kind of job's briefing ends its rules with, before the wallet's. */
+  const RULE_OF_JOB = {
+    tamper: 'No change, no money.',
+    sabotage: 'No outage, no money.',
+    file: 'No file, no money.',
+  } as const;
   const offered = inState(turnedRows, 'offered');
   const taken = offered[1]!;
   const takenTerms = missionTerms(taken.number);
@@ -336,11 +342,7 @@ const main = async () => {
         ? briefing.body.includes(takenTerms.keyOpens) &&
           briefing.body.includes('ACCESS-XXXX-XXXX-XXXX') &&
           briefing.body.includes('No key, no money. No wallet, no money.')
-        : briefing.body.includes(
-            takenTerms.job === 'sabotage'
-              ? 'No outage, no money. No wallet, no money.'
-              : 'No change, no money. No wallet, no money.',
-          )),
+        : briefing.body.includes(`${RULE_OF_JOB[takenTerms.job]} No wallet, no money.`)),
     `${briefing?.sender ?? 'no mail'} / ${briefing?.subject ?? ''}`,
   );
   const scanAfterAccept = await scanOf(takenAddress);

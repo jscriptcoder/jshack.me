@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   MISSION_ROUTE_DAY,
+  missionKind,
   missionShape,
   type MissionBox,
   type MissionDecoy,
@@ -131,16 +132,38 @@ describe('missionShape', () => {
     }
   });
 
-  it('makes about a third of the contracts key jobs, a third tamper jobs and a third sabotage jobs', () => {
+  it('makes about a quarter of the contracts each of key, tamper, sabotage and file jobs', () => {
     const counts = SAMPLE_SHAPES.reduce<Record<string, number>>(
       (tally, { kind }) => ({ ...tally, [kind]: (tally[kind] ?? 0) + 1 }),
       {},
     );
 
-    expect(Object.keys(counts).sort()).toEqual(['key', 'sabotage', 'tamper']);
+    expect(Object.keys(counts).sort()).toEqual(['file', 'key', 'sabotage', 'tamper']);
     for (const [kind, count] of Object.entries(counts)) {
-      expect(count / SAMPLE_SHAPES.length, kind).toBeGreaterThan(0.29);
-      expect(count / SAMPLE_SHAPES.length, kind).toBeLessThan(0.38);
+      expect(count / SAMPLE_SHAPES.length, kind).toBeGreaterThan(0.21);
+      expect(count / SAMPLE_SHAPES.length, kind).toBeLessThan(0.29);
+    }
+  });
+
+  it('turns no contract from one older kind into another: each keeps its kind or becomes a file job', () => {
+    // Contracts drawn just either side of every edge, with the kind each had before file jobs.
+    const drawnAtTheEdges = [
+      [492, 'tamper', 'tamper'],
+      [413, 'tamper', 'file'],
+      [393, 'tamper', 'file'],
+      [143, 'sabotage', 'sabotage'],
+      [641, 'sabotage', 'sabotage'],
+      [114, 'sabotage', 'file'],
+      [781, 'sabotage', 'file'],
+      [383, 'key', 'file'],
+      [352, 'key', 'file'],
+      [171, 'key', 'key'],
+    ] as const;
+
+    for (const [missionNumber, before, now] of drawnAtTheEdges) {
+      expect(missionKind(missionNumber), `contract ${missionNumber}, a ${before} job before`).toBe(
+        now,
+      );
     }
   });
 
@@ -218,6 +241,28 @@ describe('missionShape', () => {
     }
   });
 
+  it("gives a file job's target nothing to keep: no storage, and only the doors its route runs", () => {
+    const fileJobs = SAMPLE_SHAPES.filter(({ kind }) => kind === 'file');
+
+    expect(new Set(fileJobs.map(({ keyBox }) => keyBox.route))).toEqual(
+      new Set(['hydra', 'msfconsole', 'web', 'ftp', 'mysql', 'snmp']),
+    );
+    expect(new Set(fileJobs.map(({ frontBox }) => frontBox === null))).toEqual(
+      new Set([true, false]),
+    );
+    for (const shape of fileJobs) {
+      const { keyBox } = shape;
+      const label = `${keyBox.route} contract ${shape.missionNumber}`;
+      const programs = realServices(keyBox).map(({ program }) => program);
+
+      expect(shape.storage, label).toBeNull();
+      expect(programs.includes('mysqld'), label).toBe(keyBox.route === 'mysql');
+      if (shape.frontBox === null) {
+        expect(realForwards(shape), label).toEqual(ROUTE_FORWARDS[keyBox.route]);
+      }
+    }
+  });
+
   it('draws where the key is kept without moving anything a contract already had', () => {
     // An accepted contract keeps its network: the storage draw must not shift the topology,
     // the route or the hashes drawn before it existed.
@@ -241,14 +286,16 @@ describe('missionShape', () => {
     /** Single-hop contracts across the routes and storages, and the digest of each whole shape
      *  taken from the generator before a contract could have two hops. Two hops draw on a
      *  stream of their own, so a contract that stays single-hop keeps its network to the byte.
-     *  Only key jobs: a contract that became a tamper job keeps its records in its database. */
+     *  Only key jobs: a contract that became a tamper job keeps its records in its database.
+     *  Contracts that later turned file jobs were swapped for key jobs alike, digested on the
+     *  generator before file jobs. */
     const SINGLE_HOP_BEFORE: readonly (readonly [number, string])[] = [
       [16764, '406a2ac2a2ac5d9d8aba524c1552d5a7'], // mysql, database
       [41907, 'dfe62d63aeea34374499dda4f52983c6'], // snmp, file
-      [50288, '9100465eaeba93b353353a2130fe2bc5'], // web, file
-      [125717, 'aa7ad61e60fc856f7acba2cd601b660f'], // snmp, database
+      [25, 'bc6079d753a35b0d2fbbc0d419866d9b'], // web, file
+      [16, '4aed0b5d7a4003d936d5f735c78b0d34'], // snmp, database
       [142479, '0a14a7ee3735bccd7c9d9d50b64efc8d'], // ftp, file
-      [209527, 'f2edad300e3e6bf84d40b81bff149c01'], // msfconsole, file
+      [267, 'dbb8a2f058864c8e2c28ce737f1ae843'], // msfconsole, file
       [243051, 'a661feaeb8e04ba2ad1a2f1dd140f0a4'], // hydra, file
       [368903, '36a36b311b4534b957fdb586a4f25297'], // hydra, database
     ];
@@ -256,16 +303,17 @@ describe('missionShape', () => {
     /** Two-hop key jobs across the routes and storages, and the digest of each key box as it
      *  stood before the contract had two hops, its forwards and decoys aside: its names, route,
      *  hashes and the doors it ran for its route and its storage. Contracts that later turned
-     *  sabotage were swapped for key jobs alike, digested on the generator before sabotage. */
+     *  sabotage or file jobs were swapped for key jobs alike, digested on the generator before
+     *  that kind. */
     const KEY_BOX_BEFORE: readonly (readonly [number, string])[] = [
       [8383, 'aaee771c5cc6118f6546fc3a4cd4f013'], // ftp, file
       [134098, 'dcbef343e36fdf2840eedb351fc86040'], // mysql, file
       [452576, '7f574cedfb32bbf08bdf4ec1d0c0adc2'], // web, database
       [486100, '020cfae8783a805a9b0f791209f6e07f'], // snmp, file
       [519624, '6c62e8268001b700677e05dee7a7e670'], // msfconsole, gpg
-      [754292, '003e65afea43e84312c9f16c5dac3fc6'], // msfconsole, file
+      [3887, 'a51d66366f4e23dc7ad18bf28edd4a80'], // msfconsole, file
       [1047627, 'f2547fb5f6635ed4b2d5f041fdd1ae32'], // hydra, file
-      [1961156, '0d3a36891737ac49d802b89b5db5acd2'], // hydra, gpg
+      [929, '2d4a5dc6923e351565f77cd2d1dbb97b'], // hydra, gpg
       [5330318, '141ee9f7ca72a345278489238e192c4a'], // mysql, database
       [8984434, '9486fbbd8425f1d82e5976764a1c34e7'], // web, gpg
       [12269786, '02f63ddca1bc7ff62bb445e814beb98d'], // ftp, gpg
@@ -313,16 +361,17 @@ describe('missionShape', () => {
 
     /** Two-hop key jobs across the routes on each box, and the digest of everything but the key
      *  box, taken from the generator before the key box ran decoys of its own. Contracts that later turned
-     *  sabotage were swapped for key jobs alike, digested on the generator before sabotage. */
+     *  sabotage or file jobs were swapped for key jobs alike, digested on the generator before
+     *  that kind. */
     const BESIDE_KEY_BOX_BEFORE: readonly (readonly [number, string])[] = [
       [8383, '6f6f3067dd12250be4531b6a7a680890'], // ftp, front msfconsole
       [134098, '3d8cd43ac152027f6eb3e5a142dec083'], // mysql, front hydra
       [452576, 'fbb1a6d118de208d11a970785af2f169'], // web, front hydra
       [486100, 'c356fa209f4fec49e6c8b9a6e359dd89'], // snmp, front hydra
       [519624, '1874be1d39e76a597b1813269fcb3bca'], // msfconsole, front web
-      [754292, '10e4a17d13d754700d5f93172421f7e5'], // msfconsole, front web
+      [3887, 'fdbf255fc335327f5cf01a439ae01241'], // msfconsole, front web
       [1047627, '2126d38910890ae0e2783d301f3e699b'], // hydra, front snmp
-      [1961156, '92d165a7be49111e9d0ba07ba43fbb31'], // hydra, front mysql
+      [929, '0bbb667b4152faaf0fc2594ad134cca4'], // hydra, front mysql
       [5330318, 'dac53e92eef67b5ad68c0083305f7e89'], // mysql, front msfconsole
       [8984434, '753e932d1f29c78d6b98330908bfd9a6'], // web, front web
       [12269786, '7b5dd59c802097475555ac3286435859'], // ftp, front snmp
@@ -558,16 +607,17 @@ describe('missionShape', () => {
 
     /** Single-hop key jobs across the routes and storages, and the digest of what each had
      *  before decoys, taken from the generator as it stood then. Contracts that later turned
-     *  sabotage were swapped for key jobs alike, digested on the generator before sabotage. */
+     *  sabotage or file jobs were swapped for key jobs alike, digested on the generator before
+     *  that kind. */
     const BEFORE_DECOYS: readonly (readonly [number, string])[] = [
       [142479, '1110188b6fd5637a7cca7794d0a8797b'], // ftp, file
       [16764, '646ccb637762c304422bd9971fc3befc'], // mysql, database
       [41907, 'bf8c66bf1de205869667465a64a01786'], // snmp, file
-      [50288, '7267dc78e1fc632f631c363951dd4330'], // web, file
-      [125717, '49e62e4ace55181ab445f5cfafd49bfb'], // snmp, database
-      [209527, 'edbbe13c6e744a84e0fb468b77a27048'], // msfconsole, file
+      [25, 'd6ab3acaa8ca2c0fb37bdd0aef86b65f'], // web, file
+      [16, '88c9b93cf6e5044f743c22bb233be1cf'], // snmp, database
+      [267, 'f1064f78a017fd683cd04e00e12e5256'], // msfconsole, file
       [243051, 'fdc080efe1512df31eba9c8dac360134'], // hydra, file
-      [1399629, '6cb3ec4d0ad9d409b82a5782b65977d7'], // hydra, database
+      [5, '6c8fb4d23a5af93550402b44d5da324c'], // hydra, database
     ];
 
     /** The public port each decoy kind answers on. */

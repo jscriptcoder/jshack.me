@@ -20,6 +20,7 @@
 import { createPrng } from '../generation/prng.js';
 import { missionKind, missionTopology } from './missionShape.js';
 import { sabotageRole } from './sabotageRoles.js';
+import { FIRMWARE_IMAGE } from './missionFileItem.js';
 import {
   missionAction,
   missionSetting,
@@ -45,15 +46,17 @@ type CommonTerms = {
   readonly pay: number;
 };
 
-/** A key job's terms name what the key opens; a tamper job's promise no key at all. The
- *  record a tamper job asks changed or gone is drawn with its records, not here. */
+/** A key job's terms name what the key opens; the other kinds' promise no key at all. The
+ *  record a tamper job asks changed or gone is drawn with its records, and the file a file job
+ *  asks brought back with its item, not here. */
 export type MissionTerms =
   | ({ readonly job: 'key' } & CommonTerms & {
         /** What the key gives its holder, as the briefing names it. */
         readonly keyOpens: string;
       })
   | ({ readonly job: 'tamper' } & CommonTerms)
-  | ({ readonly job: 'sabotage' } & CommonTerms);
+  | ({ readonly job: 'sabotage' } & CommonTerms)
+  | ({ readonly job: 'file' } & CommonTerms);
 
 const CLIENTS: readonly MissionClient[] = [
   { company: 'Copper Systems', handle: 'copper-ops' },
@@ -308,6 +311,18 @@ export const missionTerms = (missionNumber: number): MissionTerms => {
       kind: `take down ${singleHop ? 'a' : 'an internal'} ${noun}`,
       pitch: prng.pick(pitches),
       // The work is a key job's, finding the way in and rooting the box, so the pay is too.
+      pay: payFrom(prng, job),
+    };
+  }
+  if (missionKind(missionNumber) === 'file') {
+    const { noun, pitches } = FIRMWARE_IMAGE;
+    return {
+      job: 'file',
+      client: prng.pick(CLIENTS),
+      targetCompany: `${capitalised(stem)} ${prng.pick(TARGET_TRADES)}`,
+      kind: `retrieve ${singleHop ? 'a' : 'an internal'} ${noun}`,
+      pitch: prng.pick(pitches),
+      // Carrying bytes home is more work than reading a key, but not a different tier.
       pay: payFrom(prng, job),
     };
   }

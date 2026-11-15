@@ -10,6 +10,7 @@ import {
 import { missionTerms, type MissionTerms } from '../missions/missionTerms.js';
 import { missionAddressForNumber } from '../missions/missionNetwork.js';
 import { missionKeyPath } from '../missions/missionSecret.js';
+import { missionFileName, missionFilePath } from '../missions/missionFileItem.js';
 import { missionShape } from '../missions/missionShape.js';
 import {
   RECORD_SETTINGS,
@@ -76,6 +77,19 @@ const sabotageNumber = (twoHop: boolean, machine = 'CCTV recorder'): number => {
 
 const SABOTAGE_SINGLE_HOP = sabotageNumber(false);
 const SABOTAGE_TWO_HOP = sabotageNumber(true);
+
+/** The first file contract from 70,000 up, on one hop or on two. */
+const fileNumber = (twoHop: boolean): number => {
+  for (let candidate = 70_000; candidate < 2_000_000; candidate++) {
+    if (!isMissionNumber(candidate)) continue;
+    const shape = missionShape(candidate);
+    if (shape.kind === 'file' && (shape.frontBox !== null) === twoHop) return candidate;
+  }
+  throw new Error('no file contract');
+};
+
+const FILE_SINGLE_HOP = fileNumber(false);
+const FILE_TWO_HOP = fileNumber(true);
 
 /** School contracts asking for a grade changed rather than a key: a single-hop one and a
  *  two-hop one. */
@@ -581,6 +595,88 @@ describe('accepting an offer', () => {
       await accept('offer=mmm', store);
 
       expect(accepts[0]!.briefing.body.split('\n')).toContain(`Take their ${machine} offline.`);
+    });
+  });
+
+  describe('on a file job', () => {
+    const offeredFile = () =>
+      boardStore({
+        offers: [
+          { number: FILE_SINGLE_HOP, ref: 'fff' },
+          { number: FILE_TWO_HOP, ref: 'ggg' },
+        ],
+      });
+
+    it('writes a single-hop briefing naming the file and asking for it attached', async () => {
+      const { store, accepts } = offeredFile();
+      const terms = missionTerms(FILE_SINGLE_HOP);
+
+      await accept('offer=fff', store);
+
+      expect(accepts[0]!.briefing.subject).toBe(`Contract: ${terms.targetCompany}`);
+      expect(accepts[0]!.briefing.body).toBe(
+        [
+          terms.pitch,
+          '',
+          `The target is ${terms.targetCompany}. Their network is at ${missionAddressForNumber(FILE_SINGLE_HOP)}.`,
+          '',
+          'Their engineers keep a firmware image. Bring it to us. Its name is:',
+          '',
+          `  ${missionFileName(FILE_SINGLE_HOP)}`,
+          '',
+          'Mail it to this address as an attachment, with your wallet address.',
+          'No file, no money. No wallet, no money.',
+          '',
+          `-- ${terms.client.company}`,
+          '',
+        ].join('\n'),
+      );
+    });
+
+    it('tells a two-hop contractor the file is inside the network, not on the edge', async () => {
+      const { store, accepts } = offeredFile();
+      const terms = missionTerms(FILE_TWO_HOP);
+
+      await accept('offer=ggg', store);
+
+      expect(accepts[0]!.briefing.body).toBe(
+        [
+          terms.pitch,
+          '',
+          `The target is ${terms.targetCompany}. Their network is at ${missionAddressForNumber(FILE_TWO_HOP)}.`,
+          '',
+          'Their engineers keep a firmware image. Bring it to us. Its name is:',
+          '',
+          `  ${missionFileName(FILE_TWO_HOP)}`,
+          '',
+          'The file is on a machine inside their network, not on the edge.',
+          '',
+          'Mail it to this address as an attachment, with your wallet address.',
+          'No file, no money. No wallet, no money.',
+          '',
+          `-- ${terms.client.company}`,
+          '',
+        ].join('\n'),
+      );
+    });
+
+    it('names no box, no address but the network, and not where the file sits', async () => {
+      for (const [missionNumber, ref] of [
+        [FILE_SINGLE_HOP, 'fff'],
+        [FILE_TWO_HOP, 'ggg'],
+      ] as const) {
+        const { store, accepts } = offeredFile();
+        const { stem } = missionShape(missionNumber);
+        const directory = missionFilePath(missionNumber).replace(/\/[^/]+$/, '');
+
+        await accept(`offer=${ref}`, store);
+        const { body } = accepts[0]!.briefing;
+
+        expect(body).not.toContain(`${stem}-`);
+        expect(body).not.toContain(directory);
+        expect(body).not.toMatch(/\bkey\b/i);
+        expect(body.match(/\d+\.\d+\.\d+\.\d+/g)).toEqual([missionAddressForNumber(missionNumber)]);
+      }
     });
   });
 
