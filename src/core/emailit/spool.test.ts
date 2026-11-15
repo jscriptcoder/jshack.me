@@ -25,6 +25,8 @@ const message = (overrides: Partial<SpoolMessage> = {}): SpoolMessage => ({
   body: 'Welcome aboard.',
   delivered_at: '2026-10-14T09:12:03.456+00:00',
   read: true,
+  attachment_name: null,
+  attachment_content: null,
   ...overrides,
 });
 
@@ -146,6 +148,60 @@ describe('emailit.io /var/mail/<handle>', () => {
         '',
       ].join('\n'),
     );
+  });
+
+  it('writes a message that carries a file as two MIME parts, the file raw', () => {
+    const tree = withMailSpool(box(), [
+      account({
+        messages: [
+          message({
+            number: 4,
+            sender: 'trin@emailit.io',
+            subject: 'the photo',
+            body: 'here it is',
+            attachment_name: 'IMG_0412.jpg',
+            attachment_content: 'JFIF noise\nExif Canon',
+          }),
+        ],
+      }),
+    ]);
+
+    expect(contentAt(tree, '/var/mail/neo')).toBe(
+      [
+        'From trin@emailit.io Wed Oct 14 09:12:03 2026',
+        'Date: Wed, 14 Oct 2026 09:12:03 +0000',
+        'From: <trin@emailit.io>',
+        'To: <neo@emailit.io>',
+        'Subject: the photo',
+        'MIME-Version: 1.0',
+        'Content-Type: multipart/mixed; boundary="emailit-4"',
+        'Status: RO',
+        '',
+        '--emailit-4',
+        'Content-Type: text/plain; charset=utf-8',
+        '',
+        'here it is',
+        '--emailit-4',
+        'Content-Type: application/octet-stream; name="IMG_0412.jpg"',
+        'Content-Disposition: attachment; filename="IMG_0412.jpg"',
+        '',
+        'JFIF noise',
+        'Exif Canon',
+        '--emailit-4--',
+        '',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  it('quotes a line of a carried file that would read as a separator', () => {
+    const tree = withMailSpool(box(), [
+      account({
+        messages: [message({ attachment_name: 'notes.dat', attachment_content: 'From the vault' })],
+      }),
+    ]);
+
+    expect(contentAt(tree, '/var/mail/neo')).toContain('\n>From the vault\n--emailit-1--');
   });
 
   it('gives an unread message no Status line', () => {

@@ -64,7 +64,7 @@ import { missionTopology } from '../missions/missionShape.js';
 import { generateHomeLan } from '../generation/generateHomeLan.js';
 import { generatedLanBox } from '../network/generatedLanBox.js';
 import { requireMissionSecret } from '../missions/missionSecret.js';
-import { listedMessageSchema, openedMessageSchema } from './inbox.js';
+import { listedMessageSchema, mailAttachmentSchema, openedMessageSchema } from './inbox.js';
 
 /** Whose inbox is asked for, and by which player: the handle, the md5 of the password
  *  given for it, and the key that signed the request. */
@@ -94,6 +94,8 @@ export type SendMessage = (
     readonly to: string;
     readonly subject: string;
     readonly body: string;
+    /** The one file the message carries, when it carries one. */
+    readonly attachment?: { readonly name: string; readonly content: string };
   },
 ) => Promise<{ readonly data: unknown; readonly error: unknown }>;
 
@@ -176,6 +178,19 @@ const textOfAtMost = (limit: number) => z.string().refine((text) => [...text].le
 const SUBJECT_LIMIT = 80;
 const BODY_LIMIT = 4000;
 
+/** The largest file a message may carry, counted as `ls -l` counts a file: its length. */
+const ATTACHMENT_LIMIT = 8000;
+
+/** A file as a sender may attach it: a name that is a name, never a path, and no more than
+ *  the limit, whatever the client checked first. */
+const attachmentSchema = mailAttachmentSchema.extend({
+  name: z
+    .string()
+    .min(1)
+    .refine((name) => !name.includes('/')),
+  content: z.string().max(ATTACHMENT_LIMIT),
+});
+
 const login = {
   action: z.literal('resolveMail'),
   handle: z.string().min(1),
@@ -200,6 +215,7 @@ const resolveMailSchema = z
       to: z.string().min(1),
       subject: textOfAtMost(SUBJECT_LIMIT),
       body: textOfAtMost(BODY_LIMIT),
+      attachment: attachmentSchema.optional(),
     }),
     z.looseObject({ ...login, op: z.literal('delete'), number: z.number().int().positive() }),
     z.looseObject({
@@ -280,6 +296,7 @@ export const handleResolveMail = async (
       to: payload.to,
       subject: payload.subject,
       body: payload.body,
+      ...(payload.attachment === undefined ? {} : { attachment: payload.attachment }),
     });
     const answer = sendAnswerSchema.safeParse(reply.data);
     if (reply.error || !answer.success) return MAIL_FAILED;

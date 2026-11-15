@@ -21,9 +21,9 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
 
 - **emailit.io's root view has a size ceiling.** Since v0.389.0 a root shell on emailit.io is
   served every account's mailbox, built from the email tables, and it re-reads that tree before
-  every line. An inbox holds at most 100 messages of 4,000 characters (about 400 KB; most hold a
-  few KB), and a Vercel response is capped at 4.5 MB, so the read fails at about 11 full inboxes or
-  a few thousand ordinary ones, and the box then reads as unreachable to its root. Sends are held
+  every line. An inbox holds at most 100 messages of a 4,000-character body and, since v0.460.0,
+  an 8,000-character attachment (about 1.2 MB; most hold a few KB), and a Vercel response is capped
+  at 4.5 MB, so the read fails at about 3 full inboxes or a few thousand ordinary ones, and the box then reads as unreachable to its root. Sends are held
   to 20 an hour per player, so nothing reaches it before launch. The fix when it is needed: serve
   the spool's listing (names and sizes) and fetch one mailbox only when it is read, a second read
   path through the shell, `cat`, `grep` and `scp`. Copying a mailbox home also meets the 65,536

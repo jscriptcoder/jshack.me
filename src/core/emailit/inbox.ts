@@ -17,11 +17,21 @@ export const listedMessageSchema = z.object({
   read: z.boolean(),
 });
 
-/** One message opened to be read: what the list shows of it, and its body as written. */
+/** The one file a message may carry: its name, never the sender's path, and its content
+ *  byte for byte. */
+export const mailAttachmentSchema = z.object({
+  name: z.string(),
+  content: z.string(),
+});
+
+/** One message opened to be read: what the list shows of it, its body as written, and the
+ *  file it carries. The store says `null` for a message that carries none, and the wire then
+ *  leaves the field out. */
 export const openedMessageSchema = z.object({
   number: z.number().int().positive(),
   sender: z.string(),
   subject: z.string(),
   delivered_at: z.string(),
   body: z.string(),
+  attachment: mailAttachmentSchema.nullish().transform((attachment) => attachment ?? undefined),
 });

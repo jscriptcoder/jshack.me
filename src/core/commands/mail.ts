@@ -23,6 +23,7 @@ import {
   type CommandResult,
   type InboxMessage,
   type InboxResult,
+  type MailAttachment,
   type MailLogin,
   type MailMessage,
   type MessageResult,
@@ -40,9 +41,12 @@ import {
 } from '../emailit/mailrc.js';
 import { MIN_PASSWORD_LENGTH, validatePassword } from '../gameConfig/gameConfig.js';
 import type { AbsPath } from '../types.js';
+import { basename, resolveAbsPath } from '../filesystem/path.js';
+import { resolveWriteTarget } from '../filesystem/writeTarget.js';
 
 const SYNOPSIS =
-  'mail [read <n>] | send <to> <subject> | reply <n> | delete <n> | passwd | login | logout';
+  'mail [read <n>] | send <to> <subject> [-A <file>] | reply <n> [-A <file>] | delete <n> | ' +
+  'save <n> [path] | passwd | login | logout';
 const USAGE = `mail: usage: ${SYNOPSIS}`;
 
 /** No network to ask from, emailit.io not answering, or our own side failing to ask:
@@ -58,6 +62,10 @@ const SENDER_WIDTH = 22;
 /** The longest subject and body a message may have, counted as a reader counts them. */
 const SUBJECT_LIMIT = 80;
 const BODY_LIMIT = 4000;
+
+/** The largest file a message may carry. Small on purpose: a file worth mailing in the game
+ *  need only look binary, and every attachment is laid whole into emailit.io's root view. */
+const ATTACHMENT_LIMIT = 8000;
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -147,7 +155,8 @@ const headerDate = (deliveredAt: string): string =>
 const bodyLines = (body: string): readonly string[] =>
   (body.endsWith('\n') ? body.slice(0, -1) : body).split('\n');
 
-/** A message as `read` prints it: its headers, a blank line, then the body as written. */
+/** A message as `read` prints it: its headers, a blank line, then the body as written, and
+ *  below it the file it carries, by name and size, which `save` writes out. */
 const messageLines = (address: string, message: MailMessage): readonly string[] => [
   `From: ${message.sender}`,
   `To: ${address}`,
@@ -155,6 +164,9 @@ const messageLines = (address: string, message: MailMessage): readonly string[] 
   `Subject: ${message.subject}`,
   '',
   ...bodyLines(message.body),
+  ...(message.attachment === undefined
+    ? []
+    : ['', `[attachment: ${message.attachment.name}, ${message.attachment.content.length} bytes]`]),
 ];
 
 const said = (lines: readonly string[]): CommandResult => ({
@@ -197,6 +209,43 @@ const read = async (env: CommandEnv, saved: Saved, number: number): Promise<Comm
   const opened = await env.mail.read(saved.login, number, { mark: true });
   if (!opened.ok) return unnumbered(saved, number, opened.error);
   return said(messageLines(saved.address, opened.message));
+};
+
+/** Why a file cannot be written, as a redirect says it. */
+const UNWRITABLE = {
+  not_found: 'No such file or directory',
+  permission_denied: 'Permission denied',
+  is_directory: 'Is a directory',
+} as const;
+
+/**
+ * Write the file a message carries onto the box the shell stands on, as whoever it stands
+ * as: under its own name where the shell stands, into a directory the path names, or over
+ * the file it names, by the same rule a redirect writes by. The message is opened without
+ * being marked read, as a reply opens it.
+ */
+const save = async (
+  env: CommandEnv,
+  saved: Saved,
+  number: number,
+  typedPath: string | undefined,
+): Promise<CommandResult> => {
+  const original = await env.mail.read(saved.login, number, { mark: false });
+  if (!original.ok) return unnumbered(saved, number, original.error);
+  const { attachment } = original.message;
+  if (attachment === undefined) return refusal(`mail: message ${number} has no attachment`);
+
+  const fs = await env.fs.reload();
+  const typed = typedPath ?? attachment.name;
+  const named = fs.stat(resolveAbsPath(fs.cwd(), typed))?.kind === 'directory';
+  const target = resolveWriteTarget(fs, named ? `${typed}/${attachment.name}` : typed);
+  if (!target.ok) return refusal(`mail: ${typed}: ${UNWRITABLE[target.error]}`);
+
+  const written = await env.patches.write(target.target, attachment.content, {
+    isNew: target.isNew,
+  });
+  if (!written.ok) return refusal(`mail: ${typed}: ${PATCH_ERROR_REASON[written.error]}`);
+  return said([]);
 };
 
 /** How many messages of an inbox nobody has read yet, as login announces them. */
@@ -321,14 +370,19 @@ const unsent = (saved: Saved, to: string, error: Exclude<SendResult, { ok: true 
 const composeAndSend = async (
   env: CommandEnv,
   saved: Saved,
-  message: { readonly to: string; readonly handle: string; readonly subject: string },
+  message: {
+    readonly to: string;
+    readonly handle: string;
+    readonly subject: string;
+    readonly attachment?: MailAttachment | undefined;
+  },
   draft: {
     readonly content: string;
     readonly cancelled: string;
     readonly wrote?: string | undefined;
   },
 ): Promise<CommandResult> => {
-  const { to, handle, subject } = message;
+  const { to, handle, subject, attachment } = message;
   const body =
     draft.wrote === undefined
       ? await env.compose({ to, subject, content: draft.content })
@@ -336,7 +390,12 @@ const composeAndSend = async (
   if (body === null || body.trim() === '') return refusal(draft.cancelled);
   if (charactersIn(body) > BODY_LIMIT) return refusal('mail: message too long');
 
-  const sent = await env.mail.send(saved.login, { to: handle, subject, body });
+  const sent = await env.mail.send(saved.login, {
+    to: handle,
+    subject,
+    body,
+    ...(attachment === undefined ? {} : { attachment }),
+  });
   return sent.ok ? said([]) : unsent(saved, to, sent.error);
 };
 
@@ -349,7 +408,7 @@ const send = async (
   env: CommandEnv,
   typedTo: string,
   subject: string,
-  wrote?: string,
+  options: { readonly wrote?: string | undefined; readonly attach?: string | undefined } = {},
 ): Promise<CommandResult> => {
   const to = typedAddress(typedTo);
   const handle = handleOf(to);
@@ -358,13 +417,42 @@ const send = async (
   const saved = savedLogin(env);
   if ('refused' in saved) return refusal(saved.refused);
   if (vantageOf(env.session, env.network) === null) return refusal(UNREACHABLE);
+  const file = attached(env, options.attach);
+  if ('refused' in file) return refusal(file.refused);
 
   return composeAndSend(
     env,
     saved,
-    { to, handle, subject },
-    { content: '', cancelled: 'mail: send cancelled', wrote },
+    { to, handle, subject, attachment: file.attachment },
+    { content: '', cancelled: 'mail: send cancelled', wrote: options.wrote },
   );
+};
+
+/** Why a file cannot be read, as `cat` says it. */
+const UNREADABLE = {
+  not_found: 'No such file or directory',
+  permission_denied: 'Permission denied',
+  is_directory: 'Is a directory',
+} as const;
+
+/**
+ * The file `-A` names, read where the shell stands as whoever it stands as, to go with the
+ * message under its own name: never the sender's path. No `-A` is no attachment. A file
+ * that cannot go is said before the editor opens, so it never costs the player a draft.
+ * Its size is counted as `ls -l` counts it, the length the game states for every file.
+ */
+const attached = (
+  env: CommandEnv,
+  typed: string | undefined,
+): { readonly attachment?: MailAttachment } | { readonly refused: string } => {
+  if (typed === undefined) return {};
+  const path = resolveAbsPath(env.fs.cwd(), typed);
+  const read = env.fs.read(path);
+  if (!read.ok) return { refused: `mail: ${typed}: ${UNREADABLE[read.error]}` };
+  if (read.content.length > ATTACHMENT_LIMIT) {
+    return { refused: `mail: ${typed}: too large to attach (max ${ATTACHMENT_LIMIT})` };
+  }
+  return { attachment: { name: basename(path), content: read.content } };
 };
 
 /** A reply's subject: `Re:` in front of the original's, unless it already wears one, cut
@@ -388,12 +476,14 @@ const quoted = (body: string): string =>
 const reply = async (
   env: CommandEnv,
   typedNumber: string,
-  wrote?: string,
+  options: { readonly wrote?: string | undefined; readonly attach?: string | undefined } = {},
 ): Promise<CommandResult> => {
   const saved = savedLogin(env);
   if ('refused' in saved) return refusal(saved.refused);
   if (!MESSAGE_NUMBER.test(typedNumber)) return refusal(`mail: no message ${typedNumber}`);
   if (vantageOf(env.session, env.network) === null) return refusal(UNREACHABLE);
+  const file = attached(env, options.attach);
+  if ('refused' in file) return refusal(file.refused);
 
   const number = Number(typedNumber);
   const original = await env.mail.read(saved.login, number, { mark: false });
@@ -405,11 +495,11 @@ const reply = async (
   return composeAndSend(
     env,
     saved,
-    { to, handle, subject: replySubject(original.message.subject) },
+    { to, handle, subject: replySubject(original.message.subject), attachment: file.attachment },
     {
       content: `\n${quoted(original.message.body)}`,
       cancelled: 'mail: reply cancelled',
-      wrote,
+      wrote: options.wrote,
     },
   );
 };
@@ -429,6 +519,7 @@ const write = (
   env: CommandEnv,
   subcommand: 'send' | 'reply',
   rest: readonly string[],
+  attach: string | undefined,
 ): Promise<CommandResult> | CommandResult => {
   if (env.scripted === true) {
     const [first, second, third] = rest;
@@ -440,20 +531,20 @@ const write = (
       second !== undefined &&
       third !== undefined
     ) {
-      return send(env, first, second, third);
+      return send(env, first, second, { wrote: third, attach });
     }
     if (subcommand === 'reply' && rest.length === 2 && first && second !== undefined) {
-      return reply(env, first, second);
+      return reply(env, first, { wrote: second, attach });
     }
     return refusal(USAGE);
   }
   const [target, ...words] = rest;
   if (!hasTty(env.session)) return refusal(`mail: ${subcommand} needs a terminal`);
   if (subcommand === 'send' && target !== undefined && words.length > 0) {
-    return send(env, target, words.join(' '));
+    return send(env, target, words.join(' '), { attach });
   }
   if (subcommand === 'reply' && target !== undefined && words.length === 0) {
-    return reply(env, target);
+    return reply(env, target, { attach });
   }
   return refusal(USAGE);
 };
@@ -526,13 +617,17 @@ export const checkMail = async (
 /** A message number as typed: a whole number from 1, written the way the list writes it. */
 const MESSAGE_NUMBER = /^[1-9][0-9]*$/;
 
-const execute: Command['execute'] = async (env, args) => {
+const execute: Command['execute'] = async (env, args, flags) => {
   const [subcommand, ...rest] = args;
+  const attachFlag = flags.get('-A');
+  const attach = typeof attachFlag === 'string' ? attachFlag : undefined;
   if (args.length === 1 && subcommand === 'login') return login(env);
   if (args.length === 1 && subcommand === 'logout') return logout(env);
   if (args.length === 1 && subcommand === 'passwd') return passwd(env);
-  if (subcommand === 'send' || subcommand === 'reply') return write(env, subcommand, rest);
-  const numbered = (subcommand === 'read' || subcommand === 'delete') && rest.length === 1;
+  if (subcommand === 'send' || subcommand === 'reply') return write(env, subcommand, rest, attach);
+  const numbered =
+    ((subcommand === 'read' || subcommand === 'delete') && rest.length === 1) ||
+    (subcommand === 'save' && (rest.length === 1 || rest.length === 2));
   if (args.length > 0 && !numbered) return refusal(USAGE);
 
   // What is wrong with the question comes before what is wrong with the network: joining
@@ -546,6 +641,7 @@ const execute: Command['execute'] = async (env, args) => {
   if (vantageOf(env.session, env.network) === null) return refusal(UNREACHABLE);
 
   if (typed === undefined) return list(env, saved);
+  if (subcommand === 'save') return save(env, saved, Number(typed), rest[1]);
   return subcommand === 'delete'
     ? remove(env, saved, Number(typed))
     : read(env, saved, Number(typed));
@@ -557,6 +653,7 @@ export const mail: Command = {
   category: 'network',
   tier: 'guest',
   availability: { kind: 'installed-package', packageName: 'mailutils' },
+  flags: { '-A': 'string' },
   // The password prompts need somebody to ask. Reading and logging out ask nothing; send
   // and reply need nano only when typed, which `write` asks about itself.
   withoutTty: (args) =>
@@ -589,7 +686,13 @@ export const mail: Command = {
       'when it is sent, and the draft is lost: there is no Sent folder. A subject may be 80 ' +
       'characters, a body 4,000, and you may send 20 messages an hour, bounces included. ' +
       'delete removes a message for everyone who holds the password; its number is never ' +
-      'used again. logout deletes ~/.mailrc. The password is checked every time, so once it ' +
+      'used again. send and reply take -A and a file to carry that file with the message, ' +
+      'one file to a message, up to 8,000 bytes, read from the box you are on as the user ' +
+      'you are; it goes under its own name, never its path. read ends a message that carries ' +
+      'a file with its name and size, and save writes the file a message carries where you ' +
+      'stand, under its own name, or to the path that follows the number: into a directory, ' +
+      'or over a file. save does not mark the message read, and a reply does not carry the ' +
+      'file it answers. logout deletes ~/.mailrc. The password is checked every time, so once it ' +
       'is changed a saved login fails until it is saved again. passwd asks for the old ' +
       'password and the new one twice, changes it at emailit.io and saves the new one to ' +
       '~/.mailrc, so every other copy of the old password stops working at once, wherever ' +
@@ -608,15 +711,16 @@ export const mail: Command = {
         name: 'command',
         description:
           '"read", to print one message, "send", to write one, "reply", to answer one, ' +
-          '"delete", to remove one, "passwd", to change the password, "login", to save an ' +
+          '"delete", to remove one, "save", to write out the file one carries, "passwd", to ' +
+          'change the password, "login", to save an ' +
           'address and its password, or "logout", to delete the saved login (default: list ' +
           'the inbox)',
         required: false,
-        values: ['read', 'send', 'reply', 'delete', 'passwd', 'login', 'logout'],
+        values: ['read', 'send', 'reply', 'delete', 'save', 'passwd', 'login', 'logout'],
       },
       {
         name: 'n',
-        description: 'For "read", "reply" and "delete": the number of the message',
+        description: 'For "read", "reply", "delete" and "save": the number of the message',
         required: false,
       },
       {
@@ -627,6 +731,11 @@ export const mail: Command = {
       {
         name: 'subject',
         description: 'For "send": the subject, every word after the address',
+        required: false,
+      },
+      {
+        name: 'path',
+        description: 'For "save": where to write the file (default: its own name, where you stand)',
         required: false,
       },
     ],

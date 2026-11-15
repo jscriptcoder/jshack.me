@@ -1069,6 +1069,27 @@ describe('readMailMessage', () => {
     });
   });
 
+  it('returns the file a message carries', async () => {
+    const attachment = { name: 'IMG_0412.jpg', content: 'Exif noise' };
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse(200, { ok: true, message: { ...OPENED, attachment } }),
+    );
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    const opened = await readMailMessage(deps, LOGIN, 1, { mark: true });
+
+    expect(opened.ok && opened.message.attachment).toEqual(attachment);
+  });
+
+  it('returns no file for a message that carries none', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, message: OPENED }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    const opened = await readMailMessage(deps, LOGIN, 1, { mark: true });
+
+    expect(opened.ok && opened.message).not.toHaveProperty('attachment');
+  });
+
   it('asks for the message to be left unread when told to', async () => {
     const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, message: OPENED }));
     const deps = makeDeps(fetchSpy as unknown as typeof fetch);
@@ -1138,6 +1159,29 @@ describe('sendMail', () => {
       subject: 'hello there',
       body: 'hi trin',
     });
+  });
+
+  it('carries the file the message carries', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+    const attachment = { name: 'IMG_0412.jpg', content: 'Exif noise' };
+
+    await sendMail(deps, LOGIN, { ...MESSAGE, attachment });
+
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected verified envelope');
+    expect(verified.payload).toMatchObject({ op: 'send', attachment });
+  });
+
+  it('carries no file field when the message carries none', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    await sendMail(deps, LOGIN, MESSAGE);
+
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected verified envelope');
+    expect(verified.payload).not.toHaveProperty('attachment');
   });
 
   it.each([

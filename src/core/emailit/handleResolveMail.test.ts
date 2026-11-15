@@ -478,6 +478,114 @@ describe('emailit.io delivers a message from whoever holds the password', () => 
   });
 });
 
+describe('emailit.io carries one file with a message', () => {
+  /** Noise a reader cannot retype, as the world's photos are. */
+  const PHOTO = '\u00ff\u00d8\u00ff\u00e1Exif\u00a1\u00b2Canon\u00c3\u00e9\u00f7\u00fe';
+  const attachedRequest = (attachment: unknown) =>
+    inboxRequest({ op: 'send', to: 'trin', subject: 'photo', body: 'here', attachment });
+
+  it('hands the store the file with the message', async () => {
+    const { deps, sendMessage } = makeDeps();
+
+    const answer = await handleResolveMail(
+      attachedRequest({ name: 'IMG_0412.jpg', content: PHOTO }),
+      deps,
+    );
+
+    expect(answer).toEqual({ status: 200, body: { ok: true } });
+    expect(sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ attachment: { name: 'IMG_0412.jpg', content: PHOTO } }),
+    );
+  });
+
+  it('hands the store no file when the message carries none', async () => {
+    const { deps, sendMessage } = makeDeps();
+
+    await handleResolveMail(
+      inboxRequest({ op: 'send', to: 'trin', subject: 'hi', body: 'hi' }),
+      deps,
+    );
+
+    expect(sendMessage.mock.calls[0]?.[0]).not.toHaveProperty('attachment');
+  });
+
+  it('carries a file of exactly 8,000 characters', async () => {
+    const { deps, sendMessage } = makeDeps();
+
+    const answer = await handleResolveMail(
+      attachedRequest({ name: 'dump.bin', content: 'x'.repeat(8000) }),
+      deps,
+    );
+
+    expect(answer.status).toBe(200);
+    expect(sendMessage).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ['a file over 8,000 characters', { name: 'dump.bin', content: 'x'.repeat(8001) }],
+    ['a file with no name', { name: '', content: PHOTO }],
+    ['a name that is a path', { name: 'tmp/IMG_0412.jpg', content: PHOTO }],
+    ['a file with no content field', { name: 'IMG_0412.jpg' }],
+  ])('turns away %s, asking nobody', async (_label, attachment) => {
+    const { deps, sendMessage } = makeDeps();
+
+    expect(await handleResolveMail(attachedRequest(attachment), deps)).toEqual({
+      status: 400,
+      body: { error: 'payload_invalid' },
+    });
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('answers a message with the file it carries', async () => {
+    const message = { ...WELCOME_OPENED, attachment: { name: 'IMG_0412.jpg', content: PHOTO } };
+    const { deps } = makeDeps({
+      openMessage: async () => ({ data: { outcome: 'opened', message }, error: null }),
+    });
+
+    expect(
+      await handleResolveMail(inboxRequest({ op: 'read', number: 1, mark: true }), deps),
+    ).toEqual({ status: 200, body: { ok: true, message } });
+  });
+
+  it('answers a message the store says carries nothing as carrying nothing', async () => {
+    const { deps } = makeDeps({
+      openMessage: async () => ({
+        data: { outcome: 'opened', message: { ...WELCOME_OPENED, attachment: null } },
+        error: null,
+      }),
+    });
+
+    const answer = await handleResolveMail(
+      inboxRequest({ op: 'read', number: 1, mark: true }),
+      deps,
+    );
+
+    expect(answer).toEqual({ status: 200, body: { ok: true, message: WELCOME_OPENED } });
+  });
+
+  it('answers a mail to a client exactly as it would without the file', async () => {
+    const client = missionTerms(66051).client;
+    const { deps, sendMessage, clientMail } = makeDeps();
+
+    const answer = await handleResolveMail(
+      inboxRequest({
+        op: 'send',
+        to: client.handle,
+        subject: 'the job',
+        body: 'here it is',
+        attachment: { name: 'IMG_0412.jpg', content: PHOTO },
+      }),
+      deps,
+    );
+
+    expect(answer).toEqual({ status: 200, body: { ok: true } });
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(clientMail.reply).toHaveBeenCalledWith(
+      expect.objectContaining({ reply: expect.objectContaining({ subject: 'No contract' }) }),
+    );
+  });
+});
+
 describe('a mail to a client handle is answered by the client, never delivered', () => {
   const client = missionTerms(66051).client;
   const clientRequest = () =>

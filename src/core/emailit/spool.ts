@@ -22,6 +22,9 @@ export type SpoolMessage = {
   readonly body: string;
   readonly delivered_at: string;
   readonly read: boolean;
+  /** The one file the message carries, by name and content, or null for both. */
+  readonly attachment_name: string | null;
+  readonly attachment_content: string | null;
 };
 
 /** One account, with everything in its inbox. */
@@ -32,20 +35,54 @@ export type SpoolAccount = {
   readonly messages: readonly SpoolMessage[];
 };
 
+/** Text as an mbox keeps it: a line that begins like a separator is quoted, or the rest of
+ *  the file would split off from it. */
+const mboxLines = (text: string): readonly string[] =>
+  text.split('\n').map((line) => (line.startsWith('From ') ? `>${line}` : line));
+
+/** A message as MIME writes it: no extra headers and the body alone, or, for a message that
+ *  carries a file, the body and the file as two parts. The file is laid in raw, not base64:
+ *  the game has no `base64 -d`, so a root here sees what everybody was sent but cannot
+ *  cleanly carve it back out byte for byte, as this view lets a root read and forge, never
+ *  take. */
+const mimeOf = (
+  message: SpoolMessage,
+): { readonly headers: readonly string[]; readonly content: readonly string[] } => {
+  const { attachment_name: name, attachment_content: content } = message;
+  if (name === null || content === null) return { headers: [], content: mboxLines(message.body) };
+  const boundary = `emailit-${message.number}`;
+  return {
+    headers: ['MIME-Version: 1.0', `Content-Type: multipart/mixed; boundary="${boundary}"`],
+    content: [
+      `--${boundary}`,
+      'Content-Type: text/plain; charset=utf-8',
+      '',
+      ...mboxLines(message.body),
+      `--${boundary}`,
+      `Content-Type: application/octet-stream; name="${name}"`,
+      `Content-Disposition: attachment; filename="${name}"`,
+      '',
+      ...mboxLines(content),
+      `--${boundary}--`,
+    ],
+  };
+};
+
 /** One message as an mbox keeps it. An unread message has no `Status:` line, as real mail
- *  stores leave it, so a root can see what its owner has not opened. A body line that
- *  begins like a separator is quoted, or the rest of the file would split off from it. */
+ *  stores leave it, so a root can see what its owner has not opened. */
 const mboxEntry = (to: string, message: SpoolMessage): string => {
   const delivered = Date.parse(message.delivered_at);
+  const mime = mimeOf(message);
   return [
     `From ${message.sender} ${asctime(delivered)}`,
     `Date: ${rfcDate(delivered)}`,
     `From: <${message.sender}>`,
     `To: <${to}>`,
     `Subject: ${message.subject}`,
+    ...mime.headers,
     ...(message.read ? ['Status: RO'] : []),
     '',
-    ...message.body.split('\n').map((line) => (line.startsWith('From ') ? `>${line}` : line)),
+    ...mime.content,
     '',
     '',
   ].join('\n');

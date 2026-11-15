@@ -29,7 +29,8 @@ All email state is in Supabase, reached only by the service-role Vercel function
 migrations build it: `20261014000000_email.sql` (accounts, the welcome mail, sign-up),
 `20261015000000_email_reading.sql` (the inbox read path and the guess throttle),
 `20261015010000_email_sending.sql` (sends and the hourly limit) and
-`20261015020000_email_passwd.sql`.
+`20261015020000_email_passwd.sql`; `20261115000000_email_attachments.sql` (v0.460.0) gives a
+message the one file it may carry ([Attachments](#attachments)).
 
 **Tables.**
 
@@ -92,6 +93,7 @@ shown to other players by design, and people reuse real passwords — this prote
 
 `mail` comes from `apt install mailutils` and is preinstalled nowhere
 (`core/commands/mail.ts`). Subcommands: `login`, bare `mail` (list), `read <n>`,
+`save <n> [path]` (v0.460.0, [Attachments](#attachments)),
 `send <to> <subject>`, `reply <n>`, `delete <n>`, `passwd`, `logout`.
 
 **The file is the login.** There is no terminal-held session: `mail` is logged in as whatever
@@ -140,6 +142,38 @@ a thief who reaches a victim's box copies the address and password out of their 
   so nobody can lock anyone else out. Online guessing works but is slow; cracking the hash
   file stays the fast route.
 
+## Attachments
+
+Since v0.460.0 a message may carry **one file**, to any address. It is the groundwork for file
+jobs (a contract that asks for a file brought back), but it is a rule of mail, not of clients:
+partners pass loot by mail, and whoever holds someone's `~/.mailrc` can save what they were sent.
+
+- **Sending.** `mail send <to> <subject> -A <file>` and `mail reply <n> -A <file>` (GNU
+  mailutils' own flag, declared in the command's flag spec, so a script passes `{ '-A': path }`
+  in its trailing flags object). The file is read on the box the shell stands on, as the current
+  user: what `cat` cannot read cannot go, refused with `cat`'s words before nano opens. It goes
+  under its basename, never the sender's path. A second `-A` replaces the first, as the shell
+  binds every string flag. A reply never carries the attachment of the message it answers;
+  there is no forward.
+- **The limit is 8,000 characters**, counted as `ls -l` counts a file (its length), checked by
+  the command before nano opens, by the handler's schema (with a name that is non-empty and holds
+  no `/`), and by the table's constraints. Small on purpose: a file worth mailing need only look
+  binary, and every attachment is laid whole into the root view (section 6).
+- **Stored on the message**, as two nullable columns of `email_messages`, `attachment_name` and
+  `attachment_content`, both or neither, so `mail delete` takes the file with the message.
+  `email_send` takes them as two more arguments and stays `STRICT`: a message with no file is
+  sent with an empty name, which no file may have, and stored as `NULL`. `email_read` answers
+  `attachment` as `{name, content}` or `null`, and the wire leaves the field out for none.
+- **Reading and saving.** `mail read <n>` ends such a message with a blank line and
+  `[attachment: <name>, <size> bytes]`; the list is unchanged. `mail save <n> [path]` writes the
+  file where the shell stands under its own name, into a directory the path names, or over the
+  file it names, by the rule a redirect writes by (`resolveWriteTarget`): the file decides an
+  overwrite, the directory a new file. It opens the message without marking it read, as a reply
+  does, and works from a script.
+- **Bytes survive.** The world's noise (`documentFormats.ts`) is drawn so a signed write and the
+  TEXT column carry it unchanged; `testMailAttach.ts` sends 6,000 characters of it and reads
+  every one back.
+
 ## 5. The new-mail check
 
 The one deliberate timed pull in a client that otherwise polls nothing (`ui/state.ts`,
@@ -171,7 +205,12 @@ from the tables on every read, in `core/emailit/spool.ts`:
 - **`/var/mail/<handle>`** — a real mbox shaped like the NPC mailboxes
   (`generation/mailbox.ts`, which now exports `rfcDate` and `asctime`): a
   `From <sender> <asctime>` separator, then `Date:`, `From:`, `To:`, `Subject:`, a blank line
-  and the body, oldest first. A read message carries `Status: RO`, an unread one none, so a
+  and the body, oldest first. A message that carries a file is `multipart/mixed` (`MIME-Version`
+  and `Content-Type` after `Subject:`, boundary `emailit-<number>`): the body as a `text/plain`
+  part, then the file as an `application/octet-stream` part with `Content-Disposition:
+  attachment; filename="<name>"` and its raw bytes, not base64. The game has no `base64 -d`, so a
+  root sees what everybody was sent but cannot cleanly carve it back out, as the view lets a
+  root read and forge, never take. A file's lines are quoted `>From ` like a body's. A read message carries `Status: RO`, an unread one none, so a
   root sees what the owner has not opened; a body line beginning `From ` is written `>From `.
   No `Received:` lines, no message numbers. **Every account has a file**, 0 bytes when its
   inbox is empty, so the spool and the passwd file always name the same accounts.
@@ -197,8 +236,8 @@ attackable box was the odd exception, and the real-files design, where one root 
 every account by writing a hash with no way to undo it.
 
 **Ceiling (a recorded tripwire, `backlog.md`).** The view is built whole on every read, so a
-response — capped at 4.5 MB — breaks at about 11 full inboxes (100 × 4,000 chars) or a few
-thousand ordinary ones. With sends held to 20 an hour nobody reaches it before launch; the
+response — capped at 4.5 MB — breaks at about 3 full inboxes (100 messages of a 4,000-character
+body and an 8,000-character attachment each, since v0.460.0) or a few thousand ordinary ones. With sends held to 20 an hour nobody reaches it before launch; the
 fix, when needed, is to serve the listing first and fetch a mailbox only when it is read.
 
 ## 7. The two takeover routes
@@ -226,8 +265,9 @@ Either way, `mail passwd` finishes the takeover and the victim's next check tell
   the `mail` command and its script mode, the mbox builder (`spool.test.ts`), the `keepsMail`
   directories, the root-only read filter, and the new-mail check.
 - **Wire-checks** (`api/` runtime, vs `vercel dev` + local supabase):
-  `scripts/testEmailitSignup.ts`, `testMailRead.ts`, `testMailSend.ts`, `testMailPasswd.ts`
-  and `testMailSpool.ts` (the root view: root sees passwd and mailboxes with read marks, a
+  `scripts/testEmailitSignup.ts`, `testMailRead.ts`, `testMailSend.ts`, `testMailPasswd.ts`,
+  `testMailAttach.ts` (a file sent and read back byte for byte, the limits, delete, the MIME
+  part, a client ignoring it) and `testMailSpool.ts` (the root view: root sees passwd and mailboxes with read marks, a
   lower tier and no session see neither, a root write sits over the view while the real inbox
   is untouched, and wiping the journal restores it).
 - **One live browser run at the epic's close-out** (2026-10-15, v0.389.0) walked all six

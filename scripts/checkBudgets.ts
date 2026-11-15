@@ -63,8 +63,10 @@ import {
  *  subjects and grades) added 58 B, rounded up to 100; then the sabotage kind (its third of
  *  the draw, and the role that names a target's hostname, with its noun and pitches) added
  *  214 B, rounded up to 300; then the seven machines a client can want down (each one's noun,
- *  suffix and reasons, and the draw between them) added 679 B, rounded up to 700. */
-const BUNDLE_CEILING_BYTES = 300_575;
+ *  suffix and reasons, and the draw between them) added 679 B, rounded up to 700; then mail
+ *  that carries a file (`-A` on send and reply, `mail save`, their refusals and the manual's
+ *  words for them) added 691 B, rounded up to 700. */
+const BUNDLE_CEILING_BYTES = 301_275;
 
 /** About a tenth of that before world content, so a loaded machine's noise cannot fail
  *  the check while a content change that makes boxes ten times dearer still does. */
