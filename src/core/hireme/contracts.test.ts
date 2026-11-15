@@ -10,7 +10,7 @@ import {
 import { missionTerms, type MissionTerms } from '../missions/missionTerms.js';
 import { missionAddressForNumber } from '../missions/missionNetwork.js';
 import { missionKeyPath } from '../missions/missionSecret.js';
-import { missionFileName, missionFilePath } from '../missions/missionFileItem.js';
+import { missionFileItem, missionFileName, missionFilePath } from '../missions/missionFileItem.js';
 import { missionShape } from '../missions/missionShape.js';
 import {
   RECORD_SETTINGS,
@@ -90,6 +90,22 @@ const fileNumber = (twoHop: boolean): number => {
 
 const FILE_SINGLE_HOP = fileNumber(false);
 const FILE_TWO_HOP = fileNumber(true);
+
+/** The first single-hop file contract from 70,000 up asking for the item called `noun`. */
+const fileNumberFor = (noun: string): number => {
+  for (let candidate = 70_000; candidate < 2_000_000; candidate++) {
+    if (!isMissionNumber(candidate) || missionFileItem(candidate).noun !== noun) continue;
+    const shape = missionShape(candidate);
+    if (shape.kind === 'file' && shape.frontBox === null) return candidate;
+  }
+  throw new Error(`no file contract for a ${noun}`);
+};
+
+/** The briefing's line asking for the job's item. */
+const askedLine = (missionNumber: number): string => {
+  const { keepers, noun } = missionFileItem(missionNumber);
+  return `Their ${keepers} keep a ${noun}. Bring it to us. Its name is:`;
+};
 
 /** School contracts asking for a grade changed rather than a key: a single-hop one and a
  *  two-hop one. */
@@ -620,7 +636,7 @@ describe('accepting an offer', () => {
           '',
           `The target is ${terms.targetCompany}. Their network is at ${missionAddressForNumber(FILE_SINGLE_HOP)}.`,
           '',
-          'Their engineers keep a firmware image. Bring it to us. Its name is:',
+          askedLine(FILE_SINGLE_HOP),
           '',
           `  ${missionFileName(FILE_SINGLE_HOP)}`,
           '',
@@ -645,7 +661,7 @@ describe('accepting an offer', () => {
           '',
           `The target is ${terms.targetCompany}. Their network is at ${missionAddressForNumber(FILE_TWO_HOP)}.`,
           '',
-          'Their engineers keep a firmware image. Bring it to us. Its name is:',
+          askedLine(FILE_TWO_HOP),
           '',
           `  ${missionFileName(FILE_TWO_HOP)}`,
           '',
@@ -655,6 +671,29 @@ describe('accepting an offer', () => {
           'No file, no money. No wallet, no money.',
           '',
           `-- ${terms.client.company}`,
+          '',
+        ].join('\n'),
+      );
+    });
+
+    it.each([
+      ['prototype render', 'designers'],
+      ['site photo', 'surveyors'],
+      ['signed contract', 'lawyers'],
+      ['firmware image', 'engineers'],
+      ['customer export', 'salespeople'],
+      ['key ring', 'admins'],
+    ])('asks for a %s from the %s who keep it, by its name', async (noun, keepers) => {
+      const missionNumber = fileNumberFor(noun);
+      const { store, accepts } = boardStore({ offers: [{ number: missionNumber, ref: 'hhh' }] });
+
+      await accept('offer=hhh', store);
+
+      expect(accepts[0]!.briefing.body).toContain(
+        [
+          `Their ${keepers} keep a ${noun}. Bring it to us. Its name is:`,
+          '',
+          `  ${missionFileName(missionNumber)}`,
           '',
         ].join('\n'),
       );
@@ -674,7 +713,8 @@ describe('accepting an offer', () => {
 
         expect(body).not.toContain(`${stem}-`);
         expect(body).not.toContain(directory);
-        expect(body).not.toMatch(/\bkey\b/i);
+        // A key ring is the one item whose name says key; nothing else in the mail does.
+        expect(body.replaceAll(missionFileItem(missionNumber).noun, '')).not.toMatch(/\bkey\b/i);
         expect(body.match(/\d+\.\d+\.\d+\.\d+/g)).toEqual([missionAddressForNumber(missionNumber)]);
       }
     });

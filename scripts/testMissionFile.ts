@@ -4,8 +4,9 @@
 // working it through the REAL /api endpoints.
 //
 // Net-new under test (the locally-untypechecked api/ runtime):
-//   - THE SERVER LAYS THE FILE: root cracked over :2222 reads the firmware image at the path
-//     `hireme.ts show` names, root-only, its bytes the ones drawn from this deployment's secret.
+//   - THE SERVER LAYS THE FILE: root cracked over :2222 reads the job's signed contract at the
+//     path `hireme.ts show` names, root-only, its bytes the ones drawn from this deployment's
+//     secret. A contract is the one item a pdf, so the one with line breaks to carry home.
 //   - THE CLIENT READS THE ATTACHMENT: a mail with none is asked for the file, one carrying
 //     another file is told it is not the one, and neither closes the job.
 //   - THE RIGHT BYTES PAY ONCE, UNDER ANY NAME: the file mailed back renamed completes the job
@@ -38,7 +39,11 @@ import { deserializeTree, type SerializedDirectory } from '../src/core/filesyste
 import type { Directory, FileNode } from '../src/core/filesystem/types.js';
 import { missionShape } from '../src/core/missions/missionShape.js';
 import { missionTerms } from '../src/core/missions/missionTerms.js';
-import { missionFileContent, missionFilePath } from '../src/core/missions/missionFileItem.js';
+import {
+  missionFileContent,
+  missionFileItem,
+  missionFilePath,
+} from '../src/core/missions/missionFileItem.js';
 import {
   isMissionNumber,
   missionAddressForNumber,
@@ -96,16 +101,18 @@ const runHireme = (args: readonly string[]): string =>
 const SSH_PORT = 2222;
 const RUN = Date.now().toString(36).slice(-6);
 
-/** A single-hop file job whose target falls to hydra, so its root is on every player's list. */
+/** A single-hop file job asking for a signed contract, whose target falls to hydra, so its root
+ *  is on every player's list. */
 const fileJobNumber = (from: number): number => {
   for (let candidate = from; candidate < from + 60000; candidate += 1) {
     if (!isMissionNumber(candidate)) continue;
     const shape = missionShape(candidate);
+    if (missionFileItem(candidate).noun !== 'signed contract') continue;
     if (shape.kind === 'file' && shape.frontBox === null && shape.keyBox.route === 'hydra') {
       return candidate;
     }
   }
-  throw new Error(`no single-hop hydra file job from ${from}`);
+  throw new Error(`no single-hop hydra signed-contract job from ${from}`);
 };
 
 const JOB = fileJobNumber(600000);
@@ -126,6 +133,9 @@ const TERMS = missionTerms(JOB);
 const FILE_PATH = missionFilePath(JOB);
 const FILE = missionFileContent(JOB, missionSecret);
 const WALLET_ADDRESS = `jsc${md5(`${RUN}:${JOB}`)}${md5(String(JOB)).slice(0, 8)}`;
+
+/** What a pdf has and the other items lack, so carrying the contract proves it survives. */
+const LINE_BREAK = String.fromCharCode(10);
 
 const NO_FILE = 'No file, no money. Send the file.';
 const WRONG_FILE = "That's not the file we asked for.";
@@ -290,7 +300,7 @@ const main = async () => {
   const shown = runHireme(['show', ADDRESS]).split('\n');
   check(
     'hireme.ts show names the item, the file, its path and its size',
-    shown.includes('  Kind:     file, firmware image') &&
+    shown.includes('  Kind:     file, signed contract') &&
       shown.includes(`  File:     ${FILE_PATH}, ${FILE.length.toLocaleString('en-US')} bytes`),
     JSON.stringify(shown.filter((line) => /Kind|File/.test(line))),
   );
@@ -304,8 +314,8 @@ const main = async () => {
   );
   const laid = await targetAsRoot();
   check(
-    "root reads the firmware image at its path, every byte the secret's",
-    laid.file?.kind === 'file' && laid.file.content === FILE,
+    "root reads the signed contract at its path, every byte the secret's, line breaks and all",
+    FILE.includes(LINE_BREAK) && laid.file?.kind === 'file' && laid.file.content === FILE,
     `status ${laid.status}, ${laid.file?.kind === 'file' ? laid.file.content.length : 0} of ${FILE.length} chars`,
   );
   check(

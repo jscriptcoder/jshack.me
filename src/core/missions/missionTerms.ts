@@ -20,7 +20,7 @@
 import { createPrng } from '../generation/prng.js';
 import { missionKind, missionTopology } from './missionShape.js';
 import { sabotageRole } from './sabotageRoles.js';
-import { FIRMWARE_IMAGE } from './missionFileItem.js';
+import { missionFileItem } from './missionFileItem.js';
 import {
   missionAction,
   missionSetting,
@@ -315,7 +315,7 @@ export const missionTerms = (missionNumber: number): MissionTerms => {
     };
   }
   if (missionKind(missionNumber) === 'file') {
-    const { noun, pitches } = FIRMWARE_IMAGE;
+    const { noun, pitches } = missionFileItem(missionNumber);
     return {
       job: 'file',
       client: prng.pick(CLIENTS),

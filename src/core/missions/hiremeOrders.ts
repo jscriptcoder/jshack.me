@@ -27,7 +27,7 @@ import { missionKeyFilePath, missionLeakPath, missionLeakWord } from './missionL
 import { missionKey, missionPassphrase } from './missionSecret.js';
 import { missionAddressForNumber, missionEssid } from './missionNetwork.js';
 import { missionTerms } from './missionTerms.js';
-import { FIRMWARE_IMAGE, missionFileContent, missionFilePath } from './missionFileItem.js';
+import { missionFileContent, missionFileItem, missionFilePath } from './missionFileItem.js';
 import {
   missionAction,
   missionRecords,
@@ -119,7 +119,7 @@ const kindLine = (missionNumber: number, kind: MissionKind): readonly string[] =
     ];
   }
   if (kind === 'sabotage') return [`  Kind:     sabotage, ${sabotageRole(missionNumber).noun}`];
-  if (kind === 'file') return [`  Kind:     file, ${FIRMWARE_IMAGE.noun}`];
+  if (kind === 'file') return [`  Kind:     file, ${missionFileItem(missionNumber).noun}`];
   return [];
 };
 

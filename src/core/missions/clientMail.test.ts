@@ -6,7 +6,7 @@ import { missionTerms, type MissionClient } from './missionTerms.js';
 import { missionKind, missionShape } from './missionShape.js';
 import { missionFiles } from './missionLeak.js';
 import { missionAction, missionRecords } from './missionRecords.js';
-import { missionFileContent } from './missionFileItem.js';
+import { missionFileContent, missionFileItem } from './missionFileItem.js';
 import { runStatement } from '../mysql/statements.js';
 import { DATADIR_PATH, databaseIn } from '../mysql/datadir.js';
 import { buildMissionKeyBoxFs } from '../generation/missionKeyBoxFs.js';
@@ -748,6 +748,31 @@ describe('a mail on a file job', () => {
       },
     ]);
     expect(replies).toEqual([]);
+  });
+
+  it.each([
+    'prototype render',
+    'site photo',
+    'signed contract',
+    'firmware image',
+    'customer export',
+    'key ring',
+  ])('completes a job asking for a %s when the mail carries its bytes', async (noun) => {
+    const missionNumber = FILE_JOBS.find((job) => missionFileItem(job).noun === noun)!;
+    const { client } = missionTerms(missionNumber);
+    const { store, completes } = clientStore({
+      jobs: [{ number: missionNumber, state: 'accepted' }],
+    });
+
+    await mailTo(store, {
+      to: client,
+      body: `here it is\n${WALLET}\n`,
+      file: missionFileContent(missionNumber, SECRET),
+    });
+
+    expect(completes.map(({ number, wallet }) => ({ number, wallet }))).toEqual([
+      { number: missionNumber, wallet: WALLET },
+    ]);
   });
 
   it('completes and pays nothing when the mail names no wallet', async () => {
