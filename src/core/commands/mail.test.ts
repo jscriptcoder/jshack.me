@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { checkMail, mail, markSeen, type MailWatch } from './mail.js';
 import { buildCommandContext } from '../scripting/commandContext.js';
+import { bindFlags } from '../shell/bindFlags.js';
+import { PATCH_ERROR_REASON } from './types.js';
 import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
 import {
   mockCommandEnv,
@@ -2124,11 +2126,13 @@ describe('mail read and mail save — the file a message carries', () => {
   };
 
   it('saves the file where the shell stands, under its own name, byte for byte', async () => {
-    const { env, treeAfter } = savingEnv();
+    const { env, treeAfter, writtenAsNew } = savingEnv();
 
     const result = await mail.execute(env, ['save', '3'], NO_FLAGS);
 
     expect(result).toEqual({ kind: 'sync', lines: [], exitCode: 0 });
+    // A file that was not there is written as new, so a later rm takes it away for good.
+    expect(writtenAsNew).toEqual([true]);
     expect(readAs(treeAfter(), 'user', '/home/alice/IMG_0412.jpg')).toEqual({
       ok: true,
       content: PHOTO,
@@ -2185,6 +2189,17 @@ describe('mail read and mail save — the file a message carries', () => {
     expect(linesOf(result, 'error')).toEqual([said]);
     expect(exitCodeOf(result)).toBe(1);
     expect(writtenAsNew).toEqual([]);
+  });
+
+  it('says so when the box refuses the write, the reason and the path as typed', async () => {
+    const { env } = mailEnv({ opens: { ok: true, message: carrying }, refuses: 'write' });
+
+    const result = await mail.execute(env, ['save', '3', '/home/alice/photo.jpg'], NO_FLAGS);
+
+    expect(linesOf(result, 'error')).toEqual([
+      `mail: /home/alice/photo.jpg: ${PATCH_ERROR_REASON.network_error}`,
+    ]);
+    expect(exitCodeOf(result)).toBe(1);
   });
 
   it('refuses a message that carries no file', async () => {
@@ -2350,6 +2365,24 @@ describe('mail send -A — one file carried with the message', () => {
 
     expect(sent[0]?.mail).toMatchObject({
       body: 'here',
+      attachment: { name: 'IMG_0412.jpg', content: PHOTO },
+    });
+  });
+
+  it('takes -A and its file wherever they sit on a typed line', async () => {
+    const { env, sent } = mailEnv({
+      tree: boxHolding([['/tmp/IMG_0412.jpg', buildFile(PHOTO, { owner: 'alice' })]]),
+    });
+    const bound = bindFlags(
+      ['send', 'trin', '-A', '/tmp/IMG_0412.jpg', 'the', 'photo'],
+      mail.flags ?? {},
+    );
+    if (!bound.ok) throw new Error(bound.error);
+
+    await mail.execute(env, bound.positional, bound.flags);
+
+    expect(sent[0]?.mail).toMatchObject({
+      subject: 'the photo',
       attachment: { name: 'IMG_0412.jpg', content: PHOTO },
     });
   });
