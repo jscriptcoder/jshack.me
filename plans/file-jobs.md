@@ -1,6 +1,7 @@
 # Plan: mail carries a file, and a contract that asks for one
 
-**Status:** Grilled 2026-11-15. Slice 1 planned and in flight on `feat/mail-attachments`.
+**Status:** Grilled 2026-11-15. Slice 1 merged (v0.460.0, #772). Slice 2 planned, on
+`feat/file-jobs`.
 
 A fourth kind of contract. Key jobs compare a mailed key, tamper jobs read a records box, sabotage
 jobs check that a machine no longer boots. A **file job** asks the player to bring back one file
@@ -221,3 +222,92 @@ merge.
 are green, the wire-check plus `testMailSend`, `testMailRead` and `testMailSpool` pass, the
 mutation gate has run, the version is bumped (0.460.0) and `email-architecture.md` describes
 attachments.
+
+**As built (v0.460.0, #772).** Two departures from criteria 1 and 2, both from wiring `-A`
+through the shell's own flag binder (`bindFlags`), as `curl -d` and `scp -p` are: a second `-A`
+replaces the first instead of being a usage error, and a script passes `{ '-A': '<file>' }` in
+its trailing flags object rather than among its arguments. The bundle's ceiling rose 700 B.
+
+---
+
+## Slice 2: a file job pays
+
+**Value:** a contractor accepts a job asking for a firmware image, roots the target, mails the
+file back attached, and is paid when its bytes are the ones the server laid.
+**Path:** `missionKind` (`core/missions/missionShape.ts`) draws `file` → `missionTerms` gives
+the board line, pitch and pay → the briefing (`core/hireme/contracts.ts`) names the file →
+`missionFiles` (`core/missions/missionLeak.ts`) lays it on the target, root-only, from the
+secret, and `missionFilePaths` puts it behind the write gate → `mail send <client> … -A <file>`
+→ `handleResolveMail` hands the attachment to `answerClientMail`
+(`core/missions/clientMail.ts`), which compares its bytes and completes the job →
+`showReport` (`core/missions/hiremeOrders.ts`) prints the item, path and size. The item's
+name, directory, pitches and bytes live in a new server-only module beside the terms.
+**Class:** behavior change. **Delivery:** one PR against `main`.
+**Skills:** `tdd`, `testing`, `refactoring`; `mutation-testing` at PR readiness.
+
+**Settled while planning (2026-11-15)**
+
+- **The quarters are carved so that no number changes between the old kinds.** Tamper keeps
+  below ¼, sabotage ⅓ to 7⁄12, key from ¾; file takes the two gaps, ¼ to ⅓ and 7⁄12 to ¾. A
+  number is the kind it was or has become a file job, never a tamper job turned sabotage. Three
+  in four numbers keep their kind, the most any quarter split can keep. Rejected: contiguous
+  quarters in the grill's order (simpler to read, but a twelfth of all numbers would swap
+  between tamper and sabotage too).
+- **The target keeps the key box's hostname, `<stem>-files`,** and has no storage
+  (`MissionShape.storage` is `null`), as a sabotage target has none: the job's file is its
+  only addition.
+- **The firmware image:** `<device>-fw-<major>.<minor>.<patch>.bin`, the device one of `ctl`,
+  `plc`, `rtu`, `hmi` and `cam`, in `/opt/firmware/` or `/srv/releases/`, all drawn from the
+  number on `mission-file-<n>`. Its content is a readable header, `FWIMG v<version> <device>`,
+  then 1,000 to 3,000 characters of noise, both the length and the noise drawn from an HMAC of
+  the number under `MISSION_KEY_SECRET` (`file:<n>`), from the same Latin-1 range
+  `documentFormats.ts` draws from (no NUL, no control characters, so it survives the signed
+  write and the TEXT column).
+
+**Acceptance criteria**
+
+1. `mission-kind-<n>` splits into quarters as settled above. Every number that keeps its kind
+   keeps its shape, terms and LAN byte for byte; every other number is now a file job.
+2. A file job's target is the key box's slot: the same octet, route, decoys and front box, the
+   inside box on two-hop, hostname `<stem>-files`, no storage (no key, no records, and no mysqld
+   for them).
+3. The server lays exactly one file on the target: the firmware image, at its drawn path,
+   mode 600 owned by root. `strings` shows its header, the rest is noise. The same number
+   under another secret has other bytes. Only root may write the path, and a root's `rm` of
+   it sticks for every later visitor.
+4. The board offers `<Client> — retrieve a firmware image — §<pay>`, and `retrieve an internal
+   firmware image` on two-hop, at a key job's pay (500–2,000 single-hop, 2,000–4,000 two-hop,
+   to the nearest 50), its pitch one of the firmware image's own four.
+5. The briefing names the file and never its path or box: "Their engineers keep a firmware
+   image, `<name>`. Bring it to us." On two-hop it adds "The file is on a machine inside their
+   network, not on the edge." It ends "Mail it to this address as an attachment, with your
+   wallet address." and "No file, no money. No wallet, no money."
+6. A mail to the client of an accepted file job is answered by the first row that fits
+   (the grill's table, decision 13): no accepted job here and not a completed job's file → "We
+   have no contract with you."; no attachment → "No file, no money. Send the file."; the laid
+   bytes with a wallet → "File received. §X sent to jsc…. Pleasure doing business.", completed
+   and paid once; the laid bytes and no wallet → "File received. You sent no wallet, so there is
+   nothing to pay. No wallet, no money.", completed; a completed job's file → "That job is
+   already closed."; any other attachment → "That's not the file we asked for." The attachment's
+   name does not matter, and the client never reads the box.
+7. A file job ignores a key in the mail's text; key, tamper and sabotage jobs ignore an
+   attachment, answering exactly as before.
+8. `hireme.ts show` prints `Kind: file, firmware image` and `File: <path>, <size> bytes`, and no
+   storage, key path or key.
+
+**RED first:** unit tests in `missionShape.test.ts` (the quarters, the empty storage, a number
+that kept its kind unchanged), `missionTerms.test.ts` (board line, pitch, pay), a test file for
+the new item module (name, path, header, length, secret-bound bytes, character range),
+`missionLeak.test.ts` (the file laid alone, root-only, and in `missionFilePaths`),
+`contracts.test.ts` (the briefing), `clientMail.test.ts` (every row, and the other kinds
+ignoring an attachment), `handleResolveMail.test.ts` (the attachment reaching the client's
+door) and `hiremeOrders.test.ts` (the report). **Wire-check** `scripts/testMissionFile.ts`
+against `vercel dev` + local supabase, staging through the real `hireme.ts`: a root on the
+target reads the file root-only at its path, a guest is refused it, mails with no attachment, the
+wrong one and the right one (with a wallet, which is paid once), then the right one again
+(closed), and a root's `rm` of the file sticking. The fixed numbers the other mission
+wire-checks use are checked against the new draw and re-picked where one became a file job.
+**PR-ready when:** the criteria pass, `npm run typecheck`, `npm run lint` and the full suite
+are green, `testMissionFile` and every other `testMission*` wire-check pass, the mutation gate
+has run, the version is bumped (0.461.0), the bundle's ceiling covers the change, and
+`missions-architecture.md` has a "File jobs" section.
