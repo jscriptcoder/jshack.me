@@ -1627,7 +1627,34 @@ agreed order:
     `/boot/vmlinuz` and paid §900. A two-hop CCTV recorder was reached through `draycott-web`, found
     as `draycott-nvr` by a sweep of the inside network, bricked the same way and paid §3,950. No
     defect. Announced on valleynews.io `/dev` (story 20). The plan was retired on close-out.
-    **Pick up here (2026-11-12):** the owner's choice from `backlog.md`.
+49. ✅ **File jobs: mail carries a file, and a contract that asks for one (v0.460.0–v0.462.0, PRs
+    #772–#774, merged 2026-11-15).** Three slices; as-built: "Attachments" in
+    [`email-architecture.md`](./email-architecture.md) and "File jobs" in
+    [`missions-architecture.md`](./missions-architecture.md). Mail carries one attachment of at
+    most 8,000 characters, for every address: `mail send` and `mail reply` take `-A <file>`, read
+    from the box the shell stands on as the current user. `mail read` ends with
+    `[attachment: <name>, <size> bytes]`, and `mail save <n> [path]` writes it onto the current
+    box. emailit.io's root view shows it as a MIME part. A quarter of the contracts are now file
+    jobs, carved from the gaps the other three kinds left, so no number changed between older
+    kinds. The client wants one file from the key box's slot, laid root-only from
+    `MISSION_KEY_SECRET`, and compares the attachment's bytes, whatever its name. The file is one of
+    six items: a prototype render, a site photo, a signed contract, a firmware image, a customer
+    export or a key ring. Each has its own name pattern, two system directories, keepers and four
+    pitches. The jpegs and the pdf come from `renderDocument`, so `strings` gives up their Exif or
+    Info; the rest are a header and noise. No item sits in a user's home, where its owner could
+    remove the parent without root. The board reads `retrieve a signed contract` at a key job's
+    pay. Evidence: unit tests (10,802), `testMailAttach` 12/12 and `testMissionFile` 10/10 (a
+    signed contract's line breaks carried byte for byte) and every other mission and mail
+    wire-check green, mutation 358/367, 228/234 and 222/228 then 191/191. The survivors left open
+    were equivalents (type-narrowing checks, a spread sending the same JSON), float-boundary `<`
+    against `<=` and an unreachable state check. The main-chunk ceiling
+    rose to 301,275 B. **Close-out (2026-11-16, v0.462.0):** one browser run on a fresh player on
+    TOWN-HALL-WIFI in Hollowmere, the board turned over by a script. A single-hop prototype render
+    was rooted through `msfconsole`, found with `find / ss1-render-approved.jpg` in `/srv/design`
+    (root-only, 1,022 bytes, `strings` naming Blender, Cycles and the designer), mailed home from
+    the target with `-A`, saved with `mail save`, and sent to the client with `mail reply -A`,
+    which paid §1,100. No defect. The plan was retired on close-out.
+    **Pick up here (2026-11-16):** the owner's choice from `backlog.md`.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

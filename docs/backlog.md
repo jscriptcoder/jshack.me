@@ -58,7 +58,9 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   a file, sealed with `gpg` or in a database table since v0.448.0 ("Where the key is stored"),
   decoy doors blurring the scan since v0.449.0 ("Decoys"), a second template since v0.452.0,
   the key box behind a front box, one contract in three ("Two hops"), and a second kind of job
-  since v0.457.0, one record changed or erased in one of eight settings ("Tamper jobs"). Left for
+  since v0.457.0, one record changed or erased in one of eight settings ("Tamper jobs"), and a
+  fourth since v0.461.0, one file brought back from the target and mailed to the client as an
+  attachment, one of six items since v0.462.0 ("File jobs"). Left for
   later:
   - **Believable filler behind the doors.** A real door and a decoy are both the stock build (the
     `It works!` page, an empty `pub`, a `netops@corp.local` contact), which is what keeps them
@@ -85,7 +87,6 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
     settings. Set aside in the sabotage grill (2026-11-12): **wiping a table**, legacy's
     `db_sabotage` (the table dropped or every row deleted), which is tamper machinery rather than
     the sabotage job's brick check.
-  - **File exfiltration** (bring a file home and send it back), once emailit.io can carry one.
   - **Recognition for completed jobs**, the other half of a mission reward; completions are only
     in `hireme_missions` today.
   - **Places posting vacancies** that say how they run (the old `hireit.io` idea), and a second,

@@ -548,3 +548,33 @@ and `plaintextFor(missionShape(n).keyBox.rootHash)`, written to a scratch file a
 | 3 | `ssh root@<address> -p 2222`, then `rm /boot/vmlinuz` | The prompt names the box for its machine (`<stem>-lic`, `<stem>-nvr`, …), which is how the player tells it is the target. `rm /boot/initrd.img` alone does the same. No reboot: the next mail reads the box |
 | 4 | Two-hop: root the front box over `:2222`, `apt install nmap` there, `nmap 192.168.<x>.1-254`, then `ssh root@<target>` | The sweep lists `<stem>-gw`, `<stem>-web` and the target by its machine's name. **Never `rm` a boot file on the front box**: it takes the target out of reach for good, and the client still says "still up" |
 | 5 | `exit` (twice on two-hop), then `mail reply <briefing n>` with the wallet | "The machine is down. §<pay> sent to jsc…" pays at once; a later mail gets "That job is already closed." |
+
+### Then: a file job, carried home by mail, to a payout
+
+Verified 2026-11-16 (v0.462.0), the file-jobs close-out: contract 183811, a single-hop prototype
+render on the msfconsole route, carried home by mail and paid §1,100. A quarter of the contracts
+are file jobs; the board names one `retrieve a <item>` (`an internal <item>` on two-hop), one of
+six items: prototype render, site photo, signed contract, firmware image, customer export, key
+ring. The briefing gives the file's name and never its path. The client compares the mailed
+attachment's bytes, so the file must travel as an attachment, never through `nano`.
+
+**Script the turnover.** A single-hop jpeg or pdf job on an msfconsole or hydra target is a few
+percent of a round, so a hand loop is slow. A repo-root temp script turns the board over through
+the real API, as `scripts/testMissionBoard.ts` does. It puts a throwaway `generateIdentityIn(RIDGEMONT)`
+visitor on a network with a signed `registerNetwork`, then repeats a signed
+`resolveHttpFetch { target: <board>, port: 80, path: '/' }` and reads the `offered` rows. It
+classifies each by `missionShape(n)` (`kind`, `frontBox`, `keyBox.route`) and `missionFileItem(n).noun`,
+and back-dates the offers 25 hours between rounds. It stops on a match, writes
+`plaintextFor(missionShape(n).keyBox.rootHash)` to a scratch file for a hydra route, and deletes
+the visitor's `sessions`, `home_network_occupants` and `network_lan_leases` rows at the end. The
+run matched on round 9.
+
+| # | Command | Trap |
+| --- | --- | --- |
+| 1 | `curl http://<board>/`, then `curl -d "offer=<ref>" http://<board>/accept`, then `mail read <briefing n>` | The board's HTML gives each offer's ref beside its line, so the match is accepted by ref, not by reading pitches |
+| 2 | Root the target: `msfconsole <address> 80`, or `ssh root@<address> -p 2222` | The prompt names the box `<stem>-files`, as a key job's key box |
+| 3 | `find / <name>`, then `ls -l <dir>` and `strings <path>` | `find` takes the path first, then the bare name: `find / ss1-render-approved.jpg`. The file is alone, `-rw-------` root. A render shows `JFIF`, `Exif`, the renderer, a date and the designer |
+| 4 | On the target: `apt install mailutils`, `mail login` (address, then password, two prompts), then `mail send <your handle>@emailit.io <subject> -A <path>` | **nano opens SEVERAL SECONDS late** while the file is read off the remote box: a check for the `<textarea>` after 3 s finds none, and the next typed command fails on a missing `<input>`. Poll for the textarea before typing the body. Then click it, type, `^O`, and close with `close-nano.sh` |
+| 5 | `mail logout`, then `exit` | Otherwise the player's login stays in root's `~/.mailrc` on the target, for anyone who roots it next |
+| 6 | At home: `mail read <n>`, then `mail save <n>` | The read ends `[attachment: <name>, <size> bytes]`. `mail save` prints nothing and writes `./<name>`, `-rwxrw----`, the same as any new file (`echo hi > x` gets it too) |
+| 7 | `mail reply <briefing n> -A <name>`, caret to the top, type the wallet address, `^O`, `close-nano.sh` | "File received. §<pay> sent to jsc…. Pleasure doing business." and `wallet balance` shows the pay. The attachment's name does not matter, only its bytes |
