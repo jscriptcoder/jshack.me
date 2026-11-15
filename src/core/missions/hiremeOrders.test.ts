@@ -10,7 +10,7 @@ import { missionShape, type MissionShape } from './missionShape.js';
 import { missionKey, missionKeyPath, missionPassphrase } from './missionSecret.js';
 import { missionAddressForNumber, missionEssid } from './missionNetwork.js';
 import { missionTerms } from './missionTerms.js';
-import { missionFileContent, missionFilePath } from './missionFileItem.js';
+import { missionFileContent, missionFileItem, missionFilePath } from './missionFileItem.js';
 import {
   RECORD_SETTINGS,
   missionAction,
@@ -662,8 +662,9 @@ describe('showReport on a sabotage job', () => {
 describe('showReport on a file job', () => {
   const SECRET = 'operator-test-secret';
   /** The first file job `wanted` accepts. */
-  const fileJob = (wanted: (shape: MissionShape) => boolean): number =>
+  const fileJob = (wanted: (shape: MissionShape) => boolean, noun?: string): number =>
     Array.from({ length: 8000 }, (_unused, index) => index * 256 + 2).find((candidate) => {
+      if (noun !== undefined && missionFileItem(candidate).noun !== noun) return false;
       const shape = missionShape(candidate);
       return shape.kind === 'file' && wanted(shape);
     })!;
@@ -688,7 +689,7 @@ describe('showReport on a file job', () => {
         `  Target:   ${terms.targetCompany}, ${shape.stem}-gw / ${shape.stem}-files`,
         `  Pay:      §${terms.pay.toLocaleString('en-US')}`,
         '  Template: single-hop',
-        '  Kind:     file, firmware image',
+        `  Kind:     file, ${missionFileItem(SINGLE_HOP).noun}`,
         '  Route:    hydra',
         ...shape.forwards.map(
           (forward, index) =>
@@ -711,12 +712,27 @@ describe('showReport on a file job', () => {
     const report = showReport(TWO_HOP, SECRET, undefined);
     const lines = report.split('\n');
 
-    expect(lines).toContain('  Kind:     file, firmware image');
+    expect(lines).toContain(`  Kind:     file, ${missionFileItem(TWO_HOP).noun}`);
     expect(lines).toContain(`  Key box:   ${missionShape(TWO_HOP).stem}-files`);
     expect(lines.at(-1)).toBe(fileLine(TWO_HOP, '  '));
     expect(report).not.toContain('Key:');
     expect(report).not.toContain('Key path:');
     expect(report).not.toContain('Storage:');
+  });
+
+  it.each([
+    'prototype render',
+    'site photo',
+    'signed contract',
+    'firmware image',
+    'customer export',
+    'key ring',
+  ])('names a %s as the item, and where it sits', (noun) => {
+    const missionNumber = fileJob(() => true, noun);
+    const lines = showReport(missionNumber, SECRET, undefined).split('\n');
+
+    expect(lines).toContain(`  Kind:     file, ${noun}`);
+    expect(lines).toContain(fileLine(missionNumber, '  '));
   });
 });
 

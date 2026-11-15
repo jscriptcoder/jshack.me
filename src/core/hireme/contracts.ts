@@ -30,7 +30,7 @@ import {
 } from '../missions/missionRecords.js';
 import { missionTerms, type MissionTerms } from '../missions/missionTerms.js';
 import { sabotageRole } from '../missions/sabotageRoles.js';
-import { FIRMWARE_IMAGE, missionFileName } from '../missions/missionFileItem.js';
+import { missionFileItem, missionFileName } from '../missions/missionFileItem.js';
 import { contractBoardPage, type BoardNotice } from './contractBoard.js';
 
 export type OfferCandidate = {
@@ -222,8 +222,9 @@ const jobLines = (
     ];
   }
   if (terms.job === 'file') {
+    const { keepers, noun } = missionFileItem(missionNumber);
     return [
-      `Their engineers keep a ${FIRMWARE_IMAGE.noun}. Bring it to us. Its name is:`,
+      `Their ${keepers} keep a ${noun}. Bring it to us. Its name is:`,
       '',
       `  ${missionFileName(missionNumber)}`,
       '',

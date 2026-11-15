@@ -47,7 +47,7 @@ import { parseSnmpdConf, SNMPD_CONF_PATH, SNMPD_CONF_PERMISSIONS } from '../snmp
 import { parseMysqlDatabase } from '../mysql/types.js';
 import { runStatement } from '../mysql/statements.js';
 import { missionAction, missionRecords, missionSetting } from './missionRecords.js';
-import { missionFileContent, missionFilePath } from './missionFileItem.js';
+import { missionFileContent, missionFileItem, missionFilePath } from './missionFileItem.js';
 import {
   COMMON_PASSWORDS,
   CRACKABLE_PASSWORDS,
@@ -1185,6 +1185,28 @@ describe("a file job's target", () => {
         missionFilePath(missionNumber),
       ]);
     }
+  });
+
+  it.each([
+    'prototype render',
+    'site photo',
+    'signed contract',
+    'firmware image',
+    'customer export',
+    'key ring',
+  ])('lays a %s as it lays any item: alone, root-only, behind the write gate', (noun) => {
+    const missionNumber = SAMPLE_NUMBERS.find((candidate) => {
+      const shape = missionShape(candidate);
+      return (
+        shape.kind === 'file' &&
+        shape.keyBox.route === 'hydra' &&
+        missionFileItem(candidate).noun === noun
+      );
+    });
+    if (missionNumber === undefined) throw new Error(`no hydra file job for a ${noun}`);
+
+    expect(missionFiles(keyOf(missionNumber), HOLDING_BOTH)).toEqual([imageOf(missionNumber)]);
+    expect(missionFilePaths(keyOf(missionNumber))).toEqual([missionFilePath(missionNumber)]);
   });
 
   it('lays the image beside the leak on a leak route, and no key or records', () => {

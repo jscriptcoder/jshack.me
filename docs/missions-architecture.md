@@ -674,27 +674,40 @@ exactly.
 - **The target is the key box's slot,** as a sabotage target is: the same octet, route, decoys
   and front box, the inside box on two-hop. It keeps the key box's hostname, `<stem>-files`, and
   has no storage (`MissionShape.storage` is `null`): no key, no records, and no mysqld for them.
-- **The file** (`core/missions/missionFileItem.ts`, server only) is a firmware image,
-  `<device>-fw-<major>.<minor>.<patch>.bin`, the device one of `ctl`, `plc`, `rtu`, `hmi` and
-  `cam`, in `/opt/firmware/` or `/srv/releases/`. Name and directory are drawn from the number on
-  `mission-file-<n>` and kept off the wire, as the key's path is. Its content is a header `strings`
-  finds, `FWIMG v<version> <device>`, then 1,000 to 3,000 characters of noise. The length and every
-  character are drawn from an HMAC of `file:<n>` under `MISSION_KEY_SECRET`, so nobody makes the
-  file without taking it, and the two deployments lay different files. The noise is Latin-1 from
-  `¡` to `ÿ` less the soft hyphen, the range `documentFormats.ts` draws from, so the file survives
-  the signed write and the TEXT column of every copy (`scp`, `ftp get`, `mail save`). The server
-  lays it root-only (`ROOT_FILE`, owned by root) beside nothing else; it is in `missionFilePaths`,
-  so only root may write the path, and a root's `rm` of it sticks for everyone, the job lost with
-  no warning.
-- **The terms**: `<Client> — retrieve a firmware image — §<pay>`, and `retrieve an internal …` on
+- **The file** (`core/missions/missionFileItem.ts`, server only) is one of six items (v0.462.0),
+  drawn one in six on `mission-file-item-<n>`. Its name, directory and the parts of its name are
+  drawn from the number on `mission-file-<n>` and kept off the wire, as the key's path is:
+
+  | Item             | Keepers     | Name                          | Directories                               | Content                                                   |
+  | ---------------- | ----------- | ----------------------------- | ----------------------------------------- | --------------------------------------------------------- |
+  | prototype render | designers   | `<code>-render-<stage>.jpg`   | `/srv/design/`, `/opt/cad/renders/`       | jpeg; Exif names a renderer, when, and the designer       |
+  | site photo       | surveyors   | `IMG_<YYYYMMDD>_<HHMMSS>.jpg` | `/var/lib/uploads/`, `/srv/media/photos/` | jpeg; Exif names a camera and the moment its name gives   |
+  | signed contract  | lawyers     | `<project>-<deal>-signed.pdf` | `/srv/legal/`, `/var/archive/contracts/`  | pdf; Info gives the title, the author and two dates       |
+  | firmware image   | engineers   | `<device>-fw-<version>.bin`   | `/opt/firmware/`, `/srv/releases/`        | `FWIMG v<version> <device>`, then noise                   |
+  | customer export  | salespeople | `customers-<YYYY>-<MM>.dat`   | `/var/backups/`, `/srv/exports/`          | `CUSTDB01`, then noise                                    |
+  | key ring         | admins      | `keyring.dat`                 | `/root/.vault/`, `/etc/<stem>/`           | `KEYRING v2`, then noise                                  |
+
+  A jpeg or pdf is rendered by `renderDocument` (`core/generation/documentFormats.ts`), so
+  `strings` gives up what a real one would; a header item is its header, then 1,000 to 3,000
+  characters of noise. Every date falls in the 300 days before `WORLD_EPOCH`, as a share's
+  documents do. Every byte is drawn from an HMAC of `file:<n>` under `MISSION_KEY_SECRET`, so
+  nobody makes the file without taking it, and the two deployments lay different files. Noise is
+  Latin-1 from `¡` to `ÿ` less the soft hyphen, and only a pdf has line breaks, so the file
+  survives the signed write and the TEXT column of every copy (`scp`, `ftp get`, `mail save`);
+  every item is under the 8,000 characters an attachment may be. No item sits in a user's home:
+  the NPC user owns theirs, and `rm -r` needs write only on the containing directory, so the
+  file's parent could go without root. The server lays it root-only (`ROOT_FILE`, owned by root)
+  beside nothing else; it is in `missionFilePaths`, so only root may write the path, and a root's
+  `rm` of it sticks for everyone, the job lost with no warning.
+- **The terms**: `<Client> — retrieve a <item> — §<pay>`, and `retrieve an internal …` on
   two-hop, at the key job's pay (500–2,000 single-hop, 2,000–4,000 two-hop, to the nearest 50).
-  The target company is drawn as a key job's is, the pitch from the firmware image's four.
+  The target company is drawn as a key job's is, the pitch from the item's own four.
 - **The briefing** names the file and never where it sits:
 
   ```text
-  Their engineers keep a firmware image. Bring it to us. Its name is:
+  Their <keepers> keep a <item>. Bring it to us. Its name is:
 
-    ctl-fw-4.2.1.bin
+    harbour-bid-signed.pdf
 
   Mail it to this address as an attachment, with your wallet address.
   No file, no money. No wallet, no money.
@@ -719,7 +732,7 @@ exactly.
   A file changed on the way, by one character or a newline `nano` added, is another file, and the
   reply does not say why. Key, tamper and sabotage jobs ignore an attachment.
 
-- `hireme.ts show` prints `Kind: file, firmware image` and `File: <path>, <size> bytes`, and no
+- `hireme.ts show` prints `Kind: file, <item>` and `File: <path>, <size> bytes`, and no
   storage, key path or key.
 
 ## 7. What a root finds

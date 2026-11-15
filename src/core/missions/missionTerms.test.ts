@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { CLIENT_HANDLES, clientByHandle, missionTerms, type MissionTerms } from './missionTerms.js';
 import { missionKind, missionShape, missionTopology } from './missionShape.js';
 import { missionAction, missionSetting, type RecordSetting } from './missionRecords.js';
+import { missionFileItem } from './missionFileItem.js';
 import { md5 } from '../generation/md5.js';
 import { validateUsername } from '../gameConfig/gameConfig.js';
 
@@ -358,14 +359,16 @@ describe('missionTerms', () => {
   });
 
   describe('a file job', () => {
-    it('is offered as retrieving a firmware image, an internal one on two hops', () => {
+    it('is offered as retrieving the item it asks for, an internal one on two hops', () => {
       for (const missionNumber of FILE_NUMBERS) {
+        const { noun } = missionFileItem(missionNumber);
         expect(missionTerms(missionNumber).kind, `contract ${missionNumber}`).toBe(
-          isTwoHop(missionNumber)
-            ? 'retrieve an internal firmware image'
-            : 'retrieve a firmware image',
+          isTwoHop(missionNumber) ? `retrieve an internal ${noun}` : `retrieve a ${noun}`,
         );
       }
+      expect(
+        new Set(FILE_NUMBERS.map((missionNumber) => missionTerms(missionNumber).kind)).size,
+      ).toBe(12);
     });
 
     // Carrying bytes home is more work than reading a key, but not a different tier.
@@ -394,7 +397,7 @@ describe('missionTerms', () => {
       }
     });
 
-    it("draws every client, and pitches from four reasons of the firmware image's own", () => {
+    it("draws every client, and pitches from four reasons of its item's own", () => {
       const terms = FILE_NUMBERS.map(missionTerms);
       const otherPitches = new Set(
         [...KEY_NUMBERS, ...TAMPER_NUMBERS, ...SABOTAGE_NUMBERS].map(
@@ -404,7 +407,10 @@ describe('missionTerms', () => {
       const pitches = new Set(terms.map(({ pitch }) => pitch));
 
       expect(new Set(terms.map(({ client }) => client.handle))).toEqual(new Set(CLIENT_HANDLES));
-      expect(pitches.size).toBe(4);
+      for (const missionNumber of FILE_NUMBERS) {
+        expect(missionFileItem(missionNumber).pitches).toContain(missionTerms(missionNumber).pitch);
+      }
+      expect(pitches.size).toBe(24);
       for (const pitch of pitches) {
         expect(pitch).toMatch(/^[A-Z].{20,}\.$/);
         expect(otherPitches.has(pitch), pitch).toBe(false);
