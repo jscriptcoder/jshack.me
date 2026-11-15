@@ -1,7 +1,7 @@
 # Plan: mail carries a file, and a contract that asks for one
 
 **Status:** Grilled 2026-11-15. Slice 1 merged (v0.460.0, #772). Slice 2 merged (v0.461.0,
-#773). Slice 3 planned.
+#773). Slice 3 merged (v0.462.0, #774). The close-out browser run is to do.
 
 A fourth kind of contract. Key jobs compare a mailed key, tamper jobs read a records box, sabotage
 jobs check that a machine no longer boots. A **file job** asks the player to bring back one file
@@ -464,3 +464,9 @@ proves the line breaks survive.
 - the mutation gate has run;
 - the version is bumped (0.462.0), and the bundle's ceiling covers the change;
 - the "File jobs" section of `missions-architecture.md` names the six items.
+
+**As built (v0.462.0, #774).** As planned, with two notes. The briefing test that a file job's
+mail never says "key" lets the item's own name through, since a key ring is the one item whose
+name does. The wire-check carries the signed contract's bytes from the target to the client
+through the mail API, as slice 2's did, rather than through an in-game `mail -A`. The bundle's
+ceiling did not move.
