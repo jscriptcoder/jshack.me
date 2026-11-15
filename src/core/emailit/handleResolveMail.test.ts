@@ -8,7 +8,8 @@ import { md5 } from '../generation/md5.js';
 import type { OwnerPatchRow } from '../network/materializeWorkstationFs.js';
 import type { ClientMailStore } from '../missions/clientMail.js';
 import { missionTerms } from '../missions/missionTerms.js';
-import { missionShape } from '../missions/missionShape.js';
+import { missionKind, missionShape } from '../missions/missionShape.js';
+import { missionFileContent } from '../missions/missionFileItem.js';
 import { missionEssid } from '../missions/missionNetwork.js';
 import { missionFilesForBox } from '../missions/missionLeak.js';
 import { missionAction, missionRecords } from '../missions/missionRecords.js';
@@ -871,6 +872,63 @@ describe('a mail on a sabotage job is answered from its target', () => {
       body: { error: 'mail_failed' },
     });
     expect(clientMail.complete).not.toHaveBeenCalled();
+  });
+});
+
+describe('a mail on a file job is answered from the file it carries', () => {
+  const FILE_JOB = Array.from({ length: 4000 }, (_unused, index) => index * 263 + 70000).find(
+    (missionNumber) =>
+      missionNumber % 256 >= 2 &&
+      missionNumber % 256 <= 254 &&
+      missionKind(missionNumber) === 'file',
+  )!;
+  const TERMS = missionTerms(FILE_JOB);
+  const FILE = missionFileContent(FILE_JOB, 'handler-test-secret');
+  const holdingTheJob = { outcome: 'opened', jobs: [{ number: FILE_JOB, state: 'accepted' }] };
+
+  const fileRequest = (attachment?: { readonly name: string; readonly content: string }) =>
+    inboxRequest({
+      op: 'send',
+      to: TERMS.client.handle,
+      subject: 'the file',
+      body: 'here it is',
+      ...(attachment === undefined ? {} : { attachment }),
+    });
+
+  it('completes the job on the file laid, whatever name it travels under', async () => {
+    const { deps, clientMail, sendMessage } = makeDeps({ clientOpened: holdingTheJob });
+
+    expect(
+      await handleResolveMail(fileRequest({ name: 'notes.txt', content: FILE }), deps),
+    ).toEqual({ status: 200, body: { ok: true } });
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(clientMail.complete).toHaveBeenCalledOnce();
+    expect(clientMail.complete.mock.calls[0]?.[0]).toMatchObject({
+      number: FILE_JOB,
+      pay: TERMS.pay,
+    });
+  });
+
+  it('says it is not the file asked for when the mail carries another', async () => {
+    const { deps, clientMail } = makeDeps({ clientOpened: holdingTheJob });
+
+    await handleResolveMail(fileRequest({ name: 'fw.bin', content: `${FILE}x` }), deps);
+
+    expect(clientMail.complete).not.toHaveBeenCalled();
+    expect(clientMail.reply.mock.calls[0]?.[0].reply.body).toBe(
+      `That's not the file we asked for.\n\n-- ${TERMS.client.company}\n`,
+    );
+  });
+
+  it('asks for the file when the mail carries none', async () => {
+    const { deps, clientMail } = makeDeps({ clientOpened: holdingTheJob });
+
+    await handleResolveMail(fileRequest(), deps);
+
+    expect(clientMail.complete).not.toHaveBeenCalled();
+    expect(clientMail.reply.mock.calls[0]?.[0].reply.body).toBe(
+      `No file, no money. Send the file.\n\n-- ${TERMS.client.company}\n`,
+    );
   });
 });
 

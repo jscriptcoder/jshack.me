@@ -47,6 +47,7 @@ import { parseSnmpdConf, SNMPD_CONF_PATH, SNMPD_CONF_PERMISSIONS } from '../snmp
 import { parseMysqlDatabase } from '../mysql/types.js';
 import { runStatement } from '../mysql/statements.js';
 import { missionAction, missionRecords, missionSetting } from './missionRecords.js';
+import { missionFileContent, missionFilePath } from './missionFileItem.js';
 import {
   COMMON_PASSWORDS,
   CRACKABLE_PASSWORDS,
@@ -1145,6 +1146,97 @@ describe("a sabotage job's target", () => {
       expect(laid, label).toBe(laidByRoute.get(route) ?? laid);
       laidByRoute.set(route, laid);
     }
+  });
+});
+
+describe("a file job's target", () => {
+  const HOLDING_BOTH = { keySecret: KEY_SECRET, rawSecrets: RAW_SECRETS };
+
+  /** The first file job in the sample whose target falls to `route`, on one hop or two. */
+  const firstFileJob = (route: MissionRoute, twoHop = false): number => {
+    const [found] = SAMPLE_NUMBERS.filter((missionNumber) => {
+      const shape = missionShape(missionNumber);
+      return (
+        shape.kind === 'file' &&
+        shape.keyBox.route === route &&
+        (shape.frontBox !== null) === twoHop
+      );
+    });
+    if (found === undefined) throw new Error(`no file ${route} contract in the sample`);
+    return found;
+  };
+
+  /** The firmware image as the server lays it. */
+  const imageOf = (missionNumber: number) => ({
+    path: missionFilePath(missionNumber),
+    content: missionFileContent(missionNumber, KEY_SECRET),
+    perms: ROOT_FILE,
+  });
+
+  it('lays the firmware image alone off a leak route, root-only, drawn from the secret', () => {
+    for (const route of ['hydra', 'msfconsole'] as const) {
+      const missionNumber = firstFileJob(route);
+      const label = `${route} contract ${missionNumber}`;
+
+      expect(missionFiles(keyOf(missionNumber), HOLDING_BOTH), label).toEqual([
+        imageOf(missionNumber),
+      ]);
+      expect(missionFilePaths(keyOf(missionNumber)), label).toEqual([
+        missionFilePath(missionNumber),
+      ]);
+    }
+  });
+
+  it('lays the image beside the leak on a leak route, and no key or records', () => {
+    for (const route of ['web', 'ftp', 'mysql', 'snmp'] as const) {
+      const missionNumber = firstFileJob(route);
+      const laid = missionFiles(keyOf(missionNumber), HOLDING_BOTH);
+      const label = `${route} contract ${missionNumber}`;
+
+      expect(laid[0], label).toEqual(imageOf(missionNumber));
+      expect(laid.length, label).toBe(2);
+      expect(missionFilePaths(keyOf(missionNumber)), label).toEqual(laid.map(({ path }) => path));
+    }
+  });
+
+  it('cannot be laid without the key secret, which the bytes are drawn from', () => {
+    const missionNumber = firstFileJob('hydra');
+
+    expect(() =>
+      missionFiles(keyOf(missionNumber), { keySecret: undefined, rawSecrets: RAW_SECRETS }),
+    ).toThrow(MissionSecretMissingError);
+  });
+
+  it('lays a two-hop front box only its own leak, never the image', () => {
+    const missionNumber = firstFileJob('hydra', true);
+    const front = missionFiles(frontOf(missionNumber), HOLDING_BOTH);
+
+    expect(front.map(({ path }) => path)).not.toContain(missionFilePath(missionNumber));
+    expect(missionFilePaths(keyOf(missionNumber))).toEqual([missionFilePath(missionNumber)]);
+  });
+
+  it('is read by root alone once laid on the target, where nothing else is there', async () => {
+    const missionNumber = firstFileJob('hydra');
+    const baseFs = buildMissionKeyBoxFs(missionNumber);
+    const tree = await withMissionFiles(
+      async () => ({ data: missionFiles(keyOf(missionNumber), HOLDING_BOTH), error: null }),
+      { essid: missionEssid(missionNumber), machineId: 'target', baseFs },
+    );
+    if (tree === null) throw new Error('the files could not be made');
+    const path = asAbsPath(missionFilePath(missionNumber));
+    const directory = asAbsPath(missionFilePath(missionNumber).replace(/\/[^/]+$/, ''));
+
+    expect(createFsView(tree, { userType: 'root' }).read(path)).toEqual({
+      ok: true,
+      content: missionFileContent(missionNumber, KEY_SECRET),
+    });
+    expect(createFsView(tree, { userType: 'user' }).read(path).ok).toBe(false);
+    expect(createFsView(tree, { userType: 'guest' }).read(path).ok).toBe(false);
+    // No look-alike beside it: the image is the only thing in its directory.
+    expect(createFsView(tree, { userType: 'root' }).list(directory)).toEqual({
+      ok: true,
+      entries: [missionFilePath(missionNumber).slice(directory.length + 1)],
+    });
   });
 });
 

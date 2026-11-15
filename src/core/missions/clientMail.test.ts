@@ -6,6 +6,7 @@ import { missionTerms, type MissionClient } from './missionTerms.js';
 import { missionKind, missionShape } from './missionShape.js';
 import { missionFiles } from './missionLeak.js';
 import { missionAction, missionRecords } from './missionRecords.js';
+import { missionFileContent } from './missionFileItem.js';
 import { runStatement } from '../mysql/statements.js';
 import { DATADIR_PATH, databaseIn } from '../mysql/datadir.js';
 import { buildMissionKeyBoxFs } from '../generation/missionKeyBoxFs.js';
@@ -110,6 +111,7 @@ const mailTo = (
     readonly to?: MissionClient;
     readonly subject?: string;
     readonly body?: string;
+    readonly file?: string;
     readonly readTargetBox?: (missionNumber: number) => Promise<TargetBoxRead>;
   } = {},
 ) =>
@@ -118,6 +120,7 @@ const mailTo = (
     client: mail.to ?? TERMS.client,
     subject: mail.subject ?? 'the job',
     body: mail.body ?? `${KEY}\n${WALLET}\n`,
+    file: mail.file ?? null,
     secret: SECRET,
     store,
     readTargetBox: mail.readTargetBox ?? NO_TARGET_BOX,
@@ -697,5 +700,167 @@ describe('a mail on a sabotage job', () => {
     expect(box.reads).toEqual([]);
     expect(completes).toEqual([]);
     expect(replies).toEqual([fromSabotageClient(CLOSED_LINE)]);
+  });
+});
+
+describe('a mail on a file job', () => {
+  const FILE_JOBS = ALL_HOST_NUMBERS.filter(
+    (missionNumber) => missionKind(missionNumber) === 'file',
+  );
+  const FILE_JOB = FILE_JOBS[0]!;
+  const FILE_TERMS = missionTerms(FILE_JOB);
+  const FILE = missionFileContent(FILE_JOB, SECRET);
+  /** An earlier file job for the same client. */
+  const EARLIER_FILE_JOB = FILE_JOBS.find(
+    (missionNumber) =>
+      missionNumber !== FILE_JOB &&
+      missionTerms(missionNumber).client.handle === FILE_TERMS.client.handle,
+  )!;
+
+  const fromFileClient = (line: string, missionNumber = FILE_JOB): ContractMail => ({
+    sender: `${FILE_TERMS.client.handle}@emailit.io`,
+    subject: `Contract: ${missionTerms(missionNumber).targetCompany}`,
+    body: signed(line, FILE_TERMS.client.company),
+  });
+
+  const holding = (state: 'accepted' | 'completed' = 'accepted') =>
+    clientStore({ jobs: [{ number: FILE_JOB, state }] });
+
+  /** A mail to the file job's client carrying `file`. The client never reads the target: the
+   *  default box read fails the test. */
+  const mailOnFileJob = (
+    store: ClientMailStore,
+    { file, body = `here it is\n${WALLET}\n` }: { readonly file?: string; readonly body?: string },
+  ) => mailTo(store, { to: FILE_TERMS.client, body, ...(file === undefined ? {} : { file }) });
+
+  it('completes the job when the mail carries the file laid, paying the wallet', async () => {
+    const { store, completes, replies } = holding();
+
+    expect(await mailOnFileJob(store, { file: FILE })).toBe('replied');
+    expect(completes).toEqual([
+      {
+        number: FILE_JOB,
+        wallet: WALLET,
+        pay: FILE_TERMS.pay,
+        reply: fromFileClient(
+          `File received. §${FILE_TERMS.pay.toLocaleString('en-US')} sent to ${WALLET}. Pleasure doing business.`,
+        ),
+      },
+    ]);
+    expect(replies).toEqual([]);
+  });
+
+  it('completes and pays nothing when the mail names no wallet', async () => {
+    const { store, completes } = holding();
+
+    expect(await mailOnFileJob(store, { file: FILE, body: 'here it is\n' })).toBe('replied');
+    expect(completes).toEqual([
+      {
+        number: FILE_JOB,
+        wallet: null,
+        pay: FILE_TERMS.pay,
+        reply: fromFileClient(
+          'File received. You sent no wallet, so there is nothing to pay. No wallet, no money.',
+        ),
+      },
+    ]);
+  });
+
+  it('asks for the file when the mail carries none', async () => {
+    const { store, completes, replies } = holding();
+
+    expect(await mailOnFileJob(store, {})).toBe('replied');
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromFileClient('No file, no money. Send the file.')]);
+  });
+
+  it('asks for the file whatever key the mail holds, as a file job proves no key', async () => {
+    const { store, completes, replies } = holding();
+
+    expect(
+      await mailOnFileJob(store, { body: `${missionKey(FILE_JOB, SECRET)}\n${WALLET}\n` }),
+    ).toBe('replied');
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromFileClient('No file, no money. Send the file.')]);
+  });
+
+  it.each([
+    ['another file', 'FWIMG v1.0.0 ctl not the one'],
+    ['the file with a line added, as nano saves it', `${FILE}\n`],
+    ['the file one character short', FILE.slice(0, -1)],
+    ['the file with its last character changed', `${FILE.slice(0, -1)}x`],
+  ])('refuses %s, and keeps the job open', async (_label, file) => {
+    const { store, completes, replies } = holding();
+
+    expect(await mailOnFileJob(store, { file })).toBe('replied');
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromFileClient("That's not the file we asked for.")]);
+  });
+
+  it("says the job is already closed for a completed job's file", async () => {
+    const { store, completes, replies } = holding('completed');
+
+    expect(await mailOnFileJob(store, { file: FILE })).toBe('replied');
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromFileClient(CLOSED_LINE)]);
+  });
+
+  it("says the job is already closed for an earlier job's file while another is held", async () => {
+    const { store, completes, replies } = clientStore({
+      jobs: [
+        { number: FILE_JOB, state: 'accepted' },
+        { number: EARLIER_FILE_JOB, state: 'completed' },
+      ],
+    });
+
+    expect(await mailOnFileJob(store, { file: missionFileContent(EARLIER_FILE_JOB, SECRET) })).toBe(
+      'replied',
+    );
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromFileClient(CLOSED_LINE, EARLIER_FILE_JOB)]);
+  });
+
+  it('says there is no contract for a completed job mailed any other file, or none', async () => {
+    for (const file of ['something else', undefined]) {
+      const { store, replies } = holding('completed');
+
+      expect(await mailOnFileJob(store, file === undefined ? {} : { file })).toBe('replied');
+      expect(replies).toEqual([
+        {
+          sender: `${FILE_TERMS.client.handle}@emailit.io`,
+          subject: 'No contract',
+          body: signed('We have no contract with you.', FILE_TERMS.client.company),
+        },
+      ]);
+    }
+  });
+});
+
+describe('a mail carrying a file on a key job', () => {
+  const SOME_FILE = missionFileContent(
+    ALL_HOST_NUMBERS.find((missionNumber) => missionKind(missionNumber) === 'file')!,
+    SECRET,
+  );
+
+  it('completes the job on its key, whatever file it carries', async () => {
+    const { store, completes } = clientStore();
+
+    expect(await mailTo(store, { file: SOME_FILE })).toBe('replied');
+    expect(completes.map(({ number, reply }) => [number, reply])).toEqual([
+      [
+        JOB,
+        fromClient(
+          `Key received. §${TERMS.pay.toLocaleString('en-US')} sent to ${WALLET}. Pleasure doing business.`,
+        ),
+      ],
+    ]);
+  });
+
+  it('asks for the key when the mail carries a file and no key', async () => {
+    const { store, completes, replies } = clientStore();
+
+    expect(await mailTo(store, { body: `${WALLET}\n`, file: SOME_FILE })).toBe('replied');
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromClient('No key, no money. Send the key.')]);
   });
 });

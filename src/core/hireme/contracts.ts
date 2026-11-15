@@ -30,6 +30,7 @@ import {
 } from '../missions/missionRecords.js';
 import { missionTerms, type MissionTerms } from '../missions/missionTerms.js';
 import { sabotageRole } from '../missions/sabotageRoles.js';
+import { FIRMWARE_IMAGE, missionFileName } from '../missions/missionFileItem.js';
 import { contractBoardPage, type BoardNotice } from './contractBoard.js';
 
 export type OfferCandidate = {
@@ -201,9 +202,10 @@ const askedSentence = (setting: RecordSetting, target: RecordTarget): string => 
 };
 
 /** What the job is and how it is paid: a key fetched and mailed back, a record changed or
- *  erased and the client told, or a machine taken down and the client told. A tamper job names
- *  whose record and what it should say, or that it should not exist, never where; a sabotage job
- *  names what the machine is, never which box. */
+ *  erased and the client told, a machine taken down and the client told, or a file fetched and
+ *  mailed back attached. A tamper job names whose record and what it should say, or that it
+ *  should not exist, never where; a sabotage job names what the machine is, never which box; a
+ *  file job names the file, never where it sits. */
 const jobLines = (
   missionNumber: number,
   terms: MissionTerms,
@@ -217,6 +219,17 @@ const jobLines = (
       ...(inside ? ['It is a machine inside their network, not on the edge.', ''] : []),
       'Mail this address when it is done, with your wallet address.',
       'No outage, no money. No wallet, no money.',
+    ];
+  }
+  if (terms.job === 'file') {
+    return [
+      `Their engineers keep a ${FIRMWARE_IMAGE.noun}. Bring it to us. Its name is:`,
+      '',
+      `  ${missionFileName(missionNumber)}`,
+      '',
+      ...(inside ? insideLines('The file is') : []),
+      'Mail it to this address as an attachment, with your wallet address.',
+      'No file, no money. No wallet, no money.',
     ];
   }
   if (terms.job === 'tamper') {

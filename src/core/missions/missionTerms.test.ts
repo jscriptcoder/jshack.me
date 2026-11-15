@@ -22,6 +22,10 @@ const SABOTAGE_NUMBERS = SAMPLE_NUMBERS.filter(
   (missionNumber) => missionKind(missionNumber) === 'sabotage',
 );
 
+const FILE_NUMBERS = SAMPLE_NUMBERS.filter(
+  (missionNumber) => missionKind(missionNumber) === 'file',
+);
+
 /** The machines a sabotage job can ask taken down. */
 const SABOTAGE_MACHINES = [
   'CCTV recorder',
@@ -117,22 +121,24 @@ describe('missionTerms', () => {
 
   it('keeps the terms of every single-hop key job as they were', () => {
     // Taken before a two-hop job had terms of its own: every single-hop contract's client,
-    // target, pitch, key and pay. Retaken when sabotage jobs took a third of the numbers, over
-    // the key jobs left, whose terms the earlier digest's own fixture held unchanged.
+    // target, pitch, key and pay. Retaken when sabotage jobs took a third of the numbers, and
+    // again when file jobs took a quarter, each time over the key jobs left, whose terms the
+    // earlier digest's own fixture held unchanged.
     expect(md5(JSON.stringify(SINGLE_HOP_NUMBERS.map(missionTerms).map(withoutJob)))).toBe(
-      '523a64414ba3eea7b9c9b9c2dd326e80',
+      '266c6070c337937ef4f2b962dbd48e5e',
     );
   });
 
+  // Retaken over the key jobs left when file jobs took a quarter of the numbers.
   it('keeps the client, target, pitch and key of a two-hop key job as they were', () => {
     const beside = TWO_HOP_NUMBERS.map(missionTerms)
       .map(withoutJob)
       .map(({ kind: _kind, pay: _pay, ...rest }) => rest);
 
-    expect(md5(JSON.stringify(beside))).toBe('09642e1861ebe2b7d728c3d57e081f0f');
+    expect(md5(JSON.stringify(beside))).toBe('b95623afc1c9ee6fb2c036d551f1d7b3');
   });
 
-  it('marks each contract a key job, a tamper job or a sabotage job, as its shape does', () => {
+  it('marks each contract a key, tamper, sabotage or file job, as its shape does', () => {
     for (const missionNumber of SAMPLE_NUMBERS) {
       expect(missionTerms(missionNumber).job).toBe(missionShape(missionNumber).kind);
     }
@@ -277,6 +283,7 @@ describe('missionTerms', () => {
       }
     });
 
+    // Retaken over the sabotage jobs left when file jobs took a quarter of the numbers.
     it('keeps the client, the target and the pay it drew before its machine was drawn', () => {
       const kept = SABOTAGE_NUMBERS.map(missionTerms).map(({ client, targetCompany, pay }) => ({
         client,
@@ -284,7 +291,7 @@ describe('missionTerms', () => {
         pay,
       }));
 
-      expect(md5(JSON.stringify(kept))).toBe('fe61ed6b36849a895ef160ed1acfd9d8');
+      expect(md5(JSON.stringify(kept))).toBe('6350e7e658d09c583d3a19352673c7e5');
     });
 
     // The work is a key job's, finding the way in and rooting the box, so the pay is too.
@@ -345,6 +352,67 @@ describe('missionTerms', () => {
 
     it('promises no key', () => {
       for (const missionNumber of SABOTAGE_NUMBERS) {
+        expect('keyOpens' in missionTerms(missionNumber)).toBe(false);
+      }
+    });
+  });
+
+  describe('a file job', () => {
+    it('is offered as retrieving a firmware image, an internal one on two hops', () => {
+      for (const missionNumber of FILE_NUMBERS) {
+        expect(missionTerms(missionNumber).kind, `contract ${missionNumber}`).toBe(
+          isTwoHop(missionNumber)
+            ? 'retrieve an internal firmware image'
+            : 'retrieve a firmware image',
+        );
+      }
+    });
+
+    // Carrying bytes home is more work than reading a key, but not a different tier.
+    it('pays a key job: 500 to 2,000 JSC on one hop, 2,000 to 4,000 on two, in steps of 50', () => {
+      const paysOf = (numbers: readonly number[]) =>
+        numbers.map((missionNumber) => missionTerms(missionNumber).pay);
+      const singleHop = paysOf(FILE_NUMBERS.filter((missionNumber) => !isTwoHop(missionNumber)));
+      const twoHop = paysOf(FILE_NUMBERS.filter(isTwoHop));
+
+      for (const pay of [...singleHop, ...twoHop]) expect(pay % 50).toBe(0);
+      expect([Math.min(...singleHop), Math.max(...singleHop)]).toEqual([500, 2000]);
+      expect([Math.min(...twoHop), Math.max(...twoHop)]).toEqual([2000, 4000]);
+    });
+
+    it('names the target after its stem and a trade a key job is drawn from', () => {
+      const keyJobTrades = new Set(
+        KEY_NUMBERS.map((missionNumber) => missionTerms(missionNumber).targetCompany.split(' ')[1]),
+      );
+
+      for (const missionNumber of FILE_NUMBERS) {
+        const { stem } = missionShape(missionNumber);
+        const [company, trade, ...rest] = missionTerms(missionNumber).targetCompany.split(' ');
+        expect(company).toBe(capitalised(stem));
+        expect(keyJobTrades.has(trade ?? ''), `contract ${missionNumber}`).toBe(true);
+        expect(rest).toEqual([]);
+      }
+    });
+
+    it("draws every client, and pitches from four reasons of the firmware image's own", () => {
+      const terms = FILE_NUMBERS.map(missionTerms);
+      const otherPitches = new Set(
+        [...KEY_NUMBERS, ...TAMPER_NUMBERS, ...SABOTAGE_NUMBERS].map(
+          (missionNumber) => missionTerms(missionNumber).pitch,
+        ),
+      );
+      const pitches = new Set(terms.map(({ pitch }) => pitch));
+
+      expect(new Set(terms.map(({ client }) => client.handle))).toEqual(new Set(CLIENT_HANDLES));
+      expect(pitches.size).toBe(4);
+      for (const pitch of pitches) {
+        expect(pitch).toMatch(/^[A-Z].{20,}\.$/);
+        expect(otherPitches.has(pitch), pitch).toBe(false);
+      }
+    });
+
+    it('promises no key', () => {
+      for (const missionNumber of FILE_NUMBERS) {
         expect('keyOpens' in missionTerms(missionNumber)).toBe(false);
       }
     });

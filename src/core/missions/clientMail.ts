@@ -29,6 +29,11 @@
  * down, or says it is still up. Once either is completed, and nothing else is accepted here, any
  * mail is told the job is closed without the box being read.
  *
+ * A file job asks for the file, not a key: the client compares the file the mail carries with the
+ * one the server laid on the target, character for character, and answers as for a key, with
+ * "file" for "key". The file's name does not matter, the client never reads the box, and a key in
+ * the text proves nothing. Every other kind ignores the file a mail carries.
+ *
  * Completing is one step in the store under the handle's lock: a second right mail racing
  * the first finds the job completed and is told it is closed, so a job pays once. A store
  * that failed, or answered a word nobody taught it, has not said what happened, so the door
@@ -41,6 +46,7 @@ import type { ContractMail } from '../hireme/contracts.js';
 import type { Directory } from '../filesystem/types.js';
 import { writeAmount } from '../wallet/amount.js';
 import { missionKey } from './missionSecret.js';
+import { missionFileContent } from './missionFileItem.js';
 import { missionKind } from './missionShape.js';
 import { recordsLookRight } from './missionRecords.js';
 import { missionTerms, type MissionClient, type MissionTerms } from './missionTerms.js';
@@ -97,13 +103,16 @@ const KEY_SHAPE = /\bACCESS(?:-[0-9A-HJKMNP-TV-Z]{4}){3}(?![0-9A-Z])/i;
 const WALLET_SHAPE = /\bjsc[0-9a-f]{40}(?![0-9a-f])/i;
 
 const NO_KEY = 'No key, no money. Send the key.';
+const NO_FILE = 'No file, no money. Send the file.';
 const KEY_RECEIVED = 'Key received.';
+const FILE_RECEIVED = 'File received.';
 const RECORDS_RECEIVED = 'The records look right.';
 const MACHINE_DOWN = 'The machine is down.';
 const NO_WALLET = 'You sent no wallet, so there is nothing to pay. No wallet, no money.';
 const RECORDS_WRONG = "Our records don't look right. No change, no money.";
 const STILL_UP = 'Their machine is still up. No outage, no money.';
 const WRONG_KEY = 'That key opens nothing of ours.';
+const WRONG_FILE = "That's not the file we asked for.";
 const CLOSED = 'That job is already closed.';
 const NO_CONTRACT = 'We have no contract with you.';
 
@@ -130,39 +139,51 @@ const noContractFrom = (client: MissionClient): ContractMail => ({
 
 type Decision =
   | { readonly kind: 'complete'; readonly number: number }
+  | { readonly kind: 'completeFile'; readonly number: number }
   | { readonly kind: 'checkRecords'; readonly number: number }
   | { readonly kind: 'checkDown'; readonly number: number }
   | { readonly kind: 'reply'; readonly reply: ContractMail };
 
-/** How the client opens its reply to a job done: the key it was sent, the records it read, or
- *  the machine it found down. */
+/** How the client opens its reply to a job done: the key or the file it was sent, the records it
+ *  read, or the machine it found down. */
 const RECEIVED: Readonly<Record<Exclude<Decision['kind'], 'reply'>, string>> = {
   complete: KEY_RECEIVED,
+  completeFile: FILE_RECEIVED,
   checkRecords: RECORDS_RECEIVED,
   checkDown: MACHINE_DOWN,
 };
 
-/** Whether the job is proved by a key mailed back, rather than by the box itself. */
-const isKeyJob = (missionNumber: number): boolean => missionKind(missionNumber) === 'key';
+/** What the client says on a job the mail itself proves: when the mail carries no proof, when it
+ *  carries the wrong one, and how it completes on the right one. */
+const MAILED_PROOF = {
+  key: { none: NO_KEY, wrong: WRONG_KEY, done: 'complete' },
+  file: { none: NO_FILE, wrong: WRONG_FILE, done: 'completeFile' },
+} as const;
 
 const decide = ({
   client,
   jobs,
   key,
+  file,
   secret,
 }: {
   readonly client: MissionClient;
   readonly jobs: readonly { readonly number: number; readonly state: string }[];
   readonly key: string | null;
+  readonly file: string | null;
   readonly secret: string;
 }): Decision => {
+  /** Whether the mail carries the proof of the job numbered so: its key on a key job, its file on
+   *  a file job. A job the box proves needs nothing from the mail. */
+  const proves = (missionNumber: number): boolean => {
+    const kind = missionKind(missionNumber);
+    if (kind === 'key') return missionKey(missionNumber, secret) === key;
+    if (kind === 'file') return missionFileContent(missionNumber, secret) === file;
+    return true;
+  };
   const withClient = jobs.filter((job) => missionTerms(job.number).client.handle === client.handle);
   const accepted = withClient.find((job) => job.state === 'accepted');
-  const closed = withClient.find(
-    (job) =>
-      job.state === 'completed' &&
-      (!isKeyJob(job.number) || missionKey(job.number, secret) === key),
-  );
+  const closed = withClient.find((job) => job.state === 'completed' && proves(job.number));
   const reply = (missionNumber: number, line: string): Decision => ({
     kind: 'reply',
     reply: replyAbout(missionTerms(missionNumber), line),
@@ -176,12 +197,11 @@ const decide = ({
   const acceptedKind = missionKind(accepted.number);
   if (acceptedKind === 'tamper') return { kind: 'checkRecords', number: accepted.number };
   if (acceptedKind === 'sabotage') return { kind: 'checkDown', number: accepted.number };
-  if (key === null) return reply(accepted.number, NO_KEY);
-  if (missionKey(accepted.number, secret) === key) {
-    return { kind: 'complete', number: accepted.number };
-  }
+  const said = MAILED_PROOF[acceptedKind];
+  if ((acceptedKind === 'file' ? file : key) === null) return reply(accepted.number, said.none);
+  if (proves(accepted.number)) return { kind: said.done, number: accepted.number };
   if (closed !== undefined) return reply(closed.number, CLOSED);
-  return reply(accepted.number, WRONG_KEY);
+  return reply(accepted.number, said.wrong);
 };
 
 const sendReply = async (
@@ -200,6 +220,7 @@ export const answerClientMail = async ({
   client,
   subject,
   body,
+  file,
   secret,
   store,
   readTargetBox,
@@ -212,6 +233,8 @@ export const answerClientMail = async ({
   readonly client: MissionClient;
   readonly subject: string;
   readonly body: string;
+  /** The content of the file the mail carries, or null for a mail carrying none. */
+  readonly file: string | null;
   /** The deployment's mission secret, already checked present. */
   readonly secret: string;
   readonly store: ClientMailStore;
@@ -225,7 +248,7 @@ export const answerClientMail = async ({
 
   const text = readableText(subject, body);
   const key = firstMatch(text, KEY_SHAPE)?.toUpperCase() ?? null;
-  const decision = decide({ client, jobs: read.data.jobs, key, secret });
+  const decision = decide({ client, jobs: read.data.jobs, key, file, secret });
   if (decision.kind === 'reply') return sendReply(store, login.handle, decision.reply);
 
   const terms = missionTerms(decision.number);

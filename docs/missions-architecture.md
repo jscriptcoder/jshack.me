@@ -3,14 +3,17 @@
 How a player takes paid work: a contract offered on their hireme.io board, accepted with a form,
 briefed by mail, worked on a network of its own and paid by mailing the client the key — or, on
 a tamper job, by changing or erasing one of the client's records and mailing them anything, or, on
-a sabotage job, by leaving one of the target's machines unable to boot and mailing them. This is
+a sabotage job, by leaving one of the target's machines unable to boot and mailing them, or, on a
+file job, by mailing them one of the target's files as an attachment. This is
 the shipped model of the missions epic, complete at **v0.441.0** (four slices, v0.438.0–v0.441.0,
 PRs #746–#749, 2026-11-01 to 2026-11-03), with the routes that leak a login added by the epic
 that followed (four slices, v0.442.0–v0.445.0, PRs #750–#753, 2026-11-03 to 2026-11-04), and a
 second template, a key box behind a front box ("Two hops", four slices, v0.450.0–v0.452.0, PRs
 #761–#764, 2026-11-09 to 2026-11-10), and a second kind of job, a record changed or erased
 ("Tamper jobs", four slices, v0.454.0–v0.457.0, PRs #766–#769, 2026-11-11), and a third, a
-machine taken down ("Sabotage jobs", two slices, v0.458.0–v0.459.0, PRs #770–#771, 2026-11-12).
+machine taken down ("Sabotage jobs", two slices, v0.458.0–v0.459.0, PRs #770–#771, 2026-11-12),
+and a fourth, a file brought back ("File jobs", from v0.461.0, on mail that carries a file,
+v0.460.0, PR #772).
 It sits
 on top of the contractor boards
 ([`hireme-architecture.md`](./hireme-architecture.md)), emailit.io
@@ -658,6 +661,67 @@ its shape, terms and LAN exactly.
   services, prints no storage, key path or key, and on two-hop heads the inside section
   `Target box:`.
 
+## File jobs
+
+The fourth kind of contract (v0.461.0): a client wants one file from the target's network,
+mailed back as an attachment ([`email-architecture.md`](./email-architecture.md), "Attachments").
+`mission-kind-<n>` is split in quarters: below ¼ tamper, ⅓ to 7⁄12 sabotage, from ¾ key, and file
+jobs in the two gaps, ¼ to ⅓ and 7⁄12 to ¾. The gaps are what tamper, sabotage and key gave up as
+they shrank from thirds, so a number is the kind it was or has become a file job; none turned
+from one older kind into another. Every number that kept its kind kept its shape, terms and LAN
+exactly.
+
+- **The target is the key box's slot,** as a sabotage target is: the same octet, route, decoys
+  and front box, the inside box on two-hop. It keeps the key box's hostname, `<stem>-files`, and
+  has no storage (`MissionShape.storage` is `null`): no key, no records, and no mysqld for them.
+- **The file** (`core/missions/missionFileItem.ts`, server only) is a firmware image,
+  `<device>-fw-<major>.<minor>.<patch>.bin`, the device one of `ctl`, `plc`, `rtu`, `hmi` and
+  `cam`, in `/opt/firmware/` or `/srv/releases/`. Name and directory are drawn from the number on
+  `mission-file-<n>` and kept off the wire, as the key's path is. Its content is a header `strings`
+  finds, `FWIMG v<version> <device>`, then 1,000 to 3,000 characters of noise. The length and every
+  character are drawn from an HMAC of `file:<n>` under `MISSION_KEY_SECRET`, so nobody makes the
+  file without taking it, and the two deployments lay different files. The noise is Latin-1 from
+  `¡` to `ÿ` less the soft hyphen, the range `documentFormats.ts` draws from, so the file survives
+  the signed write and the TEXT column of every copy (`scp`, `ftp get`, `mail save`). The server
+  lays it root-only (`ROOT_FILE`, owned by root) beside nothing else; it is in `missionFilePaths`,
+  so only root may write the path, and a root's `rm` of it sticks for everyone, the job lost with
+  no warning.
+- **The terms**: `<Client> — retrieve a firmware image — §<pay>`, and `retrieve an internal …` on
+  two-hop, at the key job's pay (500–2,000 single-hop, 2,000–4,000 two-hop, to the nearest 50).
+  The target company is drawn as a key job's is, the pitch from the firmware image's four.
+- **The briefing** names the file and never where it sits:
+
+  ```text
+  Their engineers keep a firmware image. Bring it to us. Its name is:
+
+    ctl-fw-4.2.1.bin
+
+  Mail it to this address as an attachment, with your wallet address.
+  No file, no money. No wallet, no money.
+  ```
+
+  On two-hop it adds "The file is on a machine inside their network, not on the edge."
+
+- **The client compares the attachment with the file it laid**, character for character. The
+  name the file travels under does not matter, and the client never reads the box, so nothing a
+  later visitor does there breaks a completion. A key in the text proves nothing. The first row
+  that fits answers:
+
+  | The mail                                                         | The reply                                                      | What changes              |
+  | ---------------------------------------------------------------- | -------------------------------------------------------------- | ------------------------- |
+  | No accepted job with this client, and not a completed job's file | "We have no contract with you."                                | nothing                   |
+  | An accepted file job, no attachment                              | "No file, no money. Send the file."                            | nothing                   |
+  | The file laid, with a wallet                                     | "File received. §1,450 sent to jsc…. Pleasure doing business." | completed, the pay minted |
+  | The file laid, no wallet                                         | "File received. You sent no wallet, so there is nothing to …"  | completed, nothing minted |
+  | A completed job's file                                           | "That job is already closed."                                  | nothing                   |
+  | An accepted job, any other attachment                            | "That's not the file we asked for."                            | nothing                   |
+
+  A file changed on the way, by one character or a newline `nano` added, is another file, and the
+  reply does not say why. Key, tamper and sabotage jobs ignore an attachment.
+
+- `hireme.ts show` prints `Kind: file, firmware image` and `File: <path>, <size> bytes`, and no
+  storage, key path or key.
+
 ## 7. What a root finds
 
 On the boards' server, beside `/etc/hireme/boards`, **`/etc/hireme/contracts`**: one
@@ -700,7 +764,8 @@ The key, its paths, the terms, the board, the briefing, the replies and the root
 on the server only. The leak routes added the slice's hashes and the route shapes, and the two-hop
 template the front box and the inside decoys, and the tamper kind its draw and the records'
 pools. The sabotage kind added its draw and its seven roles. The LAN names the target for its role, so
-each role's noun and pitches ride along with its hostname suffix. Each feature raises the main
+each role's noun and pitches ride along with its hostname suffix. The file kind added only its
+share of the draw: its item, the file's name and place, and its bytes are the server's. Each feature raises the main
 chunk's ceiling by its measured growth; at v0.459.0 the chunk is 300,450 B gzipped against a
 ceiling of 300,575 B (a tamper setting's content is not in it).
 
@@ -739,7 +804,10 @@ ceiling of 300,575 B (a tamper setting's content is not in it).
   paid once then closed, a second player's brick paying the contractor, `rm /boot/initrd.img`
   alone paid, a two-hop job's front box bricked: still up, and the target out of reach; and one
   job per machine, `show` naming it and its `-<suffix>` box, root landing there and its brick
-  paid). The
+  paid); `testMissionFile.ts` (10: `show` naming the item and the file, root over `:2222` reading
+  it root-only at its path with the secret's bytes, a mail with no file and one with a newline
+  added refused, the file mailed back renamed paid once then closed, and a root's `rm` of it
+  sticking). The
   board and pay checks each post a two-hop offer on a chosen number (21 and 17 checks at
   v0.452.0). The decoys' doors are also proven in `decoyMissionDoors.test.ts`.
 - **Mutation**: every slice's scoped run left no survivor but equivalents.
@@ -819,8 +887,7 @@ ceiling of 300,575 B (a tamper setting's content is not in it).
 Deferred, in `backlog.md` under "missions — deferred": believable filler behind real doors and
 decoys alike; further templates (deep chains, switches, the gpg passphrase on a third box, the
 library route, stealth, deadlines, a harder leak); a lead to the key box on the front box, as a
-seventh inside route; file exfiltration, which
-needs attachments; recognition for completed jobs; a second, darknet operator; and for tamper
+seventh inside route; recognition for completed jobs; a second, darknet operator; and for tamper
 jobs, adding a record, a second copy the client also checks, an audit log to keep clean, a
 white-hat fix, and clients and settings of their own; and for sabotage jobs, wiping a table
 (legacy's `db_sabotage`), filed with the tamper twists since it reads rows rather than a boot.
@@ -837,7 +904,8 @@ white-hat fix, and clients and settings of their own; and for sabotage jobs, wip
   `clientMail.ts`, `contractsList.ts`, `hiremeOrders.ts` (server and scripts); `missionRecords.ts`
   (a tamper job's setting, records and the check) and `recordSettings.ts` (the eight settings'
   tables); `sabotageRoles.ts` (the seven machines a sabotage job can ask down: each target's hostname,
-  noun and pitches).
+  noun and pitches); `missionFileItem.ts` (a file job's item, its file's name and place, and its
+  bytes, server only).
 - **The lay-in and the doors**: `core/network/missionBoxFiles.ts`, `core/sessions/doorAdmission.ts`,
   `core/generation/missionKeyBoxFs.ts`, `core/crypto/gpgCodec.ts` (the cipher the server seals a
   gpg contract's key with).

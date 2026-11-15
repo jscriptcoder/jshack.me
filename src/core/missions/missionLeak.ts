@@ -30,6 +30,9 @@
  * key stays root-only. On `database` no key file is laid: the key is a row of an `api_keys` table
  * in the datadir, read from outside by the application account a sweep finds. The datadir is
  * laid once with every table the contract adds, so on the database route it holds both.
+ *
+ * A file job's target holds the file the client wants brought back, root-only, its bytes drawn
+ * from the key's secret, so nobody makes it without taking it. Nothing is laid beside it.
  */
 
 import { DATADIR_FILE, FTP_PUBLIC_FILE, ROOT_FILE } from '../generation/baseFs.js';
@@ -63,6 +66,7 @@ import {
 } from './missionShape.js';
 import { GUESSABLE_COMMUNITIES } from './pools.js';
 import { missionRecords, recordsFiles } from './missionRecords.js';
+import { missionFileContent, missionFilePath } from './missionFileItem.js';
 
 /** A file the server lays onto a key box before its journal replays. */
 export type MissionFile = {
@@ -323,6 +327,17 @@ const keyFiles = (missionNumber: number, secret: string): readonly MissionFile[]
 const holdsKey = (ref: MissionBoxRef): boolean =>
   ref.role === 'key' && missionKind(ref.missionNumber) === 'key';
 
+/** Whether the box is a file job's target, holding the file the client wants. */
+const holdsFile = (ref: MissionBoxRef): boolean =>
+  ref.role === 'key' && missionKind(ref.missionNumber) === 'file';
+
+/** A file job's file, as the server lays it: root-only, like the key. */
+const fileJobFile = (missionNumber: number, secret: string): MissionFile => ({
+  path: missionFilePath(missionNumber),
+  content: missionFileContent(missionNumber, secret),
+  perms: ROOT_FILE,
+});
+
 /** Whether the box keeps the contract's key in its datadir: the key box, on a contract keeping
  *  it in a database. */
 const keepsKeyInDatabase = (ref: MissionBoxRef): boolean =>
@@ -390,8 +405,8 @@ type MissionSecretsEnv = {
   readonly rawSecrets: string | undefined;
 };
 
-/** Every file the server lays onto the box: on a key job's key box the key's files, then its
- *  leak and its datadir; on a records box or a front box its leak, its datadir and a records box's
+/** Every file the server lays onto the box: on a key job's key box the key's files, on a file
+ *  job's target its file, then its leak and its datadir; on a records box or a front box its leak, its datadir and a records box's
  *  file, which never need the key's secret. A route with no leak never touches the pools, so a missing
  *  `JSHACK_SECRETS` closes only the boxes that need it. */
 export const missionFiles = (
@@ -401,9 +416,13 @@ export const missionFiles = (
   const keyFilesLaid = holdsKey(ref)
     ? keyFiles(ref.missionNumber, requireMissionSecret(env.keySecret))
     : [];
+  const fileLaid = holdsFile(ref)
+    ? [fileJobFile(ref.missionNumber, requireMissionSecret(env.keySecret))]
+    : [];
   const leak = ownLeakFile(ref, env.rawSecrets);
   return [
     ...keyFilesLaid,
+    ...fileLaid,
     ...(leak === null ? [] : [leak]),
     ...(laysDatadir(ref) ? [datadirFile(ref, env)] : []),
     ...(holdsRecordsInFile(ref) ? recordsFilesLaid(ref.missionNumber) : []),
@@ -434,6 +453,7 @@ export const missionFilePaths = (ref: MissionBoxRef): readonly string[] => {
   const leakPath = ownLeakPath(ref);
   return [
     ...(holdsKey(ref) ? keyFilePaths(ref.missionNumber) : []),
+    ...(holdsFile(ref) ? [missionFilePath(ref.missionNumber)] : []),
     ...(leakPath === null ? [] : [leakPath]),
     ...(laysDatadir(ref) ? [DATADIR_PATH] : []),
     ...(holdsRecordsInFile(ref) ? recordsFiles(ref.missionNumber).map(({ path }) => path) : []),
