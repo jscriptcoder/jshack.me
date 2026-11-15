@@ -1,6 +1,6 @@
 # Plan: mail carries a file, and a contract that asks for one
 
-**Status:** Grilled 2026-11-15. Slice plan to follow. Nothing is built.
+**Status:** Grilled 2026-11-15. Slice 1 planned and in flight on `feat/mail-attachments`.
 
 A fourth kind of contract. Key jobs compare a mailed key, tamper jobs read a records box, sabotage
 jobs check that a machine no longer boots. A **file job** asks the player to bring back one file
@@ -157,3 +157,67 @@ exfiltration" item in `docs/backlog.md`. As-built context:
 - Where an attachment is stored: a column on `email_messages` or a table of its own.
 - That a root's `rm` of the job's file sticks through the write gate, as the key's does
   (`missionFilePaths`).
+
+### Settled while planning (2026-11-15)
+
+- **An attachment is two nullable columns on `email_messages`**, `attachment_name` and
+  `attachment_content`, both or neither, the content at most 8,000 characters. A message carries
+  at most one, so a table of its own would only add a join.
+- **The bytes survive.** `documentFormats.ts` already draws its noise so that `ftp get` and `scp`
+  carry a file through the signed write and the TEXT column unchanged (no NUL, no control
+  characters); `mail save` writes through the same `patches.write`, and slice 1's wire-check
+  proves the round trip through emailit.io.
+
+---
+
+## Slice 1: mail carries a file
+
+**Value:** a player attaches one file to a mail with `-A`, and its recipient sees it on `read`
+and saves it to a file with `mail save`, byte for byte.
+**Path:** `mail send|reply … -A <file>` (`src/core/commands/mail.ts`) → `env.mail.send`
+(`src/adapters/networkApi.ts`) → `resolveMail` `op: 'send'` with `attachment`
+(`src/core/emailit/handleResolveMail.ts`, `api/network.ts`) → `email_send` stores it (new
+migration) → `email_read` answers it → `mail read` prints the line, `mail save` writes the
+file through `env.patches.write`; `findMailSpool` selects it and `withMailSpool`
+(`src/core/emailit/spool.ts`) writes the MIME part.
+**Class:** behavior change. **Delivery:** one PR against `main`.
+**Skills:** `tdd`, `testing`, `refactoring`; `mutation-testing` at PR readiness.
+
+**Acceptance criteria**
+
+1. `mail send <to> <subject words> -A <file>` and `mail reply <n> -A <file>` attach the file
+   read from the box the shell stands on, as the current user; `-A` may sit anywhere after the
+   subcommand. A script passes `'-A', '<file>'` among its arguments the same way.
+2. Before nano opens, the command refuses: a missing file (`mail: <file>: No such file or
+   directory`), an unreadable one (`… Permission denied`), a directory (`… Is a directory`), a
+   file over 8,000 characters as `ls -l` counts it (`mail: <file>: too large to attach (max
+   8000)`), and a second `-A` or an `-A` with no file (the usage line).
+3. The server refuses an attachment over 8,000 characters, or a name with a `/` or an empty
+   name, before the store.
+4. The recipient's `mail read <n>` ends with `[attachment: <name>, <size> bytes]`, the name the
+   sender's basename; a message with none prints as today; the list is unchanged.
+5. `mail save <n> [path]` writes the attachment where the shell stands, as the current user:
+   no path → `./<name>`; a directory → `<dir>/<name>`; a file path → that path, overwriting;
+   refused where the user may not write (`Permission denied`), for a message with no
+   attachment (`mail: message <n> has no attachment`) and as `read` refuses an unknown number.
+   It does not mark the message read. It works from a script.
+6. A reply does not carry the original's attachment; `delete` takes the attachment with the
+   message.
+7. A mail with an attachment to a client's handle is answered exactly as today (the
+   attachment is ignored until file jobs exist).
+8. A root on emailit.io reads such a message in `/var/mail/<handle>` as `multipart/mixed`, the
+   body as the first part and the attachment as the second (`Content-Disposition: attachment;
+   filename="<name>"`, raw bytes); a message without one is unchanged.
+9. `mail`'s manual names `-A` and `save`.
+
+**RED first:** jsdom/unit tests in `mail.test.ts` (parse, refusals, read line, save),
+`handleResolveMail.test.ts` (schema, passing the attachment to the store, the read answer) and
+`spool.test.ts` (the MIME part). **Wire-check** `scripts/testMailAttach.ts` against `vercel dev`
++ local supabase: a noise attachment sent, listed, read back byte-exact and with its size, the
+8,001-character and bad-name refusals, a reply without it, delete taking it, the spool's MIME
+part for root, and the client door unchanged. The migration goes to dev, then prod, before
+merge.
+**PR-ready when:** the criteria pass, `npm run typecheck`, `npm run lint` and the full suite
+are green, the wire-check plus `testMailSend`, `testMailRead` and `testMailSpool` pass, the
+mutation gate has run, the version is bumped (0.460.0) and `email-architecture.md` describes
+attachments.
