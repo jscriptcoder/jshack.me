@@ -1,7 +1,7 @@
 # Plan: mail carries a file, and a contract that asks for one
 
-**Status:** Grilled 2026-11-15. Slice 1 merged (v0.460.0, #772). Slice 2 planned, on
-`feat/file-jobs`.
+**Status:** Grilled 2026-11-15. Slice 1 merged (v0.460.0, #772). Slice 2 merged (v0.461.0,
+#773). Slice 3 to plan.
 
 A fourth kind of contract. Key jobs compare a mailed key, tamper jobs read a records box, sabotage
 jobs check that a machine no longer boots. A **file job** asks the player to bring back one file
@@ -311,3 +311,9 @@ wire-checks use are checked against the new draw and re-picked where one became 
 are green, `testMissionFile` and every other `testMission*` wire-check pass, the mutation gate
 has run, the version is bumped (0.461.0), the bundle's ceiling covers the change, and
 `missions-architecture.md` has a "File jobs" section.
+
+**As built (v0.461.0, #773).** One departure from criterion 5: the briefing reads "Their
+engineers keep a firmware image. Bring it to us. Its name is:" with the name alone on the next
+line, set off by blank lines, so a name ending `.bin` is never followed by a full stop. The
+wire-checks' fixed numbers held; `testMissions` skips a non-key number when it picks one per
+route, and `testMissionBoard` knows each kind's closing rule. The bundle's ceiling did not move.
