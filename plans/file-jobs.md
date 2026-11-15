@@ -1,7 +1,7 @@
 # Plan: mail carries a file, and a contract that asks for one
 
 **Status:** Grilled 2026-11-15. Slice 1 merged (v0.460.0, #772). Slice 2 merged (v0.461.0,
-#773). Slice 3 to plan.
+#773). Slice 3 planned.
 
 A fourth kind of contract. Key jobs compare a mailed key, tamper jobs read a records box, sabotage
 jobs check that a machine no longer boots. A **file job** asks the player to bring back one file
@@ -317,3 +317,150 @@ engineers keep a firmware image. Bring it to us. Its name is:" with the name alo
 line, set off by blank lines, so a name ending `.bin` is never followed by a full stop. The
 wire-checks' fixed numbers held; `testMissions` skips a non-key number when it picks one per
 route, and `testMissionBoard` knows each kind's closing rule. The bundle's ceiling did not move.
+
+## Slice 3: the six items
+
+**Value:** a file job asks for one of six things a company keeps (a prototype render, a site
+photo, a signed contract, a firmware image, a customer export or a key ring), each a file of its
+own format, name and place. A contractor reads the board, the briefing and `strings` of what
+they find as a different job each time.
+**Path:** `missionFileItem(n)` (`core/missions/missionFileItem.ts`) draws the item on
+`mission-file-item-<n>` → `missionTerms` takes its noun and pitches for the board line and pitch
+→ the briefing (`core/hireme/contracts.ts`) takes its keepers and the name → `missionFiles`
+(`core/missions/missionLeak.ts`) lays its bytes at its path, which `missionFilePaths` gates →
+the client compares the attachment with those bytes (`core/missions/clientMail.ts`, unchanged)
+→ `showReport` (`core/missions/hiremeOrders.ts`) prints the item. jpeg and pdf content comes
+from `renderDocument` (`core/generation/documentFormats.ts`), drawn with the secret's stream.
+**Class:** behavior change. **Delivery:** one PR against `main`, branch `feat/file-items`.
+**Skills:** `tdd`, `testing`, `refactoring`; `mutation-testing` at PR readiness.
+
+**Settled while planning (2026-11-15)**
+
+- **No item sits in a user's home.** System directories replace the grill's
+  `/home/<user>/renders/` and `/home/<user>/Pictures/`. The box's NPC user owns their home, and
+  the game's `rm -r` asks only for write on the containing directory. A cracked NPC user could
+  therefore remove the file's parent and lose the job for everyone without root. Every
+  directory below is under a root-writable one (`/srv`, `/opt`, `/var`, `/etc`, `/root`), so
+  decision 10 holds unchanged.
+- **The item is one in six on `mission-file-item-<n>`.** Its name, directory and name parts are
+  drawn on `mission-file-<n>`, as the firmware image's are now. The firmware image's draws are
+  unchanged, so a file job that is still a firmware image keeps its name, path and bytes. The
+  bytes of every item come from the HMAC of `file:<n>` under `MISSION_KEY_SECRET`, as now.
+- **The six items:**
+
+  | Item             | Keepers     | Name                          | Directories                               | Content                                                                       |
+  | ---------------- | ----------- | ----------------------------- | ----------------------------------------- | ----------------------------------------------------------------------------- |
+  | prototype render | designers   | `<code>-render-<stage>.jpg`   | `/srv/design/`, `/opt/cad/renders/`       | jpeg; Exif make and model a renderer's, artist a person's full name           |
+  | site photo       | surveyors   | `IMG_<YYYYMMDD>_<HHMMSS>.jpg` | `/var/lib/uploads/`, `/srv/media/photos/` | jpeg; a camera from `CAMERAS`, taken at the name's moment, no artist          |
+  | signed contract  | lawyers     | `<project>-<deal>-signed.pdf` | `/srv/legal/`, `/var/archive/contracts/`  | pdf; title `<Project> <Deal> (signed)`, author a person, created ≤ modified   |
+  | firmware image   | engineers   | `<device>-fw-<version>.bin`   | `/opt/firmware/`, `/srv/releases/`        | as built: `FWIMG v<version> <device>`, then noise                             |
+  | customer export  | salespeople | `customers-<YYYY>-<MM>.dat`   | `/var/backups/`, `/srv/exports/`          | `CUSTDB01`, then noise                                                        |
+  | key ring         | admins      | `keyring.dat`                 | `/root/.vault/`, `/etc/<stem>/`           | `KEYRING v2`, then noise                                                      |
+
+  - `<code>` is two lowercase letters and a digit (`vx7`). `<stage>` is one of `final`, `v2`,
+    `v3`, `approved` and `review`.
+  - `<project>` is one of `harbour`, `northgate`, `riverside`, `eastfield`, `millbank`,
+    `westpier`, `oakridge` and `kingsway`. `<deal>` is one of `bid`, `lease`, `merger`,
+    `supply` and `nda` (titled `NDA`).
+  - The renderers are `Blender`/`Cycles`, `Luxion`/`KeyShot`, `Chaos`/`V-Ray` and
+    `Autodesk`/`VRED Pro`. As in `CAMERAS`, each part is four characters or more with no
+    decimal, so `strings` shows each alone.
+  - Every date falls in the 300 days before `WORLD_EPOCH`, the window a share's documents are
+    dated in. That covers the photo's moment, the contract's dates and the export's month. The
+    photo's hour is 07–18. People are drawn from `core/generation/pools/people.ts`.
+  - `<stem>` is the target's stem (`missionShape(n).stem`).
+  - The noise after a header is 1,000–3,000 characters, as the firmware image's is.
+  - A jpeg or pdf is as long as `renderDocument` makes it, measured at 470–1,300 characters.
+    That is smaller than the grill's "about 1–3K", but the only limit size has to meet is the
+    8,000 characters an attachment may be.
+- **The pitches, four an item** (the firmware image keeps its own):
+  - **Prototype render:**
+    - "Their new product launches next month. We would like to see it before the press does."
+    - "That design is ours. Their lead designer drew it here before leaving us."
+    - "We are bidding against them for the same retailer. We need to know what they are
+      pitching."
+    - "An investor asked us whether they are as far along as they claim. We would like to
+      answer."
+  - **Site photo:**
+    - "They swear the site was clean when the inspectors came. Their own photos will say
+      otherwise."
+    - "We are disputing their insurance claim. We want to see the damage as they saw it."
+    - "They built on land we have a claim to. We need proof of when the work started."
+    - "A buyer is asking about that site. We want to know what is really there before they
+      do."
+  - **Signed contract:**
+    - "They undercut our bid by a margin nobody could make money on. We want to see the
+      terms."
+    - "Our partner signed with them behind our backs. We want the proof in writing."
+    - "We think that deal breaks the exclusivity they promised us. We want to read it."
+    - "Their lawyers are telling the court the deal never closed. The signed copy says it
+      did."
+  - **Customer export:**
+    - "Their sales team keeps poaching our accounts. We want to know which ones are next."
+    - "They are about to be bought, and their customer list is the price. We would like to
+      know it first."
+    - "We believe they are selling our customers' data. Their export will show whether our
+      people are in it."
+    - "A former employee took our client list to them. We want to see how much of it they
+      kept."
+  - **Key ring:**
+    - "Their admins sign every release with those keys. We would like to be able to as well."
+    - "They locked us out of systems we paid for. Their key ring opens them again."
+    - "We sold them hardware and they still owe us. Their keys are worth the debt to us."
+    - "Someone inside asked us to audit them without telling their bosses. Bring us the keys."
+
+**Acceptance criteria**
+
+1. A file job's item is drawn one in six on `mission-file-item-<n>`: across a spread of file
+   jobs all six appear, each near a sixth. Nothing else a number draws moves: its kind, shape,
+   LAN, pay and client are as before. A file job whose item is the firmware image keeps its
+   name, path and bytes exactly.
+2. Each item's name matches its pattern and its file sits in one of its two directories, both
+   drawn from the number alone. The key ring's second directory is `/etc/<stem>/`. No item's
+   path is under `/home`.
+3. Each item's bytes are drawn from the secret:
+   - the same number under another secret has other bytes, and the same number and secret the
+     same bytes;
+   - every item's file is at most 8,000 characters;
+   - every item's file is made only of characters a copy carries unchanged: no NUL, and no
+     control character except the pdf's line breaks.
+4. `strings` of each item finds what its format gives up and nothing more:
+   - a jpeg: `JFIF`, `Exif`, its make, model and date, and a render's artist;
+   - a pdf: its structure and its Info title, author and dates;
+   - a bin or dat: its header alone.
+
+   A site photo's Exif date is the moment its name gives.
+5. The server lays the item exactly as it lays the firmware image now: alone, at its path,
+   mode 600 owned by root, behind the write gate.
+6. The board offers `<Client> — retrieve a <noun> — §<pay>` (`an internal <noun>` on two-hop),
+   its pitch one of that item's four, at a key job's pay.
+7. The briefing reads "Their <keepers> keep a <noun>. Bring it to us. Its name is:", then the
+   name alone, set off by blank lines. The rest is as built.
+8. `hireme.ts show` prints `Kind: file, <noun>` and `File: <path>, <size> bytes`.
+9. The client's replies are unchanged: the right bytes of any item complete the job.
+
+**RED first:**
+
+- `missionFileItem.test.ts` grows per item:
+  - the spread of the draw, and the firmware image unchanged;
+  - each name pattern, each directory pool, `/etc/<stem>/`, and nothing under `/home`;
+  - secret-bound bytes, the 8,000 cap and the character range;
+  - what `strings` finds, and the photo's Exif date matching its name.
+- `missionTerms.test.ts`: each item's board noun and pitches.
+- `contracts.test.ts`: each item's keepers.
+- `missionLeak.test.ts`: an item other than the firmware image, laid root-only at its path and
+  in `missionFilePaths`.
+- `hiremeOrders.test.ts`: the item's noun.
+- `clientMail.test.ts`: the bytes of an item other than the firmware image completing the job.
+
+**Wire-check:** `scripts/testMissionFile.ts` re-picks its job as a signed contract, the one
+format with line breaks. The round trip through the target, `mail -A` and the client then
+proves the line breaks survive.
+
+**PR-ready when:**
+
+- the criteria pass, and `npm run typecheck`, `npm run lint` and the full suite are green;
+- `testMissionFile` and every other `testMission*` wire-check pass;
+- the mutation gate has run;
+- the version is bumped (0.462.0), and the bundle's ceiling covers the change;
+- the "File jobs" section of `missions-architecture.md` names the six items.
