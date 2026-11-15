@@ -1722,8 +1722,12 @@ export type InboxResult =
       readonly error: 'host_unreachable' | 'login_failed' | 'throttled' | 'network_error';
     };
 
-/** One message opened to be read: what the list shows of it, and its body as written. */
-export type MailMessage = Omit<InboxMessage, 'read'> & { readonly body: string };
+/** One message opened to be read: what the list shows of it, its body as written, and the
+ *  one file it carries, when it carries one. */
+export type MailMessage = Omit<InboxMessage, 'read'> & {
+  readonly body: string;
+  readonly attachment?: MailAttachment;
+};
 
 export type MessageResult =
   | { readonly ok: true; readonly message: MailMessage }
@@ -1754,6 +1758,15 @@ export type OutgoingMail = {
   readonly to: string;
   readonly subject: string;
   readonly body: string;
+  /** One file carried with the message: its name, never the sender's path, and its
+   *  content byte for byte. */
+  readonly attachment?: MailAttachment;
+};
+
+/** A file as a message carries it. */
+export type MailAttachment = {
+  readonly name: string;
+  readonly content: string;
 };
 
 export type SendResult =

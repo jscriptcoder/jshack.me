@@ -127,6 +127,8 @@ const SPOOL: readonly SpoolAccount[] = [
         body: 'Welcome aboard.',
         delivered_at: '2026-10-14T09:12:03.000+00:00',
         read: false,
+        attachment_name: null,
+        attachment_content: null,
       },
     ],
   },

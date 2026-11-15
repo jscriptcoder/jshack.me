@@ -372,8 +372,15 @@ export const readMailMessage = async (
     }
     const opened = messageResponseSchema.safeParse(body);
     if (!opened.success) return { ok: false, error: 'network_error' };
-    const { delivered_at, ...message } = opened.data.message;
-    return { ok: true, message: { ...message, deliveredAt: delivered_at } };
+    const { delivered_at, attachment, ...message } = opened.data.message;
+    return {
+      ok: true,
+      message: {
+        ...message,
+        deliveredAt: delivered_at,
+        ...(attachment === undefined ? {} : { attachment }),
+      },
+    };
   } catch {
     return { ok: false, error: 'network_error' };
   }
@@ -407,6 +414,7 @@ export const sendMail = async (
       to: mail.to,
       subject: mail.subject,
       body: mail.body,
+      ...(mail.attachment === undefined ? {} : { attachment: mail.attachment }),
     });
     const body: unknown = await response.json();
     if (!response.ok) {

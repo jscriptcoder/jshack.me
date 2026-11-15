@@ -12,7 +12,7 @@ import {
 import { applyPatches, type Patch } from '../filesystem/applyPatches.js';
 import { createFsView } from '../filesystem/fsView.js';
 import { defaultFilePermissions } from '../filesystem/defaultPermissions.js';
-import { HOME_DIR, ROOT_DIR } from '../generation/baseFs.js';
+import { HOME_DIR, ROOT_DIR, TMP_DIR, withFiles } from '../generation/baseFs.js';
 import { assignHomeNetwork } from '../network/homeNetwork.js';
 import { buildColdStartConnectivity, type ConnectivityState } from '../network/interfaces.js';
 import { APT_PACKAGES } from '../packages/aptPackages.js';
@@ -36,7 +36,7 @@ import type { Directory } from '../filesystem/types.js';
 
 const NO_FLAGS = new Map<string, string | true>();
 const USAGE =
-  'mail: usage: mail [read <n>] | send <to> <subject> | reply <n> | delete <n> | passwd | login | logout';
+  'mail: usage: mail [read <n>] | send <to> <subject> [-A <file>] | reply <n> [-A <file>] | delete <n> | save <n> [path] | passwd | login | logout';
 const PLAYER_KEY = 'a'.repeat(64);
 const ESSID = 'BEAN-THERE-WIFI';
 
@@ -1960,7 +1960,7 @@ describe('mail on a shell with no terminal behind it', () => {
 describe('mail — what the manual promises', () => {
   it('names the forms the usage line names', () => {
     expect(mail.manual?.synopsis).toBe(
-      'mail [read <n>] | send <to> <subject> | reply <n> | delete <n> | passwd | login | logout',
+      'mail [read <n>] | send <to> <subject> [-A <file>] | reply <n> [-A <file>] | delete <n> | save <n> [path] | passwd | login | logout',
     );
   });
 
@@ -1970,10 +1970,23 @@ describe('mail — what the manual promises', () => {
       'send',
       'reply',
       'delete',
+      'save',
       'passwd',
       'login',
       'logout',
     ]);
+  });
+
+  it('says how a file goes with a message, and how one that came is saved', () => {
+    const description = mail.manual?.description ?? '';
+
+    expect(description).toContain(
+      'send and reply take -A and a file to carry that file with the message',
+    );
+    expect(description).toContain('up to 8,000 bytes');
+    expect(description).toContain(
+      'save writes the file a message carries where you stand, under its own name',
+    );
   });
 
   it('says the login is the file, kept in plain text, and readable by whoever can read it', () => {
@@ -2059,5 +2072,293 @@ describe('mail — what the manual promises', () => {
 
       expect(exitCodeOf(result), args.join(' ')).toBe(0);
     }
+  });
+});
+
+describe('mail read and mail save — the file a message carries', () => {
+  const PHOTO = '\u00ff\u00d8Exif\u00a1Canon\u00fe';
+  const carrying = opened({
+    number: 3,
+    sender: 'trin@emailit.io',
+    subject: 'the photo',
+    body: 'here it is\n',
+    attachment: { name: 'IMG_0412.jpg', content: PHOTO },
+  });
+
+  it('ends a message that carries a file with its name and size', async () => {
+    const { env } = mailEnv({ opens: { ok: true, message: carrying } });
+
+    const result = await mail.execute(env, ['read', '3'], NO_FLAGS);
+
+    expect(linesOf(result, 'text').slice(-3)).toEqual([
+      'here it is',
+      '',
+      `[attachment: IMG_0412.jpg, ${PHOTO.length} bytes]`,
+    ]);
+  });
+
+  it('prints a message that carries nothing as it always has', async () => {
+    const { env } = mailEnv();
+
+    const result = await mail.execute(env, ['read', '1'], NO_FLAGS);
+
+    expect(linesOf(result, 'text').at(-1)).toBe('This mailbox is not read.');
+  });
+
+  /** alice's box, logged in as neo, standing in `/home/alice`, with a root-only `/srv`. */
+  const savingEnv = (opens: MessageResult = { ok: true, message: carrying }) => {
+    const box = withFiles(boxWith({ aliceRc: NEO_MAILRC }), [
+      ['/srv/keep.txt', buildFile('', { owner: 'root', perms: { write: ['root'] } })],
+      ['/home/alice/old.jpg', buildFile('stale', { owner: 'alice' })],
+    ]);
+    const tree: Directory = {
+      ...box,
+      entries: new Map(box.entries).set('tmp', buildDirectory({}, { perms: TMP_DIR })),
+    };
+    const made = mailEnv({ tree, opens });
+    const env = {
+      ...made.env,
+      fs: mockFsViewFromTree(tree, { userType: 'user', cwd: asAbsPath('/home/alice') }),
+    };
+    return { ...made, env };
+  };
+
+  it('saves the file where the shell stands, under its own name, byte for byte', async () => {
+    const { env, treeAfter } = savingEnv();
+
+    const result = await mail.execute(env, ['save', '3'], NO_FLAGS);
+
+    expect(result).toEqual({ kind: 'sync', lines: [], exitCode: 0 });
+    expect(readAs(treeAfter(), 'user', '/home/alice/IMG_0412.jpg')).toEqual({
+      ok: true,
+      content: PHOTO,
+    });
+  });
+
+  it('saves into a directory the path names, under its own name', async () => {
+    const { env, treeAfter } = savingEnv();
+
+    await mail.execute(env, ['save', '3', '/tmp'], NO_FLAGS);
+
+    expect(readAs(treeAfter(), 'user', '/tmp/IMG_0412.jpg')).toEqual({ ok: true, content: PHOTO });
+  });
+
+  it('saves to a file the path names, overwriting what was there', async () => {
+    const { env, treeAfter, writtenAsNew } = savingEnv();
+
+    await mail.execute(env, ['save', '3', 'old.jpg'], NO_FLAGS);
+
+    expect(readAs(treeAfter(), 'user', '/home/alice/old.jpg')).toEqual({
+      ok: true,
+      content: PHOTO,
+    });
+    expect(writtenAsNew).toEqual([false]);
+  });
+
+  it('opens the message without marking it read', async () => {
+    const { env, opensAsked } = savingEnv();
+
+    await mail.execute(env, ['save', '3'], NO_FLAGS);
+
+    expect(opensAsked).toEqual([
+      { login: { handle: 'neo', password: 's3cret' }, number: 3, mark: false },
+    ]);
+  });
+
+  it.each([
+    ['a directory the user may not write', ['save', '3', '/srv'], 'mail: /srv: Permission denied'],
+    [
+      'a file the user may not write',
+      ['save', '3', '/srv/keep.txt'],
+      'mail: /srv/keep.txt: Permission denied',
+    ],
+    [
+      'a directory that is not there',
+      ['save', '3', '/nope/x.jpg'],
+      'mail: /nope/x.jpg: No such file or directory',
+    ],
+  ])('refuses %s, writing nothing', async (_label, args, said) => {
+    const { env, writtenAsNew } = savingEnv();
+
+    const result = await mail.execute(env, args, NO_FLAGS);
+
+    expect(linesOf(result, 'error')).toEqual([said]);
+    expect(exitCodeOf(result)).toBe(1);
+    expect(writtenAsNew).toEqual([]);
+  });
+
+  it('refuses a message that carries no file', async () => {
+    const { env, writtenAsNew } = savingEnv({ ok: true, message: opened({ number: 3 }) });
+
+    const result = await mail.execute(env, ['save', '3'], NO_FLAGS);
+
+    expect(linesOf(result, 'error')).toEqual(['mail: message 3 has no attachment']);
+    expect(writtenAsNew).toEqual([]);
+  });
+
+  it('refuses a number the inbox does not hold, as read does', async () => {
+    const { env } = savingEnv({ ok: false, error: 'no_message' });
+
+    const result = await mail.execute(env, ['save', '9'], NO_FLAGS);
+
+    expect(linesOf(result, 'error')).toEqual(['mail: no message 9']);
+  });
+
+  it.each([[['save']], [['save', 'x']], [['save', '3', 'a', 'b']]])(
+    'prints the usage for %o',
+    async (args) => {
+      const { env } = savingEnv();
+
+      const result = await mail.execute(env, args, NO_FLAGS);
+
+      expect(linesOf(result, 'error')).toEqual([args[1] === 'x' ? 'mail: no message x' : USAGE]);
+    },
+  );
+
+  it('sends a reply without the file of the message it answers', async () => {
+    const { env, sent } = mailEnv({ opens: { ok: true, message: carrying } });
+
+    await mail.execute(env, ['reply', '3'], NO_FLAGS);
+
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.mail).not.toHaveProperty('attachment');
+  });
+
+  it('saves from a script', async () => {
+    const { env, treeAfter } = savingEnv();
+    const script = buildCommandContext(env, new Map([[mail.name, mail]]), () => undefined);
+
+    const result = await script.mail('save', 3, '/tmp/out.jpg');
+
+    expect(result.exitCode).toBe(0);
+    expect(readAs(treeAfter(), 'user', '/tmp/out.jpg')).toEqual({ ok: true, content: PHOTO });
+  });
+});
+
+describe('mail send -A — one file carried with the message', () => {
+  /** A file as `cat` would show a photo: noise a reader cannot retype, a fragment of Exif. */
+  const PHOTO = '\u00ff\u00d8\u00ff\u00e1Exif\u00a1\u00b2Canon\u00c3\u00e9\u00f7\u00fe';
+
+  const attachFlag = (path: string) => new Map<string, string | true>([['-A', path]]);
+
+  /** alice's box, logged in as neo, with `files` laid in at their paths. */
+  const boxHolding = (files: readonly (readonly [string, ReturnType<typeof buildFile>])[]) =>
+    withFiles(boxWith({ aliceRc: NEO_MAILRC }), files);
+
+  it('sends the file read from the box, named by its basename, with the body', async () => {
+    const { env, sent } = mailEnv({
+      tree: boxHolding([['/tmp/IMG_0412.jpg', buildFile(PHOTO, { owner: 'alice' })]]),
+    });
+
+    const result = await mail.execute(
+      env,
+      ['send', 'trin', 'the', 'photo'],
+      attachFlag('/tmp/IMG_0412.jpg'),
+    );
+
+    expect(sent).toEqual([
+      {
+        login: { handle: 'neo', password: 's3cret' },
+        mail: {
+          to: 'trin',
+          subject: 'the photo',
+          body: 'meet me at the docks\n',
+          attachment: { name: 'IMG_0412.jpg', content: PHOTO },
+        },
+      },
+    ]);
+    expect(exitCodeOf(result)).toBe(0);
+  });
+
+  it('reads a relative path from where the shell stands', async () => {
+    const { env, sent } = mailEnv({
+      tree: boxHolding([['/IMG_0412.jpg', buildFile(PHOTO, { owner: 'alice' })]]),
+    });
+
+    await mail.execute(env, ['send', 'trin', 'photo'], attachFlag('IMG_0412.jpg'));
+
+    expect(sent[0]?.mail.attachment).toEqual({ name: 'IMG_0412.jpg', content: PHOTO });
+  });
+
+  it('carries a file of exactly 8,000 characters', async () => {
+    const content = 'x'.repeat(8000);
+    const { env, sent } = mailEnv({
+      tree: boxHolding([['/tmp/dump.bin', buildFile(content, { owner: 'alice' })]]),
+    });
+
+    await mail.execute(env, ['send', 'trin', 'dump'], attachFlag('/tmp/dump.bin'));
+
+    expect(sent[0]?.mail.attachment?.content).toBe(content);
+  });
+
+  it.each([
+    ['missing', '/tmp/nope.jpg', 'mail: /tmp/nope.jpg: No such file or directory'],
+    ['root-only', '/root/vault.dat', 'mail: /root/vault.dat: Permission denied'],
+    ['a directory', '/tmp', 'mail: /tmp: Is a directory'],
+    ['over 8,000 characters', '/tmp/big.bin', 'mail: /tmp/big.bin: too large to attach (max 8000)'],
+  ])('refuses a file %s before the editor opens, sending nothing', async (_label, path, said) => {
+    const { env, sent, composed } = mailEnv({
+      tree: boxHolding([
+        ['/root/vault.dat', buildFile(PHOTO, { owner: 'root', perms: { read: ['root'] } })],
+        ['/tmp/big.bin', buildFile('x'.repeat(8001), { owner: 'alice' })],
+      ]),
+    });
+
+    const result = await mail.execute(env, ['send', 'trin', 'photo'], attachFlag(path));
+
+    expect(linesOf(result, 'error')).toEqual([said]);
+    expect(exitCodeOf(result)).toBe(1);
+    expect(composed).toEqual([]);
+    expect(sent).toEqual([]);
+  });
+
+  it('carries a file with a reply, to the original sender', async () => {
+    const { env, sent } = mailEnv({
+      tree: boxHolding([['/tmp/IMG_0412.jpg', buildFile(PHOTO, { owner: 'alice' })]]),
+      opens: {
+        ok: true,
+        message: opened({ sender: 'copper-ops@emailit.io', subject: 'Contract' }),
+      },
+    });
+
+    await mail.execute(env, ['reply', '1'], attachFlag('/tmp/IMG_0412.jpg'));
+
+    expect(sent[0]?.mail).toMatchObject({
+      to: 'copper-ops',
+      subject: 'Re: Contract',
+      attachment: { name: 'IMG_0412.jpg', content: PHOTO },
+    });
+  });
+
+  it('refuses a reply whose file cannot be read before the editor opens', async () => {
+    const { env, sent, composed } = mailEnv();
+
+    const result = await mail.execute(env, ['reply', '1'], attachFlag('/tmp/nope.jpg'));
+
+    expect(linesOf(result, 'error')).toEqual(['mail: /tmp/nope.jpg: No such file or directory']);
+    expect(composed).toEqual([]);
+    expect(sent).toEqual([]);
+  });
+
+  it('carries a file from a script, named in its flags', async () => {
+    const { env, sent } = mailEnv({
+      tree: boxHolding([['/tmp/IMG_0412.jpg', buildFile(PHOTO, { owner: 'alice' })]]),
+    });
+    const script = buildCommandContext(env, new Map([[mail.name, mail]]), () => undefined);
+
+    await script.mail('send', 'trin', 'photo', 'here', { '-A': '/tmp/IMG_0412.jpg' });
+
+    expect(sent[0]?.mail).toMatchObject({
+      body: 'here',
+      attachment: { name: 'IMG_0412.jpg', content: PHOTO },
+    });
+  });
+
+  it('sends no attachment when none is named', async () => {
+    const { env, sent } = mailEnv();
+
+    await mail.execute(env, ['send', 'trin', 'hi'], NO_FLAGS);
+
+    expect(sent[0]?.mail).not.toHaveProperty('attachment');
   });
 });

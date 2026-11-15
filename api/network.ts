@@ -846,7 +846,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return { data: data as unknown, error };
       },
       // The sender's password is checked in the same call that delivers.
-      sendMessage: async ({ handle, passwordMd5, playerKey, to, subject, body }) => {
+      // A message with no file goes with an empty name, which no file may have: the
+      // function is STRICT, so a null would answer nothing at all.
+      sendMessage: async ({ handle, passwordMd5, playerKey, to, subject, body, attachment }) => {
         const { data, error } = await supabase.rpc('email_send', {
           send_handle: handle,
           send_password_md5: passwordMd5,
@@ -854,6 +856,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           send_to: to,
           send_subject: subject,
           send_body: body,
+          send_attachment_name: attachment?.name ?? '',
+          send_attachment_content: attachment?.content ?? '',
         });
         logFailure('mail send', error);
         return { data: data as unknown, error };
@@ -1153,7 +1157,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const { data, error } = await supabase
         .from('email_accounts')
         .select(
-          'handle, password_md5, signed_up_at, messages:email_messages(number, sender, subject, body, delivered_at, read)',
+          'handle, password_md5, signed_up_at, messages:email_messages(number, sender, subject, body, delivered_at, read, attachment_name, attachment_content)',
         );
       if (error) console.error('[network] mail spool lookup error:', error);
       return { data: data as readonly SpoolAccount[] | null, error };
