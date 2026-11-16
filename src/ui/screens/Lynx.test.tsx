@@ -194,6 +194,20 @@ describe('following a link', () => {
     expect(selectedLink()?.textContent).toBe('[1]the notes');
   });
 
+  // A long page runs past the bottom of the screen; a selection that moved there
+  // without the page following it would leave the reader steering blind.
+  it('scrolls the page to keep the selected link in sight as the selection moves', () => {
+    const scrolled = vi.spyOn(Element.prototype, 'scrollIntoView');
+    renderLynx({ content: LINKED_PAGE });
+
+    fireEvent.keyDown(browser(), { key: 'ArrowDown' });
+
+    expect(scrolled.mock.contexts.at(-1)).toBe(selectedLink());
+    // Only as far as it takes: a link already in sight leaves the page where it is.
+    expect(scrolled).toHaveBeenLastCalledWith({ block: 'nearest' });
+    scrolled.mockRestore();
+  });
+
   // Clamping rather than wrapping: a reader holding a key down should come to rest
   // at the end of the page, not be thrown back to the other end of it.
   it('stays on the last link when there is nothing further down', () => {
@@ -394,6 +408,18 @@ describe('going back', () => {
     await press('ArrowLeft');
 
     expect(selectedLink()?.textContent).toBe('[2]the status');
+  });
+
+  it('scrolls the link they left by back into sight', async () => {
+    renderSite();
+
+    fireEvent.keyDown(browser(), { key: 'ArrowDown' });
+    await press('Enter');
+    const scrolled = vi.spyOn(Element.prototype, 'scrollIntoView');
+    await press('ArrowLeft');
+
+    expect(scrolled.mock.contexts.at(-1)).toBe(selectedLink());
+    scrolled.mockRestore();
   });
 
   it('has nowhere to go back to on the first page, and neither quits nor asks', async () => {

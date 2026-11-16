@@ -372,9 +372,17 @@ export const Lynx = (props: LynxProps) => {
                   // Asked ONCE and spent twice: what a reader sees highlighted and
                   // what the page reports as current cannot end up disagreeing.
                   const isSelected = () => segment === current();
+                  // A long page runs past the bottom of the screen, so the page
+                  // follows the selection — but only as far as it must, so a move
+                  // between two links already in sight leaves the page still.
+                  let element: HTMLSpanElement | undefined;
+                  createEffect(() => {
+                    if (isSelected()) element?.scrollIntoView({ block: 'nearest' });
+                  });
                   if (segment.kind === 'link') {
                     return (
                       <span
+                        ref={element}
                         role="link"
                         aria-current={isSelected() ? 'true' : undefined}
                         class={
@@ -387,6 +395,7 @@ export const Lynx = (props: LynxProps) => {
                   }
                   return (
                     <span
+                      ref={element}
                       role={segment.kind === 'field' ? 'textbox' : 'button'}
                       aria-current={isSelected() ? 'true' : undefined}
                       class={isSelected() ? selectedClass : 'text-[var(--theme-text-bright)]'}
