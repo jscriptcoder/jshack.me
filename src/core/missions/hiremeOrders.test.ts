@@ -11,7 +11,12 @@ import { missionShape, type MissionShape } from './missionShape.js';
 import { missionKey, missionKeyPath, missionPassphrase } from './missionSecret.js';
 import { missionAddressForNumber, missionEssid } from './missionNetwork.js';
 import { missionTerms } from './missionTerms.js';
-import { missionFileContent, missionFileItem, missionFilePath } from './missionFileItem.js';
+import {
+  missionFileContent,
+  missionFileItem,
+  missionFilePath,
+  missionPlantContent,
+} from './missionFileItem.js';
 import {
   RECORD_SETTINGS,
   missionAction,
@@ -718,6 +723,67 @@ describe('showReport on a backdoor job', () => {
     expect(lines).toContain('  Kind:     backdoor, build server');
     expect(lines).toContain(`  Target box: ${stem}-ci`);
     expect(lines).toContain(`  Port:     ${backdoorJob(TWO_HOP).port}`);
+    expect(report).not.toContain('Key');
+    expect(report).not.toContain('Storage:');
+  });
+});
+
+describe('showReport on an infiltrate job', () => {
+  const SECRET = 'operator-test-secret';
+  /** The first infiltrate job `wanted` accepts. */
+  const infiltrateJob = (wanted: (shape: MissionShape) => boolean): number =>
+    Array.from({ length: 8000 }, (_unused, index) => index * 256 + 2).find((candidate) => {
+      const shape = missionShape(candidate);
+      return shape.kind === 'infiltrate' && wanted(shape);
+    })!;
+  const SINGLE_HOP = infiltrateJob(
+    ({ frontBox, keyBox }) => frontBox === null && keyBox.route === 'hydra',
+  );
+  const TWO_HOP = infiltrateJob(({ frontBox }) => frontBox !== null);
+
+  /** The line naming the path, and the sizes of the company's file and the client's. */
+  const fileLine = (missionNumber: number): string =>
+    `  File:     ${missionFilePath(missionNumber)}, ` +
+    `theirs ${missionFileContent(missionNumber, SECRET).length.toLocaleString('en-US')} bytes, ` +
+    `ours ${missionPlantContent(missionNumber, SECRET).length.toLocaleString('en-US')} bytes`;
+
+  it('prints the report line by line, the item, the target and both files in place of a key', () => {
+    const shape = missionShape(SINGLE_HOP);
+    const terms = missionTerms(SINGLE_HOP);
+
+    expect(showReport(SINGLE_HOP, SECRET, undefined)).toBe(
+      [
+        `Contract ${SINGLE_HOP} at ${missionAddressForNumber(SINGLE_HOP)} (essid ${missionEssid(SINGLE_HOP)})`,
+        `  Client:   ${terms.client.company} (${terms.client.handle}@emailit.io)`,
+        `  Target:   ${terms.targetCompany}, ${shape.stem}-gw / ${shape.stem}-files`,
+        `  Pay:      §${terms.pay.toLocaleString('en-US')}`,
+        '  Template: single-hop',
+        '  Kind:     infiltrate, firmware image',
+        '  Route:    hydra',
+        ...shape.forwards.map(
+          (forward, index) =>
+            `  Forward:  :${forward.publicPort} -> target :${forward.internalPort}` +
+            (index >= shape.forwards.length - shape.keyBox.decoys.length ? ' (decoy)' : ''),
+        ),
+        '  Services:',
+        ...shape.keyBox.services.map(
+          // The hydra route runs no daemon of its own and the file needs none, so whatever
+          // listens is a decoy.
+          (service) =>
+            `    ${service.service} (${service.package} ${service.version}) :${service.port} (decoy)`,
+        ),
+        fileLine(SINGLE_HOP),
+      ].join('\n'),
+    );
+  });
+
+  it('names the target box by its hostname on a two-hop job, with both files, and prints no key', () => {
+    const report = showReport(TWO_HOP, SECRET, undefined);
+    const lines = report.split('\n');
+
+    expect(lines).toContain('  Kind:     infiltrate, firmware image');
+    expect(lines).toContain(`  Target box: ${missionShape(TWO_HOP).stem}-files`);
+    expect(lines.at(-1)).toBe(fileLine(TWO_HOP));
     expect(report).not.toContain('Key');
     expect(report).not.toContain('Storage:');
   });

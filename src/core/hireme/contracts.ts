@@ -30,7 +30,12 @@ import {
 } from '../missions/missionRecords.js';
 import { missionTerms, type MissionTerms } from '../missions/missionTerms.js';
 import { backdoorJob, sabotageRole } from '../missions/targetRoles.js';
-import { missionFileItem, missionFileName } from '../missions/missionFileItem.js';
+import {
+  missionFileItem,
+  missionFileName,
+  missionFilePath,
+  missionPlantContent,
+} from '../missions/missionFileItem.js';
 import { contractBoardPage, type BoardNotice } from './contractBoard.js';
 
 export type OfferCandidate = {
@@ -43,6 +48,8 @@ export type ContractMail = {
   readonly sender: string;
   readonly subject: string;
   readonly body: string;
+  /** The one file the mail carries: an infiltrate job's briefing carries the client's own. */
+  readonly attachment?: { readonly name: string; readonly content: string };
 };
 
 type StoreReply = Promise<{ readonly data: unknown; readonly error: unknown }>;
@@ -234,6 +241,19 @@ const jobLines = (
       'No listener, no money. No wallet, no money.',
     ];
   }
+  if (terms.job === 'infiltrate') {
+    const { keepers, noun } = missionFileItem(missionNumber);
+    return [
+      `Their ${keepers} keep a ${noun}. We want ours in its place.`,
+      'Put the attached file at:',
+      '',
+      `  ${missionFilePath(missionNumber)}`,
+      '',
+      ...(inside ? insideLines('The path is') : []),
+      'Write to this address with your wallet address once it is there.',
+      'No file in place, no money. No wallet, no money.',
+    ];
+  }
   if (terms.job === 'file') {
     const { keepers, noun } = missionFileItem(missionNumber);
     return [
@@ -267,10 +287,26 @@ const jobLines = (
   ];
 };
 
-const briefingOf = (missionNumber: number): ContractMail => {
+/** The client's briefing, or null when it cannot be written: an infiltrate job's carries the
+ *  client's file, drawn from the mission secret, and without the secret there is no file. */
+const briefingOf = (
+  missionNumber: number,
+  missionSecret: string | undefined,
+): ContractMail | null => {
   const terms = missionTerms(missionNumber);
   const inside = missionTopology(missionNumber).frontBoxOctet !== null;
+  const attachment =
+    terms.job !== 'infiltrate'
+      ? undefined
+      : missionSecret === undefined
+        ? null
+        : {
+            name: missionFileName(missionNumber),
+            content: missionPlantContent(missionNumber, missionSecret),
+          };
+  if (attachment === null) return null;
   return {
+    ...(attachment === undefined ? {} : { attachment }),
     sender: clientAddress(terms),
     subject: subjectOf(terms),
     body: [
@@ -307,10 +343,14 @@ export const answerContractBoard = async (door: BoardDoor): Promise<string | nul
  *  say what happened. */
 export const answerAccept = async ({
   form,
+  missionSecret,
   ...door
 }: BoardDoor & {
   /** The request body exactly as sent. */
   readonly form: string;
+  /** The deployment's mission secret, which an infiltrate job's briefing draws its file from;
+   *  undefined when the deployment has none. */
+  readonly missionSecret: string | undefined;
 }): Promise<string | null> => {
   const held = await readBoard(door);
   if (held === null) return null;
@@ -319,11 +359,9 @@ export const answerAccept = async ({
   const offer = held.offers.find((candidate) => candidate.ref === ref);
   if (offer === undefined) return pageOf(door, held, { message: GONE, under: { offer: ref } });
 
-  const reply = await door.store.accept({
-    handle: door.handle,
-    number: offer.number,
-    briefing: briefingOf(offer.number),
-  });
+  const briefing = briefingOf(offer.number, missionSecret);
+  if (briefing === null) return null;
+  const reply = await door.store.accept({ handle: door.handle, number: offer.number, briefing });
   const outcome = acceptOutcomeSchema.safeParse(reply.data);
   if (reply.error || !outcome.success) return null;
   if (outcome.data === 'busy') return reread(door, { message: BUSY, under: { offer: ref } });

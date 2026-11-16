@@ -628,6 +628,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         logFailure('http-fetch hireme apply', error);
         return { data: data as unknown, error };
       },
+      // Read here, at the boundary: an infiltrate job's briefing draws the client's file from
+      // it, and the door refuses that accept without it.
+      missionSecret: process.env.MISSION_KEY_SECRET,
       // A board's address: 194.<0-255>.<0-255>.<2-254>, the block no network in the world
       // answers from. Drawn from the OS's randomness, since nobody may guess the next one.
       drawBoardAddress: () =>
@@ -653,6 +656,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             mail_sender: briefing.sender,
             mail_subject: briefing.subject,
             mail_body: briefing.body,
+            // The function is STRICT, so a briefing with no file sends an empty name for none.
+            mail_attachment_name: briefing.attachment?.name ?? '',
+            mail_attachment_content: briefing.attachment?.content ?? '',
           });
           logFailure('http-fetch hireme accept', error);
           return { data: data as unknown, error };

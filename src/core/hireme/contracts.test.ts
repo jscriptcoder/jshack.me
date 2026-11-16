@@ -10,7 +10,12 @@ import {
 import { missionTerms, type MissionTerms } from '../missions/missionTerms.js';
 import { missionAddressForNumber } from '../missions/missionNetwork.js';
 import { missionKeyPath } from '../missions/missionSecret.js';
-import { missionFileItem, missionFileName, missionFilePath } from '../missions/missionFileItem.js';
+import {
+  missionFileItem,
+  missionFileName,
+  missionFilePath,
+  missionPlantContent,
+} from '../missions/missionFileItem.js';
 import { missionShape } from '../missions/missionShape.js';
 import { backdoorJob } from '../missions/targetRoles.js';
 import {
@@ -91,6 +96,22 @@ const fileNumber = (twoHop: boolean): number => {
 
 const FILE_SINGLE_HOP = fileNumber(false);
 const FILE_TWO_HOP = fileNumber(true);
+
+/** The first infiltrate contract from 70,000 up, on one hop or on two. */
+const infiltrateNumber = (twoHop: boolean): number => {
+  for (let candidate = 70_000; candidate < 2_000_000; candidate++) {
+    if (!isMissionNumber(candidate)) continue;
+    const shape = missionShape(candidate);
+    if (shape.kind === 'infiltrate' && (shape.frontBox !== null) === twoHop) return candidate;
+  }
+  throw new Error('no infiltrate contract');
+};
+
+const INFILTRATE_SINGLE_HOP = infiltrateNumber(false);
+const INFILTRATE_TWO_HOP = infiltrateNumber(true);
+
+/** The deployment's mission secret, which the client's file on an infiltrate job is drawn from. */
+const MISSION_SECRET = 'test-mission-secret';
 
 /** The machine a backdoor contract wants a way into, read off the board's line. */
 const backdoorMachineOf = (missionNumber: number): string =>
@@ -305,7 +326,25 @@ const board = (store: BoardStore, draws = drawsFrom([FIRST, SECOND, THIRD])) =>
   answerContractBoard({ handle: HANDLE, address: BOARD_ADDRESS, store, ...draws });
 
 const accept = (form: string, store: BoardStore, draws = drawsFrom([FOURTH])) =>
-  answerAccept({ handle: HANDLE, address: BOARD_ADDRESS, form, store, ...draws });
+  answerAccept({
+    handle: HANDLE,
+    address: BOARD_ADDRESS,
+    form,
+    store,
+    missionSecret: MISSION_SECRET,
+    ...draws,
+  });
+
+/** Accepting on a deployment that has no mission secret. */
+const acceptWithoutSecret = (form: string, store: BoardStore) =>
+  answerAccept({
+    handle: HANDLE,
+    address: BOARD_ADDRESS,
+    form,
+    store,
+    missionSecret: undefined,
+    ...drawsFrom([FOURTH]),
+  });
 
 const drop = (store: BoardStore, draws = drawsFrom([FOURTH])) =>
   answerDrop({ handle: HANDLE, address: BOARD_ADDRESS, store, ...draws });
@@ -729,6 +768,94 @@ describe('accepting an offer', () => {
       expect(accepts[0]!.briefing.body.split('\n')).toContain(
         `We want a way into their ${machine} that stays open.`,
       );
+    });
+  });
+
+  describe('on an infiltrate job', () => {
+    const offeredInfiltrate = () =>
+      boardStore({
+        offers: [
+          { number: INFILTRATE_SINGLE_HOP, ref: 'iii' },
+          { number: INFILTRATE_TWO_HOP, ref: 'jjj' },
+        ],
+      });
+
+    /** The briefing as the client writes it, the inside line on two hops. */
+    const briefingBody = (missionNumber: number, inside: readonly string[]) => {
+      const terms = missionTerms(missionNumber);
+      return [
+        terms.pitch,
+        '',
+        `The target is ${terms.targetCompany}. Their network is at ${missionAddressForNumber(missionNumber)}.`,
+        '',
+        'Their engineers keep a firmware image. We want ours in its place.',
+        'Put the attached file at:',
+        '',
+        `  ${missionFilePath(missionNumber)}`,
+        '',
+        ...inside,
+        'Write to this address with your wallet address once it is there.',
+        'No file in place, no money. No wallet, no money.',
+        '',
+        `-- ${terms.client.company}`,
+        '',
+      ].join('\n');
+    };
+
+    it('writes a single-hop briefing naming the whole path, and attaches the file to put there', async () => {
+      const { store, accepts } = offeredInfiltrate();
+
+      await accept('offer=iii', store);
+
+      expect(accepts[0]!.briefing).toEqual({
+        sender: `${missionTerms(INFILTRATE_SINGLE_HOP).client.handle}@emailit.io`,
+        subject: `Contract: ${missionTerms(INFILTRATE_SINGLE_HOP).targetCompany}`,
+        body: briefingBody(INFILTRATE_SINGLE_HOP, []),
+        attachment: {
+          name: missionFileName(INFILTRATE_SINGLE_HOP),
+          content: missionPlantContent(INFILTRATE_SINGLE_HOP, MISSION_SECRET),
+        },
+      });
+    });
+
+    it('tells a two-hop contractor the path is inside the network, not on the edge', async () => {
+      const { store, accepts } = offeredInfiltrate();
+
+      await accept('offer=jjj', store);
+
+      expect(accepts[0]!.briefing.body).toBe(
+        briefingBody(INFILTRATE_TWO_HOP, [
+          'The path is on a machine inside their network, not on the edge.',
+          '',
+        ]),
+      );
+      expect(accepts[0]!.briefing.attachment).toEqual({
+        name: missionFileName(INFILTRATE_TWO_HOP),
+        content: missionPlantContent(INFILTRATE_TWO_HOP, MISSION_SECRET),
+      });
+    });
+
+    // The client's file is drawn from the secret, and a briefing that cannot carry it is no
+    // briefing: the job is not taken rather than taken with nothing to put in place.
+    it('answers nothing, asking the store nothing, when the mission secret is unset', async () => {
+      const { store, accepts } = offeredInfiltrate();
+
+      expect(await acceptWithoutSecret('offer=iii', store)).toBeNull();
+      expect(accepts).toEqual([]);
+    });
+
+    it('takes every other kind of job without the secret, carrying no file', async () => {
+      const { store, accepts } = boardStore({
+        offers: [
+          { number: FILE_SINGLE_HOP, ref: 'fff' },
+          { number: BACKDOOR_SINGLE_HOP, ref: 'bbb' },
+        ],
+      });
+
+      expect(alertOf(await acceptWithoutSecret('offer=fff', store))).toMatch(
+        /^Contract accepted\./,
+      );
+      expect(accepts[0]!.briefing.attachment).toBeUndefined();
     });
   });
 

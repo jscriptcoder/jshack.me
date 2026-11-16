@@ -27,7 +27,7 @@ import { renderDocument } from '../generation/documentFormats.js';
 import { CAMERAS } from '../generation/pools/shareFiles.js';
 import { FIRST_NAMES_BY_INITIAL, SURNAMES } from '../generation/pools/people.js';
 import { WORLD_EPOCH } from '../cve/worldClock.js';
-import { missionTopology } from './missionShape.js';
+import { missionKind, missionTopology } from './missionShape.js';
 
 /** One kind of file a client can want, as the board and the briefing name it. */
 export type MissionFileItem = {
@@ -37,6 +37,8 @@ export type MissionFileItem = {
   readonly keepers: string;
   /** Why a client wants it, in the two moral lights the other kinds' reasons are. */
   readonly pitches: readonly string[];
+  /** Why a client wants its own version put in place of the company's, on an infiltrate job. */
+  readonly infiltratePitches: readonly string[];
 };
 
 /** The job's file as the number draws it: its name and directory, and how its bytes are made
@@ -111,6 +113,7 @@ const PROTOTYPE_RENDER: ItemSpec = {
     'We are bidding against them for the same retailer. We need to know what they are pitching.',
     'An investor asked us whether they are as far along as they claim. We would like to answer.',
   ],
+  infiltratePitches: [],
   draw: (prng) => {
     const code = `${prng.pick(LETTERS)}${prng.pick(LETTERS)}${prng.nextInt(0, 9)}`;
     const stage = prng.pick(['final', 'v2', 'v3', 'approved', 'review']);
@@ -136,6 +139,7 @@ const SITE_PHOTO: ItemSpec = {
     'They built on land we have a claim to. We need proof of when the work started.',
     'A buyer is asking about that site. We want to know what is really there before they do.',
   ],
+  infiltratePitches: [],
   draw: (prng) => {
     const takenAt = drawMoment(prng);
     const { make, model } = prng.pick(CAMERAS);
@@ -177,6 +181,7 @@ const SIGNED_CONTRACT: ItemSpec = {
     'We think that deal breaks the exclusivity they promised us. We want to read it.',
     'Their lawyers are telling the court the deal never closed. The signed copy says it did.',
   ],
+  infiltratePitches: [],
   draw: (prng) => {
     const project = prng.pick(PROJECTS);
     const deal = prng.pick(DEALS);
@@ -203,6 +208,12 @@ const FIRMWARE_IMAGE: ItemSpec = {
     'Their update bricked our devices on a shared site. We need to know what it does.',
     'Our engineer left for their team, and our code went with them. We want to compare.',
   ],
+  infiltratePitches: [
+    'Their devices install whatever build sits on that server. We would like them to install ours.',
+    'They shipped a controller copied from ours. Their next update will carry our build instead.',
+    'We sell the fix for the fault our build brings. Their customers will be needing it soon.',
+    'Their engineers trust that server. The next build they push should be one we wrote.',
+  ],
   draw: (prng) => {
     const device = prng.pick(['ctl', 'plc', 'rtu', 'hmi', 'cam']);
     const version = [prng.nextInt(1, 5), prng.nextInt(0, 9), prng.nextInt(0, 20)].join('.');
@@ -223,6 +234,7 @@ const CUSTOMER_EXPORT: ItemSpec = {
     "We believe they are selling our customers' data. Their export will show whether our people are in it.",
     'A former employee took our client list to them. We want to see how much of it they kept.',
   ],
+  infiltratePitches: [],
   draw: (prng) => {
     const month = new Date(drawMoment(prng));
     return {
@@ -242,6 +254,7 @@ const KEY_RING: ItemSpec = {
     'We sold them hardware and they still owe us. Their keys are worth the debt to us.',
     'Someone inside asked us to audit them without telling their bosses. Bring us the keys.',
   ],
+  infiltratePitches: [],
   draw: (prng, missionNumber) => ({
     name: 'keyring.dat',
     directory: prng.pick(['/root/.vault', `/etc/${missionTopology(missionNumber).stem}`]),
@@ -259,14 +272,17 @@ const ITEMS: readonly ItemSpec[] = [
   KEY_RING,
 ];
 
-/** On a stream of its own, so drawing the item moved nothing a number drew before. */
+/** On a stream of its own, so drawing the item moved nothing a number drew before. An
+ *  infiltrate job slips in a firmware image. */
 const itemSpecOf = (missionNumber: number): ItemSpec =>
-  createPrng(`mission-file-item-${missionNumber}`).pick(ITEMS);
+  missionKind(missionNumber) === 'infiltrate'
+    ? FIRMWARE_IMAGE
+    : createPrng(`mission-file-item-${missionNumber}`).pick(ITEMS);
 
 /** What the job asks for, as the board and the briefing name it. */
 export const missionFileItem = (missionNumber: number): MissionFileItem => {
-  const { noun, keepers, pitches } = itemSpecOf(missionNumber);
-  return { noun, keepers, pitches };
+  const { noun, keepers, pitches, infiltratePitches } = itemSpecOf(missionNumber);
+  return { noun, keepers, pitches, infiltratePitches };
 };
 
 const drawnFileOf = (missionNumber: number): DrawnFile =>
@@ -283,9 +299,19 @@ export const missionFilePath = (missionNumber: number): string => {
 
 const encodeUtf8 = (text: string): Uint8Array => new TextEncoder().encode(text);
 
-/** The file the server lays on the target, under this deployment's secret: every byte the
- *  secret's own stream draws, from an HMAC of the number. */
-export const missionFileContent = (missionNumber: number, secret: string): string => {
-  const seed = bytesToHex(hmac(sha256, encodeUtf8(secret), encodeUtf8(`file:${missionNumber}`)));
+/** The job's file rendered from an HMAC of `label` under the secret. */
+const renderUnder = (missionNumber: number, secret: string, label: string): string => {
+  const seed = bytesToHex(hmac(sha256, encodeUtf8(secret), encodeUtf8(label)));
   return drawnFileOf(missionNumber).render(createPrng(seed));
 };
+
+/** The file the server lays on the target, under this deployment's secret: every byte the
+ *  secret's own stream draws, from an HMAC of the number. */
+export const missionFileContent = (missionNumber: number, secret: string): string =>
+  renderUnder(missionNumber, secret, `file:${missionNumber}`);
+
+/** The file an infiltrate job's client sends to be put in place of the company's: the same
+ *  item, name and header, its bytes drawn from an HMAC of its own, so it is never the company's
+ *  file and nobody makes it without the briefing that carries it. */
+export const missionPlantContent = (missionNumber: number, secret: string): string =>
+  renderUnder(missionNumber, secret, `infiltrate:${missionNumber}`);

@@ -164,6 +164,10 @@ partners pass loot by mail, and whoever holds someone's `~/.mailrc` can save wha
   `email_send` takes them as two more arguments and stays `STRICT`: a message with no file is
   sent with an empty name, which no file may have, and stored as `NULL`. `email_read` answers
   `attachment` as `{name, content}` or `null`, and the wire leaves the field out for none.
+- **One piece of system mail carries a file** (v0.465.0): an infiltrate job's briefing, laid by
+  `hireme_accept`, carries the file the client wants put on the target, taking it as two more
+  arguments by the same empty-name rule ([missions](./missions-architecture.md), "Infiltrate
+  jobs"). Every other system mail carries nothing.
 - **Reading and saving.** `mail read <n>` ends such a message with a blank line and
   `[attachment: <name>, <size> bytes]`; the list is unchanged. `mail save <n> [path]` writes the
   file where the shell stands under its own name, into a directory the path names, or over the
