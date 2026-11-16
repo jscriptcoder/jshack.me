@@ -1,6 +1,7 @@
 # Plan: a contract that asks for a file slipped onto a machine
 
-**Status:** Grilled 2026-11-16. Next: the slice plan.
+**Status:** Grilled and planned 2026-11-16. Two slices. Next: slice 1's acceptance criteria to the
+owner, then RED.
 
 A sixth kind of contract, the reverse of a file job. The client mails the player a file and wants
 it laid at a path on one of the target's machines; the client reads the box for it when the
@@ -111,3 +112,205 @@ contractor mails in, as a backdoor or sabotage client does. As-built context:
    briefing wording and directories, on code slice 1 built. Rejected: one PR (the SQL, the door and
    six items' content in one diff); three slices (a briefing that carries a file but pays nothing
    is half a story).
+
+---
+
+## Where it plugs in
+
+Read before the slice; every path is today's code (v0.464.1).
+
+- **The kind** is `missionKind` (`src/core/missions/missionShape.ts`), one draw on
+  `mission-kind-<n>`. `MissionKind` gains `'infiltrate'`. Each of the five kinds goes from ⅕ to
+  ⅙ by giving up 1⁄30 at the top of one of its pieces, so a number is the kind it was or has
+  become infiltrate, and none turns from one older kind into another. In sixtieths:
+
+  | Draw (×1⁄60) | Kind       | Was      |
+  | ------------ | ---------- | -------- |
+  | 0 to 10      | tamper     | tamper   |
+  | 10 to 12     | infiltrate | tamper   |
+  | 12 to 15     | backdoor   | backdoor |
+  | 15 to 20     | file       | file     |
+  | 20 to 30     | sabotage   | sabotage |
+  | 30 to 32     | infiltrate | sabotage |
+  | 32 to 35     | backdoor   | backdoor |
+  | 35 to 40     | file       | file     |
+  | 40 to 42     | infiltrate | file     |
+  | 42 to 45     | backdoor   | backdoor |
+  | 45 to 55     | key        | key      |
+  | 55 to 57     | infiltrate | key      |
+  | 57 to 58     | backdoor   | backdoor |
+  | 58 to 60     | infiltrate | backdoor |
+
+  Ten sixtieths each: tamper 10, backdoor 3+3+3+1, file 5+5, sabotage 10, key 10, infiltrate
+  2×5.
+- **The shape**: `storageOf` returns `null` for infiltrate as for file, sabotage and backdoor; the
+  target is the key-box slot with `KEY_BOX_SUFFIX` (`-files`), as a file job's is.
+- **The item and its path** (`src/core/missions/missionFileItem.ts`): an infiltrate number uses
+  the file job's name and directory draw (`mission-file-<n>`), so `missionFileName` and
+  `missionFilePath` answer for it unchanged. In slice 1 its item is the firmware image; slice 2
+  draws it one in six on `mission-file-item-<n>` as a file job's. Each item gains the flipped
+  pitches beside its file-job ones, shared with no other item and no file-job pitch.
+- **Two files, one path.** `missionFileContent` (HMAC of `file:<n>`) stays the target's genuine
+  file. A new `missionPlantContent(n, secret)` renders the client's file with the same item
+  renderer from an HMAC of `infiltrate:<n>`, so the two share name, path and header and never
+  match.
+- **The genuine file is laid** by `missionFiles` (`src/core/missions/missionLeak.ts`): `holdsFile`
+  widens from `file` to `file | infiltrate`, so `fileJobFile` lays it root-only (`ROOT_FILE`) and
+  `missionFilePaths` lists its path for the write gate. Lay-in runs before the journal replays,
+  so a root's `scp` over it is what every later read sees.
+- **The briefing carries the file.** `briefingOf` (`src/core/hireme/contracts.ts`) returns a
+  `ContractMail` that gains an optional `attachment: {name, content}`; an infiltrate briefing's is
+  `{missionFileName(n), missionPlantContent(n, secret)}`. The board door (`BoardDoor`) gains the
+  mission secret; with it unset, an infiltrate accept answers null (500) before the store is
+  asked, and every other kind's accept is unchanged. `BoardStore.accept` carries the attachment
+  to a new migration that replaces `hireme_accept` with two more arguments,
+  `mail_attachment_name` and `mail_attachment_content` (`''` for none, as `email_send` takes
+  them, since the function is `STRICT`), and inserts them into `email_messages`. `api/network.ts`
+  passes `process.env.MISSION_KEY_SECRET` to the door and the two new arguments to the rpc.
+- **Terms** (`src/core/missions/missionTerms.ts`): `MissionTerms` gains a `job: 'infiltrate'` arm
+  drawn on `mission-terms-<n>` in the file arm's order (client, target company, the item's
+  flipped pitch, pay), `kind: infiltrate (a | an internal) <noun>`.
+- **The briefing's lines** (`jobLines`): an infiltrate job gets the ask, the path, the inside line
+  on two-hop, the "once it is there" line and "No file in place, no money. No wallet, no money."
+- **The client's check** (`src/core/missions/clientMail.ts`): `decide` sends an accepted
+  infiltrate job to a new `checkPlanted` decision, and `proves` answers true for it, as for the
+  other box-read kinds. `checkPlanted` reads the target through `readTargetBox`; the job is done
+  when the box is `up` and the file at `missionFilePath(n)` in its `fs` is exactly
+  `missionPlantContent(n, secret)`. `absent`, a missing file, the genuine file or any other
+  content answers the miss line; `error` answers null (500). `RECEIVED` gains "It's in place."
+- **`show`** (`src/core/missions/hiremeOrders.ts`): `Kind: infiltrate, <item>` and
+  `File: <path>, theirs <n> bytes, ours <m> bytes`, the slot called the target, no storage, key
+  path or key.
+- **What re-rolls on ship:** a sixth of all numbers turn infiltrate. Every pinned number,
+  wire-check and test factory that lands infiltrate is re-picked, as each earlier kind re-picked
+  its own.
+
+## Given by the plan, not the grill
+
+- **The board names the plain item**: `infiltrate a firmware image`, not "a tampered firmware
+  image"; the flipped story is the pitch's to tell, as a file job's board says only
+  `retrieve a firmware image`.
+- **The briefing's ask** reads, for the firmware image:
+
+  ```text
+  Their engineers keep a firmware image. We want ours in its place.
+  Put the attached file at:
+
+    /opt/firmware/<device>-fw-<version>.bin
+
+  Write to this address with your wallet address once it is there.
+  No file in place, no money. No wallet, no money.
+  ```
+
+  On two-hop the inside line is the shared helper's: "The path is on a machine inside their
+  network, not on the edge." (the grill's "It is a machine …" reads wrongly after a path).
+- **The miss line names the path**: "Our file is not at <path>. No file in place, no money."
+- **The client's file is no bigger than an attachment may be** (8,000 characters), as every
+  file-job item already is; a test holds every infiltrate number's file under it.
+- **An accept with the secret unset fails whole**: no job taken and no briefing laid, rather than
+  a briefing without its file.
+
+---
+
+## Slices
+
+Load `tdd`, `testing` and `refactoring` before code and `mutation-testing` at the PR gate.
+
+### Slice 1 — a client hires a contractor to slip in a firmware image, and pays once it is there (v0.465.0)
+
+**Value:** a contractor takes an `infiltrate a firmware image` job off the board, saves the
+briefing's attachment with `mail save`, roots the target by its route, `scp`s the file over the
+target's own image at the path the briefing names, mails the client, and is paid once; a mail
+with anything else at that path gets "Our file is not at <path>. No file in place, no money."
+**Class:** behavior change. **Branch:** `feat/infiltrate-jobs`.
+
+**Acceptance criteria**
+
+- A sixth of numbers are infiltrate jobs on `mission-kind-<n>`, cut as the table above, and each
+  older kind keeps a sixth. Every number that stays key, tamper, sabotage, file or backdoor keeps
+  its shape, terms and LAN exactly (a 2,000-number sample deep-equals a fixture captured from
+  `main`, captured and deleted inside the PR).
+- An infiltrate number's target sits in the key-box slot (same octet, route, decoys and front
+  box), named `<stem>-files`, with no key, records or storage database. It holds the company's
+  genuine firmware image at the path, root-only, and only root may write that path.
+- The client's file shares the genuine file's name, path and header, is never equal to it, and is
+  under 8,000 characters.
+- The board reads `<Client> — infiltrate a firmware image — §<pay>`, and `infiltrate an internal
+  firmware image` on two-hop. Pay is 500–2,000 single-hop and 2,000–4,000 two-hop, to the nearest
+  50. The target is `<Stem> <trade>`.
+- Accepting lays a briefing that carries the client's file as its attachment, under the file's
+  name, so `mail save <n>` writes it byte for byte. The briefing opens with one of the firmware
+  image's flipped pitches (shared with no file-job pitch), says "Their engineers keep a firmware
+  image. We want ours in its place." and "Put the attached file at:" with the full path, adds the
+  inside line on two-hop, and ends "Write to this address with your wallet address once it is
+  there." and "No file in place, no money. No wallet, no money."
+- With the mission secret unset, accepting an infiltrate offer answers 500 and takes no job;
+  every other kind's accept is unchanged.
+- Any mail from the contractor on an accepted infiltrate job reads the target box:
+  - up, with the client's file at the path (anyone's placement) → completed, paid once, "It's in
+    place. §X sent to jsc…. Pleasure doing business." (no wallet: "It's in place. You sent no
+    wallet, so there is nothing to pay. No wallet, no money.");
+  - nothing at the path, the genuine file, any other content, or a target that does not boot →
+    "Our file is not at <path>. No file in place, no money.", the job still accepted.
+- A mail's attachment is ignored on an infiltrate job: mailing the client its own file is the
+  miss line while the path is wrong.
+- A later mail on the completed job → "That job is already closed.", without reading the box.
+- A box read that fails answers nothing (null, 500 at the handler).
+- `hireme.ts show` prints `Kind: infiltrate, firmware image` and `File: <path>, theirs <n> bytes,
+  ours <m> bytes`, names the slot the target, and prints no storage, key path or key.
+- Key, tamper, sabotage, file and backdoor jobs offer, brief, complete, refuse and close exactly
+  as before.
+
+**TDD order (RED first, each at its public surface)**
+
+1. `missionKind`: the six shares over a sample; every number that keeps an older kind keeps it.
+2. `missionShape` and the lay-in: an infiltrate target holds the genuine image root-only and no
+   key, records or storage database; `missionFilePaths` lists its path.
+3. `missionPlantContent`: same name, path and header as the genuine file, never equal, under
+   8,000 characters.
+4. `missionTerms`: the infiltrate line, the internal line, the pay ranges, the target name.
+5. The briefing for an infiltrate job, single-hop and two-hop, and its attachment.
+6. The board's accept: the attachment reaches the store; the secret unset answers null with the
+   store never asked; other kinds unchanged.
+7. `answerClientMail`: the client's file at the path pays once (with and without a wallet);
+   nothing there, the genuine file, other content, a mailed attachment and a box that does not
+   boot answer the miss line; closed without a read; a failed read answers null; every other kind
+   unchanged.
+8. `show` for an infiltrate number.
+9. Factories and pinned wire-check numbers moved off numbers that landed infiltrate.
+
+**Gates**
+
+- `npm run typecheck`, `npm run lint`, the full suite, `npm run build` with `checkBudgets` (raise
+  the ceiling if the pitches need it).
+- The migration applied locally (`supabase db reset` or `migration up`), and pushed to
+  jshack-dev and jshack-prod at merge (link → push → unlink per project).
+- Wire-check `scripts/testMissionInfiltrate.ts` (new), staging numbers with `hireme.ts accept
+  --number` and the board's accept: the briefing carries the client's file and `mail save` gives
+  it back byte for byte; a mail before anything → the miss line; another file written at the path
+  as the route's root through `/api/patches` → the miss line; the client's file written there →
+  paid once, and a second mail → closed; a fresh contract whose file is laid from a second
+  player's session, then mailed by the contractor → paid; the file laid then removed before the
+  mail → the miss line; a bricked target → the miss line; a two-hop contract with the file on the
+  front box → the miss line. `testMailAttach.ts` and every other mission wire-check re-run green.
+- Mutation gate on the changed lines of `missionShape.ts`, `missionFileItem.ts`,
+  `missionLeak.ts`, `missionTerms.ts`, `clientMail.ts`, `contracts.ts` and `hiremeOrders.ts`.
+- `docs/missions-architecture.md`: the header and "the one idea" name the sixth kind, the kind
+  split moves to sixths in the earlier kinds' sections, and an "Infiltrate jobs" section records
+  what this slice built; `docs/email-architecture.md` notes that a briefing may carry a file.
+- v0.465.0 in `package.json` and `package-lock.json`.
+
+### Slice 2 — the other five items (v0.466.0)
+
+**Value:** an infiltrate job asks for any of the six items, each with its flipped pitches, terms
+and briefing wording, at its own directories.
+**Class:** behavior change (content). Criteria to the owner once slice 1 merges.
+
+### Close-out
+
+One browser run on a fresh player: a single-hop infiltrate job worked from the board to the
+payout (mailed once before anything for the miss line, then `mail save`, root on the target,
+`scp` over the genuine file), and a two-hop one carried through the front box. Then
+`docs/missions-architecture.md` finished, `docs/project-status.md` given its entry, the e2e
+skill's `reaching-a-state.md` given the route, the plan retired, and the story offered for
+valleynews.io `/dev`.
