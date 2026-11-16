@@ -270,6 +270,28 @@ describe('missionShape', () => {
     }
   });
 
+  it("gives a backdoor job's target nothing to keep: no storage, and only the doors its route runs", () => {
+    const backdoorJobs = SAMPLE_SHAPES.filter(({ kind }) => kind === 'backdoor');
+
+    expect(new Set(backdoorJobs.map(({ keyBox }) => keyBox.route))).toEqual(
+      new Set(['hydra', 'msfconsole', 'web', 'ftp', 'mysql', 'snmp']),
+    );
+    expect(new Set(backdoorJobs.map(({ frontBox }) => frontBox === null))).toEqual(
+      new Set([true, false]),
+    );
+    for (const shape of backdoorJobs) {
+      const { keyBox } = shape;
+      const label = `${keyBox.route} contract ${shape.missionNumber}`;
+      const programs = realServices(keyBox).map(({ program }) => program);
+
+      expect(shape.storage, label).toBeNull();
+      expect(programs.includes('mysqld'), label).toBe(keyBox.route === 'mysql');
+      if (shape.frontBox === null) {
+        expect(realForwards(shape), label).toEqual(ROUTE_FORWARDS[keyBox.route]);
+      }
+    }
+  });
+
   it('draws where the key is kept without moving anything a contract already had', () => {
     // An accepted contract keeps its network: the storage draw must not shift the topology,
     // the route or the hashes drawn before it existed.
