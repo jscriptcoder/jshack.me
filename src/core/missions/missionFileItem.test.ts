@@ -6,6 +6,7 @@ import {
   missionFileItem,
   missionFileName,
   missionFilePath,
+  missionPlantContent,
 } from './missionFileItem.js';
 import { missionKind, missionTopology } from './missionShape.js';
 import { isMissionNumber } from './missionNetwork.js';
@@ -45,6 +46,91 @@ const ITEM_NOUNS = [
   'customer export',
   'key ring',
 ];
+
+/** Infiltrate jobs, from the same spread. */
+const INFILTRATE_JOBS = Array.from({ length: 6000 }, (_unused, index) => index * 2741 + 2).filter(
+  (missionNumber) => isMissionNumber(missionNumber) && missionKind(missionNumber) === 'infiltrate',
+);
+
+describe('the item an infiltrate job slips in', () => {
+  it("is the company's firmware image, at a firmware image's name and place", () => {
+    expect(INFILTRATE_JOBS.length).toBeGreaterThan(100);
+    for (const missionNumber of INFILTRATE_JOBS) {
+      const label = `contract ${missionNumber}`;
+
+      expect(missionFileItem(missionNumber).noun, label).toBe('firmware image');
+      expect(missionFileName(missionNumber), label).toMatch(
+        /^[a-z0-9]+(-[a-z0-9]+)*-fw-[\d.]+\.bin$/,
+      );
+      expect(directoryOf(missionFilePath(missionNumber)), label).toMatch(
+        /^\/(opt\/firmware|srv\/releases)$/,
+      );
+    }
+  });
+});
+
+describe("the client's own file on an infiltrate job", () => {
+  /** A firmware image's header: its version and its device, before the noise. */
+  const headerOf = (content: string): string | undefined =>
+    /^FWIMG v[\d.]+ [a-z0-9-]+/.exec(content)?.[0];
+
+  // The company's image and the client's look alike from outside: the same name in the same
+  // place, opening on the same header, so only their bytes tell them apart.
+  it("opens on the company's image's header and is never the company's image", () => {
+    for (const missionNumber of INFILTRATE_JOBS.slice(0, 60)) {
+      const theirs = missionFileContent(missionNumber, SECRET);
+      const ours = missionPlantContent(missionNumber, SECRET);
+      const label = `contract ${missionNumber}`;
+
+      expect(headerOf(ours), label).toBeDefined();
+      expect(headerOf(ours), label).toBe(headerOf(theirs));
+      expect(ours, label).not.toBe(theirs);
+    }
+  });
+
+  it('is the same file for the same number under the same secret, and another under another', () => {
+    const [missionNumber] = INFILTRATE_JOBS;
+    if (missionNumber === undefined) throw new Error('no infiltrate job in the spread');
+
+    expect(missionPlantContent(missionNumber, SECRET)).toBe(
+      missionPlantContent(missionNumber, SECRET),
+    );
+    expect(missionPlantContent(missionNumber, 'another-secret')).not.toBe(
+      missionPlantContent(missionNumber, SECRET),
+    );
+  });
+
+  // A file kept from one job must not complete another, even one whose file goes under the
+  // same name: each contract's client sends a file of its own.
+  it('is a different file on two contracts whose files share a name', () => {
+    const firstByName = new Map<string, number>();
+    const sameName = INFILTRATE_JOBS.flatMap((missionNumber) => {
+      const name = missionFileName(missionNumber);
+      const earlier = firstByName.get(name);
+      if (earlier === undefined) firstByName.set(name, missionNumber);
+      return earlier === undefined ? [] : [[earlier, missionNumber] as const];
+    });
+
+    expect(sameName.length).toBeGreaterThan(0);
+    for (const [earlier, later] of sameName) {
+      expect(missionPlantContent(later, SECRET), `contracts ${earlier} and ${later}`).not.toBe(
+        missionPlantContent(earlier, SECRET),
+      );
+    }
+  });
+
+  // It reaches the contractor as the briefing's attachment, at most 8,000 characters, and goes
+  // on through `mail save` and `scp`, which carry these characters unchanged.
+  it('fits in one mail, made of characters a copy carries unchanged', () => {
+    for (const missionNumber of INFILTRATE_JOBS.slice(0, 60)) {
+      const content = missionPlantContent(missionNumber, SECRET);
+      const label = `contract ${missionNumber}`;
+
+      expect(content.length, label).toBeLessThanOrEqual(8000);
+      expect(content, label).toMatch(/^[ -~\u00a1-\u00ac\u00ae-\u00ff]+$/);
+    }
+  });
+});
 
 describe('the item a file job asks for', () => {
   it('is one of six, each asked for about a sixth of the time', () => {

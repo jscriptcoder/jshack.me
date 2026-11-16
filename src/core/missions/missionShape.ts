@@ -115,41 +115,48 @@ const INSIDE_DOOR_COUNTS = [2, 3] as const;
 const TWO_HOP_SHARE = 1 / 3;
 
 /** What a contract asks for: a key the client wants brought back, a record on the box the
- *  client wants changed, the box itself taken down for good, a file on it brought back, or a
- *  listener left on it. A tamper, sabotage or backdoor job is proved by the box itself when the
- *  contractor mails in, a file job by the file the mail carries. */
-export type MissionKind = 'key' | 'tamper' | 'sabotage' | 'file' | 'backdoor';
+ *  client wants changed, the box itself taken down for good, a file on it brought back, a
+ *  listener left on it, or the client's own file put on it. A tamper, sabotage, backdoor or
+ *  infiltrate job is proved by the box itself when the contractor mails in, a file job by the
+ *  file the mail carries. */
+export type MissionKind = 'key' | 'tamper' | 'sabotage' | 'file' | 'backdoor' | 'infiltrate';
 
-/** Where the one draw on a contract's kind changes. Each kind takes a fifth. Every newer kind
- *  was carved from the edges of the ones before it, so a contract is the kind it was or has
- *  become the newer one, and none turned from one older kind into another: file jobs fill the
- *  gaps tamper, sabotage and key left as they shrank from thirds to quarters, and backdoor jobs
- *  the twentieth each of the four gave up as they shrank to fifths. */
-const TAMPER_BELOW = 1 / 5;
-const FILE_FROM = 1 / 4;
-const SABOTAGE_FROM = 1 / 3;
-const SABOTAGE_BELOW = 8 / 15;
-const FILE_AGAIN_FROM = 7 / 12;
-const FILE_AGAIN_BELOW = 7 / 10;
-const KEY_FROM = 3 / 4;
-const KEY_BELOW = 19 / 20;
+/** Where the one draw on a contract's kind changes, in sixtieths. Each kind takes a sixth. Every
+ *  newer kind was carved from the edges of the ones before it, so a contract is the kind it was
+ *  or has become the newer one, and none turned from one older kind into another: file jobs fill
+ *  the gaps tamper, sabotage and key left as they shrank from thirds to quarters, backdoor jobs
+ *  the twentieth each of the four gave up as they shrank to fifths, and infiltrate jobs the
+ *  thirtieth each of the five gave up at the top of one piece as they shrank to sixths. A draw
+ *  past the last cut, the top thirtieth, is an infiltrate job. */
+const KIND_CUTS: readonly (readonly [below: number, kind: MissionKind])[] = [
+  [10, 'tamper'],
+  [12, 'infiltrate'],
+  [15, 'backdoor'],
+  [20, 'file'],
+  [30, 'sabotage'],
+  [32, 'infiltrate'],
+  [35, 'backdoor'],
+  [40, 'file'],
+  [42, 'infiltrate'],
+  [45, 'backdoor'],
+  [55, 'key'],
+  [57, 'infiltrate'],
+  [58, 'backdoor'],
+];
 
 /** Whether a contract asks for a key, a changed record, a machine taken down, a file brought
- *  back or a listener left. Drawn on a stream of its own, so a contract that keeps its kind
- *  keeps its network and its terms to the byte. */
+ *  back, a listener left or a file slipped in. Drawn on a stream of its own, so a contract that
+ *  keeps its kind keeps its network and its terms to the byte. */
 export const missionKind = (missionNumber: number): MissionKind => {
-  const draw = createPrng(`mission-kind-${missionNumber}`).next();
-  if (draw < TAMPER_BELOW) return 'tamper';
-  if (draw >= FILE_FROM && draw < SABOTAGE_FROM) return 'file';
-  if (draw >= SABOTAGE_FROM && draw < SABOTAGE_BELOW) return 'sabotage';
-  if (draw >= FILE_AGAIN_FROM && draw < FILE_AGAIN_BELOW) return 'file';
-  if (draw >= KEY_FROM && draw < KEY_BELOW) return 'key';
-  return 'backdoor';
+  const sixtieths = createPrng(`mission-kind-${missionNumber}`).next() * 60;
+  return KIND_CUTS.find(([below]) => sixtieths < below)?.[1] ?? 'infiltrate';
 };
 
 /** Where a contract's key box keeps what its job is about, each kind on a stream of its own. */
 const storageOf = (kind: MissionKind, missionNumber: number): MissionStorage | null => {
-  if (kind === 'sabotage' || kind === 'file' || kind === 'backdoor') return null;
+  if (kind === 'sabotage' || kind === 'file' || kind === 'backdoor' || kind === 'infiltrate') {
+    return null;
+  }
   if (kind === 'tamper') return recordsStorage(missionNumber);
   return createPrng(`mission-storage-${missionNumber}`).pick(STORAGES);
 };

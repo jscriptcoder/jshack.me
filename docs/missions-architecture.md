@@ -5,7 +5,9 @@ briefed by mail, worked on a network of its own and paid by mailing the client t
 a tamper job, by changing or erasing one of the client's records and mailing them anything, or, on
 a sabotage job, by leaving one of the target's machines unable to boot and mailing them, or, on a
 file job, by mailing them one of the target's files as an attachment, or, on a backdoor job, by
-leaving a listener on one of the target's machines and mailing them while it listens. This is
+leaving a listener on one of the target's machines and mailing them while it listens, or, on an
+infiltrate job, by putting the file the client mailed them at a path on one of the target's
+machines and mailing them while it is there. This is
 the shipped model of the missions epic, complete at **v0.441.0** (four slices, v0.438.0–v0.441.0,
 PRs #746–#749, 2026-11-01 to 2026-11-03), with the routes that leak a login added by the epic
 that followed (four slices, v0.442.0–v0.445.0, PRs #750–#753, 2026-11-03 to 2026-11-04), and a
@@ -14,7 +16,8 @@ second template, a key box behind a front box ("Two hops", four slices, v0.450.0
 ("Tamper jobs", four slices, v0.454.0–v0.457.0, PRs #766–#769, 2026-11-11), and a third, a
 machine taken down ("Sabotage jobs", two slices, v0.458.0–v0.459.0, PRs #770–#771, 2026-11-12),
 and a fourth, a file brought back ("File jobs", from v0.461.0, on mail that carries a file,
-v0.460.0, PR #772), and a fifth, a listener left on a machine ("Backdoor jobs", v0.464.0).
+v0.460.0, PR #772), and a fifth, a listener left on a machine ("Backdoor jobs", v0.464.0), and
+a sixth, the client's own file put in place ("Infiltrate jobs", from v0.465.0).
 It sits
 on top of the contractor boards
 ([`hireme-architecture.md`](./hireme-architecture.md)), emailit.io
@@ -53,9 +56,14 @@ From that follow the rest:
   every mail and pays while a listener holds the port the briefing named, whoever left it. A
   completed job is closed without reading it, so a listener killed after payment takes nothing
   back. See [Backdoor jobs](#backdoor-jobs).
+- **An infiltrate job's proof is the network's state again:** the client reads its target on
+  every mail and pays while the file at the path its briefing named is, character for character,
+  the file it mailed with that briefing, whoever put it there. A completed job is closed without
+  reading it. See [Infiltrate jobs](#infiltrate-jobs).
 - **A key comes from a server-only secret**, because the generator ships in the bundle and the
   seed is public. A tamper, sabotage or backdoor job needs none: what it asks for is in its
-  briefing, and the box only has to read right, not come up at all, or listen.
+  briefing, and the box only has to read right, not come up at all, or listen. A file or
+  infiltrate job's files are drawn from the same secret, so nobody makes them from the bundle.
 
 ## 1. The block and the lookup
 
@@ -674,7 +682,8 @@ mailed back as an attachment ([`email-architecture.md`](./email-architecture.md)
 jobs in the two gaps, ¼ to ⅓ and 7⁄12 to ¾. The gaps are what tamper, sabotage and key gave up as
 they shrank from thirds, so a number is the kind it was or has become a file job; none turned
 from one older kind into another. Every number that kept its kind kept its shape, terms and LAN
-exactly. Since v0.464.0 each kind is a fifth ([Backdoor jobs](#backdoor-jobs)).
+exactly. Since v0.464.0 each kind was a fifth ([Backdoor jobs](#backdoor-jobs)), and since
+v0.465.0 a sixth ([Infiltrate jobs](#infiltrate-jobs)).
 
 - **The target is the key box's slot,** as a sabotage target is: the same octet, route, decoys
   and front box, the inside box on two-hop. It keeps the key box's hostname, `<stem>-files`, and
@@ -814,6 +823,99 @@ on an internal …` on two-hop, at the key job's pay (500–2,000 single-hop, 2,
 - `hireme.ts show` prints `Kind: backdoor, <machine>` and `Port: <n>`, calls the slot the target
   (`Target box:` on two-hop), and prints no storage, key path or key.
 
+## Infiltrate jobs
+
+The sixth kind of contract (v0.465.0), the reverse of a file job: the client mails the contractor
+a file with the briefing and wants it put at a path on one of the target's machines, in place of
+the company's own, and reads that machine for it when the contractor mails in. `mission-kind-<n>`
+is split in sixths: each of the five older kinds gave up a thirtieth at the top of one of its
+pieces, and infiltrate jobs fill those five gaps, so a number is the kind it was, with its shape,
+terms and LAN exactly, or has become an infiltrate job. None turned from one older kind into
+another. In sixtieths (`KIND_CUTS`, `core/missions/missionShape.ts`):
+
+| Draw (×1⁄60) | Kind       |
+| ------------ | ---------- |
+| 0 to 10      | tamper     |
+| 10 to 12     | infiltrate |
+| 12 to 15     | backdoor   |
+| 15 to 20     | file       |
+| 20 to 30     | sabotage   |
+| 30 to 32     | infiltrate |
+| 32 to 35     | backdoor   |
+| 35 to 40     | file       |
+| 40 to 42     | infiltrate |
+| 42 to 45     | backdoor   |
+| 45 to 55     | key        |
+| 55 to 57     | infiltrate |
+| 57 to 58     | backdoor   |
+| 58 to 60     | infiltrate |
+
+- **The target is the file job's:** the key box's slot (same octet, route, decoys and front box;
+  the inside box on two-hop), hostname `<stem>-files`, no storage and no service of its own, so a
+  scan never tells a file job from an infiltrate job.
+- **The item is a firmware image** (v0.465.0), with the file job's name and directory draw
+  (`mission-file-<n>`), so `missionFileName` and `missionFilePath` answer for it unchanged. Each
+  item carries infiltrate pitches beside its file-job ones (`infiltratePitches`,
+  `core/missions/missionFileItem.ts`), shared with no other pitch.
+- **Two files, one path.** The server lays the company's genuine image at the path, root-only
+  (`ROOT_FILE`), from an HMAC of `file:<n>` (`missionFileContent`), exactly as it lays a file
+  job's (`holdsFile`, `core/missions/missionLeak.ts`), and the path is in `missionFilePaths`, so
+  only root may write it. The client's file (`missionPlantContent`) is the same item rendered from
+  an HMAC of `infiltrate:<n>`: the same name, place and header, never the same bytes, and under the
+  8,000 characters an attachment may be. A root's write over the path goes through the journal, so
+  it is what every later read sees.
+- **The briefing carries the client's file.** `ContractMail` has an optional `attachment`, and an
+  infiltrate briefing's is `{missionFileName(n), missionPlantContent(n, secret)}`, so `mail save`
+  gives the right file under the right name. The board's accept door takes the mission secret
+  (`missionSecret` on `ResolveHttpFetchDeps`, read from `MISSION_KEY_SECRET` in `api/network.ts`);
+  with it unset an infiltrate accept answers 500 `board_failed` before the store is asked, so no
+  job is taken without its file, and every other kind's accept is unchanged.
+  `hireme_accept` (`20261116000000_hireme_accept_attachment.sql`) takes the file as two more
+  arguments, an empty name for none, as `email_send` does. The client sends the file once: a
+  contractor who loses it can drop the contract.
+- **The terms**: `<Client> — infiltrate a firmware image — §<pay>`, and `infiltrate an internal
+  firmware image` on two-hop, at the key job's pay (500–2,000 single-hop, 2,000–4,000 two-hop, to
+  the nearest 50). The target company is drawn as a key job's is.
+- **The briefing** names the whole path, never the box or its address:
+
+  ```text
+  Their engineers keep a firmware image. We want ours in its place.
+  Put the attached file at:
+
+    /opt/firmware/hmi-fw-1.2.7.bin
+
+  Write to this address with your wallet address once it is there.
+  No file in place, no money. No wallet, no money.
+  ```
+
+  On two-hop it adds "The path is on a machine inside their network, not on the edge."
+
+- **Any mail from the contractor reads the target** through the same `readTargetBox` a tamper,
+  sabotage or backdoor job uses (`checkPlanted`, `core/missions/clientMail.ts`), and compares
+  what root reads at the path with the client's file. The mail's words and any attachment do not
+  matter; only its wallet does. Anyone's placing counts. The first row that fits answers:
+
+  | The mail                            | The reply                                                                             | What changes              |
+  | ----------------------------------- | ------------------------------------------------------------------------------------- | ------------------------- |
+  | No accepted job with this client    | "We have no contract with you."                                                       | nothing                   |
+  | A completed job                     | "That job is already closed." (the target is not read)                                | nothing                   |
+  | Its file at the path, with a wallet | "It's in place. §1,450 sent to jsc…. Pleasure doing business."                        | completed, the pay minted |
+  | Its file at the path, no wallet     | "It's in place. You sent no wallet, so there is nothing to pay. No wallet, no money." | completed, nothing minted |
+  | Anything else                       | "Our file is not at /opt/firmware/hmi-fw-1.2.7.bin. No file in place, no money."      | nothing                   |
+  | The read itself fails               | nothing: 500, as any store failure                                                    | nothing                   |
+
+  "Anything else" is one reply for nothing at the path, the company's file still there, a file
+  one character off (a newline `nano` added is one), and a target that no longer boots; it never
+  says which. A bricked target loses the job for good, and a file put on a two-hop job's front box
+  is not on the target.
+
+- **No new tool carries the file.** `scp` ships on every box and writes through the gate an `ssh`
+  session's write does, so the target's root password is enough: `scp <file>
+  root@<target>:<path>`, through the front box on two-hop.
+- `hireme.ts show` prints `Kind: infiltrate, <item>` and `File: <path>, theirs <n> bytes, ours <m>
+  bytes`, calls the slot the target (`Target box:` on two-hop), and prints no storage, key path or
+  key.
+
 ## 7. What a root finds
 
 On the boards' server, beside `/etc/hireme/boards`, **`/etc/hireme/contracts`**: one
@@ -899,7 +1001,12 @@ ceiling of 300,575 B (a tamper setting's content is not in it).
   paid); `testMissionFile.ts` (10: `show` naming the item and the file, root over `:2222` reading
   it root-only at its path with the secret's bytes, a mail with no file and one with a newline
   added refused, the file mailed back renamed paid once then closed, and a root's `rm` of it
-  sticking). The
+  sticking); `testMissionInfiltrate.ts` (15: a job accepted through a board's `/accept` whose
+  briefing carries the client's file byte for byte, `show` naming the item and the path, a mail
+  while the company's file is there and one with a newline added told it is not in place, root
+  over `:2222` writing the client's file paid once then closed, a second player's placing paying
+  the contractor, the file removed or the target bricked before the mail a miss, and on a two-hop
+  job the file put at the same path on the front box a miss). The
   board and pay checks each post a two-hop offer on a chosen number (21 and 17 checks at
   v0.452.0). The decoys' doors are also proven in `decoyMissionDoors.test.ts`.
 - **Mutation**: every slice's scoped run left no survivor but equivalents.
@@ -997,8 +1104,8 @@ white-hat fix, and clients and settings of their own; and for sabotage jobs, wip
   (a tamper job's setting, records and the check) and `recordSettings.ts` (the eight settings'
   tables); `targetRoles.ts` (the seven machines a sabotage job can ask down or a backdoor job a way
   into: each target's hostname, noun and both kinds' pitches, and a backdoor job's draw of the
-  machine and the port); `missionFileItem.ts` (a file job's item, its file's name and place, and its
-  bytes, server only).
+  machine and the port); `missionFileItem.ts` (a file or infiltrate job's item and its pitches,
+  its file's name and place, and the bytes of the company's file and the client's, server only).
 - **The lay-in and the doors**: `core/network/missionBoxFiles.ts`, `core/sessions/doorAdmission.ts`,
   `core/generation/missionKeyBoxFs.ts`, `core/crypto/gpgCodec.ts` (the cipher the server seals a
   gpg contract's key with).

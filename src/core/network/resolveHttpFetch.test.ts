@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { missionFileName, missionPlantContent } from '../missions/missionFileItem.js';
 import {
   handleResolveHttpFetch,
   type ApNetworkLookup,
@@ -239,6 +240,8 @@ type FetchOverrides = {
   apply?: Apply;
   findBoardHandle?: FindBoardHandle;
   contractStore?: Partial<BoardStore>;
+  /** The deployment's mission secret; a test secret unless the case says there is none. */
+  missionSecret?: string | null;
   findBalance?: WalletBalanceDeps['findBalance'];
   findTransfers?: WalletHistoryDeps['findTransfers'];
   findLatestTransfers?: ChainReads['findLatestTransfers'];
@@ -375,6 +378,7 @@ const makeDeps = (over: FetchOverrides = {}) => {
     drawBoardAddress: () => '194.12.40.7',
     findBoardHandle,
     contractStore,
+    missionSecret: over.missionSecret === null ? undefined : (over.missionSecret ?? 'test-secret'),
     drawContractNumber: () => 100000,
     drawOfferRef: () => {
       offersDrawn += 1;
@@ -2152,6 +2156,51 @@ describe('a contractor board takes an accept and a drop', () => {
     expect(contractStore.accept).toHaveBeenCalledWith(
       expect.objectContaining({ handle: 'neo', number: 100003 }),
     );
+  });
+
+  // An infiltrate job's briefing carries the client's file, drawn from the deployment's secret.
+  describe('on an infiltrate offer', () => {
+    const INFILTRATE = 100009;
+    const holdingInfiltrate = {
+      postOffers: async () => ({
+        data: { offers: [{ number: INFILTRATE, ref: 'abc' }], current: null },
+        error: null,
+      }),
+    };
+
+    it("hands the store a briefing carrying the client's file", async () => {
+      const { deps, contractStore } = makeDeps({ ...onBoards, contractStore: holdingInfiltrate });
+
+      await handleResolveHttpFetch(request({ path: '/accept', body: 'offer=abc' }), deps);
+
+      expect(contractStore.accept).toHaveBeenCalledWith(
+        expect.objectContaining({
+          number: INFILTRATE,
+          briefing: expect.objectContaining({
+            attachment: {
+              name: missionFileName(INFILTRATE),
+              content: missionPlantContent(INFILTRATE, 'test-secret'),
+            },
+          }),
+        }),
+      );
+    });
+
+    it('fails whole, taking no job, on a deployment with no mission secret', async () => {
+      const { deps, contractStore } = makeDeps({
+        ...onBoards,
+        contractStore: holdingInfiltrate,
+        missionSecret: null,
+      });
+
+      const response = await handleResolveHttpFetch(
+        request({ path: '/accept', body: 'offer=abc' }),
+        deps,
+      );
+
+      expect(response).toEqual({ status: 500, body: { error: 'board_failed' } });
+      expect(contractStore.accept).not.toHaveBeenCalled();
+    });
   });
 
   it('drops the contract held when a form is posted to /drop', async () => {

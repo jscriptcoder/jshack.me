@@ -1262,6 +1262,65 @@ describe("a file job's target", () => {
   });
 });
 
+describe("an infiltrate job's target", () => {
+  const HOLDING_BOTH = { keySecret: KEY_SECRET, rawSecrets: RAW_SECRETS };
+
+  /** The first infiltrate job in the sample whose target falls to `route`, on one hop or two. */
+  const firstInfiltrateJob = (route: MissionRoute, twoHop = false): number => {
+    const [found] = SAMPLE_NUMBERS.filter((missionNumber) => {
+      const shape = missionShape(missionNumber);
+      return (
+        shape.kind === 'infiltrate' &&
+        shape.keyBox.route === route &&
+        (shape.frontBox !== null) === twoHop
+      );
+    });
+    if (found === undefined) throw new Error(`no infiltrate ${route} contract in the sample`);
+    return found;
+  };
+
+  /** The company's own image, as the server lays it at the path the client names. */
+  const theirImageOf = (missionNumber: number) => ({
+    path: missionFilePath(missionNumber),
+    content: missionFileContent(missionNumber, KEY_SECRET),
+    perms: ROOT_FILE,
+  });
+
+  it("lays the company's own image alone off a leak route, root-only, behind the write gate", () => {
+    for (const route of ['hydra', 'msfconsole'] as const) {
+      const missionNumber = firstInfiltrateJob(route);
+      const label = `${route} contract ${missionNumber}`;
+
+      expect(missionFiles(keyOf(missionNumber), HOLDING_BOTH), label).toEqual([
+        theirImageOf(missionNumber),
+      ]);
+      expect(missionFilePaths(keyOf(missionNumber)), label).toEqual([
+        missionFilePath(missionNumber),
+      ]);
+    }
+  });
+
+  it('lays the image beside the leak on a leak route, and no key or records', () => {
+    for (const route of ['web', 'ftp', 'mysql', 'snmp'] as const) {
+      const missionNumber = firstInfiltrateJob(route);
+      const laid = missionFiles(keyOf(missionNumber), HOLDING_BOTH);
+      const label = `${route} contract ${missionNumber}`;
+
+      expect(laid[0], label).toEqual(theirImageOf(missionNumber));
+      expect(laid.length, label).toBe(2);
+      expect(missionFilePaths(keyOf(missionNumber)), label).toEqual(laid.map(({ path }) => path));
+    }
+  });
+
+  it('lays a two-hop front box only its own leak, never the image', () => {
+    const missionNumber = firstInfiltrateJob('hydra', true);
+    const front = missionFiles(frontOf(missionNumber), HOLDING_BOTH);
+
+    expect(front.map(({ path }) => path)).not.toContain(missionFilePath(missionNumber));
+    expect(missionFilePaths(keyOf(missionNumber))).toEqual([missionFilePath(missionNumber)]);
+  });
+});
+
 describe("a tamper job's records box", () => {
   const HOLDING_BOTH = { keySecret: KEY_SECRET, rawSecrets: RAW_SECRETS };
 

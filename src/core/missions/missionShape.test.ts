@@ -132,39 +132,48 @@ describe('missionShape', () => {
     }
   });
 
-  it('makes about a fifth of the contracts each of key, tamper, sabotage, file and backdoor jobs', () => {
+  it('makes about a sixth of the contracts each of key, tamper, sabotage, file, backdoor and infiltrate jobs', () => {
     const counts = SAMPLE_SHAPES.reduce<Record<string, number>>(
       (tally, { kind }) => ({ ...tally, [kind]: (tally[kind] ?? 0) + 1 }),
       {},
     );
 
-    expect(Object.keys(counts).sort()).toEqual(['backdoor', 'file', 'key', 'sabotage', 'tamper']);
+    expect(Object.keys(counts).sort()).toEqual([
+      'backdoor',
+      'file',
+      'infiltrate',
+      'key',
+      'sabotage',
+      'tamper',
+    ]);
     for (const [kind, count] of Object.entries(counts)) {
-      expect(count / SAMPLE_SHAPES.length, kind).toBeGreaterThan(0.16);
-      expect(count / SAMPLE_SHAPES.length, kind).toBeLessThan(0.24);
+      expect(count / SAMPLE_SHAPES.length, kind).toBeGreaterThan(0.13);
+      expect(count / SAMPLE_SHAPES.length, kind).toBeLessThan(0.2);
     }
   });
 
-  it('turns no contract from one older kind into another: each keeps its kind or becomes a backdoor job', () => {
-    // Contracts drawn just either side of every edge, with the kind each had before backdoor
+  it('turns no contract from one older kind into another: each keeps its kind or becomes an infiltrate job', () => {
+    // Contracts drawn just either side of every edge, with the kind each had before infiltrate
     // jobs.
     const drawnAtTheEdges = [
-      [1235, 'tamper', 'tamper'],
-      [2597, 'tamper', 'backdoor'],
-      [492, 'tamper', 'backdoor'],
-      [2183, 'file', 'file'],
-      [2869, 'file', 'file'],
-      [1809, 'sabotage', 'sabotage'],
-      [2360, 'sabotage', 'sabotage'],
-      [466, 'sabotage', 'backdoor'],
-      [1267, 'sabotage', 'backdoor'],
-      [1505, 'file', 'file'],
-      [1594, 'file', 'file'],
-      [1596, 'file', 'backdoor'],
-      [778, 'file', 'backdoor'],
-      [171, 'key', 'key'],
-      [2319, 'key', 'key'],
-      [1179, 'key', 'backdoor'],
+      [1915, 'tamper', 'tamper'],
+      [860, 'tamper', 'infiltrate'],
+      [1235, 'tamper', 'infiltrate'],
+      [2597, 'backdoor', 'backdoor'],
+      [2626, 'sabotage', 'sabotage'],
+      [1345, 'sabotage', 'infiltrate'],
+      [2360, 'sabotage', 'infiltrate'],
+      [466, 'backdoor', 'backdoor'],
+      [781, 'file', 'file'],
+      [383, 'file', 'infiltrate'],
+      [1594, 'file', 'infiltrate'],
+      [1596, 'backdoor', 'backdoor'],
+      [2181, 'key', 'key'],
+      [1214, 'key', 'infiltrate'],
+      [2319, 'key', 'infiltrate'],
+      [1179, 'backdoor', 'backdoor'],
+      [2066, 'backdoor', 'backdoor'],
+      [1962, 'backdoor', 'infiltrate'],
     ] as const;
 
     for (const [missionNumber, before, now] of drawnAtTheEdges) {
@@ -270,6 +279,28 @@ describe('missionShape', () => {
     }
   });
 
+  it("gives an infiltrate job's target nothing to keep: no storage, and only the doors its route runs", () => {
+    const infiltrateJobs = SAMPLE_SHAPES.filter(({ kind }) => kind === 'infiltrate');
+
+    expect(new Set(infiltrateJobs.map(({ keyBox }) => keyBox.route))).toEqual(
+      new Set(['hydra', 'msfconsole', 'web', 'ftp', 'mysql', 'snmp']),
+    );
+    expect(new Set(infiltrateJobs.map(({ frontBox }) => frontBox === null))).toEqual(
+      new Set([true, false]),
+    );
+    for (const shape of infiltrateJobs) {
+      const { keyBox } = shape;
+      const label = `${keyBox.route} contract ${shape.missionNumber}`;
+      const programs = realServices(keyBox).map(({ program }) => program);
+
+      expect(shape.storage, label).toBeNull();
+      expect(programs.includes('mysqld'), label).toBe(keyBox.route === 'mysql');
+      if (shape.frontBox === null) {
+        expect(realForwards(shape), label).toEqual(ROUTE_FORWARDS[keyBox.route]);
+      }
+    }
+  });
+
   it("gives a backdoor job's target nothing to keep: no storage, and only the doors its route runs", () => {
     const backdoorJobs = SAMPLE_SHAPES.filter(({ kind }) => kind === 'backdoor');
 
@@ -316,15 +347,15 @@ describe('missionShape', () => {
      *  taken from the generator before a contract could have two hops. Two hops draw on a
      *  stream of their own, so a contract that stays single-hop keeps its network to the byte.
      *  Only key jobs: a contract that became a tamper job keeps its records in its database.
-     *  Contracts that later turned file or backdoor jobs were swapped for key jobs alike,
+     *  Contracts that later turned file, backdoor or infiltrate jobs were swapped for key jobs alike,
      *  digested on the generator before that kind. */
     const SINGLE_HOP_BEFORE: readonly (readonly [number, string])[] = [
       [16764, '406a2ac2a2ac5d9d8aba524c1552d5a7'], // mysql, database
-      [41907, 'dfe62d63aeea34374499dda4f52983c6'], // snmp, file
+      [3989358, '82a4a03274db6a08767bd9b788c6b0ca'], // snmp, file
       [25, 'bc6079d753a35b0d2fbbc0d419866d9b'], // web, file
       [188, 'e22849bb6178062832ca21a15ac6ec26'], // snmp, database
       [26, 'bebc7e5d21c0cec1690d8cf632581e64'], // ftp, file
-      [267, 'dbb8a2f058864c8e2c28ce737f1ae843'], // msfconsole, file
+      [344, 'a9c2a5d84ed39aa45909f2e69b9e8cdc'], // msfconsole, file
       [243051, 'a661feaeb8e04ba2ad1a2f1dd140f0a4'], // hydra, file
       [368903, '36a36b311b4534b957fdb586a4f25297'], // hydra, database
     ];
@@ -332,7 +363,7 @@ describe('missionShape', () => {
     /** Two-hop key jobs across the routes and storages, and the digest of each key box as it
      *  stood before the contract had two hops, its forwards and decoys aside: its names, route,
      *  hashes and the doors it ran for its route and its storage. Contracts that later turned
-     *  sabotage, file or backdoor jobs were swapped for key jobs alike, digested on the generator before
+     *  sabotage, file, backdoor or infiltrate jobs were swapped for key jobs alike, digested on the generator before
      *  that kind. */
     const KEY_BOX_BEFORE: readonly (readonly [number, string])[] = [
       [8383, 'aaee771c5cc6118f6546fc3a4cd4f013'], // ftp, file
@@ -344,7 +375,7 @@ describe('missionShape', () => {
       [1047627, 'f2547fb5f6635ed4b2d5f041fdd1ae32'], // hydra, file
       [929, '2d4a5dc6923e351565f77cd2d1dbb97b'], // hydra, gpg
       [5330318, '141ee9f7ca72a345278489238e192c4a'], // mysql, database
-      [749, '3c4a452ef874dcdda325d5ef166fea7d'], // web, gpg
+      [1095, '156fa82806abd4a4bbf12ab943fcd9e4'], // web, gpg
       [12269786, '02f63ddca1bc7ff62bb445e814beb98d'], // ftp, gpg
     ];
 
@@ -390,7 +421,7 @@ describe('missionShape', () => {
 
     /** Two-hop key jobs across the routes on each box, and the digest of everything but the key
      *  box, taken from the generator before the key box ran decoys of its own. Contracts that later turned
-     *  sabotage, file or backdoor jobs were swapped for key jobs alike, digested on the generator before
+     *  sabotage, file, backdoor or infiltrate jobs were swapped for key jobs alike, digested on the generator before
      *  that kind. */
     const BESIDE_KEY_BOX_BEFORE: readonly (readonly [number, string])[] = [
       [8383, '6f6f3067dd12250be4531b6a7a680890'], // ftp, front msfconsole
@@ -402,7 +433,7 @@ describe('missionShape', () => {
       [1047627, '2126d38910890ae0e2783d301f3e699b'], // hydra, front snmp
       [929, '0bbb667b4152faaf0fc2594ad134cca4'], // hydra, front mysql
       [5330318, 'dac53e92eef67b5ad68c0083305f7e89'], // mysql, front msfconsole
-      [749, '73df4f9147e49f2a49039c12e6b9dcec'], // web, front web
+      [1095, '9056602c14fca79c916e962c82f82c0d'], // web, front web
       [12269786, '7b5dd59c802097475555ac3286435859'], // ftp, front snmp
     ];
 
@@ -636,15 +667,15 @@ describe('missionShape', () => {
 
     /** Single-hop key jobs across the routes and storages, and the digest of what each had
      *  before decoys, taken from the generator as it stood then. Contracts that later turned
-     *  sabotage, file or backdoor jobs were swapped for key jobs alike, digested on the generator before
+     *  sabotage, file, backdoor or infiltrate jobs were swapped for key jobs alike, digested on the generator before
      *  that kind. */
     const BEFORE_DECOYS: readonly (readonly [number, string])[] = [
       [26, '529fc16f6500aaea7286d4b3f6457e5c'], // ftp, file
       [16764, '646ccb637762c304422bd9971fc3befc'], // mysql, database
-      [41907, 'bf8c66bf1de205869667465a64a01786'], // snmp, file
+      [3989358, '522716c66d0a298f6c790b504f8095be'], // snmp, file
       [25, 'd6ab3acaa8ca2c0fb37bdd0aef86b65f'], // web, file
       [188, 'fa38e003de44240bca1b8067df439f9f'], // snmp, database
-      [267, 'f1064f78a017fd683cd04e00e12e5256'], // msfconsole, file
+      [344, '558adceb43fcd922199593fdfda0010e'], // msfconsole, file
       [243051, 'fdc080efe1512df31eba9c8dac360134'], // hydra, file
       [5, '6c8fb4d23a5af93550402b44d5da324c'], // hydra, database
     ];

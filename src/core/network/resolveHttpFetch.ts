@@ -195,6 +195,9 @@ export type ResolveHttpFetchDeps = WebTargetDeps & {
   /** A board's offers and current contract, topped up on every read. Only a board's own
    *  doors (`/`, `/accept`, `/drop`) reach it. */
   readonly contractStore: BoardStore;
+  /** The deployment's mission secret, which an infiltrate job's briefing draws the client's
+   *  file from; undefined on a deployment that has none. */
+  readonly missionSecret: string | undefined;
   /** A contract number nobody may guess, offered to a board short of offers. */
   readonly drawContractNumber: () => number;
   /** A ref for a new offer, as its Accept form posts it. */
@@ -829,7 +832,11 @@ export const handleResolveHttpFetch = async (
     };
     const page =
       contractDoor === 'accept'
-        ? await answerAccept({ ...door, form: payload.body ?? '' })
+        ? await answerAccept({
+            ...door,
+            form: payload.body ?? '',
+            missionSecret: deps.missionSecret,
+          })
         : contractDoor === 'drop'
           ? await answerDrop(door)
           : await answerContractBoard(door);

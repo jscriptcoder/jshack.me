@@ -313,6 +313,7 @@ const main = async () => {
     sabotage: 'No outage, no money.',
     file: 'No file, no money.',
     backdoor: 'No listener, no money.',
+    infiltrate: 'No file in place, no money.',
   } as const;
   const offered = inState(turnedRows, 'offered');
   const taken = offered[1]!;

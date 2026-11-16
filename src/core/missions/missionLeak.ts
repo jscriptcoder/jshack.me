@@ -327,9 +327,12 @@ const keyFiles = (missionNumber: number, secret: string): readonly MissionFile[]
 const holdsKey = (ref: MissionBoxRef): boolean =>
   ref.role === 'key' && missionKind(ref.missionNumber) === 'key';
 
-/** Whether the box is a file job's target, holding the file the client wants. */
-const holdsFile = (ref: MissionBoxRef): boolean =>
-  ref.role === 'key' && missionKind(ref.missionNumber) === 'file';
+/** Whether the box is a file or infiltrate job's target, holding the company's file: the one a
+ *  file job's client wants, or the one an infiltrate job's client wants theirs put in place of. */
+const holdsFile = (ref: MissionBoxRef): boolean => {
+  const kind = missionKind(ref.missionNumber);
+  return ref.role === 'key' && (kind === 'file' || kind === 'infiltrate');
+};
 
 /** A file job's file, as the server lays it: root-only, like the key. */
 const fileJobFile = (missionNumber: number, secret: string): MissionFile => ({

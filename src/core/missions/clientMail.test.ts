@@ -6,11 +6,16 @@ import { missionTerms, type MissionClient } from './missionTerms.js';
 import { missionKind, missionShape } from './missionShape.js';
 import { missionFiles } from './missionLeak.js';
 import { missionAction, missionRecords } from './missionRecords.js';
-import { missionFileContent, missionFileItem } from './missionFileItem.js';
+import {
+  missionFileContent,
+  missionFileItem,
+  missionFilePath,
+  missionPlantContent,
+} from './missionFileItem.js';
 import { runStatement } from '../mysql/statements.js';
 import { DATADIR_PATH, databaseIn } from '../mysql/datadir.js';
 import { buildMissionKeyBoxFs } from '../generation/missionKeyBoxFs.js';
-import { DATADIR_FILE, file, withFiles } from '../generation/baseFs.js';
+import { DATADIR_FILE, ROOT_FILE, file, withFiles } from '../generation/baseFs.js';
 import type { Directory } from '../filesystem/types.js';
 import { backdoorJob } from './targetRoles.js';
 import {
@@ -844,6 +849,148 @@ describe('a mail on a backdoor job', () => {
     expect(box.reads).toEqual([]);
     expect(completes).toEqual([]);
     expect(replies).toEqual([fromBackdoorClient(CLOSED_LINE)]);
+  });
+});
+
+describe('a mail on an infiltrate job', () => {
+  const INFILTRATE_JOB = ALL_HOST_NUMBERS.find(
+    (missionNumber) => missionKind(missionNumber) === 'infiltrate',
+  )!;
+  const INFILTRATE_TERMS = missionTerms(INFILTRATE_JOB);
+  const PATH = missionFilePath(INFILTRATE_JOB);
+  const OURS = missionPlantContent(INFILTRATE_JOB, SECRET);
+  const THEIRS = missionFileContent(INFILTRATE_JOB, SECRET);
+
+  /** A box read answering with `read`, keeping every number it was asked for. */
+  const targetBox = (read: TargetBoxRead) => {
+    const reads: number[] = [];
+    return {
+      reads,
+      readTargetBox: async (missionNumber: number): Promise<TargetBoxRead> => {
+        reads.push(missionNumber);
+        return read;
+      },
+    };
+  };
+
+  /** The target up, holding `content` at the path the client named, or nothing there. */
+  const holding = (content: string | null): TargetBoxRead => ({
+    kind: 'up',
+    fs:
+      content === null
+        ? buildMissionKeyBoxFs(INFILTRATE_JOB)
+        : withFiles(buildMissionKeyBoxFs(INFILTRATE_JOB), [[PATH, file(content, ROOT_FILE)]]),
+  });
+
+  const fromInfiltrateClient = (line: string): ContractMail => ({
+    sender: `${INFILTRATE_TERMS.client.handle}@emailit.io`,
+    subject: `Contract: ${INFILTRATE_TERMS.targetCompany}`,
+    body: signed(line, INFILTRATE_TERMS.client.company),
+  });
+
+  const NOT_IN_PLACE = `Our file is not at ${PATH}. No file in place, no money.`;
+
+  const mailOnInfiltrateJob = (
+    store: ClientMailStore,
+    readTargetBox: (missionNumber: number) => Promise<TargetBoxRead>,
+    mail: { readonly body?: string; readonly file?: string } = {},
+  ) =>
+    mailTo(store, {
+      to: INFILTRATE_TERMS.client,
+      body: mail.body ?? `it is there\n${WALLET}\n`,
+      ...(mail.file === undefined ? {} : { file: mail.file }),
+      readTargetBox,
+    });
+
+  it('reads the target of the job held, and pays once its file is at the path named', async () => {
+    const { store, completes, replies } = clientStore({
+      jobs: [{ number: INFILTRATE_JOB, state: 'accepted' }],
+    });
+    const box = targetBox(holding(OURS));
+
+    expect(await mailOnInfiltrateJob(store, box.readTargetBox)).toBe('replied');
+    expect(box.reads).toEqual([INFILTRATE_JOB]);
+    expect(completes).toEqual([
+      {
+        number: INFILTRATE_JOB,
+        wallet: WALLET,
+        pay: INFILTRATE_TERMS.pay,
+        reply: fromInfiltrateClient(
+          `It's in place. §${INFILTRATE_TERMS.pay.toLocaleString('en-US')} sent to ${WALLET}. Pleasure doing business.`,
+        ),
+      },
+    ]);
+    expect(replies).toEqual([]);
+  });
+
+  it('completes and pays nothing when the mail names no wallet', async () => {
+    const { store, completes } = clientStore({
+      jobs: [{ number: INFILTRATE_JOB, state: 'accepted' }],
+    });
+
+    expect(
+      await mailOnInfiltrateJob(store, targetBox(holding(OURS)).readTargetBox, { body: 'done.\n' }),
+    ).toBe('replied');
+    expect(completes).toEqual([
+      {
+        number: INFILTRATE_JOB,
+        wallet: null,
+        pay: INFILTRATE_TERMS.pay,
+        reply: fromInfiltrateClient(
+          "It's in place. You sent no wallet, so there is nothing to pay. No wallet, no money.",
+        ),
+      },
+    ]);
+  });
+
+  it.each([
+    ['nothing is at the path', holding(null)],
+    ["the company's own file is still there", holding(THEIRS)],
+    ['the file there is ours with a newline added', holding(`${OURS}\n`)],
+    ['the file there is ours less its last character', holding(OURS.slice(0, -1))],
+    ['the target no longer boots', { kind: 'absent' } as const],
+  ])('says its file is not in place when %s, and keeps the job open', async (_case, read) => {
+    const { store, completes, replies } = clientStore({
+      jobs: [{ number: INFILTRATE_JOB, state: 'accepted' }],
+    });
+
+    expect(await mailOnInfiltrateJob(store, targetBox(read).readTargetBox)).toBe('replied');
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromInfiltrateClient(NOT_IN_PLACE)]);
+  });
+
+  // The client looks at the box, not the mail: its own file sent back proves nothing.
+  it('ignores its own file mailed back, while the path holds something else', async () => {
+    const { store, completes, replies } = clientStore({
+      jobs: [{ number: INFILTRATE_JOB, state: 'accepted' }],
+    });
+
+    await mailOnInfiltrateJob(store, targetBox(holding(THEIRS)).readTargetBox, { file: OURS });
+
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromInfiltrateClient(NOT_IN_PLACE)]);
+  });
+
+  it('answers nothing when the target could not be read', async () => {
+    const { store, completes, replies } = clientStore({
+      jobs: [{ number: INFILTRATE_JOB, state: 'accepted' }],
+    });
+
+    expect(await mailOnInfiltrateJob(store, targetBox({ kind: 'error' }).readTargetBox)).toBeNull();
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([]);
+  });
+
+  it('says the job is already closed once it is completed, without reading the target', async () => {
+    const { store, completes, replies } = clientStore({
+      jobs: [{ number: INFILTRATE_JOB, state: 'completed' }],
+    });
+    const box = targetBox(holding(null));
+
+    expect(await mailOnInfiltrateJob(store, box.readTargetBox)).toBe('replied');
+    expect(box.reads).toEqual([]);
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromInfiltrateClient(CLOSED_LINE)]);
   });
 });
 

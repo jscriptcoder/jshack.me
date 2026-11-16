@@ -49,11 +49,13 @@ import type { ContractMail } from '../hireme/contracts.js';
 import type { Directory } from '../filesystem/types.js';
 import { writeAmount } from '../wallet/amount.js';
 import { missionKey } from './missionSecret.js';
-import { missionFileContent } from './missionFileItem.js';
+import { missionFileContent, missionFilePath, missionPlantContent } from './missionFileItem.js';
 import { missionKind } from './missionShape.js';
 import { recordsLookRight } from './missionRecords.js';
 import { backdoorJob } from './targetRoles.js';
 import { listenerOn } from '../services/pidfile.js';
+import { createFsView } from '../filesystem/fsView.js';
+import { asAbsPath } from '../types.js';
 import { missionTerms, type MissionClient, type MissionTerms } from './missionTerms.js';
 
 type StoreReply = Promise<{ readonly data: unknown; readonly error: unknown }>;
@@ -114,12 +116,15 @@ const FILE_RECEIVED = 'File received.';
 const RECORDS_RECEIVED = 'The records look right.';
 const MACHINE_DOWN = 'The machine is down.';
 const LISTENING = "We're in.";
+const IN_PLACE = "It's in place.";
 const NO_WALLET = 'You sent no wallet, so there is nothing to pay. No wallet, no money.';
 const RECORDS_WRONG = "Our records don't look right. No change, no money.";
 const STILL_UP = 'Their machine is still up. No outage, no money.';
 /** One reply for every miss: no listener, one on another port, or a box that no longer boots. */
 const nothingListening = (port: number): string =>
   `Nothing is listening on port ${port}. No listener, no money.`;
+const notInPlace = (path: string): string =>
+  `Our file is not at ${path}. No file in place, no money.`;
 const WRONG_KEY = 'That key opens nothing of ours.';
 const WRONG_FILE = "That's not the file we asked for.";
 const CLOSED = 'That job is already closed.';
@@ -152,16 +157,18 @@ type Decision =
   | { readonly kind: 'checkRecords'; readonly number: number }
   | { readonly kind: 'checkDown'; readonly number: number }
   | { readonly kind: 'checkListening'; readonly number: number }
+  | { readonly kind: 'checkPlanted'; readonly number: number }
   | { readonly kind: 'reply'; readonly reply: ContractMail };
 
 /** How the client opens its reply to a job done: the key or the file it was sent, the records it
- *  read, the machine it found down, or the listener it found. */
+ *  read, the machine it found down, the listener it found, or its own file found in place. */
 const RECEIVED: Readonly<Record<Exclude<Decision['kind'], 'reply'>, string>> = {
   complete: KEY_RECEIVED,
   completeFile: FILE_RECEIVED,
   checkRecords: RECORDS_RECEIVED,
   checkDown: MACHINE_DOWN,
   checkListening: LISTENING,
+  checkPlanted: IN_PLACE,
 };
 
 /** What the client says on a job the mail itself proves: when the mail carries no proof, when it
@@ -209,11 +216,20 @@ const decide = ({
   if (acceptedKind === 'tamper') return { kind: 'checkRecords', number: accepted.number };
   if (acceptedKind === 'sabotage') return { kind: 'checkDown', number: accepted.number };
   if (acceptedKind === 'backdoor') return { kind: 'checkListening', number: accepted.number };
+  if (acceptedKind === 'infiltrate') return { kind: 'checkPlanted', number: accepted.number };
   const said = MAILED_PROOF[acceptedKind];
   if ((acceptedKind === 'file' ? file : key) === null) return reply(accepted.number, said.none);
   if (proves(accepted.number)) return { kind: said.done, number: accepted.number };
   if (closed !== undefined) return reply(closed.number, CLOSED);
   return reply(accepted.number, said.wrong);
+};
+
+/** Whether the box holds, at the path the client named, exactly the file the client sent. */
+const holdsPlant = (fs: Directory, missionNumber: number, secret: string): boolean => {
+  const read = createFsView(fs, { userType: 'root' }).read(
+    asAbsPath(missionFilePath(missionNumber)),
+  );
+  return read.ok && read.content === missionPlantContent(missionNumber, secret);
 };
 
 const sendReply = async (
@@ -286,6 +302,16 @@ export const answerClientMail = async ({
     // way in, not to know who left it.
     if (box.kind === 'absent' || listenerOn(box.fs, port) === null) {
       return sendReply(store, login.handle, replyAbout(terms, nothingListening(port)));
+    }
+  }
+  if (decision.kind === 'checkPlanted') {
+    const box = await readTargetBox(decision.number);
+    if (box.kind === 'error') return null;
+    const path = missionFilePath(decision.number);
+    // Anyone's placing counts, as anyone's listener does on a backdoor job: the client wants
+    // its file there, not to know who put it there.
+    if (box.kind === 'absent' || !holdsPlant(box.fs, decision.number, secret)) {
+      return sendReply(store, login.handle, replyAbout(terms, notInPlace(path)));
     }
   }
   const received = RECEIVED[decision.kind];
