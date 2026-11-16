@@ -5145,3 +5145,58 @@ describe('new mail while the terminal waits at its prompt', () => {
     expect(printed().filter((line) => line.startsWith('mail: login failed'))).toHaveLength(1);
   });
 });
+
+/**
+ * Once a prompt is answered its line stays in the scrollback the way a real terminal
+ * leaves it: an answer the player could see while typing stays visible, and a hidden
+ * one stays hidden.
+ */
+describe('a prompt the player has answered', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  const boot = async () => {
+    vi.resetModules();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ patches: [], sessions: [] }),
+      })),
+    );
+    const state = await import('./state.js');
+    state.startGame({ machineName: 'box', username: 'tester', rootPassword: 'pw' });
+    await vi.waitFor(() => expect(state.promptHost()).toBe('box'));
+    return state;
+  };
+
+  const answer = async (
+    state: typeof import('./state.js'),
+    command: string,
+    typed: string,
+  ): Promise<void> => {
+    state.setInput(command);
+    const run = state.runInput();
+    await vi.waitFor(() => expect(state.pendingPrompt()).toBeDefined());
+    state.setInput(typed);
+    state.submitPrompt();
+    await run;
+  };
+
+  it('keeps a visible answer on the line after its label', async () => {
+    const state = await boot();
+
+    await answer(state, 'new-game', 'no');
+
+    expect(state.scrollback()).toContainEqual({ kind: 'prompt', content: 'confirm (y/N): no' });
+  });
+
+  it('keeps a hidden answer hidden, leaving only its label', async () => {
+    const state = await boot();
+
+    await answer(state, 'su', 'wrong-guess');
+
+    expect(state.scrollback()).toContainEqual({ kind: 'prompt', content: 'Password: ' });
+    expect(state.scrollback().some((line) => line.content.includes('wrong-guess'))).toBe(false);
+  });
+});

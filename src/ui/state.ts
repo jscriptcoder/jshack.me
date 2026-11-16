@@ -1282,14 +1282,16 @@ const requestPrompt = (opts: {
   });
 
 /** Submit the pending prompt with the current input line (Enter while a prompt
- *  is active). Echoes the prompt label (never the masked value) to scrollback. */
+ *  is active). Leaves the line in scrollback as the player saw it: the label
+ *  followed by the answer, except a masked answer, which is never written. */
 export const submitPrompt = (): void => {
   const pending = pendingPrompt();
   if (pending === undefined) return;
   const value = input();
   setInput('');
   setPendingPrompt(undefined);
-  setScrollback((previous) => [...previous, { kind: 'prompt', content: pending.message }]);
+  const echoed = pending.masked ? pending.message : `${pending.message}${value}`;
+  setScrollback((previous) => [...previous, { kind: 'prompt', content: echoed }]);
   pending.resolve(value);
 };
 
