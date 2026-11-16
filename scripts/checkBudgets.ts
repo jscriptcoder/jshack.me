@@ -67,8 +67,10 @@ import {
  *  that carries a file (`-A` on send and reply, `mail save`, their refusals and the manual's
  *  words for them) added 691 B, rounded up to 700; then the backdoor kind (its fifth of the
  *  draw, the port pool, and the seven machines' reasons for a way in, which ride in the bundle
- *  with the hostnames they share) added 674 B, rounded up to 700. */
-const BUNDLE_CEILING_BYTES = 301_975;
+ *  with the hostnames they share) added 674 B, rounded up to 700; then lynx keeping the
+ *  selected link in sight (each selectable scrolling itself into view) added 47 B, rounded up
+ *  to 100. */
+const BUNDLE_CEILING_BYTES = 302_075;
 
 /** About a tenth of that before world content, so a loaded machine's noise cannot fail
  *  the check while a content change that makes boxes ten times dearer still does. */
