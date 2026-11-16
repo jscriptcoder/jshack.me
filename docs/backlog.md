@@ -87,6 +87,11 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
     settings. Set aside in the sabotage grill (2026-11-12): **wiping a table**, legacy's
     `db_sabotage` (the table dropped or every row deleted), which is tamper machinery rather than
     the sabotage job's brick check.
+  - **Backdoor twists**, set aside in the backdoor grill (2026-11-16): **a client that connects
+    from outside**, which needs a breakable gateway and a forward the contractor adds (legacy's
+    `portforward` objective too); **a listener that must survive** a later check (deadlines,
+    above); **a hidden listener** that must not show in `ps` or a log (stealth, above); and the
+    white-hat mirror, **an implant to find and kill** that someone else left (legacy's `malware`).
   - **Recognition for completed jobs**, the other half of a mission reward; completions are only
     in `hireme_missions` today.
   - **Places posting vacancies** that say how they run (the old `hireit.io` idea), and a second,
