@@ -21,7 +21,7 @@ import {
   type MissionKind,
 } from './missionShape.js';
 import { FRONT_BOX_SUFFIX, GATEWAY_SUFFIX } from './pools.js';
-import { keyBoxSuffix, sabotageRole } from './sabotageRoles.js';
+import { backdoorJob, keyBoxSuffix, sabotageRole } from './sabotageRoles.js';
 import { EMAILIT_DOMAIN } from '../generation/fixedSites.js';
 import { missionKeyFilePath, missionLeakPath, missionLeakWord } from './missionLeak.js';
 import { missionKey, missionPassphrase } from './missionSecret.js';
@@ -109,9 +109,10 @@ const storageDetail = (missionNumber: number, secret: string): string => {
   return storage === 'database' ? 'database, table api_keys' : 'file';
 };
 
-/** What a tamper, sabotage or file job is, as the report names it: its kind, then a tamper job's
- *  setting and action, the machine a sabotage job asks taken down, or the item a file job asks
- *  brought back. A key job has no line. */
+/** What a tamper, sabotage, file or backdoor job is, as the report names it: its kind, then a
+ *  tamper job's setting and action, the machine a sabotage job asks taken down, the item a file
+ *  job asks brought back, or the machine a backdoor job wants a way into. A key job has no
+ *  line. */
 const kindLine = (missionNumber: number, kind: MissionKind): readonly string[] => {
   if (kind === 'tamper') {
     return [
@@ -120,6 +121,9 @@ const kindLine = (missionNumber: number, kind: MissionKind): readonly string[] =
   }
   if (kind === 'sabotage') return [`  Kind:     sabotage, ${sabotageRole(missionNumber).noun}`];
   if (kind === 'file') return [`  Kind:     file, ${missionFileItem(missionNumber).noun}`];
+  if (kind === 'backdoor') {
+    return [`  Kind:     backdoor, ${backdoorJob(missionNumber).role.noun}`];
+  }
   return [];
 };
 
@@ -142,10 +146,12 @@ const recordLines = (missionNumber: number): readonly string[] => {
 
 /** What the report says of the job in the key-box slot: a key job's storage, key path and key,
  *  a tamper job's records and the one change it asks, a file job's file and its size under the
- *  secret, and nothing for a sabotage job, whose box is the job and keeps nothing. */
+ *  secret, the port a backdoor job's listener must hold, and nothing for a sabotage job, whose
+ *  box is the job and keeps nothing. */
 const jobLines = (missionNumber: number, kind: MissionKind, secret: string): readonly string[] => {
   if (kind === 'tamper') return recordLines(missionNumber);
   if (kind === 'sabotage') return [];
+  if (kind === 'backdoor') return [`  Port:     ${backdoorJob(missionNumber).port}`];
   if (kind === 'file') {
     const size = missionFileContent(missionNumber, secret).length.toLocaleString('en-US');
     return [`  File:     ${missionFilePath(missionNumber)}, ${size} bytes`];
@@ -182,8 +188,10 @@ export const showReport = (
   const insideDecoyPorts = keyBox.services
     .slice(keyBox.services.length - keyBox.decoys.length)
     .map(({ port }) => port);
-  // A sabotage job's box is the job itself, so the report calls it the target, not a key box.
-  const slotName = shape.kind === 'sabotage' ? 'target' : 'key box';
+  // A sabotage or backdoor job's box is the job itself, so the report calls it the target, not
+  // a key box.
+  const isTarget = shape.kind === 'sabotage' || shape.kind === 'backdoor';
+  const slotName = isTarget ? 'target' : 'key box';
   const reached = frontBox === null ? slotName : 'front box';
   const keyLines = jobLines(missionNumber, shape.kind, secret);
   const boxes =
@@ -198,7 +206,7 @@ export const showReport = (
           `    Route:    ${frontBox.route}`,
           ...serviceLines(frontBox, decoyPorts, '    '),
           ...leakLines({ missionNumber, role: 'front' }, rawSecrets, '    '),
-          shape.kind === 'sabotage'
+          isTarget
             ? `  Target box: ${shape.stem}-${keyBoxSuffix(missionNumber)}`
             : `  Key box:   ${shape.stem}-${keyBoxSuffix(missionNumber)}`,
           `    Route:    ${keyBox.route}`,

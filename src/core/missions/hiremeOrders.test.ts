@@ -6,6 +6,7 @@ import {
   showReport,
 } from './hiremeOrders.js';
 import { missionLeakPath } from './missionLeak.js';
+import { backdoorJob } from './sabotageRoles.js';
 import { missionShape, type MissionShape } from './missionShape.js';
 import { missionKey, missionKeyPath, missionPassphrase } from './missionSecret.js';
 import { missionAddressForNumber, missionEssid } from './missionNetwork.js';
@@ -656,6 +657,69 @@ describe('showReport on a sabotage job', () => {
 
     expect(lines).toContain(`  Kind:     sabotage, ${machine}`);
     expect(lines).toContain(`  Target box: ${missionShape(missionNumber).stem}-${suffix}`);
+  });
+});
+
+describe('showReport on a backdoor job', () => {
+  const SECRET = 'operator-test-secret';
+  /** The first backdoor job `wanted` accepts. */
+  const backdoorJobWhere = (wanted: (shape: MissionShape) => boolean): number =>
+    Array.from({ length: 8000 }, (_unused, index) => index * 256 + 2).find((candidate) => {
+      const shape = missionShape(candidate);
+      return shape.kind === 'backdoor' && wanted(shape);
+    })!;
+  /** The machine a backdoor job wants a way into, read off the board's line. */
+  const machineOf = (missionNumber: number): string =>
+    missionTerms(missionNumber).kind.replace(/^plant a backdoor on (a|an internal) /, '');
+  const SINGLE_HOP = backdoorJobWhere(
+    ({ missionNumber, frontBox, keyBox }) =>
+      frontBox === null && keyBox.route === 'hydra' && machineOf(missionNumber) === 'build server',
+  );
+  const TWO_HOP = backdoorJobWhere(
+    ({ missionNumber, frontBox }) =>
+      frontBox !== null && machineOf(missionNumber) === 'build server',
+  );
+
+  it('prints the report line by line, the kind, the target and the port in place of a key', () => {
+    const shape = missionShape(SINGLE_HOP);
+    const terms = missionTerms(SINGLE_HOP);
+
+    expect(showReport(SINGLE_HOP, SECRET, undefined)).toBe(
+      [
+        `Contract ${SINGLE_HOP} at ${missionAddressForNumber(SINGLE_HOP)} (essid ${missionEssid(SINGLE_HOP)})`,
+        `  Client:   ${terms.client.company} (${terms.client.handle}@emailit.io)`,
+        `  Target:   ${terms.targetCompany}, ${shape.stem}-gw / ${shape.stem}-ci`,
+        `  Pay:      §${terms.pay.toLocaleString('en-US')}`,
+        '  Template: single-hop',
+        '  Kind:     backdoor, build server',
+        '  Route:    hydra',
+        ...shape.forwards.map(
+          (forward, index) =>
+            `  Forward:  :${forward.publicPort} -> target :${forward.internalPort}` +
+            (index >= shape.forwards.length - shape.keyBox.decoys.length ? ' (decoy)' : ''),
+        ),
+        '  Services:',
+        ...shape.keyBox.services.map(
+          // The hydra route runs no daemon of its own and the target keeps nothing, so whatever
+          // listens is a decoy.
+          (service) =>
+            `    ${service.service} (${service.package} ${service.version}) :${service.port} (decoy)`,
+        ),
+        `  Port:     ${backdoorJob(SINGLE_HOP).port}`,
+      ].join('\n'),
+    );
+  });
+
+  it('names the target box by its hostname on a two-hop job, with the port, and prints no key', () => {
+    const { stem } = missionShape(TWO_HOP);
+    const report = showReport(TWO_HOP, SECRET, undefined);
+    const lines = report.split('\n');
+
+    expect(lines).toContain('  Kind:     backdoor, build server');
+    expect(lines).toContain(`  Target box: ${stem}-ci`);
+    expect(lines).toContain(`  Port:     ${backdoorJob(TWO_HOP).port}`);
+    expect(report).not.toContain('Key');
+    expect(report).not.toContain('Storage:');
   });
 });
 
