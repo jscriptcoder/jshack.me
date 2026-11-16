@@ -132,32 +132,39 @@ describe('missionShape', () => {
     }
   });
 
-  it('makes about a quarter of the contracts each of key, tamper, sabotage and file jobs', () => {
+  it('makes about a fifth of the contracts each of key, tamper, sabotage, file and backdoor jobs', () => {
     const counts = SAMPLE_SHAPES.reduce<Record<string, number>>(
       (tally, { kind }) => ({ ...tally, [kind]: (tally[kind] ?? 0) + 1 }),
       {},
     );
 
-    expect(Object.keys(counts).sort()).toEqual(['file', 'key', 'sabotage', 'tamper']);
+    expect(Object.keys(counts).sort()).toEqual(['backdoor', 'file', 'key', 'sabotage', 'tamper']);
     for (const [kind, count] of Object.entries(counts)) {
-      expect(count / SAMPLE_SHAPES.length, kind).toBeGreaterThan(0.21);
-      expect(count / SAMPLE_SHAPES.length, kind).toBeLessThan(0.29);
+      expect(count / SAMPLE_SHAPES.length, kind).toBeGreaterThan(0.16);
+      expect(count / SAMPLE_SHAPES.length, kind).toBeLessThan(0.24);
     }
   });
 
-  it('turns no contract from one older kind into another: each keeps its kind or becomes a file job', () => {
-    // Contracts drawn just either side of every edge, with the kind each had before file jobs.
+  it('turns no contract from one older kind into another: each keeps its kind or becomes a backdoor job', () => {
+    // Contracts drawn just either side of every edge, with the kind each had before backdoor
+    // jobs.
     const drawnAtTheEdges = [
-      [492, 'tamper', 'tamper'],
-      [413, 'tamper', 'file'],
-      [393, 'tamper', 'file'],
-      [143, 'sabotage', 'sabotage'],
-      [641, 'sabotage', 'sabotage'],
-      [114, 'sabotage', 'file'],
-      [781, 'sabotage', 'file'],
-      [383, 'key', 'file'],
-      [352, 'key', 'file'],
+      [1235, 'tamper', 'tamper'],
+      [2597, 'tamper', 'backdoor'],
+      [492, 'tamper', 'backdoor'],
+      [2183, 'file', 'file'],
+      [2869, 'file', 'file'],
+      [1809, 'sabotage', 'sabotage'],
+      [2360, 'sabotage', 'sabotage'],
+      [466, 'sabotage', 'backdoor'],
+      [1267, 'sabotage', 'backdoor'],
+      [1505, 'file', 'file'],
+      [1594, 'file', 'file'],
+      [1596, 'file', 'backdoor'],
+      [778, 'file', 'backdoor'],
       [171, 'key', 'key'],
+      [2319, 'key', 'key'],
+      [1179, 'key', 'backdoor'],
     ] as const;
 
     for (const [missionNumber, before, now] of drawnAtTheEdges) {
@@ -263,6 +270,28 @@ describe('missionShape', () => {
     }
   });
 
+  it("gives a backdoor job's target nothing to keep: no storage, and only the doors its route runs", () => {
+    const backdoorJobs = SAMPLE_SHAPES.filter(({ kind }) => kind === 'backdoor');
+
+    expect(new Set(backdoorJobs.map(({ keyBox }) => keyBox.route))).toEqual(
+      new Set(['hydra', 'msfconsole', 'web', 'ftp', 'mysql', 'snmp']),
+    );
+    expect(new Set(backdoorJobs.map(({ frontBox }) => frontBox === null))).toEqual(
+      new Set([true, false]),
+    );
+    for (const shape of backdoorJobs) {
+      const { keyBox } = shape;
+      const label = `${keyBox.route} contract ${shape.missionNumber}`;
+      const programs = realServices(keyBox).map(({ program }) => program);
+
+      expect(shape.storage, label).toBeNull();
+      expect(programs.includes('mysqld'), label).toBe(keyBox.route === 'mysql');
+      if (shape.frontBox === null) {
+        expect(realForwards(shape), label).toEqual(ROUTE_FORWARDS[keyBox.route]);
+      }
+    }
+  });
+
   it('draws where the key is kept without moving anything a contract already had', () => {
     // An accepted contract keeps its network: the storage draw must not shift the topology,
     // the route or the hashes drawn before it existed.
@@ -287,14 +316,14 @@ describe('missionShape', () => {
      *  taken from the generator before a contract could have two hops. Two hops draw on a
      *  stream of their own, so a contract that stays single-hop keeps its network to the byte.
      *  Only key jobs: a contract that became a tamper job keeps its records in its database.
-     *  Contracts that later turned file jobs were swapped for key jobs alike, digested on the
-     *  generator before file jobs. */
+     *  Contracts that later turned file or backdoor jobs were swapped for key jobs alike,
+     *  digested on the generator before that kind. */
     const SINGLE_HOP_BEFORE: readonly (readonly [number, string])[] = [
       [16764, '406a2ac2a2ac5d9d8aba524c1552d5a7'], // mysql, database
       [41907, 'dfe62d63aeea34374499dda4f52983c6'], // snmp, file
       [25, 'bc6079d753a35b0d2fbbc0d419866d9b'], // web, file
-      [16, '4aed0b5d7a4003d936d5f735c78b0d34'], // snmp, database
-      [142479, '0a14a7ee3735bccd7c9d9d50b64efc8d'], // ftp, file
+      [188, 'e22849bb6178062832ca21a15ac6ec26'], // snmp, database
+      [26, 'bebc7e5d21c0cec1690d8cf632581e64'], // ftp, file
       [267, 'dbb8a2f058864c8e2c28ce737f1ae843'], // msfconsole, file
       [243051, 'a661feaeb8e04ba2ad1a2f1dd140f0a4'], // hydra, file
       [368903, '36a36b311b4534b957fdb586a4f25297'], // hydra, database
@@ -303,19 +332,19 @@ describe('missionShape', () => {
     /** Two-hop key jobs across the routes and storages, and the digest of each key box as it
      *  stood before the contract had two hops, its forwards and decoys aside: its names, route,
      *  hashes and the doors it ran for its route and its storage. Contracts that later turned
-     *  sabotage or file jobs were swapped for key jobs alike, digested on the generator before
+     *  sabotage, file or backdoor jobs were swapped for key jobs alike, digested on the generator before
      *  that kind. */
     const KEY_BOX_BEFORE: readonly (readonly [number, string])[] = [
       [8383, 'aaee771c5cc6118f6546fc3a4cd4f013'], // ftp, file
       [134098, 'dcbef343e36fdf2840eedb351fc86040'], // mysql, file
       [452576, '7f574cedfb32bbf08bdf4ec1d0c0adc2'], // web, database
       [486100, '020cfae8783a805a9b0f791209f6e07f'], // snmp, file
-      [519624, '6c62e8268001b700677e05dee7a7e670'], // msfconsole, gpg
+      [461, '0308c54bcd0bf1b71bb3913967195582'], // msfconsole, gpg
       [3887, 'a51d66366f4e23dc7ad18bf28edd4a80'], // msfconsole, file
       [1047627, 'f2547fb5f6635ed4b2d5f041fdd1ae32'], // hydra, file
       [929, '2d4a5dc6923e351565f77cd2d1dbb97b'], // hydra, gpg
       [5330318, '141ee9f7ca72a345278489238e192c4a'], // mysql, database
-      [8984434, '9486fbbd8425f1d82e5976764a1c34e7'], // web, gpg
+      [749, '3c4a452ef874dcdda325d5ef166fea7d'], // web, gpg
       [12269786, '02f63ddca1bc7ff62bb445e814beb98d'], // ftp, gpg
     ];
 
@@ -361,19 +390,19 @@ describe('missionShape', () => {
 
     /** Two-hop key jobs across the routes on each box, and the digest of everything but the key
      *  box, taken from the generator before the key box ran decoys of its own. Contracts that later turned
-     *  sabotage or file jobs were swapped for key jobs alike, digested on the generator before
+     *  sabotage, file or backdoor jobs were swapped for key jobs alike, digested on the generator before
      *  that kind. */
     const BESIDE_KEY_BOX_BEFORE: readonly (readonly [number, string])[] = [
       [8383, '6f6f3067dd12250be4531b6a7a680890'], // ftp, front msfconsole
       [134098, '3d8cd43ac152027f6eb3e5a142dec083'], // mysql, front hydra
       [452576, 'fbb1a6d118de208d11a970785af2f169'], // web, front hydra
       [486100, 'c356fa209f4fec49e6c8b9a6e359dd89'], // snmp, front hydra
-      [519624, '1874be1d39e76a597b1813269fcb3bca'], // msfconsole, front web
+      [461, '443fc4633c17bed327adce4358d26cb2'], // msfconsole, front web
       [3887, 'fdbf255fc335327f5cf01a439ae01241'], // msfconsole, front web
       [1047627, '2126d38910890ae0e2783d301f3e699b'], // hydra, front snmp
       [929, '0bbb667b4152faaf0fc2594ad134cca4'], // hydra, front mysql
       [5330318, 'dac53e92eef67b5ad68c0083305f7e89'], // mysql, front msfconsole
-      [8984434, '753e932d1f29c78d6b98330908bfd9a6'], // web, front web
+      [749, '73df4f9147e49f2a49039c12e6b9dcec'], // web, front web
       [12269786, '7b5dd59c802097475555ac3286435859'], // ftp, front snmp
     ];
 
@@ -607,14 +636,14 @@ describe('missionShape', () => {
 
     /** Single-hop key jobs across the routes and storages, and the digest of what each had
      *  before decoys, taken from the generator as it stood then. Contracts that later turned
-     *  sabotage or file jobs were swapped for key jobs alike, digested on the generator before
+     *  sabotage, file or backdoor jobs were swapped for key jobs alike, digested on the generator before
      *  that kind. */
     const BEFORE_DECOYS: readonly (readonly [number, string])[] = [
-      [142479, '1110188b6fd5637a7cca7794d0a8797b'], // ftp, file
+      [26, '529fc16f6500aaea7286d4b3f6457e5c'], // ftp, file
       [16764, '646ccb637762c304422bd9971fc3befc'], // mysql, database
       [41907, 'bf8c66bf1de205869667465a64a01786'], // snmp, file
       [25, 'd6ab3acaa8ca2c0fb37bdd0aef86b65f'], // web, file
-      [16, '88c9b93cf6e5044f743c22bb233be1cf'], // snmp, database
+      [188, 'fa38e003de44240bca1b8067df439f9f'], // snmp, database
       [267, 'f1064f78a017fd683cd04e00e12e5256'], // msfconsole, file
       [243051, 'fdc080efe1512df31eba9c8dac360134'], // hydra, file
       [5, '6c8fb4d23a5af93550402b44d5da324c'], // hydra, database

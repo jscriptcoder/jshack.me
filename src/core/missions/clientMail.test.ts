@@ -12,6 +12,12 @@ import { DATADIR_PATH, databaseIn } from '../mysql/datadir.js';
 import { buildMissionKeyBoxFs } from '../generation/missionKeyBoxFs.js';
 import { DATADIR_FILE, file, withFiles } from '../generation/baseFs.js';
 import type { Directory } from '../filesystem/types.js';
+import { backdoorJob } from './targetRoles.js';
+import {
+  PIDFILE_PERMISSIONS,
+  formatListenerContent,
+  listenerPidfilePath,
+} from '../services/pidfile.js';
 
 /**
  * A mail to a client's handle: the client reads the sender's contracts with it, finds the key
@@ -700,6 +706,144 @@ describe('a mail on a sabotage job', () => {
     expect(box.reads).toEqual([]);
     expect(completes).toEqual([]);
     expect(replies).toEqual([fromSabotageClient(CLOSED_LINE)]);
+  });
+});
+
+describe('a mail on a backdoor job', () => {
+  const BACKDOOR_JOB = ALL_HOST_NUMBERS.find(
+    (missionNumber) => missionKind(missionNumber) === 'backdoor',
+  )!;
+  const BACKDOOR_TERMS = missionTerms(BACKDOOR_JOB);
+  const { port: PORT } = backdoorJob(BACKDOOR_JOB);
+  /** A classic port the client did not name. */
+  const OTHER_PORT = PORT === 4444 ? 5555 : 4444;
+
+  /** A box read answering with `read`, keeping every number it was asked for. */
+  const targetBox = (read: TargetBoxRead) => {
+    const reads: number[] = [];
+    return {
+      reads,
+      readTargetBox: async (missionNumber: number): Promise<TargetBoxRead> => {
+        reads.push(missionNumber);
+        return read;
+      },
+    };
+  };
+
+  /** The target up, with a root's listener on each of `ports`. */
+  const listeningOn = (...ports: readonly number[]): TargetBoxRead => ({
+    kind: 'up',
+    fs: withFiles(
+      buildMissionKeyBoxFs(BACKDOOR_JOB),
+      ports.map((port) => [
+        listenerPidfilePath(port),
+        file(formatListenerContent({ port, user: 'root', userType: 'root' }), PIDFILE_PERMISSIONS),
+      ]),
+    ),
+  });
+
+  const fromBackdoorClient = (line: string): ContractMail => ({
+    sender: `${BACKDOOR_TERMS.client.handle}@emailit.io`,
+    subject: `Contract: ${BACKDOOR_TERMS.targetCompany}`,
+    body: signed(line, BACKDOOR_TERMS.client.company),
+  });
+
+  const NOTHING_LISTENING = `Nothing is listening on port ${PORT}. No listener, no money.`;
+
+  const mailOnBackdoorJob = (
+    store: ClientMailStore,
+    readTargetBox: (missionNumber: number) => Promise<TargetBoxRead>,
+    body = `it is listening\n${WALLET}\n`,
+  ) => mailTo(store, { to: BACKDOOR_TERMS.client, body, readTargetBox });
+
+  it('reads the target of the job held, and pays once a listener holds the port named', async () => {
+    const { store, completes, replies } = clientStore({
+      jobs: [{ number: BACKDOOR_JOB, state: 'accepted' }],
+    });
+    const box = targetBox(listeningOn(PORT));
+
+    expect(await mailOnBackdoorJob(store, box.readTargetBox)).toBe('replied');
+    expect(box.reads).toEqual([BACKDOOR_JOB]);
+    expect(completes).toEqual([
+      {
+        number: BACKDOOR_JOB,
+        wallet: WALLET,
+        pay: BACKDOOR_TERMS.pay,
+        reply: fromBackdoorClient(
+          `We're in. §${BACKDOOR_TERMS.pay.toLocaleString('en-US')} sent to ${WALLET}. Pleasure doing business.`,
+        ),
+      },
+    ]);
+    expect(replies).toEqual([]);
+  });
+
+  it('pays whatever else the box listens on beside the port named', async () => {
+    const { store, completes } = clientStore({
+      jobs: [{ number: BACKDOOR_JOB, state: 'accepted' }],
+    });
+
+    await mailOnBackdoorJob(store, targetBox(listeningOn(OTHER_PORT, PORT)).readTargetBox);
+
+    expect(completes.map(({ number }) => number)).toEqual([BACKDOOR_JOB]);
+  });
+
+  it('completes and pays nothing when the mail names no wallet', async () => {
+    const { store, completes } = clientStore({
+      jobs: [{ number: BACKDOOR_JOB, state: 'accepted' }],
+    });
+
+    expect(
+      await mailOnBackdoorJob(store, targetBox(listeningOn(PORT)).readTargetBox, 'done.\n'),
+    ).toBe('replied');
+    expect(completes).toEqual([
+      {
+        number: BACKDOOR_JOB,
+        wallet: null,
+        pay: BACKDOOR_TERMS.pay,
+        reply: fromBackdoorClient(
+          "We're in. You sent no wallet, so there is nothing to pay. No wallet, no money.",
+        ),
+      },
+    ]);
+  });
+
+  it.each([
+    ['nothing listens on the box', listeningOn()],
+    ['the listener holds another port', listeningOn(OTHER_PORT)],
+    ['the target no longer boots', { kind: 'absent' } as const],
+  ])(
+    'says nothing is listening on the port named when %s, and keeps the job open',
+    async (_case, read) => {
+      const { store, completes, replies } = clientStore({
+        jobs: [{ number: BACKDOOR_JOB, state: 'accepted' }],
+      });
+
+      expect(await mailOnBackdoorJob(store, targetBox(read).readTargetBox)).toBe('replied');
+      expect(completes).toEqual([]);
+      expect(replies).toEqual([fromBackdoorClient(NOTHING_LISTENING)]);
+    },
+  );
+
+  it('answers nothing when the target could not be read', async () => {
+    const { store, completes, replies } = clientStore({
+      jobs: [{ number: BACKDOOR_JOB, state: 'accepted' }],
+    });
+
+    expect(await mailOnBackdoorJob(store, targetBox({ kind: 'error' }).readTargetBox)).toBeNull();
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([]);
+  });
+
+  it('says the job is already closed once it is completed, without reading the target', async () => {
+    const { store, completes, replies } = clientStore({
+      jobs: [{ number: BACKDOOR_JOB, state: 'completed' }],
+    });
+    const box = targetBox(listeningOn());
+
+    expect(await mailOnBackdoorJob(store, box.readTargetBox)).toBe('replied');
+    expect(box.reads).toEqual([]);
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromBackdoorClient(CLOSED_LINE)]);
   });
 });
 

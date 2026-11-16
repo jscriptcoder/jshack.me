@@ -29,7 +29,7 @@ import {
   type RecordTarget,
 } from '../missions/missionRecords.js';
 import { missionTerms, type MissionTerms } from '../missions/missionTerms.js';
-import { sabotageRole } from '../missions/sabotageRoles.js';
+import { backdoorJob, sabotageRole } from '../missions/targetRoles.js';
 import { missionFileItem, missionFileName } from '../missions/missionFileItem.js';
 import { contractBoardPage, type BoardNotice } from './contractBoard.js';
 
@@ -202,10 +202,11 @@ const askedSentence = (setting: RecordSetting, target: RecordTarget): string => 
 };
 
 /** What the job is and how it is paid: a key fetched and mailed back, a record changed or
- *  erased and the client told, a machine taken down and the client told, or a file fetched and
- *  mailed back attached. A tamper job names whose record and what it should say, or that it
- *  should not exist, never where; a sabotage job names what the machine is, never which box; a
- *  file job names the file, never where it sits. */
+ *  erased and the client told, a machine taken down and the client told, a file fetched and
+ *  mailed back attached, or a listener left on a machine and the client told while it listens.
+ *  A tamper job names whose record and what it should say, or that it should not exist, never
+ *  where; a sabotage or backdoor job names what the machine is, never which box; a file job
+ *  names the file, never where it sits. */
 const jobLines = (
   missionNumber: number,
   terms: MissionTerms,
@@ -219,6 +220,18 @@ const jobLines = (
       ...(inside ? ['It is a machine inside their network, not on the edge.', ''] : []),
       'Mail this address when it is done, with your wallet address.',
       'No outage, no money. No wallet, no money.',
+    ];
+  }
+  if (terms.job === 'backdoor') {
+    const { role, port } = backdoorJob(missionNumber);
+    return [
+      `We want a way into their ${role.noun} that stays open.`,
+      // "A listener" is the whole hint: the briefing never names the tool that leaves one.
+      `Leave a listener on it, on port ${port}.`,
+      '',
+      ...(inside ? ['It is a machine inside their network, not on the edge.', ''] : []),
+      'Write to this address with your wallet address while it is listening.',
+      'No listener, no money. No wallet, no money.',
     ];
   }
   if (terms.job === 'file') {

@@ -12,6 +12,7 @@ import { missionAddressForNumber } from '../missions/missionNetwork.js';
 import { missionKeyPath } from '../missions/missionSecret.js';
 import { missionFileItem, missionFileName, missionFilePath } from '../missions/missionFileItem.js';
 import { missionShape } from '../missions/missionShape.js';
+import { backdoorJob } from '../missions/targetRoles.js';
 import {
   RECORD_SETTINGS,
   missionAction,
@@ -39,7 +40,7 @@ const BOARD_ADDRESS = '194.12.34.56';
  *  two are two-hop contracts, the last two single-hop. */
 const FIRST = 100001;
 const SECOND = 100022;
-const THIRD = 70005;
+const THIRD = 70006;
 const FOURTH = 70011;
 
 /** The first tamper contract from 70,000 up drawing `setting` and `action`, on one hop or
@@ -90,6 +91,24 @@ const fileNumber = (twoHop: boolean): number => {
 
 const FILE_SINGLE_HOP = fileNumber(false);
 const FILE_TWO_HOP = fileNumber(true);
+
+/** The machine a backdoor contract wants a way into, read off the board's line. */
+const backdoorMachineOf = (missionNumber: number): string =>
+  missionTerms(missionNumber).kind.replace(/^plant a backdoor on (a|an internal) /, '');
+
+/** The first backdoor contract from 70,000 up on `machine`, on one hop or on two. */
+const backdoorNumber = (twoHop: boolean, machine = 'build server'): number => {
+  for (let candidate = 70_000; candidate < 2_000_000; candidate++) {
+    if (!isMissionNumber(candidate)) continue;
+    const shape = missionShape(candidate);
+    if (shape.kind !== 'backdoor' || (shape.frontBox !== null) !== twoHop) continue;
+    if (backdoorMachineOf(candidate) === machine) return candidate;
+  }
+  throw new Error(`no backdoor contract on a ${machine}`);
+};
+
+const BACKDOOR_SINGLE_HOP = backdoorNumber(false);
+const BACKDOOR_TWO_HOP = backdoorNumber(true);
 
 /** The first single-hop file contract from 70,000 up asking for the item called `noun`. */
 const fileNumberFor = (noun: string): number => {
@@ -611,6 +630,105 @@ describe('accepting an offer', () => {
       await accept('offer=mmm', store);
 
       expect(accepts[0]!.briefing.body.split('\n')).toContain(`Take their ${machine} offline.`);
+    });
+  });
+
+  describe('on a backdoor job', () => {
+    const offeredBackdoor = () =>
+      boardStore({
+        offers: [
+          { number: BACKDOOR_SINGLE_HOP, ref: 'bbb' },
+          { number: BACKDOOR_TWO_HOP, ref: 'ccc' },
+        ],
+      });
+
+    it('writes a single-hop briefing asking for a listener on the port named, and nothing more', async () => {
+      const { store, accepts } = offeredBackdoor();
+      const terms = missionTerms(BACKDOOR_SINGLE_HOP);
+      const { port } = backdoorJob(BACKDOOR_SINGLE_HOP);
+
+      await accept('offer=bbb', store);
+
+      expect(accepts[0]!.briefing.subject).toBe(`Contract: ${terms.targetCompany}`);
+      expect(accepts[0]!.briefing.body).toBe(
+        [
+          terms.pitch,
+          '',
+          `The target is ${terms.targetCompany}. Their network is at ${missionAddressForNumber(BACKDOOR_SINGLE_HOP)}.`,
+          '',
+          'We want a way into their build server that stays open.',
+          `Leave a listener on it, on port ${port}.`,
+          '',
+          'Write to this address with your wallet address while it is listening.',
+          'No listener, no money. No wallet, no money.',
+          '',
+          `-- ${terms.client.company}`,
+          '',
+        ].join('\n'),
+      );
+    });
+
+    it('tells a two-hop contractor the machine is inside the network, not on the edge', async () => {
+      const { store, accepts } = offeredBackdoor();
+      const terms = missionTerms(BACKDOOR_TWO_HOP);
+      const { port } = backdoorJob(BACKDOOR_TWO_HOP);
+
+      await accept('offer=ccc', store);
+
+      expect(accepts[0]!.briefing.body).toBe(
+        [
+          terms.pitch,
+          '',
+          `The target is ${terms.targetCompany}. Their network is at ${missionAddressForNumber(BACKDOOR_TWO_HOP)}.`,
+          '',
+          'We want a way into their build server that stays open.',
+          `Leave a listener on it, on port ${port}.`,
+          '',
+          'It is a machine inside their network, not on the edge.',
+          '',
+          'Write to this address with your wallet address while it is listening.',
+          'No listener, no money. No wallet, no money.',
+          '',
+          `-- ${terms.client.company}`,
+          '',
+        ].join('\n'),
+      );
+    });
+
+    it('names no box, no address but the network, no path and no tool', async () => {
+      for (const [missionNumber, ref] of [
+        [BACKDOOR_SINGLE_HOP, 'bbb'],
+        [BACKDOOR_TWO_HOP, 'ccc'],
+      ] as const) {
+        const { store, accepts } = offeredBackdoor();
+        const { stem } = missionShape(missionNumber);
+
+        await accept(`offer=${ref}`, store);
+        const { body } = accepts[0]!.briefing;
+
+        expect(body).not.toContain(`${stem}-`);
+        expect(body).not.toMatch(/\/var|\bnc\b|netcat|pidfile|\bkey\b/i);
+        expect(body.match(/\d+\.\d+\.\d+\.\d+/g)).toEqual([missionAddressForNumber(missionNumber)]);
+      }
+    });
+
+    it.each([
+      'CCTV recorder',
+      'backup server',
+      'monitoring station',
+      'build server',
+      'licence server',
+      'door-access controller',
+      'billing server',
+    ])('asks for a way into a %s, in so many words', async (machine) => {
+      const missionNumber = backdoorNumber(false, machine);
+      const { store, accepts } = boardStore({ offers: [{ number: missionNumber, ref: 'mmm' }] });
+
+      await accept('offer=mmm', store);
+
+      expect(accepts[0]!.briefing.body.split('\n')).toContain(
+        `We want a way into their ${machine} that stays open.`,
+      );
     });
   });
 

@@ -609,7 +609,7 @@ describe('generateHomeLan for a contract network', () => {
     }
   });
 
-  it('names a sabotage target for the machine the client wants down, and every other key box as before', () => {
+  it('names a sabotage target for the machine the client wants down, and every key box but a backdoor target as before', () => {
     // The board names the machine; the box the contractor lands on carries the name to match.
     const suffixByMachine: Readonly<Record<string, string>> = {
       'CCTV recorder': 'nvr',
@@ -632,7 +632,10 @@ describe('generateHomeLan for a contract network', () => {
       new Set(sabotage.map((missionNumber) => missionShape(missionNumber).frontBox === null)),
     ).toEqual(new Set([true, false]));
     expect(new Set(sabotage.map(suffixOf))).toEqual(new Set(Object.values(suffixByMachine)));
-    for (const missionNumber of CONTRACT_NUMBERS) {
+    const notBackdoor = CONTRACT_NUMBERS.filter(
+      (missionNumber) => missionShape(missionNumber).kind !== 'backdoor',
+    );
+    for (const missionNumber of notBackdoor) {
       const lan = generateHomeLan(`mission-${missionNumber}`);
       const { kind, stem, keyBox, frontBox } = missionShape(missionNumber);
       const hostnameAt = (octet: number) =>
@@ -643,6 +646,43 @@ describe('generateHomeLan for a contract network', () => {
       );
       if (frontBox !== null)
         expect(hostnameAt(frontBox.octet), `contract ${missionNumber}`).toBe(`${stem}-web`);
+    }
+  });
+
+  it('names a backdoor target for the machine the client wants a way into, as a sabotage target is named', () => {
+    // The two kinds share the machines, so a hostname alone never says which job a box is.
+    const suffixByMachine: Readonly<Record<string, string>> = {
+      'CCTV recorder': 'nvr',
+      'backup server': 'backup',
+      'monitoring station': 'mon',
+      'build server': 'ci',
+      'licence server': 'lic',
+      'door-access controller': 'access',
+      'billing server': 'billing',
+    };
+    const backdoor = CONTRACT_NUMBERS.filter(
+      (missionNumber) => missionShape(missionNumber).kind === 'backdoor',
+    );
+    const suffixOf = (missionNumber: number): string => {
+      const machine = missionTerms(missionNumber).kind.replace(
+        /^plant a backdoor on (a|an internal) /,
+        '',
+      );
+      return suffixByMachine[machine] ?? `unknown machine ${machine}`;
+    };
+
+    expect(
+      new Set(backdoor.map((missionNumber) => missionShape(missionNumber).frontBox === null)),
+    ).toEqual(new Set([true, false]));
+    expect(new Set(backdoor.map(suffixOf))).toEqual(new Set(Object.values(suffixByMachine)));
+    for (const missionNumber of backdoor) {
+      const lan = generateHomeLan(`mission-${missionNumber}`);
+      const { stem, keyBox } = missionShape(missionNumber);
+
+      expect(
+        lan.hosts.find(({ ip }) => ip === `${lan.subnet}.${keyBox.octet}`)?.hostname,
+        `contract ${missionNumber}`,
+      ).toBe(`${stem}-${suffixOf(missionNumber)}`);
     }
   });
 

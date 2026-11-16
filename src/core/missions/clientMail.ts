@@ -26,7 +26,10 @@
  * as it stands and completes the job when its records read right, or says they do not. A box
  * that is not up holds no records that read right. A sabotage job asks for none either: the
  * client reads its target and completes the job when the box no longer boots, whoever took it
- * down, or says it is still up. Once either is completed, and nothing else is accepted here, any
+ * down, or says it is still up. A backdoor job asks for none either: the client reads its target
+ * and completes the job when a listener holds the port the briefing named, whoever left it, or
+ * says nothing is listening there, the same words for no listener, one on another port and a box
+ * that no longer boots. Once any of them is completed, and nothing else is accepted here, any
  * mail is told the job is closed without the box being read.
  *
  * A file job asks for the file, not a key: the client compares the file the mail carries with the
@@ -49,6 +52,8 @@ import { missionKey } from './missionSecret.js';
 import { missionFileContent } from './missionFileItem.js';
 import { missionKind } from './missionShape.js';
 import { recordsLookRight } from './missionRecords.js';
+import { backdoorJob } from './targetRoles.js';
+import { listenerOn } from '../services/pidfile.js';
 import { missionTerms, type MissionClient, type MissionTerms } from './missionTerms.js';
 
 type StoreReply = Promise<{ readonly data: unknown; readonly error: unknown }>;
@@ -77,8 +82,8 @@ export type ClientMailStore = {
   }) => StoreReply;
 };
 
-/** The box a tamper or sabotage job is about, as it stands: up with its tree, not up, or not
- *  readable. */
+/** The box a tamper, sabotage or backdoor job is about, as it stands: up with its tree, not up, or
+ *  not readable. */
 export type TargetBoxRead =
   | { readonly kind: 'up'; readonly fs: Directory }
   | { readonly kind: 'absent' }
@@ -108,9 +113,13 @@ const KEY_RECEIVED = 'Key received.';
 const FILE_RECEIVED = 'File received.';
 const RECORDS_RECEIVED = 'The records look right.';
 const MACHINE_DOWN = 'The machine is down.';
+const LISTENING = "We're in.";
 const NO_WALLET = 'You sent no wallet, so there is nothing to pay. No wallet, no money.';
 const RECORDS_WRONG = "Our records don't look right. No change, no money.";
 const STILL_UP = 'Their machine is still up. No outage, no money.';
+/** One reply for every miss: no listener, one on another port, or a box that no longer boots. */
+const nothingListening = (port: number): string =>
+  `Nothing is listening on port ${port}. No listener, no money.`;
 const WRONG_KEY = 'That key opens nothing of ours.';
 const WRONG_FILE = "That's not the file we asked for.";
 const CLOSED = 'That job is already closed.';
@@ -142,15 +151,17 @@ type Decision =
   | { readonly kind: 'completeFile'; readonly number: number }
   | { readonly kind: 'checkRecords'; readonly number: number }
   | { readonly kind: 'checkDown'; readonly number: number }
+  | { readonly kind: 'checkListening'; readonly number: number }
   | { readonly kind: 'reply'; readonly reply: ContractMail };
 
 /** How the client opens its reply to a job done: the key or the file it was sent, the records it
- *  read, or the machine it found down. */
+ *  read, the machine it found down, or the listener it found. */
 const RECEIVED: Readonly<Record<Exclude<Decision['kind'], 'reply'>, string>> = {
   complete: KEY_RECEIVED,
   completeFile: FILE_RECEIVED,
   checkRecords: RECORDS_RECEIVED,
   checkDown: MACHINE_DOWN,
+  checkListening: LISTENING,
 };
 
 /** What the client says on a job the mail itself proves: when the mail carries no proof, when it
@@ -197,6 +208,7 @@ const decide = ({
   const acceptedKind = missionKind(accepted.number);
   if (acceptedKind === 'tamper') return { kind: 'checkRecords', number: accepted.number };
   if (acceptedKind === 'sabotage') return { kind: 'checkDown', number: accepted.number };
+  if (acceptedKind === 'backdoor') return { kind: 'checkListening', number: accepted.number };
   const said = MAILED_PROOF[acceptedKind];
   if ((acceptedKind === 'file' ? file : key) === null) return reply(accepted.number, said.none);
   if (proves(accepted.number)) return { kind: said.done, number: accepted.number };
@@ -238,7 +250,7 @@ export const answerClientMail = async ({
   /** The deployment's mission secret, already checked present. */
   readonly secret: string;
   readonly store: ClientMailStore;
-  /** The box the tamper or sabotage job numbered so is about, as it stands right now. */
+  /** The box the tamper, sabotage or backdoor job numbered so is about, as it stands now. */
   readonly readTargetBox: (missionNumber: number) => Promise<TargetBoxRead>;
 }): Promise<ClientMailAnswer | null> => {
   const opened = await store.open(login);
@@ -265,6 +277,16 @@ export const answerClientMail = async ({
     // The target always stands at its address, so a box that is not up is one that no longer
     // boots: the job done, whoever did it.
     if (box.kind === 'up') return sendReply(store, login.handle, replyAbout(terms, STILL_UP));
+  }
+  if (decision.kind === 'checkListening') {
+    const box = await readTargetBox(decision.number);
+    if (box.kind === 'error') return null;
+    const { port } = backdoorJob(decision.number);
+    // Anyone's listener counts, as anyone's brick does on a sabotage job: the client wants a
+    // way in, not to know who left it.
+    if (box.kind === 'absent' || listenerOn(box.fs, port) === null) {
+      return sendReply(store, login.handle, replyAbout(terms, nothingListening(port)));
+    }
   }
   const received = RECEIVED[decision.kind];
   const wallet = firstMatch(text, WALLET_SHAPE)?.toLowerCase() ?? null;

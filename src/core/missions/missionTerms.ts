@@ -19,7 +19,7 @@
 
 import { createPrng } from '../generation/prng.js';
 import { missionKind, missionTopology } from './missionShape.js';
-import { sabotageRole } from './sabotageRoles.js';
+import { backdoorJob, sabotageRole } from './targetRoles.js';
 import { missionFileItem } from './missionFileItem.js';
 import {
   missionAction,
@@ -56,7 +56,8 @@ export type MissionTerms =
       })
   | ({ readonly job: 'tamper' } & CommonTerms)
   | ({ readonly job: 'sabotage' } & CommonTerms)
-  | ({ readonly job: 'file' } & CommonTerms);
+  | ({ readonly job: 'file' } & CommonTerms)
+  | ({ readonly job: 'backdoor' } & CommonTerms);
 
 const CLIENTS: readonly MissionClient[] = [
   { company: 'Copper Systems', handle: 'copper-ops' },
@@ -303,14 +304,26 @@ export const missionTerms = (missionNumber: number): MissionTerms => {
   }
   const job = singleHop ? SINGLE_HOP : TWO_HOP;
   if (missionKind(missionNumber) === 'sabotage') {
-    const { noun, pitches } = sabotageRole(missionNumber);
+    const { noun, sabotagePitches } = sabotageRole(missionNumber);
     return {
       job: 'sabotage',
       client: prng.pick(CLIENTS),
       targetCompany: `${capitalised(stem)} ${prng.pick(TARGET_TRADES)}`,
       kind: `take down ${singleHop ? 'a' : 'an internal'} ${noun}`,
-      pitch: prng.pick(pitches),
+      pitch: prng.pick(sabotagePitches),
       // The work is a key job's, finding the way in and rooting the box, so the pay is too.
+      pay: payFrom(prng, job),
+    };
+  }
+  if (missionKind(missionNumber) === 'backdoor') {
+    const { noun, backdoorPitches } = backdoorJob(missionNumber).role;
+    return {
+      job: 'backdoor',
+      client: prng.pick(CLIENTS),
+      targetCompany: `${capitalised(stem)} ${prng.pick(TARGET_TRADES)}`,
+      kind: `plant a backdoor on ${singleHop ? 'a' : 'an internal'} ${noun}`,
+      pitch: prng.pick(backdoorPitches),
+      // The work is a key job's, finding the way in and rooting the box, with one step more.
       pay: payFrom(prng, job),
     };
   }

@@ -126,9 +126,9 @@ export type ResolveMailDeps = WebTargetDeps & {
 };
 
 /** The box in a contract's key-box slot as every door reads it, a tamper job's records box or a
- *  sabotage job's target: the box the contract's number generates, with the server's files laid
- *  on and its journal replayed, so the client sees exactly what a player's statements, edits and
- *  deletes left there, down to whether it still boots. */
+ *  sabotage or backdoor job's target: the box the contract's number generates, with the server's
+ *  files laid on and its journal replayed, so the client sees exactly what a player's statements,
+ *  edits, deletes and listeners left there, down to whether it still boots. */
 const targetBoxReader =
   (deps: WebTargetDeps) =>
   (missionNumber: number): Promise<TargetBoxRead> => {

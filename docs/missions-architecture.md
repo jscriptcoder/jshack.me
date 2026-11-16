@@ -4,7 +4,8 @@ How a player takes paid work: a contract offered on their hireme.io board, accep
 briefed by mail, worked on a network of its own and paid by mailing the client the key — or, on
 a tamper job, by changing or erasing one of the client's records and mailing them anything, or, on
 a sabotage job, by leaving one of the target's machines unable to boot and mailing them, or, on a
-file job, by mailing them one of the target's files as an attachment. This is
+file job, by mailing them one of the target's files as an attachment, or, on a backdoor job, by
+leaving a listener on one of the target's machines and mailing them while it listens. This is
 the shipped model of the missions epic, complete at **v0.441.0** (four slices, v0.438.0–v0.441.0,
 PRs #746–#749, 2026-11-01 to 2026-11-03), with the routes that leak a login added by the epic
 that followed (four slices, v0.442.0–v0.445.0, PRs #750–#753, 2026-11-03 to 2026-11-04), and a
@@ -13,7 +14,7 @@ second template, a key box behind a front box ("Two hops", four slices, v0.450.0
 ("Tamper jobs", four slices, v0.454.0–v0.457.0, PRs #766–#769, 2026-11-11), and a third, a
 machine taken down ("Sabotage jobs", two slices, v0.458.0–v0.459.0, PRs #770–#771, 2026-11-12),
 and a fourth, a file brought back ("File jobs", from v0.461.0, on mail that carries a file,
-v0.460.0, PR #772).
+v0.460.0, PR #772), and a fifth, a listener left on a machine ("Backdoor jobs", v0.464.0).
 It sits
 on top of the contractor boards
 ([`hireme-architecture.md`](./hireme-architecture.md)), emailit.io
@@ -48,9 +49,13 @@ From that follow the rest:
 - **A sabotage job's proof is the network's state too**, and the plainest one: the client reads
   its target on every mail and pays once it no longer boots, however it was broken and by whoever.
   A completed job is closed without reading it. See [Sabotage jobs](#sabotage-jobs).
+- **A backdoor job's proof is the network's state as well:** the client reads its target on
+  every mail and pays while a listener holds the port the briefing named, whoever left it. A
+  completed job is closed without reading it, so a listener killed after payment takes nothing
+  back. See [Backdoor jobs](#backdoor-jobs).
 - **A key comes from a server-only secret**, because the generator ships in the bundle and the
-  seed is public. A tamper or sabotage job needs none: what it asks for is in its briefing, and
-  the box only has to read right, or not come up at all.
+  seed is public. A tamper, sabotage or backdoor job needs none: what it asks for is in its
+  briefing, and the box only has to read right, not come up at all, or listen.
 
 ## 1. The block and the lookup
 
@@ -616,7 +621,7 @@ its shape, terms and LAN exactly.
   and front box. On two-hop it is the inside box. It has no storage (`MissionShape.storage` is
   `null`): no key, no records, no mysqld for them, and no doors but the ones its route and leak
   route run. Its hostname names its role (`sabotageRole`, `keyBoxSuffix`,
-  `core/missions/sabotageRoles.ts`), one of seven drawn on `mission-sabotage-role-<n>` (v0.459.0),
+  `core/missions/targetRoles.ts`), one of seven drawn on `mission-sabotage-role-<n>` (v0.459.0),
   so no earlier draw moved:
 
   | Role                   | Hostname         |
@@ -669,7 +674,7 @@ mailed back as an attachment ([`email-architecture.md`](./email-architecture.md)
 jobs in the two gaps, ¼ to ⅓ and 7⁄12 to ¾. The gaps are what tamper, sabotage and key gave up as
 they shrank from thirds, so a number is the kind it was or has become a file job; none turned
 from one older kind into another. Every number that kept its kind kept its shape, terms and LAN
-exactly.
+exactly. Since v0.464.0 each kind is a fifth ([Backdoor jobs](#backdoor-jobs)).
 
 - **The target is the key box's slot,** as a sabotage target is: the same octet, route, decoys
   and front box, the inside box on two-hop. It keeps the key box's hostname, `<stem>-files`, and
@@ -734,6 +739,80 @@ exactly.
 
 - `hireme.ts show` prints `Kind: file, <item>` and `File: <path>, <size> bytes`, and no
   storage, key path or key.
+
+## Backdoor jobs
+
+The fifth kind of contract (v0.464.0): a client wants a way into one of the target's machines
+that stays open, a listener left on it on a port the briefing names. `mission-kind-<n>` is split
+in fifths: each older kind gave up a twentieth at one edge, and backdoor jobs fill those four
+gaps, so a number is the kind it was, with its shape, terms and LAN exactly, or has become a
+backdoor job. None turned from one older kind into another.
+
+| Draw         | Kind     |
+| ------------ | -------- |
+| 0 to 1⁄5     | tamper   |
+| 1⁄5 to ¼     | backdoor |
+| ¼ to ⅓       | file     |
+| ⅓ to 8⁄15    | sabotage |
+| 8⁄15 to 7⁄12 | backdoor |
+| 7⁄12 to 7⁄10 | file     |
+| 7⁄10 to ¾    | backdoor |
+| ¾ to 19⁄20   | key      |
+| 19⁄20 to 1   | backdoor |
+
+- **The target is the key box's slot,** as a sabotage or file target is: the same octet, route,
+  decoys and front box, the inside box on two-hop. It has no storage (`MissionShape.storage` is
+  `null`) and runs no service of its own.
+- **One stream, `mission-backdoor-<n>`, draws the machine and then the port**
+  (`backdoorJob`, `core/missions/targetRoles.ts`), so no earlier draw moved. The machine is one
+  of sabotage's seven, which names the box as a sabotage target is named (`<stem>-nvr`, `-backup`,
+  `-mon`, `-ci`, `-lic`, `-access`, `-billing`), so a hostname never says which of the two jobs a
+  box is. Each machine brings three backdoor pitches of its own, shared with no sabotage pitch and
+  no other machine.
+- **The port** is one of eight classic listener ports: 1337, 4444, 5555, 6666, 7777, 9001, 12345
+  and 31337. No service in the catalog defaults to any of them, so the target never already holds
+  the one named and `nc -l` on it is never refused as in use; a test fails if a service ever
+  takes one.
+- **The target ships without netcat.** A root there runs `apt install netcat` first, as a root on
+  a gpg key box runs `apt install gpg`. `nc -l` is root-only, so every listener is a root's, and
+  writes `/var/run/nc-<port>.pid` through the journal as on any box; the write gate fences only
+  the files the server lays on a contract box.
+- **The terms**: `<Client> — plant a backdoor on a build server — §<pay>`, and `plant a backdoor
+on an internal …` on two-hop, at the key job's pay (500–2,000 single-hop, 2,000–4,000 two-hop,
+  to the nearest 50). The target company is drawn as a key job's is.
+- **The briefing** names the machine and the port, never the box, its address, a path, `nc` or
+  netcat:
+
+  ```text
+  We want a way into their build server that stays open.
+  Leave a listener on it, on port 31337.
+
+  Write to this address with your wallet address while it is listening.
+  No listener, no money. No wallet, no money.
+  ```
+
+  On two-hop it adds "It is a machine inside their network, not on the edge."
+
+- **Any mail from the contractor reads the target** through the same `readTargetBox` a tamper or
+  sabotage job uses, and asks `listenerOn` whether a listener holds the port named. The mail's
+  words do not matter; only its wallet does. Anyone's listener counts, as anyone's brick counts on
+  a sabotage job. The first row that fits answers:
+
+  | The mail                                    | The reply                                                     | What changes              |
+  | ------------------------------------------- | ------------------------------------------------------------- | ------------------------- |
+  | No accepted job with this client            | "We have no contract with you."                               | nothing                   |
+  | A completed job                             | "That job is already closed." (the target is not read)        | nothing                   |
+  | A listener on the port named, with a wallet | "We're in. §1,450 sent to jsc…. Pleasure doing business."     | completed, the pay minted |
+  | A listener on the port named, no wallet     | "We're in. You sent no wallet, so there is nothing to pay. …" | completed, nothing minted |
+  | Anything else                               | "Nothing is listening on port 31337. No listener, no money."  | nothing                   |
+  | The read itself fails                       | nothing: 500, as any store failure                            | nothing                   |
+
+  "Anything else" is one reply for no listener, a listener on another port, and a target that no
+  longer boots; it never says which. A bricked target loses the job for good, and a listener left
+  on a two-hop job's front box is not on the target.
+
+- `hireme.ts show` prints `Kind: backdoor, <machine>` and `Port: <n>`, calls the slot the target
+  (`Target box:` on two-hop), and prints no storage, key path or key.
 
 ## 7. What a root finds
 
@@ -916,8 +995,9 @@ white-hat fix, and clients and settings of their own; and for sabotage jobs, wip
   `leakablePool.ts` (bundle); `missionSecret.ts`, `missionLeak.ts`, `missionTerms.ts`,
   `clientMail.ts`, `contractsList.ts`, `hiremeOrders.ts` (server and scripts); `missionRecords.ts`
   (a tamper job's setting, records and the check) and `recordSettings.ts` (the eight settings'
-  tables); `sabotageRoles.ts` (the seven machines a sabotage job can ask down: each target's hostname,
-  noun and pitches); `missionFileItem.ts` (a file job's item, its file's name and place, and its
+  tables); `targetRoles.ts` (the seven machines a sabotage job can ask down or a backdoor job a way
+  into: each target's hostname, noun and both kinds' pitches, and a backdoor job's draw of the
+  machine and the port); `missionFileItem.ts` (a file job's item, its file's name and place, and its
   bytes, server only).
 - **The lay-in and the doors**: `core/network/missionBoxFiles.ts`, `core/sessions/doorAdmission.ts`,
   `core/generation/missionKeyBoxFs.ts`, `core/crypto/gpgCodec.ts` (the cipher the server seals a

@@ -27,6 +27,10 @@ const FILE_NUMBERS = SAMPLE_NUMBERS.filter(
   (missionNumber) => missionKind(missionNumber) === 'file',
 );
 
+const BACKDOOR_NUMBERS = SAMPLE_NUMBERS.filter(
+  (missionNumber) => missionKind(missionNumber) === 'backdoor',
+);
+
 /** The machines a sabotage job can ask taken down. */
 const SABOTAGE_MACHINES = [
   'CCTV recorder',
@@ -122,24 +126,24 @@ describe('missionTerms', () => {
 
   it('keeps the terms of every single-hop key job as they were', () => {
     // Taken before a two-hop job had terms of its own: every single-hop contract's client,
-    // target, pitch, key and pay. Retaken when sabotage jobs took a third of the numbers, and
-    // again when file jobs took a quarter, each time over the key jobs left, whose terms the
-    // earlier digest's own fixture held unchanged.
+    // target, pitch, key and pay. Retaken when sabotage jobs took a third of the numbers, again
+    // when file jobs took a quarter, and again when backdoor jobs took a fifth, each time over the
+    // key jobs left, whose terms the earlier digest's own fixture held unchanged.
     expect(md5(JSON.stringify(SINGLE_HOP_NUMBERS.map(missionTerms).map(withoutJob)))).toBe(
-      '266c6070c337937ef4f2b962dbd48e5e',
+      'd64d6eadd810cc9c11693dec4265d38d',
     );
   });
 
-  // Retaken over the key jobs left when file jobs took a quarter of the numbers.
+  // Retaken over the key jobs left when backdoor jobs took a fifth of the numbers.
   it('keeps the client, target, pitch and key of a two-hop key job as they were', () => {
     const beside = TWO_HOP_NUMBERS.map(missionTerms)
       .map(withoutJob)
       .map(({ kind: _kind, pay: _pay, ...rest }) => rest);
 
-    expect(md5(JSON.stringify(beside))).toBe('b95623afc1c9ee6fb2c036d551f1d7b3');
+    expect(md5(JSON.stringify(beside))).toBe('7d26e17ec92e61024a07c007158b2fdb');
   });
 
-  it('marks each contract a key, tamper, sabotage or file job, as its shape does', () => {
+  it('marks each contract a key, tamper, sabotage, file or backdoor job, as its shape does', () => {
     for (const missionNumber of SAMPLE_NUMBERS) {
       expect(missionTerms(missionNumber).job).toBe(missionShape(missionNumber).kind);
     }
@@ -284,7 +288,7 @@ describe('missionTerms', () => {
       }
     });
 
-    // Retaken over the sabotage jobs left when file jobs took a quarter of the numbers.
+    // Retaken over the sabotage jobs left when backdoor jobs took a fifth of the numbers.
     it('keeps the client, the target and the pay it drew before its machine was drawn', () => {
       const kept = SABOTAGE_NUMBERS.map(missionTerms).map(({ client, targetCompany, pay }) => ({
         client,
@@ -292,7 +296,7 @@ describe('missionTerms', () => {
         pay,
       }));
 
-      expect(md5(JSON.stringify(kept))).toBe('6350e7e658d09c583d3a19352673c7e5');
+      expect(md5(JSON.stringify(kept))).toBe('e8e4b1a08073765da3a31bb0f6d10f12');
     });
 
     // The work is a key job's, finding the way in and rooting the box, so the pay is too.
@@ -419,6 +423,103 @@ describe('missionTerms', () => {
 
     it('promises no key', () => {
       for (const missionNumber of FILE_NUMBERS) {
+        expect('keyOpens' in missionTerms(missionNumber)).toBe(false);
+      }
+    });
+  });
+
+  describe('a backdoor job', () => {
+    const SINGLE_HOP_BACKDOOR_NUMBERS = BACKDOOR_NUMBERS.filter(
+      (missionNumber) => !isTwoHop(missionNumber),
+    );
+    const TWO_HOP_BACKDOOR_NUMBERS = BACKDOOR_NUMBERS.filter(isTwoHop);
+
+    /** The machine a backdoor job is offered as planting on, read off the board's line. */
+    const machineOf = (missionNumber: number): string =>
+      missionTerms(missionNumber).kind.replace(/^plant a backdoor on (a|an internal) /, '');
+
+    it('is offered as planting a backdoor on one of the seven machines, an internal one on two hops', () => {
+      for (const missionNumber of SINGLE_HOP_BACKDOOR_NUMBERS) {
+        expect(missionTerms(missionNumber).kind).toBe(
+          `plant a backdoor on a ${machineOf(missionNumber)}`,
+        );
+      }
+      for (const missionNumber of TWO_HOP_BACKDOOR_NUMBERS) {
+        expect(missionTerms(missionNumber).kind).toBe(
+          `plant a backdoor on an internal ${machineOf(missionNumber)}`,
+        );
+      }
+      expect(new Set(BACKDOOR_NUMBERS.map(machineOf))).toEqual(new Set(SABOTAGE_MACHINES));
+    });
+
+    it('asks for each machine about a seventh of the time', () => {
+      for (const machine of SABOTAGE_MACHINES) {
+        const share =
+          BACKDOOR_NUMBERS.filter((missionNumber) => machineOf(missionNumber) === machine).length /
+          BACKDOOR_NUMBERS.length;
+        expect(share, machine).toBeGreaterThan(0.1);
+        expect(share, machine).toBeLessThan(0.19);
+      }
+    });
+
+    // The work is a key job's, finding the way in and rooting the box, with one more step.
+    it('pays a key job: 500 to 2,000 JSC on one hop, 2,000 to 4,000 on two, in steps of 50', () => {
+      const paysOf = (numbers: readonly number[]) =>
+        numbers.map((missionNumber) => missionTerms(missionNumber).pay);
+      const singleHop = paysOf(SINGLE_HOP_BACKDOOR_NUMBERS);
+      const twoHop = paysOf(TWO_HOP_BACKDOOR_NUMBERS);
+
+      for (const pay of [...singleHop, ...twoHop]) expect(pay % 50).toBe(0);
+      expect([Math.min(...singleHop), Math.max(...singleHop)]).toEqual([500, 2000]);
+      expect([Math.min(...twoHop), Math.max(...twoHop)]).toEqual([2000, 4000]);
+    });
+
+    it('names the target after its stem and a trade a key job is drawn from', () => {
+      const keyJobTrades = new Set(
+        KEY_NUMBERS.map((missionNumber) => missionTerms(missionNumber).targetCompany.split(' ')[1]),
+      );
+
+      for (const missionNumber of BACKDOOR_NUMBERS) {
+        const { stem } = missionShape(missionNumber);
+        const [company, trade, ...rest] = missionTerms(missionNumber).targetCompany.split(' ');
+        expect(company).toBe(capitalised(stem));
+        expect(keyJobTrades.has(trade ?? ''), `contract ${missionNumber}`).toBe(true);
+        expect(rest).toEqual([]);
+      }
+    });
+
+    it("draws every client, and pitches from three or four reasons of its machine's own", () => {
+      const terms = BACKDOOR_NUMBERS.map(missionTerms);
+      const otherPitches = new Set(
+        [...KEY_NUMBERS, ...TAMPER_NUMBERS, ...SABOTAGE_NUMBERS, ...FILE_NUMBERS].map(
+          (missionNumber) => missionTerms(missionNumber).pitch,
+        ),
+      );
+      const pitchesFor = (machine: string) =>
+        new Set(
+          BACKDOOR_NUMBERS.filter((missionNumber) => machineOf(missionNumber) === machine).map(
+            (missionNumber) => missionTerms(missionNumber).pitch,
+          ),
+        );
+      const seen = new Set<string>();
+
+      expect(new Set(terms.map(({ client }) => client.handle))).toEqual(new Set(CLIENT_HANDLES));
+      for (const machine of SABOTAGE_MACHINES) {
+        const pitches = pitchesFor(machine);
+        expect(pitches.size, machine).toBeGreaterThanOrEqual(3);
+        expect(pitches.size, machine).toBeLessThanOrEqual(4);
+        for (const pitch of pitches) {
+          expect(pitch).toMatch(/^[A-Z].{20,}\.$/);
+          // A standing way in is not why anyone wants a machine taken down.
+          expect(otherPitches.has(pitch), pitch).toBe(false);
+          expect(seen.has(pitch), pitch).toBe(false);
+          seen.add(pitch);
+        }
+      }
+    });
+
+    it('promises no key', () => {
+      for (const missionNumber of BACKDOOR_NUMBERS) {
         expect('keyOpens' in missionTerms(missionNumber)).toBe(false);
       }
     });
