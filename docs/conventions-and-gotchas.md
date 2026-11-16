@@ -151,9 +151,11 @@ doc and the code disagree, the code wins — fix the doc.
     network's leads walks every LAN of its town, so its cost grows with the town: Oakhurst's 47
     networks built at 2.53 ms a box. `relationsTo` and `relationsFrom` keep each key's answer, the
     world they read being fixed at load, and every set reads 0.78–1.04 ms.
-  - **building findit's generated web from nothing takes over 1,000 ms**, the best of three
+  - **building findit's generated web from nothing takes over 1,500 ms**, the best of three
     timed passes after a warm-up pass. A server's first search builds every publisher's listing
     and keeps it; 283 publishers took 424 ms at v0.304.0, and a Vercel instance pays about 2 s.
+    At 393 publishers an idle run took 692–1,073 ms, so the old 1,000 ms ceiling failed at
+    random; it rose to 1,500 ms at v0.464.0.
   It is a script, not a vitest test, because Stryker runs the whole suite under instrumentation
   and aborts its dry run on any failure. A wall-clock assertion there would break mutation runs.
   To check without a full build, run `npx tsx scripts/checkBudgets.ts` after `vite build`.

@@ -77,10 +77,12 @@ const BUILD_CEILING_MS_PER_BOX = 2;
 /** How many times each set's boxes are timed, the quickest pass counting. */
 const TIMED_PASSES = 3;
 
-/** More than twice what the launch extent's 283 publishers took to build (424 ms), so a
- *  loaded machine cannot fail the check while a world whose first search doubled does. A
+/** About twice what the world's 393 publishers take to build on an idle developer machine
+ *  (best of three passes: 692–1,073 ms over eight runs, 713–793 on `main`), so that spread
+ *  cannot fail the check while a world whose first search doubled does. It was 1,000 ms when
+ *  283 publishers took 424 ms; at 393 that ceiling failed about one idle run in eight. A
  *  Vercel instance pays several times this on its first search, about 2 s. */
-const GENERATED_WEB_CEILING_MS = 1_000;
+const GENERATED_WEB_CEILING_MS = 1_500;
 
 const DIST_DIR = join(import.meta.dirname, '..', 'dist');
 
