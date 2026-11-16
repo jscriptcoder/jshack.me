@@ -621,7 +621,7 @@ its shape, terms and LAN exactly.
   and front box. On two-hop it is the inside box. It has no storage (`MissionShape.storage` is
   `null`): no key, no records, no mysqld for them, and no doors but the ones its route and leak
   route run. Its hostname names its role (`sabotageRole`, `keyBoxSuffix`,
-  `core/missions/sabotageRoles.ts`), one of seven drawn on `mission-sabotage-role-<n>` (v0.459.0),
+  `core/missions/targetRoles.ts`), one of seven drawn on `mission-sabotage-role-<n>` (v0.459.0),
   so no earlier draw moved:
 
   | Role                   | Hostname         |
@@ -764,7 +764,7 @@ backdoor job. None turned from one older kind into another.
   decoys and front box, the inside box on two-hop. It has no storage (`MissionShape.storage` is
   `null`) and runs no service of its own.
 - **One stream, `mission-backdoor-<n>`, draws the machine and then the port**
-  (`backdoorJob`, `core/missions/sabotageRoles.ts`), so no earlier draw moved. The machine is one
+  (`backdoorJob`, `core/missions/targetRoles.ts`), so no earlier draw moved. The machine is one
   of sabotage's seven, which names the box as a sabotage target is named (`<stem>-nvr`, `-backup`,
   `-mon`, `-ci`, `-lic`, `-access`, `-billing`), so a hostname never says which of the two jobs a
   box is. Each machine brings three backdoor pitches of its own, shared with no sabotage pitch and
@@ -995,8 +995,9 @@ white-hat fix, and clients and settings of their own; and for sabotage jobs, wip
   `leakablePool.ts` (bundle); `missionSecret.ts`, `missionLeak.ts`, `missionTerms.ts`,
   `clientMail.ts`, `contractsList.ts`, `hiremeOrders.ts` (server and scripts); `missionRecords.ts`
   (a tamper job's setting, records and the check) and `recordSettings.ts` (the eight settings'
-  tables); `sabotageRoles.ts` (the seven machines a sabotage job can ask down: each target's hostname,
-  noun and pitches); `missionFileItem.ts` (a file job's item, its file's name and place, and its
+  tables); `targetRoles.ts` (the seven machines a sabotage job can ask down or a backdoor job a way
+  into: each target's hostname, noun and both kinds' pitches, and a backdoor job's draw of the
+  machine and the port); `missionFileItem.ts` (a file job's item, its file's name and place, and its
   bytes, server only).
 - **The lay-in and the doors**: `core/network/missionBoxFiles.ts`, `core/sessions/doorAdmission.ts`,
   `core/generation/missionKeyBoxFs.ts`, `core/crypto/gpgCodec.ts` (the cipher the server seals a

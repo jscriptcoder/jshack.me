@@ -45,7 +45,7 @@ import {
 } from '../src/core/wordlist/defaultWordlist.js';
 import { missionShape, type MissionShape } from '../src/core/missions/missionShape.js';
 import { missionTerms } from '../src/core/missions/missionTerms.js';
-import { backdoorJob } from '../src/core/missions/sabotageRoles.js';
+import { backdoorJob } from '../src/core/missions/targetRoles.js';
 import {
   isMissionNumber,
   missionAddressForNumber,

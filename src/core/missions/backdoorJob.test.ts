@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { backdoorJob } from './sabotageRoles.js';
+import { backdoorJob } from './targetRoles.js';
 import { missionKind } from './missionShape.js';
 import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 

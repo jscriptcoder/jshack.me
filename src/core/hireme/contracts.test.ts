@@ -12,7 +12,7 @@ import { missionAddressForNumber } from '../missions/missionNetwork.js';
 import { missionKeyPath } from '../missions/missionSecret.js';
 import { missionFileItem, missionFileName, missionFilePath } from '../missions/missionFileItem.js';
 import { missionShape } from '../missions/missionShape.js';
-import { backdoorJob } from '../missions/sabotageRoles.js';
+import { backdoorJob } from '../missions/targetRoles.js';
 import {
   RECORD_SETTINGS,
   missionAction,

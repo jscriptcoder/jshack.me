@@ -29,7 +29,7 @@ import {
   type RecordTarget,
 } from '../missions/missionRecords.js';
 import { missionTerms, type MissionTerms } from '../missions/missionTerms.js';
-import { backdoorJob, sabotageRole } from '../missions/sabotageRoles.js';
+import { backdoorJob, sabotageRole } from '../missions/targetRoles.js';
 import { missionFileItem, missionFileName } from '../missions/missionFileItem.js';
 import { contractBoardPage, type BoardNotice } from './contractBoard.js';
 

@@ -12,7 +12,7 @@ import { DATADIR_PATH, databaseIn } from '../mysql/datadir.js';
 import { buildMissionKeyBoxFs } from '../generation/missionKeyBoxFs.js';
 import { DATADIR_FILE, file, withFiles } from '../generation/baseFs.js';
 import type { Directory } from '../filesystem/types.js';
-import { backdoorJob } from './sabotageRoles.js';
+import { backdoorJob } from './targetRoles.js';
 import {
   PIDFILE_PERMISSIONS,
   formatListenerContent,

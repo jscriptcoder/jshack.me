@@ -21,7 +21,7 @@ import {
   type MissionKind,
 } from './missionShape.js';
 import { FRONT_BOX_SUFFIX, GATEWAY_SUFFIX } from './pools.js';
-import { backdoorJob, keyBoxSuffix, sabotageRole } from './sabotageRoles.js';
+import { backdoorJob, keyBoxSuffix, sabotageRole } from './targetRoles.js';
 import { EMAILIT_DOMAIN } from '../generation/fixedSites.js';
 import { missionKeyFilePath, missionLeakPath, missionLeakWord } from './missionLeak.js';
 import { missionKey, missionPassphrase } from './missionSecret.js';

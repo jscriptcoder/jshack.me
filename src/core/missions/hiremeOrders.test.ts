@@ -6,7 +6,7 @@ import {
   showReport,
 } from './hiremeOrders.js';
 import { missionLeakPath } from './missionLeak.js';
-import { backdoorJob } from './sabotageRoles.js';
+import { backdoorJob } from './targetRoles.js';
 import { missionShape, type MissionShape } from './missionShape.js';
 import { missionKey, missionKeyPath, missionPassphrase } from './missionSecret.js';
 import { missionAddressForNumber, missionEssid } from './missionNetwork.js';

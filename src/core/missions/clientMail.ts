@@ -52,7 +52,7 @@ import { missionKey } from './missionSecret.js';
 import { missionFileContent } from './missionFileItem.js';
 import { missionKind } from './missionShape.js';
 import { recordsLookRight } from './missionRecords.js';
-import { backdoorJob } from './sabotageRoles.js';
+import { backdoorJob } from './targetRoles.js';
 import { listenerOn } from '../services/pidfile.js';
 import { missionTerms, type MissionClient, type MissionTerms } from './missionTerms.js';
 

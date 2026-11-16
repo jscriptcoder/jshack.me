@@ -19,7 +19,7 @@
 
 import { createPrng } from '../generation/prng.js';
 import { missionKind, missionTopology } from './missionShape.js';
-import { backdoorJob, sabotageRole } from './sabotageRoles.js';
+import { backdoorJob, sabotageRole } from './targetRoles.js';
 import { missionFileItem } from './missionFileItem.js';
 import {
   missionAction,
@@ -304,13 +304,13 @@ export const missionTerms = (missionNumber: number): MissionTerms => {
   }
   const job = singleHop ? SINGLE_HOP : TWO_HOP;
   if (missionKind(missionNumber) === 'sabotage') {
-    const { noun, pitches } = sabotageRole(missionNumber);
+    const { noun, sabotagePitches } = sabotageRole(missionNumber);
     return {
       job: 'sabotage',
       client: prng.pick(CLIENTS),
       targetCompany: `${capitalised(stem)} ${prng.pick(TARGET_TRADES)}`,
       kind: `take down ${singleHop ? 'a' : 'an internal'} ${noun}`,
-      pitch: prng.pick(pitches),
+      pitch: prng.pick(sabotagePitches),
       // The work is a key job's, finding the way in and rooting the box, so the pay is too.
       pay: payFrom(prng, job),
     };

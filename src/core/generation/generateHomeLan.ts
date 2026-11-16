@@ -33,7 +33,7 @@ import { seedApGatewayHostname, seedInnerGatewayHostname } from './gatewayHostna
 import { missionNumberFromEssid } from '../missions/missionNetwork.js';
 import { FRONT_BOX_SUFFIX, GATEWAY_SUFFIX } from '../missions/pools.js';
 import { missionTopology } from '../missions/missionShape.js';
-import { keyBoxSuffix } from '../missions/sabotageRoles.js';
+import { keyBoxSuffix } from '../missions/targetRoles.js';
 import type { Ipv4 } from '../network/interfaces.js';
 
 export type LanHostKind = 'machine' | 'router' | 'switch';
