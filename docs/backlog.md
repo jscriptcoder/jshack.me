@@ -93,6 +93,10 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
     `portforward` objective too); **a listener that must survive** a later check (deadlines,
     above); **a hidden listener** that must not show in `ps` or a log (stealth, above); and the
     white-hat mirror, **an implant to find and kill** that someone else left (legacy's `malware`).
+  - **Infiltrate twists**, set aside in the infiltrate grill (2026-11-16): **a planted file that
+    does something** (an executable or script the box then runs), which needs the game to give a
+    planted binary an effect; **a directory to hunt for**, the briefing naming only the file and
+    its keepers; and **a client that resends its file** on request.
   - **Recognition for completed jobs**, the other half of a mission reward; completions are only
     in `hireme_missions` today.
   - **Places posting vacancies** that say how they run (the old `hireit.io` idea), and a second,
