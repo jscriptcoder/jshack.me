@@ -60,8 +60,9 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   the key box behind a front box, one contract in three ("Two hops"), and a second kind of job
   since v0.457.0, one record changed or erased in one of eight settings ("Tamper jobs"), and a
   fourth since v0.461.0, one file brought back from the target and mailed to the client as an
-  attachment, one of six items since v0.462.0 ("File jobs"). Left for
-  later:
+  attachment, one of six items since v0.462.0 ("File jobs"), and a fifth since v0.464.0, a
+  listener left on one of the target's machines on a port the client names ("Backdoor jobs").
+  Left for later:
   - **Believable filler behind the doors.** A real door and a decoy are both the stock build (the
     `It works!` page, an empty `pub`, a `netops@corp.local` contact), which is what keeps them
     alike. A company homepage, mundane files in `pub` or a business contact would make the network

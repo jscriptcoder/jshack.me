@@ -1654,6 +1654,31 @@ agreed order:
     (root-only, 1,022 bytes, `strings` naming Blender, Cycles and the designer), mailed home from
     the target with `-A`, saved with `mail save`, and sent to the client with `mail reply -A`,
     which paid §1,100. No defect. The plan was retired on close-out.
+50. ✅ **Backdoor jobs: a contract that asks for a listener left on a machine (v0.464.0, PR #775,
+    merged 2026-11-16).** One slice; as-built: "Backdoor jobs" in
+    [`missions-architecture.md`](./missions-architecture.md). A fifth of the contracts are now
+    backdoor jobs. Each older kind gave up a twentieth of the kind draw at one edge, so no number
+    changed between older kinds and every number that kept its kind kept its shape, terms and LAN.
+    The target is the key box's slot, named by one of sabotage's seven machines (a hostname never
+    says which of the two jobs a box is), with three backdoor pitches of its own. The port is one of
+    eight classic listener ports no catalog service defaults to. The target ships without netcat.
+    The client reads the target on every mail and pays the key job's pay once a listener, anyone's,
+    holds the port named. Every miss, a bricked target and a front-box listener included, gets
+    "Nothing is listening on port N." Alongside: `sabotageRoles.ts` became `targetRoles.ts`, and
+    findit's generated-web ceiling rose to 1,500 ms (idle runs at 393 publishers took
+    692–1,073 ms). Evidence: unit tests (10,835), `testMissionBackdoor` 13/13 and every other
+    mission and mail wire-check green, mutation 170/180 on the changed lines. Of the survivors, a
+    backdoor target's storage gained a test (14/14 on the re-run), and 8 boundary comparisons are
+    equivalent: no 24-bit contract draws exactly ¼ or ¾, and the other boundaries are not k/2^32.
+    The main-chunk ceiling rose to 301,975 B. **Close-out (2026-11-16, v0.464.0):** one browser
+    run on a fresh player on FLAT-4B in Kingsford, the board turned over by a script. A single-hop
+    CCTV recorder was mailed first and told nothing was listening on 4444. It was then rooted
+    over `:2222` as `ferro-nvr`, where `nc` answered `command not found. Install with: apt install
+    netcat`. After `apt install netcat` and `nc -l 4444`, `/var/run/nc-4444.pid` sat beside the
+    box's own daemons, and the mail paid §1,200; a later mail was told the job was closed. A two-hop
+    door-access controller was reached through `sternco-web`, found as `sternco-access` by a sweep
+    of the inside network, given a listener on 1337 the same way, and paid §2,100. No defect.
+    Announced on valleynews.io `/dev` (story 21). The plan was retired on close-out.
     **Pick up here (2026-11-16):** the owner's choice from `backlog.md`.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block

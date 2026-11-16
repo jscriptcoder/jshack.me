@@ -578,3 +578,22 @@ run matched on round 9.
 | 5 | `mail logout`, then `exit` | Otherwise the player's login stays in root's `~/.mailrc` on the target, for anyone who roots it next |
 | 6 | At home: `mail read <n>`, then `mail save <n>` | The read ends `[attachment: <name>, <size> bytes]`. `mail save` prints nothing and writes `./<name>`, `-rwxrw----`, the same as any new file (`echo hi > x` gets it too) |
 | 7 | `mail reply <briefing n> -A <name>`, caret to the top, type the wallet address, `^O`, `close-nano.sh` | "File received. §<pay> sent to jsc…. Pleasure doing business." and `wallet balance` shows the pay. The attachment's name does not matter, only its bytes |
+
+### Then: a backdoor job, a listener left on the target, to a payout
+
+Verified 2026-11-16 (v0.464.0), the backdoor-jobs close-out: a single-hop CCTV recorder paid
+§1,200 and a two-hop door-access controller paid §2,100. A fifth of the contracts are backdoor
+jobs; the board names one `plant a backdoor on a <machine>` (`an internal <machine>` on two-hop),
+and the briefing names the port. Turn the board over with a script, as for a file job, matching
+`missionShape(n).kind === 'backdoor'` with `keyBox.route` (and `frontBox.route`) `hydra`. Write
+`backdoorJob(n).port` (`core/missions/targetRoles.ts`) and both roots
+(`plaintextFor(missionShape(n).keyBox.rootHash)`, `.frontBox.rootHash`) to a scratch file. The run
+matched a single-hop job on round 11 and a two-hop one on round 32.
+
+| # | Command | Trap |
+| --- | --- | --- |
+| 1 | `curl -d "offer=<ref>" http://<board>/accept`, then `mail read <n>` | The board can show a backdoor and a sabotage offer on the same machine side by side; tell them apart by ref |
+| 2 | `mail reply <briefing n>` with the wallet, before anything | "Nothing is listening on port N. No listener, no money." and the job stays open: a free check of the miss path |
+| 3 | `ssh root@<address> -p 2222` (two-hop: root the front, `apt install nmap` there, `nmap 192.168.<x>.1-254`, then `ssh root@<target>`) | The prompt names the box for its machine (`<stem>-nvr`, `<stem>-access`, …), as on a sabotage job. **The hop's `password:` prompt can take several seconds to appear**: a helper that types the password before it shows finds no `<input>` |
+| 4 | `apt install netcat`, then `nc -l <port>` | `nc` is not on the target: it answers `command not found. Install with: apt install netcat`. `nc -l` returns at once (`Listening on 0.0.0.0 <port>`) and writes `/var/run/nc-<port>.pid`, which `ls -l /var/run` shows beside the box's own daemons |
+| 5 | `exit` (twice on two-hop), then `mail reply <briefing n>` with the wallet | **Wait for the home prompt after each `exit`** before typing the next command: typed while the hop is still closing, `mail reply` is swallowed and the next typed line lands in the shell. "We're in. §<pay> sent to jsc…. Pleasure doing business."; a later mail gets "That job is already closed." |
