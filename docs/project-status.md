@@ -1737,7 +1737,7 @@ agreed order:
     customer database on a cisco router (§1,400): `msfconsole <address> 22` landed a full root
     shell through a `high` firmware hole, the same sweep and `nano` forward `13306` to
     `brightmoor-db:3306`, `13306/tcp mysql` showed from home, and the mail paid §1,400. No defect.
-    The plan was retired on close-out.
+    Announced on valleynews.io `/dev` (story 23). The plan was retired on close-out.
     **Pick up here (2026-11-17):** the owner's choice from `backlog.md`.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
