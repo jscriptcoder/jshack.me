@@ -141,6 +141,17 @@ const fileNumberFor = (noun: string): number => {
   throw new Error(`no file contract for a ${noun}`);
 };
 
+/** The first single-hop infiltrate contract from 70,000 up slipping in the item called `noun`. */
+const infiltrateNumberFor = (noun: string): number => {
+  for (let candidate = 70_000; candidate < 2_000_000; candidate++) {
+    if (!isMissionNumber(candidate) || missionShape(candidate).kind !== 'infiltrate') continue;
+    if (missionFileItem(candidate).noun === noun && missionShape(candidate).frontBox === null) {
+      return candidate;
+    }
+  }
+  throw new Error(`no infiltrate contract for a ${noun}`);
+};
+
 /** The briefing's line asking for the job's item. */
 const askedLine = (missionNumber: number): string => {
   const { keepers, noun } = missionFileItem(missionNumber);
@@ -788,7 +799,7 @@ describe('accepting an offer', () => {
         '',
         `The target is ${terms.targetCompany}. Their network is at ${missionAddressForNumber(missionNumber)}.`,
         '',
-        'Their engineers keep a firmware image. We want ours in its place.',
+        `Their ${missionFileItem(missionNumber).keepers} keep a ${missionFileItem(missionNumber).noun}. We want ours in its place.`,
         'Put the attached file at:',
         '',
         `  ${missionFilePath(missionNumber)}`,
@@ -832,6 +843,35 @@ describe('accepting an offer', () => {
       expect(accepts[0]!.briefing.attachment).toEqual({
         name: missionFileName(INFILTRATE_TWO_HOP),
         content: missionPlantContent(INFILTRATE_TWO_HOP, MISSION_SECRET),
+      });
+    });
+
+    it.each([
+      ['prototype render', 'designers'],
+      ['site photo', 'surveyors'],
+      ['signed contract', 'lawyers'],
+      ['firmware image', 'engineers'],
+      ['customer export', 'salespeople'],
+      ['key ring', 'admins'],
+      ['boot script', 'admins'],
+    ])('asks for its own %s in place of the one the %s keep', async (noun, keepers) => {
+      const missionNumber = infiltrateNumberFor(noun);
+      const { store, accepts } = boardStore({ offers: [{ number: missionNumber, ref: 'kkk' }] });
+
+      await accept('offer=kkk', store);
+
+      expect(accepts[0]!.briefing.body).toContain(
+        [
+          `Their ${keepers} keep a ${noun}. We want ours in its place.`,
+          'Put the attached file at:',
+          '',
+          `  ${missionFilePath(missionNumber)}`,
+          '',
+        ].join('\n'),
+      );
+      expect(accepts[0]!.briefing.attachment).toEqual({
+        name: missionFileName(missionNumber),
+        content: missionPlantContent(missionNumber, MISSION_SECRET),
       });
     });
 
