@@ -2253,49 +2253,54 @@ const executeLine = async (line: string): Promise<void> => {
         ),
   ]);
 
-  // A backdoor is the one session that can be taken away while it is being held,
-  // and the pidfile that decides it lives on the TARGET — where another player's
-  // `kill` lands, on a machine this client is not watching. Re-pull it before the
-  // line runs, so the shell asks a box that is current instead of the one the
-  // player walked into. This is the whole "pull, not a push": it costs a
-  // round-trip only while standing in a backdoor, and no box is polled — an
-  // intruder who types nothing learns nothing. (Mail is the one thing a terminal
-  // pulls on a timer, and `checkForMail` says why.)
-  //
-  // Re-pull whatever this box's tree is actually built from, which is not the same
-  // answer everywhere: a door on the player's own box rebuilds locally and reads
-  // the journal, while one on any other box reads a SERVED tree the server
-  // materialized. Refreshing only the journal would leave an intruder asking a
-  // stale copy whether their own door is still open, and being told yes for as long
-  // as they cared to keep typing.
-  //
-  // A reboot widened WHICH sessions have to ask. It ends every row on a box in one
-  // stroke, including ones no screen is showing, so the marker it leaves behind is
-  // the only thing that can reach a shell already standing there — and a tree
-  // fetched when the player walked in would never grow one. `needsFreshTree` owns
-  // that rule; your own box still asks nothing, which is the claim that has always
-  // been priced rather than described.
-  if (needsFreshTree(currentSession, ownWorkstationId())) {
-    await (isServedBox(currentSession.machineId) ? refreshServedRoot() : refetchPatches());
-  }
-
-  // Now that the tree is the box's current one, record what it says the boot is —
-  // once per session, the first time it looks. Everything after compares against
-  // this reading, which is why it is taken here rather than at the door: the doors
-  // that reach another player's box get back a machine id and a tier, never a tree,
-  // and a session stamped from a tree it had not yet been handed would be stamped
-  // from the wrong box.
-  const session = observeBootId(currentSession);
-
   // Fresh abort controller per run — Ctrl-C aborts it, which rejects the
-  // command's `env.sleep` and unwinds a streamed command mid-flight.
+  // command's `env.sleep` and unwinds a streamed command mid-flight. Claimed the
+  // moment the line is echoed, before the box is re-read below: that re-read is a
+  // server round-trip, and an idle shell through it would hand the empty prompt
+  // back under the echo until the answer landed.
   const controller = new AbortController();
   activeRun = controller;
   setRunningCommand(commandNameOf(line));
 
-  const env = shellEnv(session, activePatchApi, controller.signal);
-
   try {
+    // A backdoor is the one session that can be taken away while it is being held,
+    // and the pidfile that decides it lives on the TARGET — where another player's
+    // `kill` lands, on a machine this client is not watching. Re-pull it before the
+    // line runs, so the shell asks a box that is current instead of the one the
+    // player walked into. This is the whole "pull, not a push": it costs a
+    // round-trip only while standing in a backdoor, and no box is polled — an
+    // intruder who types nothing learns nothing. (Mail is the one thing a terminal
+    // pulls on a timer, and `checkForMail` says why.)
+    //
+    // Re-pull whatever this box's tree is actually built from, which is not the same
+    // answer everywhere: a door on the player's own box rebuilds locally and reads
+    // the journal, while one on any other box reads a SERVED tree the server
+    // materialized. Refreshing only the journal would leave an intruder asking a
+    // stale copy whether their own door is still open, and being told yes for as long
+    // as they cared to keep typing.
+    //
+    // A reboot widened WHICH sessions have to ask. It ends every row on a box in one
+    // stroke, including ones no screen is showing, so the marker it leaves behind is
+    // the only thing that can reach a shell already standing there — and a tree
+    // fetched when the player walked in would never grow one. `needsFreshTree` owns
+    // that rule; your own box still asks nothing, which is the claim that has always
+    // been priced rather than described.
+    if (needsFreshTree(currentSession, ownWorkstationId())) {
+      await (isServedBox(currentSession.machineId) ? refreshServedRoot() : refetchPatches());
+    }
+    // A Ctrl-C while the box was being re-read stops the line before it runs.
+    controller.signal.throwIfAborted();
+
+    // Now that the tree is the box's current one, record what it says the boot is —
+    // once per session, the first time it looks. Everything after compares against
+    // this reading, which is why it is taken here rather than at the door: the doors
+    // that reach another player's box get back a machine id and a tier, never a tree,
+    // and a session stamped from a tree it had not yet been handed would be stamped
+    // from the wrong box.
+    const session = observeBootId(currentSession);
+
+    const env = shellEnv(session, activePatchApi, controller.signal);
+
     // While an ftp session is held the line is answered by the ftp command map, NOT
     // the registry. This refusal is the security boundary of the sub-shell: falling
     // through would run the OUTER shell's `ls`/`cat`/`rm` against the machine the
@@ -2339,7 +2344,7 @@ const executeLine = async (line: string): Promise<void> => {
   } catch (runError) {
     // A Ctrl-C abort rejects the in-flight `env.sleep`: while the lines stream, or
     // earlier, inside `runCommandLine`, when a redirect or a pipe is collecting
-    // them. Either way print a `^C` marker and stop, leaving any partial output
+    // them — or stops the line before it runs, while the box is being re-read. Either way print a `^C` marker and stop, leaving any partial output
     // on the screen and nothing in the file. Any other error is a real fault.
     if (!controller.signal.aborted) throw runError;
     setScrollback((previous) => [...previous, { kind: 'text', content: '^C' }]);
