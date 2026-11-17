@@ -20,7 +20,11 @@
 //   - A FORWARD GONE BEFORE THE MAIL IS A MISS, and A BRICKED ROUTER IS A MISS.
 //   - Every machine's service is reached through its forward: database, cache, intranet and
 //     development server, one job each.
-//   - `show` names the machine, the forward asked for, the router's route and a sealed target.
+//   - THE MSFCONSOLE ROUTE: on a router whose admin is shut, hydra's sweep finds nothing, and
+//     msfconsole fired at its :22 lands root through the firmware; the right forward written as
+//     that root pays.
+//   - `show` names the machine, the forward asked for, the router's route and a sealed target,
+//     and on the msfconsole route the router's vendor and firmware release.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testMissionPortforward.ts
@@ -44,7 +48,8 @@ import {
   WORDLIST_PATH,
   formatWordlist,
 } from '../src/core/wordlist/defaultWordlist.js';
-import { missionShape } from '../src/core/missions/missionShape.js';
+import { missionShape, type MissionShape } from '../src/core/missions/missionShape.js';
+import { firmwarePackageOf } from '../src/core/packages/packageVersions.js';
 import { missionTerms } from '../src/core/missions/missionTerms.js';
 import { portforwardJob, type PortforwardService } from '../src/core/missions/portforwardJob.js';
 import {
@@ -121,27 +126,31 @@ const SCANNED_AS: Readonly<Record<PortforwardService, string>> = {
   ssh: 'ssh',
 };
 
-/** The first portforward jobs from `from` on the machine running `service`. */
+/** The first portforward jobs from `from` on the machine running `service`, whose router falls
+ *  to `routerRoute`. */
 const portforwardNumbers = (
   from: number,
   count: number,
   service: PortforwardService,
+  routerRoute: MissionShape['routerRoute'],
 ): readonly number[] => {
   const found: number[] = [];
   for (let candidate = from; candidate < from + 60000 && found.length < count; candidate += 1) {
     if (!isMissionNumber(candidate)) continue;
-    if (missionShape(candidate).kind !== 'portforward') continue;
+    const shape = missionShape(candidate);
+    if (shape.kind !== 'portforward' || shape.routerRoute !== routerRoute) continue;
     if (portforwardJob(candidate).machine.service === service) found.push(candidate);
   }
   if (found.length < count) throw new Error(`only ${found.length} ${service} jobs from ${from}`);
   return found;
 };
 
-const [MAIN_JOB] = portforwardNumbers(500000, 1, 'mysql') as [number];
-const [RIVAL_JOB] = portforwardNumbers(500000, 1, 'redis') as [number];
-const [REMOVED_JOB] = portforwardNumbers(500000, 1, 'web') as [number];
-const [BRICK_JOB] = portforwardNumbers(500000, 1, 'ssh') as [number];
-const JOBS = [MAIN_JOB, RIVAL_JOB, REMOVED_JOB, BRICK_JOB] as const;
+const [MAIN_JOB] = portforwardNumbers(500000, 1, 'mysql', 'hydra') as [number];
+const [RIVAL_JOB] = portforwardNumbers(500000, 1, 'redis', 'hydra') as [number];
+const [REMOVED_JOB] = portforwardNumbers(500000, 1, 'web', 'hydra') as [number];
+const [BRICK_JOB] = portforwardNumbers(500000, 1, 'ssh', 'hydra') as [number];
+const [FIRMWARE_JOB] = portforwardNumbers(500000, 1, 'web', 'msfconsole') as [number];
+const JOBS = [MAIN_JOB, RIVAL_JOB, REMOVED_JOB, BRICK_JOB, FIRMWARE_JOB] as const;
 
 type Job = {
   readonly missionNumber: number;
@@ -191,7 +200,8 @@ const MAIN = jobOf(MAIN_JOB, 'customer database', 0);
 const RIVAL = jobOf(RIVAL_JOB, 'rival forward, cache server', 1);
 const REMOVED = jobOf(REMOVED_JOB, 'forward removed, staff intranet', 2);
 const BRICK = jobOf(BRICK_JOB, 'router bricked, development server', 3);
-const ALL_JOBS = [MAIN, RIVAL, REMOVED, BRICK] as const;
+const FIRMWARE = jobOf(FIRMWARE_JOB, 'msfconsole route, staff intranet', 4);
+const ALL_JOBS = [MAIN, RIVAL, REMOVED, BRICK, FIRMWARE] as const;
 
 const noWayIn = (job: Job): string =>
   `Port ${job.publicPort} doesn't reach their ${job.noun}. No way in, no money.`;
@@ -261,6 +271,20 @@ const rootTheRouter = async (player: Identity, job: Job, name: string) => {
     detail: `sweep ${sweep.status} root ${root === undefined ? 'missing' : 'found'}, ssh ${shell.status}`,
   };
 };
+
+/** `player` fires msfconsole at the router's own :22, as `msfconsole <address> 22` does. */
+const exploitTheRouter = (player: Identity, job: Job, name: string) =>
+  post(
+    SESSIONS,
+    signRequest(player, 'exploitCreateSession', {
+      session_id: `msf-${name}-${RUN}`,
+      essid: homeEssid,
+      target_ip: job.address,
+      port: ROUTER_SSH_PORT,
+      caller_machine_id: workstationOf(player),
+      parent_session_id: null,
+    }),
+  );
 
 /** A root's save of the router's forwards, as `nano` writes it: the decoys as they generate,
  *  plus the port named sent to `target`, or nothing more for `null`. */
@@ -565,6 +589,56 @@ const workTheBrickJob = async () => {
   );
 };
 
+/** A router whose admin is shut falls to its firmware: hydra finds nothing, msfconsole lands
+ *  root, and the forward written as that root pays. */
+const workTheFirmwareJob = async () => {
+  const job = FIRMWARE;
+  await stage(job);
+  const pay = missionTerms(job.missionNumber).pay;
+  const { routerVendor, gatewayVersions } = missionShape(job.missionNumber);
+  const vendor = routerVendor ?? 'mikrotik';
+  const release = `${vendor} ${gatewayVersions[firmwarePackageOf(vendor)]}`;
+
+  const shown = runHireme(['show', job.address]);
+  check(
+    "show names the msfconsole route, the router's vendor and its firmware release",
+    shown.includes(`Router:   msfconsole, ${release}`),
+    shown
+      .split('\n')
+      .filter((line) => /Router:/.test(line))
+      .join(' | '),
+  );
+
+  const swept = await rootTheRouter(contractor, job, 'firmware-hydra');
+  check(
+    "hydra's sweep of the router's :22 finds no admin to log in with",
+    swept.landedOn !== job.gateway,
+    swept.detail,
+  );
+
+  const fired = await exploitTheRouter(contractor, job, 'firmware');
+  check(
+    "msfconsole at the router's :22 lands root on the router, through its firmware",
+    fired.status === 200 &&
+      field(fired.body, 'userType') === 'root' &&
+      field(fired.body, 'machine_id') === job.gateway,
+    `status ${fired.status}, ${String(field(fired.body, 'userType'))} on ${String(field(fired.body, 'machine_id'))}, ${String(field(fired.body, 'severity'))} ${String(field(fired.body, 'cve'))}`,
+  );
+
+  const saved = await saveForward(contractor, job, TO_THE_MACHINE(job));
+  const reached = await scanReaches(contractor, job);
+  const paid = await mailClient(job, `it is open\n${job.wallet}\n`);
+  check(
+    `the forward to the ${job.noun} written as that root shows on a scan, and the mail is paid`,
+    saved.status === 200 &&
+      reached.reaches &&
+      paid.status === 200 &&
+      (await stateOf(job)) === 'completed' &&
+      (await balanceOf(job.wallet)) === pay,
+    `save ${saved.status}, ${reached.detail}, mail ${paid.status}, balance ${await balanceOf(job.wallet)} (want ${pay})`,
+  );
+};
+
 const main = async () => {
   if (homeEssid === undefined || ALL_JOBS.some((job) => job.address === '')) {
     console.error('the world does not hold what this check assumes');
@@ -585,6 +659,7 @@ const main = async () => {
   await workTheRivalJob();
   await workTheRemovedJob();
   await workTheBrickJob();
+  await workTheFirmwareJob();
 
   await cleanup();
 

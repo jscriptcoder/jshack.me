@@ -14,7 +14,14 @@ import {
 import { liveCve } from '../cve/liveCve.js';
 import { exploitOutcome } from '../cve/exploitEffect.js';
 import { packageTimeline } from '../cve/packageTimeline.js';
-import { FIRMWARE_VENDORS, firmwarePackageOf } from '../packages/packageVersions.js';
+import {
+  FIRMWARE_VENDORS,
+  firmwarePackageOf,
+  isFirmwarePackage,
+  type FirmwareVendor,
+} from '../packages/packageVersions.js';
+import { firmwareExploitOutcome, higherSeverityOutcome } from '../cve/firmwareExploit.js';
+import { parseDpkgVersions, readDpkgStatus } from '../packages/dpkgStatus.js';
 import { UNCRACKABLE_HASHES } from '../generation/passwordPools.js';
 import { FIXED_BOXES } from '../generation/fixedSites.js';
 import { buildFixedSiteFs } from '../generation/fixedSiteFs.js';
@@ -84,6 +91,18 @@ const ROUTE_DOOR_PORTS: Readonly<Record<Exclude<MissionRoute, 'hydra'>, number>>
  *  decoy running none of its own. */
 const realServices = (box: MissionBox): readonly MissionService[] =>
   box.services.slice(0, box.services.length - box.decoys.filter((decoy) => decoy !== 'ssh').length);
+
+/** The release a msfconsole router's firmware sits on, by vendor: the four with a release by
+ *  the route day whose hole lands a root shell. mikrotik and ddwrt have none. */
+const ROOT_SHELL_FIRMWARE: Readonly<Partial<Record<FirmwareVendor, string>>> = {
+  cisco: '17.0.5',
+  openwrt: '24.4.1',
+  pfsense: '3.0.3',
+  ubiquiti: '3.3.0',
+};
+
+/** The package every router's sshd runs as. */
+const SSHD_PACKAGE = 'openssh-server';
 
 /** A spread of contract numbers whose last octet is a host octet (2–254). */
 const SAMPLE_NUMBERS = Array.from({ length: 2000 }, (_unused, index) => index * 8381 + 2).filter(
@@ -436,11 +455,13 @@ describe('missionShape', () => {
 
     it('leaves a single-hop contract exactly as it was', () => {
       for (const [missionNumber, digest] of SINGLE_HOP_BEFORE) {
-        // The router's route came after these digests, null on every kind they are.
-        const { frontBox, kind, routerRoute, keyBox, ...shape } = missionShape(missionNumber);
+        // The router's route and vendor came after these digests, null on every kind they are.
+        const { frontBox, kind, routerRoute, routerVendor, keyBox, ...shape } =
+          missionShape(missionNumber);
         expect(frontBox, `contract ${missionNumber}`).toBeNull();
         expect(kind, `contract ${missionNumber}`).toBe('key');
         expect(routerRoute, `contract ${missionNumber}`).toBeNull();
+        expect(routerVendor, `contract ${missionNumber}`).toBeNull();
         const { missionNumber: _number, stem, storage, ...afterKeyBox } = shape;
         expect(
           md5(
@@ -503,11 +524,13 @@ describe('missionShape', () => {
 
     it('leaves the front box, the forwards and the gateway as they were', () => {
       for (const [missionNumber, digest] of BESIDE_KEY_BOX_BEFORE) {
-        // The router's route and the cache hash came after these digests, null on these contracts.
+        // The router's route and vendor and the cache hash came after these digests, null on
+        // these contracts.
         const {
           keyBox: _keyBox,
           kind: _kind,
           routerRoute: _routerRoute,
+          routerVendor: _routerVendor,
           frontBox,
           ...rest
         } = missionShape(missionNumber);
@@ -1133,14 +1156,14 @@ describe('a portforward contract', () => {
   });
 
   it('draws the same network for a number every time, on streams of its own', () => {
-    // Captured from the generator: one contract per machine.
+    // Captured from the generator: one contract per machine, the first on the msfconsole route.
     expect(
       [5, 9, 13, 48].map((missionNumber) => md5(JSON.stringify(missionShape(missionNumber)))),
     ).toEqual([
-      '92d68227e72f1193b6fc072d61b8d359',
-      '2bb9658639354487f5c8f5b526ef74e9',
-      '9c352317e156e3c46110397fbb0b2cbc',
-      'd70d82f4dccfbdf9436b6efc10e7fb82',
+      'd3f5bef71294baf5e5ecc66a27fd834e',
+      '932f5c3a459856a8966465bdfd93189e',
+      '783f38f65c0c870640c5ec3a367c5249',
+      'e475bc69eb66b996afdf5cea094760a7',
     ]);
   });
 
@@ -1156,24 +1179,105 @@ describe('a portforward contract', () => {
     }
   });
 
-  it("gives the router a crackable admin, the hydra route, and every other kind's router a shut one", () => {
+  it("draws the router's way in half and half: hydra on a crackable admin, msfconsole on a shut one", () => {
     for (const shape of ALL_SAMPLE_SHAPES) {
       const label = `${shape.kind} contract ${shape.missionNumber}`;
-      if (shape.kind === 'portforward') {
-        expect(shape.routerRoute, label).toBe('hydra');
+      if (shape.kind !== 'portforward') {
+        expect(shape.routerRoute, label).toBeNull();
+        expect(shape.routerVendor, label).toBeNull();
+        expect(SHUT_HASHES, label).toContain(shape.gatewayAdminHash);
+      } else if (shape.routerRoute === 'hydra') {
+        expect(shape.routerVendor, label).toBeNull();
         expect(UNCRACKABLE_HASHES, label).not.toContain(shape.gatewayAdminHash);
       } else {
-        expect(shape.routerRoute, label).toBeNull();
+        expect(shape.routerRoute, label).toBe('msfconsole');
         expect(SHUT_HASHES, label).toContain(shape.gatewayAdminHash);
       }
     }
+    const onHydra = portforwardShapes.filter(({ routerRoute }) => routerRoute === 'hydra');
+    expect(onHydra.length / portforwardShapes.length).toBeGreaterThan(0.4);
+    expect(onHydra.length / portforwardShapes.length).toBeLessThan(0.6);
   });
 
-  it('keeps everything else on the router safe, so the admin is the only way in', () => {
+  it('puts a msfconsole router on one of four vendors, whose firmware hole lands a root shell over its sshd', () => {
+    const onFirmware = portforwardShapes.filter(({ routerRoute }) => routerRoute === 'msfconsole');
+    for (const shape of onFirmware) {
+      const label = `contract ${shape.missionNumber}`;
+      const vendor = shape.routerVendor ?? 'mikrotik';
+      const versions = parseDpkgVersions(
+        readDpkgStatus(buildApGatewayBaseFs(missionEssid(shape.missionNumber))),
+      );
+      const firmware = [...versions].filter(([key]) => isFirmwarePackage(key));
+
+      expect(firmware, label).toEqual([[firmwarePackageOf(vendor), ROOT_SHELL_FIRMWARE[vendor]]]);
+      const throughFirmware = firmwareExploitOutcome(versions, MISSION_ROUTE_DAY);
+      expect(throughFirmware, label).toMatchObject({ effect: 'shell_full', tier: 'root' });
+      const sshd = versions.get(SSHD_PACKAGE) ?? '';
+      expect(
+        higherSeverityOutcome(
+          exploitOutcome(SSHD_PACKAGE, sshd, MISSION_ROUTE_DAY),
+          throughFirmware,
+        ),
+        label,
+      ).toBe(throughFirmware);
+    }
+    expect(new Set(onFirmware.map(({ routerVendor }) => routerVendor))).toEqual(
+      new Set(Object.keys(ROOT_SHELL_FIRMWARE)),
+    );
+  });
+
+  it('builds a hydra router as any vendor the builder draws', () => {
+    const firmwares = portforwardShapes
+      .filter(({ routerRoute }) => routerRoute === 'hydra')
+      .map(({ missionNumber }) => {
+        const versions = parseDpkgVersions(
+          readDpkgStatus(buildApGatewayBaseFs(missionEssid(missionNumber))),
+        );
+        return [...versions.keys()].find(isFirmwarePackage);
+      });
+    expect(new Set(firmwares)).toEqual(new Set(FIRMWARE_VENDORS.map(firmwarePackageOf)));
+  });
+
+  it('keeps everything else on the router low or medium, so the drawn route is the only high one', () => {
     for (const shape of portforwardShapes) {
-      for (const severity of pinnedSeverities(shape.gatewayVersions)) {
-        expect(['low', 'medium'], `gateway for ${shape.missionNumber}`).toContain(severity);
+      const label = `gateway for ${shape.missionNumber}`;
+      const routed =
+        shape.routerVendor === null ? undefined : firmwarePackageOf(shape.routerVendor);
+      const others = Object.fromEntries(
+        Object.entries(shape.gatewayVersions).filter(([key]) => key !== routed),
+      );
+      for (const severity of pinnedSeverities(others)) {
+        expect(['low', 'medium'], label).toContain(severity);
       }
+      if (routed !== undefined) {
+        expect(['critical', 'high'], label).toContain(
+          pinnedSeverities({ [routed]: shape.gatewayVersions[routed] ?? '' })[0],
+        );
+      }
+    }
+  });
+});
+
+describe('the firmware a msfconsole router runs', () => {
+  /** Every release of `vendor`'s firmware published by the route day whose hole lands a
+   *  full shell, oldest first. */
+  const fullShellReleases = (vendor: FirmwareVendor) => {
+    const key = firmwarePackageOf(vendor);
+    return packageTimeline(key, MISSION_ROUTE_DAY).filter(
+      (release) =>
+        release.publishedAt <= MISSION_ROUTE_DAY &&
+        firmwareExploitOutcome(new Map([[key, release.version]]), MISSION_ROUTE_DAY)?.effect ===
+          'shell_full',
+    );
+  };
+
+  it("is each vendor's newest release by the route day that is critical or high and lands a root shell", () => {
+    // Walks the timelines: a vendor that ever loses its release takes its routers' way in.
+    for (const vendor of FIRMWARE_VENDORS) {
+      const rootShells = fullShellReleases(vendor).filter(
+        ({ severity }) => severity === 'critical' || severity === 'high',
+      );
+      expect(rootShells.at(-1)?.version, vendor).toBe(ROOT_SHELL_FIRMWARE[vendor]);
     }
   });
 });

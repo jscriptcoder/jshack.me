@@ -8,6 +8,7 @@ import {
 import { missionLeakPath } from './missionLeak.js';
 import { backdoorJob } from './targetRoles.js';
 import { portforwardJob } from './portforwardJob.js';
+import { firmwarePackageOf } from '../packages/packageVersions.js';
 import { missionShape, type MissionShape } from './missionShape.js';
 import { missionKey, missionKeyPath, missionPassphrase } from './missionSecret.js';
 import { missionAddressForNumber, missionEssid } from './missionNetwork.js';
@@ -733,8 +734,11 @@ describe('showReport on a portforward job', () => {
   const SECRET = 'operator-test-secret';
   const CUSTOMER_DATABASE = Array.from({ length: 8000 }, (_unused, index) => index * 256 + 2).find(
     (candidate) =>
-      missionShape(candidate).kind === 'portforward' &&
+      missionShape(candidate).routerRoute === 'hydra' &&
       portforwardJob(candidate).machine.noun === 'customer database',
+  )!;
+  const ON_FIRMWARE = Array.from({ length: 8000 }, (_unused, index) => index * 256 + 2).find(
+    (candidate) => missionShape(candidate).routerRoute === 'msfconsole',
   )!;
 
   it('prints the report line by line: the machine and the forward asked for, the router route, and a sealed target', () => {
@@ -765,6 +769,16 @@ describe('showReport on a portforward job', () => {
             `    ${service.service} (${service.package} ${service.version}) :${service.port} (decoy)`,
         ),
       ].join('\n'),
+    );
+  });
+
+  it("names the router's vendor and the firmware release it falls through on the msfconsole route", () => {
+    const { routerVendor, gatewayVersions } = missionShape(ON_FIRMWARE);
+    const vendor = routerVendor ?? 'mikrotik';
+    const lines = showReport(ON_FIRMWARE, SECRET, undefined).split('\n');
+
+    expect(lines[6]).toBe(
+      `  Router:   msfconsole, ${vendor} ${gatewayVersions[firmwarePackageOf(vendor)]}`,
     );
   });
 });

@@ -126,7 +126,8 @@ clock:
 - **The gateway is passed through, not broken.** It has router firmware as every gateway does, an
   admin password from the uncrackable pool, and the route's forwards in `rules.v4`: one on hydra
   and msfconsole, two on a leak route. A portforward job is the one exception: its job is the
-  gateway, so its admin is crackable ([Portforward jobs](#portforward-jobs)).
+  gateway, so it falls to a route of its own, a crackable admin or a firmware hole
+  ([Portforward jobs](#portforward-jobs)).
 - **The key box is built by a mission builder of its own**, not by `buildRemoteHostFs`'s role
   draws, so nothing the world scatters on an NPC (a database login, a backup, a backdoor) opens a
   way in nobody guaranteed. Its `root` is uncrackable on the msfconsole and leak routes; `guest`
@@ -993,10 +994,39 @@ one older kind into another. In 420ths (`KIND_CUTS`, `core/missions/missionShape
 
   Each machine brings three pitches of its own, twelve in all, shared with no other pitch.
 
-- **The router is the way in, and the only one.** Its admin is a crackable word
-  (`gatewayAdminHash` from `crackableHash`, `routerRoute: 'hydra'`), so `hydra` over the router's
-  own `:22` finds it, and `ssh` lands root on the router. Every other kind's router admin stays
-  shut. Its firmware is pinned safe, as every gateway's is.
+- **The router is the way in, on one of two routes drawn half and half** (`routerRoute`, on
+  `mission-router-<n>`; since v0.468.0):
+  - **hydra**: its admin is a crackable word (`gatewayAdminHash` from `crackableHash`), so
+    `hydra` over the router's own `:22` finds it, and `ssh` lands root on the router. Its
+    firmware is pinned safe, on whichever vendor the router builder draws.
+  - **msfconsole**: its admin is shut, and it runs one of the four vendors with a firmware
+    release published by `MISSION_ROUTE_DAY` whose hole is `critical` or `high` and lands a full
+    shell. The vendor is drawn on the same stream (`routerVendor`) and handed to the router
+    builder, where it wins over the builder's own draw. The firmware is pinned to that vendor's
+    newest such release:
+
+    | Vendor   | Release | Severity |
+    | -------- | ------- | -------- |
+    | cisco    | 17.0.5  | high     |
+    | openwrt  | 24.4.1  | high     |
+    | pfsense  | 3.0.3   | high     |
+    | ubiquiti | 3.3.0   | critical |
+
+    mikrotik's critical release writes a file and ddwrt's read a file or open a port, so neither
+    is a route vendor. Firmware answers to no port, so a scan shows the same safe `:22` on both
+    routes. `msfconsole <address> 22` fires at sshd, and the firmware's higher severity answers
+    over sshd's low or medium hole (`higherSeverityOutcome`), landing root. A test walks the four
+    vendors' timelines and fails if one loses its release.
+
+  Every other package on the router sits on a low or medium release, and every other kind's
+  router admin stays shut.
+
+- **A router's own sshd can root it too, and that is accepted.** A router holds only root, so
+  whatever tier sshd's safe hole grants lands on root. About one portforward router in three falls
+  to `msfconsole <address> 22` through sshd itself, by a password reset, a listener or a script,
+  as any router in the world does. It only adds a way in: the drawn route stays open, and a
+  listener opens on a port no job names (4444, 31337, 8888, 1337, 9999, 5555, 6666 or 1234), so
+  it never takes the public port from the forward.
 - **The target is sealed.** It sits in the key box's slot with no route (`MissionBox.route` is
   `null`), and its own draws are on `mission-portforward-target-<n>`, so no older draw moved. Its
   `root` is shut; a customer database's accounts are shut; a cache server lays
@@ -1041,7 +1071,7 @@ one older kind into another. In 420ths (`KIND_CUTS`, `core/missions/missionShape
   contract's address as the machine's service (`mysql`, `redis`, `http` or `ssh`), as any live
   forward does.
 - `hireme.ts show` prints `Kind: portforward, <machine>, :<public> -> :<inside>` and
-  `Router: hydra`, calls the slot the target, prints `Route: none (sealed)`, the decoy forwards
+  `Router: hydra` or `Router: msfconsole, <vendor> <version>`, calls the slot the target, prints `Route: none (sealed)`, the decoy forwards
   and the services, and no storage, key path or key.
 
 ## 7. What a root finds
@@ -1136,14 +1166,16 @@ ceiling of 300,575 B (a tamper setting's content is not in it).
   the contractor, the file removed or the target bricked before the mail a miss, and on a two-hop
   job the file put at the same path on the front box a miss; then a boot script, a signed
   contract and a site photo, each accepted through the board, its file carried byte for byte and
-  paid once it is at the path); `testMissionPortforward.ts` (15: `show` naming the machine and
+  paid once it is at the path); `testMissionPortforward.ts` (19: `show` naming the machine and
   the forward asked for, a scan showing the router's `:22` and the decoys but not the port named,
   a mail before anything told the port doesn't reach the machine, `hydra` over the router's `:22`
   and `ssh` landing root on it, the port named forwarded to the machine on another port and to the
   router's own address each a miss, the right forward answering a scan as the machine's service
   and paid once then closed, a second player's forward paying the contractor, the forward taken
-  out or the router bricked before the mail a miss, and one job per machine, each reached through
-  its forward). The
+  out or the router bricked before the mail a miss, one job per machine, each reached through
+  its forward, and on a msfconsole-route router `show` naming the vendor and release, `hydra`
+  finding no admin, `msfconsole` at its `:22` landing root and the forward written as that root
+  paid). The
   board and pay checks each post a two-hop offer on a chosen number (21 and 17 checks at
   v0.452.0). The decoys' doors are also proven in `decoyMissionDoors.test.ts`.
 - **Mutation**: every slice's scoped run left no survivor but equivalents.
