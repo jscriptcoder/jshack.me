@@ -599,6 +599,30 @@ on hydra matched on round 59, a two-hop hydra/hydra job on round 69.
 | 5 | Two-hop: `scp -p 2222 <name> root@<address>:/root/<name>` (the front box's password), then `ssh root@<address> -p 2222`, `ifconfig`, and `scp /root/<name> root@192.168.<x>.<octet>:<path>` (the target's password) | The target's octet is `missionShape(n).keyBox.octet`, so no `nmap` is needed on the front box. A file left on the front box at the path is a miss |
 | 6 | `exit` on two-hop, wait for the home prompt, then `mail reply <briefing n>` with the wallet | "It's in place. §<pay> sent to jsc…. Pleasure doing business."; a later mail gets "That job is already closed." |
 
+### Then: a portforward job, a public port sent through the router, to a payout
+
+Verified 2026-11-17 (v0.468.0), the portforward-jobs close-out: a hydra-route development server
+paid §650 and an msfconsole-route customer database paid §1,400. A seventh of the contracts are
+portforward jobs; the board names one `open a way into a <machine>` (customer database, cache
+server, staff intranet, development server), always single-hop. Nobody roots the target: the
+router is the job. Turn the board over with a script, as for a file job, matching
+`missionShape(n).kind === 'portforward'` and `routerRoute` (`hydra` or `msfconsole`). Write
+`portforwardJob(n)` (`machine`, `publicPort`), the target's LAN address
+(`generateHomeLan(missionEssid(n)).subnet` and `keyBox.octet`) and, on hydra,
+`plaintextFor(missionShape(n).gatewayAdminHash)` to a scratch file. Each matched in one or two
+rounds.
+
+| # | Command | Trap |
+| --- | --- | --- |
+| 1 | `curl -d "offer=<ref>" http://<board>/accept`, then `mail read <n>` | The briefing names the machine, the public port and its inside port, never the router or the target's address |
+| 2 | `mail reply <briefing n>` with the wallet, before anything | "Port <p> doesn't reach their <machine>. No way in, no money." and the job stays open |
+| 3a | hydra route: `hydra <address> ssh`, then `ssh root@<address>` (no `-p`) and the word | The sweep is of the ROUTER's own `:22`, and it finds the same word `plaintextFor` gives. The prompt becomes `root@ap-gw` |
+| 3b | msfconsole route: `msfconsole <address> 22` | `[+] Full shell as root@<address>` through a `high` or `critical` CVE: the firmware's, since the router's sshd sits on a low or medium release. No password. `hydra` finds nothing on this route: the admin is shut |
+| 4 | On the router: `apt install nmap`, then `nmap 192.168.<x>.1-254` | Lists `<stem>-gw` and the target by its machine (`<stem>-db`, `-cache`, `-intranet`, `-dev`). `nmap` is not on the router |
+| 5 | `nano /etc/iptables/rules.v4`, caret to the end, type `forward <public> to <target ip>:<inside>`, `^O`, `close-nano.sh` | The decoy lines already there show the format. Read `.value` back before saving. `cat` the file after: it is paced, so read a few seconds later |
+| 6 | `exit`, wait for the home prompt, `nmap <address>` | The public port now shows as the machine's service (`2022/tcp ssh`, `13306/tcp mysql`). `ssh root@<address> -p 2022` reaches the development server's own login, which is sealed: any password is `Permission denied` |
+| 7 | `mail reply <briefing n>` with the wallet | "We're through. §<pay> sent to jsc…. Pleasure doing business."; a later mail gets "That job is already closed." |
+
 ### Then: a backdoor job, a listener left on the target, to a payout
 
 Verified 2026-11-16 (v0.464.0), the backdoor-jobs close-out: a single-hop CCTV recorder paid

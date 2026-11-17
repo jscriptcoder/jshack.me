@@ -63,7 +63,10 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   attachment, one of six items since v0.462.0 ("File jobs"), and a fifth since v0.464.0, a
   listener left on one of the target's machines on a port the client names ("Backdoor jobs"),
   and a sixth since v0.465.0, the client's own file put at a path on one of the target's
-  machines, one of seven items since v0.466.0 ("Infiltrate jobs"). Left for later:
+  machines, one of seven items since v0.466.0 ("Infiltrate jobs"), and a seventh since v0.467.0,
+  the target's router made to send a public port to one of its machines, the router falling to
+  `hydra` or, since v0.468.0, to its firmware through `msfconsole` ("Portforward jobs"). Left for
+  later:
   - **Believable filler behind the doors.** A real door and a decoy are both the stock build (the
     `It works!` page, an empty `pub`, a `netops@corp.local` contact), which is what keeps them
     alike. A company homepage, mundane files in `pub` or a business contact would make the network
@@ -90,8 +93,8 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
     `db_sabotage` (the table dropped or every row deleted), which is tamper machinery rather than
     the sabotage job's brick check.
   - **Backdoor twists**, set aside in the backdoor grill (2026-11-16): **a client that connects
-    from outside**, which needs a breakable gateway and a forward the contractor adds (legacy's
-    `portforward` objective too); **a listener that must survive** a later check (deadlines,
+    from outside**, which needs a breakable gateway and a forward the contractor adds (both exist
+    since the portforward jobs, v0.467.0, so this is now a backdoor and a forward in one job); **a listener that must survive** a later check (deadlines,
     above); **a hidden listener** that must not show in `ps` or a log (stealth, above); and the
     white-hat mirror, **an implant to find and kill** that someone else left (legacy's `malware`).
   - **Infiltrate twists**, set aside in the infiltrate grill (2026-11-16): **a planted file that

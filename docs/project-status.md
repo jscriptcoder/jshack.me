@@ -1705,6 +1705,39 @@ agreed order:
     carried to `/root` on `lumen-web` over `:2222`, then from there by `scp` to the inside target's
     LAN address, and paid. No defect. Announced on valleynews.io `/dev` (story 22). The plan was
     retired on close-out.
+52. ✅ **Portforward jobs: a contract that asks for a port forwarded into a machine (v0.467.0–v0.468.0,
+    PRs #780 and #781, both merged 2026-11-17).** Two slices; as-built: "Portforward jobs" in
+    [`missions-architecture.md`](./missions-architecture.md). A seventh of the contracts are now
+    portforward jobs, the first won on the router alone: each older kind gave up a forty-second of
+    the kind draw at one edge, so no number changed between older kinds. The target takes the key
+    box's slot, sealed and routeless, as one of four machines (a customer database on mysql, a cache
+    server on redis, a staff intranet on the web, a development server on ssh), and the router
+    forwards only decoys onto it, never of the kind it runs. The briefing names the machine, the
+    public port and the inside port, never the router or an address. The client reads the router on
+    every mail (`machineServing` over the replayed, bootable router) and pays the single-hop key
+    job's pay once the public port reaches the machine on its port, anyone's forward counting; every
+    miss, a bricked router included, gets "Port <p> doesn't reach their <machine>. No way in, no
+    money." Slice 1 shipped the hydra router route (a crackable admin on the router's own `:22`);
+    slice 2 drew the router's route half and half, the other half **msfconsole**: the admin shut and
+    the firmware pinned to the vendor's newest critical-or-high release that lands a root shell by
+    the route day, the vendor drawn from the four that have one (cisco, openwrt, pfsense, ubiquiti).
+    Found in slice 2 and accepted by the owner: a router holds only root, so its own sshd hole lands
+    whatever it grants on root, and about one portforward router in three also falls to
+    `msfconsole` through sshd; it only adds a way in. Evidence: unit tests (10,945, then 10,949),
+    `testMissionPortforward` 15/15 then 19/19 and every other mission and hireme wire-check green;
+    mutation on both slices' changed lines, slice 2 at 52 killed / 3 equivalent survivors / 1 no
+    coverage.
+    **Close-out (2026-11-17, v0.468.0):** one browser run on a fresh player on TOWN-HALL-WIFI in
+    Hollowmere, the board turned over by a script. A hydra-route development server
+    (`open a way into a development server`, §650) was mailed first and told "Port 2022 doesn't
+    reach their development server"; `hydra` on the router's `:22` found its admin, `ssh` landed
+    root, `apt install nmap` and a sweep there found `ardent-dev`, `nano` added
+    `forward 2022 to 192.168.211.156:22` to `rules.v4`, a scan from home showed `2022/tcp ssh` and
+    `ssh -p 2022` reached the machine's own sealed login, and the next mail paid §650. An msfconsole-route
+    customer database on a cisco router (§1,400): `msfconsole <address> 22` landed a full root
+    shell through a `high` firmware hole, the same sweep and `nano` forward `13306` to
+    `brightmoor-db:3306`, `13306/tcp mysql` showed from home, and the mail paid §1,400. No defect.
+    The plan was retired on close-out.
     **Pick up here (2026-11-17):** the owner's choice from `backlog.md`.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
