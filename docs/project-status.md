@@ -1703,7 +1703,8 @@ agreed order:
     `mail save` wrote the 429-byte script with the client's extra line, `scp -p 2222` carried it
     over the company's own, and the next mail paid §1,700. A two-hop signed contract (§3,450) was
     carried to `/root` on `lumen-web` over `:2222`, then from there by `scp` to the inside target's
-    LAN address, and paid. No defect. The plan was retired on close-out.
+    LAN address, and paid. No defect. Announced on valleynews.io `/dev` (story 22). The plan was
+    retired on close-out.
     **Pick up here (2026-11-17):** the owner's choice from `backlog.md`.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
