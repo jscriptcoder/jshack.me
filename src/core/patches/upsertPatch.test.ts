@@ -305,6 +305,73 @@ describe('handleUpsertPatch', () => {
     expect(row.path).toBe('/etc/secret');
   });
 
+  it('refuses a file written over a directory on a foreign machine, and writes nothing', async () => {
+    const id = generateIdentity();
+    const { machineId } = remoteTarget();
+    const envelope = signRequest(id, 'upsertPatch', {
+      machine_id: machineId,
+      path: '/etc',
+      content: 'a binary that would stand where the directory stood',
+      owner: 'root',
+    });
+    const { deps, upsertPatch } = makeDeps({ findActiveSession: remoteSession('root') });
+
+    const result = await handleUpsertPatch(envelope, deps);
+
+    // A file row at a directory's path replaces the directory and everything under it.
+    expect(result).toEqual({ status: 409, body: { error: 'is_directory' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('refuses a file written over a directory a writer made on that machine', async () => {
+    const id = generateIdentity();
+    const { machineId } = remoteTarget();
+    const envelope = signRequest(id, 'upsertPatch', {
+      machine_id: machineId,
+      path: '/tmp/drop',
+      content: 'x',
+      owner: 'root',
+    });
+    const { deps, upsertPatch } = makeDeps({
+      findActiveSession: remoteSession('root'),
+      listMachinePatches: async () => ({
+        data: [
+          {
+            path: '/tmp/drop',
+            content: null,
+            owner: 'root',
+            nodeType: 'directory',
+          },
+        ],
+        error: null,
+      }),
+    });
+
+    const result = await handleUpsertPatch(envelope, deps);
+
+    expect(result).toEqual({ status: 409, body: { error: 'is_directory' } });
+    expect(upsertPatch).not.toHaveBeenCalled();
+  });
+
+  it('persists a directory row at a path a directory already holds', async () => {
+    const id = generateIdentity();
+    const { machineId } = remoteTarget();
+    const envelope = signRequest(id, 'upsertPatch', {
+      machine_id: machineId,
+      path: '/etc',
+      content: null,
+      owner: 'root',
+      node_type: 'directory',
+    });
+    const { deps, upsertPatch } = makeDeps({ findActiveSession: remoteSession('root') });
+
+    const result = await handleUpsertPatch(envelope, deps);
+
+    // A directory row lands on an existing directory as a no-op, so it destroys nothing.
+    expect(result).toEqual({ status: 200, body: { ok: true } });
+    expect(upsertPatch).toHaveBeenCalledTimes(1);
+  });
+
   // ---- L2: a remote write is further constrained to the login's tier. ----
 
   it('rejects a user ssh session overwriting a root-owned file (/etc/passwd) with 403 permission_denied', async () => {

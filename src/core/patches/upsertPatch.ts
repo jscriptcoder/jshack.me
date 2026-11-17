@@ -53,9 +53,10 @@ import {
   type RebootSequenceDeps,
   type RebootTarget,
 } from '../sessions/rebootSequence.js';
+import { createFsView } from '../filesystem/fsView.js';
 import type { Directory } from '../filesystem/types.js';
 import type { NonceStore } from '../signedRequest/nonceStore.js';
-import { asEpochMs, asGameTime, type UserType } from '../types.js';
+import { asAbsPath, asEpochMs, asGameTime, type UserType } from '../types.js';
 
 export type FilePermissionsRow = {
   readonly read: readonly UserType[];
@@ -183,6 +184,24 @@ const rejectModifiedSinceOpen = async (
   return { status: 409, body: { error: 'modified_since_open' } };
 };
 
+/** Refuse a file row at a path where the box holds a directory. Replayed, the row would
+ *  replace the directory and everything beneath it — one copied file erasing an account's
+ *  whole home. The client never sends one: every door that writes looks first and either
+ *  refuses or writes inside the directory. So reaching this means the box changed between
+ *  the look and the write, which is a conflict with what the writer saw. A directory row
+ *  passes, since replay leaves an existing node alone. An own-workstation write is never
+ *  rebuilt here (`before` is null), and its client applies the same rule before sending. */
+const rejectFileOverDirectory = (
+  write: { readonly path: string; readonly node_type?: 'file' | 'directory' | undefined },
+  before: Directory | null,
+): HandlerResponse | undefined => {
+  if (before === null || write.node_type === 'directory') return undefined;
+  const standing = createFsView(before).stat(asAbsPath(write.path));
+  return standing?.kind === 'directory'
+    ? { status: 409, body: { error: 'is_directory' } }
+    : undefined;
+};
+
 /** The firmware image this write flashes, or undefined when it flashes none. Compared
  *  against the box as it stood before the write — the tree L2 checked it against — so
  *  only a box whose own manifest already runs an image can be flashed. An own-workstation
@@ -275,6 +294,11 @@ export const handleUpsertPatch = async (
   });
   if (!permitted.ok) {
     return { status: permitted.status, body: { error: permitted.error } };
+  }
+
+  const overwritten = rejectFileOverDirectory(payload, permitted.tree);
+  if (overwritten) {
+    return overwritten;
   }
 
   // After the permission gates, never before: a caller who may not write this

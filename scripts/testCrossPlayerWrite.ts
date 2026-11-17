@@ -186,6 +186,29 @@ check(
   `status=${w5.status} error=${errorOf(w5.body)} rows=${rows5?.length ?? 0}`,
 );
 
+// 5b. B (guest) writing a FILE at /tmp itself — a directory the tier may write — → 409
+//     is_directory, NO row. Replayed, a file row there would replace A's /tmp and every
+//     file in it.
+const w5b = await post(
+  PATCHES,
+  signRequest(bob, 'upsertPatch', {
+    machine_id: A_MACHINE,
+    path: '/tmp',
+    content: 'a file where the directory stood',
+    owner: 'guest',
+  }),
+);
+const { data: rows5b } = await sr
+  .from('patches')
+  .select('writer_key')
+  .eq('machine_id', A_MACHINE)
+  .eq('path', '/tmp');
+check(
+  'B (guest) refused writing a file over A’s /tmp → 409 is_directory, no row',
+  w5b.status === 409 && errorOf(w5b.body) === 'is_directory' && (rows5b?.length ?? 0) === 0,
+  `status=${w5b.status} error=${errorOf(w5b.body)} rows=${rows5b?.length ?? 0}`,
+);
+
 // 6. No session: C writing on A's box → 403 no_session (L1), NO row.
 const w6 = await post(
   PATCHES,

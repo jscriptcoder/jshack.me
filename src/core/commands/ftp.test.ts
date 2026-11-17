@@ -1061,6 +1061,25 @@ describe('taking a file from the ftp> prompt', () => {
     expect(sync(refused).exitCode).not.toBe(0);
   });
 
+  it('refuses to land the file where a directory stands on the origin, and records nothing', async () => {
+    const recorded = vi.fn();
+    const { run, originFs, writes } = transferEnv({ onRecord: recorded });
+
+    const refused = await run(`get ${LOOT} /tmp`);
+
+    // Landed at the directory's own path, the file would replace the directory and
+    // everything in it.
+    expect(linesOf(refused)).toContain('local: /tmp: Is a directory');
+    expect(linesOf(refused)).not.toContain('226 Transfer complete.');
+    expect(sync(refused).exitCode).not.toBe(0);
+    expect(writes()).toEqual([]);
+    expect(originFs().list(asAbsPath('/tmp'))).toEqual({
+      ok: true,
+      entries: ['origin-scratch.txt'],
+    });
+    expect(recorded).not.toHaveBeenCalled();
+  });
+
   it('tells the box what left it, naming the remote path and the byte count', async () => {
     const recorded = vi.fn();
     const { run } = transferEnv({ onRecord: recorded });
@@ -1219,6 +1238,20 @@ describe('leaving a file at the ftp> prompt', () => {
     });
   });
 
+  it('gives the same one refusal when the far side finds the box changed under the transfer', async () => {
+    const { run } = transferEnv({ refuseRemoteWrite: 'modified_since_open' });
+
+    const refused = await run(`put ${DROP}`);
+
+    // How the server answers a file sent onto a directory the prompt could not see: a
+    // conflict with the box as it stands. It is the far side's answer, so it reads as
+    // every other one does.
+    expect(linesOf(refused)).toContain(
+      '553 Could not create file: /home/guest/origin-drop.txt: Permission denied',
+    );
+    expect(sync(refused).exitCode).not.toBe(0);
+  });
+
   it('says a file too big to send is too large, rather than blaming the far side', async () => {
     const { run } = transferEnv({ refuseRemoteWrite: 'too_large' });
 
@@ -1230,6 +1263,24 @@ describe('leaving a file at the ftp> prompt', () => {
       '553 Could not create file: /home/guest/origin-drop.txt: File too large',
     );
     expect(sync(refused).exitCode).not.toBe(0);
+  });
+
+  it('refuses to land the file where a directory stands on the remote, and records nothing', async () => {
+    const recorded = vi.fn();
+    const { run, remoteWrites, remoteFs } = transferEnv({ onRecord: recorded });
+
+    const refused = await run(`put ${DROP} /home/guest`);
+
+    // Landed at the directory's own path, the file would replace the account's whole home.
+    expect(linesOf(refused)).toContain('553 Could not create file: /home/guest: Is a directory');
+    expect(linesOf(refused)).not.toContain('226 Transfer complete.');
+    expect(sync(refused).exitCode).not.toBe(0);
+    expect(remoteWrites()).toEqual([]);
+    expect(remoteFs().list(asAbsPath('/home/guest'))).toEqual({
+      ok: true,
+      entries: ['remote-loot.txt'],
+    });
+    expect(recorded).not.toHaveBeenCalled();
   });
 
   it('tells the box what ARRIVED on it, naming the remote path and the byte count', async () => {
