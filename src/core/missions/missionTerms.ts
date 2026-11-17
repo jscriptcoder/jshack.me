@@ -21,6 +21,7 @@ import { createPrng } from '../generation/prng.js';
 import { missionKind, missionTopology } from './missionShape.js';
 import { backdoorJob, sabotageRole } from './targetRoles.js';
 import { missionFileItem } from './missionFileItem.js';
+import { portforwardJob } from './portforwardJob.js';
 import {
   missionAction,
   missionSetting,
@@ -58,7 +59,8 @@ export type MissionTerms =
   | ({ readonly job: 'sabotage' } & CommonTerms)
   | ({ readonly job: 'file' } & CommonTerms)
   | ({ readonly job: 'backdoor' } & CommonTerms)
-  | ({ readonly job: 'infiltrate' } & CommonTerms);
+  | ({ readonly job: 'infiltrate' } & CommonTerms)
+  | ({ readonly job: 'portforward' } & CommonTerms);
 
 const CLIENTS: readonly MissionClient[] = [
   { company: 'Copper Systems', handle: 'copper-ops' },
@@ -326,6 +328,19 @@ export const missionTerms = (missionNumber: number): MissionTerms => {
       pitch: prng.pick(backdoorPitches),
       // The work is a key job's, finding the way in and rooting the box, with one step more.
       pay: payFrom(prng, job),
+    };
+  }
+  if (missionKind(missionNumber) === 'portforward') {
+    const { noun, pitches } = portforwardJob(missionNumber).machine;
+    return {
+      job: 'portforward',
+      client: prng.pick(CLIENTS),
+      targetCompany: `${capitalised(stem)} ${prng.pick(TARGET_TRADES)}`,
+      kind: `open a way into a ${noun}`,
+      pitch: prng.pick(pitches),
+      // One box broken into, the router, with the target right behind it: a single-hop key
+      // job's work. A portforward job is never two-hop.
+      pay: payFrom(prng, SINGLE_HOP),
     };
   }
   if (missionKind(missionNumber) === 'infiltrate') {

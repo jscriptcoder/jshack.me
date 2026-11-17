@@ -3,6 +3,7 @@ import { CLIENT_HANDLES, clientByHandle, missionTerms, type MissionTerms } from 
 import { missionKind, missionShape, missionTopology } from './missionShape.js';
 import { missionAction, missionSetting, type RecordSetting } from './missionRecords.js';
 import { missionFileItem } from './missionFileItem.js';
+import { portforwardJob } from './portforwardJob.js';
 import { md5 } from '../generation/md5.js';
 import { isMissionNumber } from './missionNetwork.js';
 import { validateUsername } from '../gameConfig/gameConfig.js';
@@ -34,6 +35,10 @@ const BACKDOOR_NUMBERS = SAMPLE_NUMBERS.filter(
 
 const INFILTRATE_NUMBERS = SAMPLE_NUMBERS.filter(
   (missionNumber) => missionKind(missionNumber) === 'infiltrate',
+);
+
+const PORTFORWARD_NUMBERS = SAMPLE_NUMBERS.filter(
+  (missionNumber) => missionKind(missionNumber) === 'portforward',
 );
 
 /** The machines a sabotage job can ask taken down. */
@@ -133,23 +138,23 @@ describe('missionTerms', () => {
     // Taken before a two-hop job had terms of its own: every single-hop contract's client,
     // target, pitch, key and pay. Retaken when sabotage jobs took a third of the numbers, again
     // when file jobs took a quarter, again when backdoor jobs took a fifth, and again when
-    // infiltrate jobs took a sixth, each time over the key jobs left, whose terms the earlier
-    // digest's own fixture held unchanged.
+    // infiltrate jobs took a sixth, and again when portforward jobs took a seventh, each time
+    // over the key jobs left, whose terms the earlier digest's own fixture held unchanged.
     expect(md5(JSON.stringify(SINGLE_HOP_NUMBERS.map(missionTerms).map(withoutJob)))).toBe(
-      'fae2c76c8e26d258f82a2a9099718677',
+      '713c4bab7e57d6c394a48ce18906a74b',
     );
   });
 
-  // Retaken over the key jobs left when infiltrate jobs took a sixth of the numbers.
+  // Retaken over the key jobs left when portforward jobs took a seventh of the numbers.
   it('keeps the client, target, pitch and key of a two-hop key job as they were', () => {
     const beside = TWO_HOP_NUMBERS.map(missionTerms)
       .map(withoutJob)
       .map(({ kind: _kind, pay: _pay, ...rest }) => rest);
 
-    expect(md5(JSON.stringify(beside))).toBe('7e760f7b323b88982ef5de1d884513c5');
+    expect(md5(JSON.stringify(beside))).toBe('4fe26092eed4bc97a20a0ebb2a6f527a');
   });
 
-  it('marks each contract a key, tamper, sabotage, file, backdoor or infiltrate job, as its shape does', () => {
+  it('marks each contract a key, tamper, sabotage, file, backdoor, infiltrate or portforward job, as its shape does', () => {
     for (const missionNumber of SAMPLE_NUMBERS) {
       expect(missionTerms(missionNumber).job).toBe(missionShape(missionNumber).kind);
     }
@@ -302,7 +307,8 @@ describe('missionTerms', () => {
         pay,
       }));
 
-      expect(md5(JSON.stringify(kept))).toBe('8982ef96773ada0577dd00b5cf196ea7');
+      // Retaken over the sabotage jobs left when portforward jobs took a seventh of the numbers.
+      expect(md5(JSON.stringify(kept))).toBe('52e23ba760c97a625cef2e9b5ab891dc');
     });
 
     // The work is a key job's, finding the way in and rooting the box, so the pay is too.
@@ -674,5 +680,56 @@ describe('missionTerms', () => {
 
     expect(pitches.size).toBeGreaterThan(1);
     expect(opens.size).toBeGreaterThan(1);
+  });
+  describe('a portforward job', () => {
+    /** The machine a portforward job is offered as opening a way into, read off the board's line. */
+    const machineOf = (missionNumber: number): string =>
+      missionTerms(missionNumber).kind.replace(/^open a way into a /, '');
+
+    it('is offered as opening a way into one of four machines', () => {
+      for (const missionNumber of PORTFORWARD_NUMBERS) {
+        expect(missionTerms(missionNumber).kind, `contract ${missionNumber}`).toBe(
+          `open a way into a ${portforwardJob(missionNumber).machine.noun}`,
+        );
+      }
+      expect(new Set(PORTFORWARD_NUMBERS.map(machineOf))).toEqual(
+        new Set(['customer database', 'cache server', 'staff intranet', 'development server']),
+      );
+    });
+
+    // The router is the one box broken into, and the target is right behind it: a single-hop
+    // key job's work.
+    it('pays a single-hop key job: 500 to 2,000 JSC, in steps of 50', () => {
+      const pays = PORTFORWARD_NUMBERS.map((missionNumber) => missionTerms(missionNumber).pay);
+
+      for (const pay of pays) expect(pay % 50).toBe(0);
+      expect([Math.min(...pays), Math.max(...pays)]).toEqual([500, 2000]);
+    });
+
+    it('names the target after its stem and a trade a key job is drawn from', () => {
+      const keyJobTrades = new Set(
+        KEY_NUMBERS.map((missionNumber) => missionTerms(missionNumber).targetCompany.split(' ')[1]),
+      );
+
+      for (const missionNumber of PORTFORWARD_NUMBERS) {
+        const { stem } = missionShape(missionNumber);
+        const [company, trade, ...rest] = missionTerms(missionNumber).targetCompany.split(' ');
+        expect(company).toBe(capitalised(stem));
+        expect(keyJobTrades.has(trade ?? ''), `contract ${missionNumber}`).toBe(true);
+        expect(rest).toEqual([]);
+      }
+    });
+
+    it("draws every client, and pitches from its machine's own three reasons", () => {
+      const terms = PORTFORWARD_NUMBERS.map(missionTerms);
+
+      expect(new Set(terms.map(({ client }) => client.handle))).toEqual(new Set(CLIENT_HANDLES));
+      for (const missionNumber of PORTFORWARD_NUMBERS) {
+        expect(portforwardJob(missionNumber).machine.pitches).toContain(
+          missionTerms(missionNumber).pitch,
+        );
+      }
+      expect(new Set(terms.map(({ pitch }) => pitch)).size).toBe(12);
+    });
   });
 });

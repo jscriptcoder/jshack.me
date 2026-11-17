@@ -160,7 +160,8 @@ const leakPlaceOf = (
   const { route } = boxOf(ref);
   if (route === 'mysql') return { path: DATADIR_PATH, perms: DATADIR_FILE };
   if (route === 'snmp') return { path: SNMPD_CONF_PATH, perms: SNMPD_CONF_PERMISSIONS };
-  const home = LEAK_HOMES[route];
+  // A portforward job's target has no route, so nothing of its own to give away.
+  const home = route === null ? undefined : LEAK_HOMES[route];
   return home === undefined
     ? null
     : { path: `${home.directory}/${forgottenFileOf(ref).name}`, perms: home.perms };

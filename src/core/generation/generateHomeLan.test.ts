@@ -583,7 +583,7 @@ describe('generateHomeLan for a contract network', () => {
   it('places the key box where the shape says, so the gateway forwards onto it', () => {
     // The topology and the shape draw the stem and the key-box octet independently off
     // one seed; the forward points at the octet, so the two must agree.
-    for (const missionNumber of [66052, 131587, 1000002, 16000002]) {
+    for (const missionNumber of [66052, 131590, 1000002, 16000002]) {
       const lan = generateHomeLan(`mission-${missionNumber}`);
       const shape = missionShape(missionNumber);
       const keyBox = lan.hosts[1];
@@ -609,7 +609,7 @@ describe('generateHomeLan for a contract network', () => {
     }
   });
 
-  it('names a sabotage target for the machine the client wants down, and every key box but a backdoor target as before', () => {
+  it('names a sabotage target for the machine the client wants down, and every key box but a backdoor or portforward target as before', () => {
     // The board names the machine; the box the contractor lands on carries the name to match.
     const suffixByMachine: Readonly<Record<string, string>> = {
       'CCTV recorder': 'nvr',
@@ -632,10 +632,11 @@ describe('generateHomeLan for a contract network', () => {
       new Set(sabotage.map((missionNumber) => missionShape(missionNumber).frontBox === null)),
     ).toEqual(new Set([true, false]));
     expect(new Set(sabotage.map(suffixOf))).toEqual(new Set(Object.values(suffixByMachine)));
-    const notBackdoor = CONTRACT_NUMBERS.filter(
-      (missionNumber) => missionShape(missionNumber).kind !== 'backdoor',
-    );
-    for (const missionNumber of notBackdoor) {
+    const namedAsBefore = CONTRACT_NUMBERS.filter((missionNumber) => {
+      const { kind } = missionShape(missionNumber);
+      return kind !== 'backdoor' && kind !== 'portforward';
+    });
+    for (const missionNumber of namedAsBefore) {
       const lan = generateHomeLan(`mission-${missionNumber}`);
       const { kind, stem, keyBox, frontBox } = missionShape(missionNumber);
       const hostnameAt = (octet: number) =>
@@ -679,6 +680,34 @@ describe('generateHomeLan for a contract network', () => {
       const lan = generateHomeLan(`mission-${missionNumber}`);
       const { stem, keyBox } = missionShape(missionNumber);
 
+      expect(
+        lan.hosts.find(({ ip }) => ip === `${lan.subnet}.${keyBox.octet}`)?.hostname,
+        `contract ${missionNumber}`,
+      ).toBe(`${stem}-${suffixOf(missionNumber)}`);
+    }
+  });
+
+  it('names a portforward target for the machine the client wants reached', () => {
+    const suffixByMachine: Readonly<Record<string, string>> = {
+      'customer database': 'db',
+      'cache server': 'cache',
+      'staff intranet': 'intranet',
+      'development server': 'dev',
+    };
+    const portforward = CONTRACT_NUMBERS.filter(
+      (missionNumber) => missionShape(missionNumber).kind === 'portforward',
+    );
+    const suffixOf = (missionNumber: number): string => {
+      const machine = missionTerms(missionNumber).kind.replace(/^open a way into a /, '');
+      return suffixByMachine[machine] ?? `unknown machine ${machine}`;
+    };
+
+    expect(new Set(portforward.map(suffixOf))).toEqual(new Set(Object.values(suffixByMachine)));
+    for (const missionNumber of portforward) {
+      const lan = generateHomeLan(`mission-${missionNumber}`);
+      const { stem, keyBox } = missionShape(missionNumber);
+
+      expect(lan.hosts, `contract ${missionNumber}`).toHaveLength(2);
       expect(
         lan.hosts.find(({ ip }) => ip === `${lan.subnet}.${keyBox.octet}`)?.hostname,
         `contract ${missionNumber}`,

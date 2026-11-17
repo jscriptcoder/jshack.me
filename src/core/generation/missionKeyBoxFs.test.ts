@@ -19,6 +19,10 @@ import { missionLeakFile } from '../missions/missionLeak.js';
 import { isMissionNumber } from '../missions/missionNetwork.js';
 import { SNMP_ROUTE_NUMBER } from '../../test/factories/snmpRouteContract.js';
 import { DEPLOYMENT_SECRETS } from '../../test/factories/webRouteContract.js';
+import { portforwardJob, type PortforwardService } from '../missions/portforwardJob.js';
+import { storeIn } from '../redis/datadir.js';
+import { formatRedisConf } from './generateRedisStore.js';
+import { md5 } from './md5.js';
 import type { Directory, FileNode } from '../filesystem/types.js';
 
 /** The first sampled contract number whose route is `route`, running none of `without` as a
@@ -579,3 +583,114 @@ const serialize = (node: FileNode): unknown =>
   node.kind === 'file'
     ? node.content
     : Object.fromEntries([...node.entries].map(([name, child]) => [name, serialize(child)]));
+
+describe("a portforward job's target", () => {
+  /** The first portforward contract whose target runs `service`. */
+  const numberServing = (service: PortforwardService): number => {
+    for (let missionNumber = 2; missionNumber < 5000; missionNumber += 1) {
+      if (!isMissionNumber(missionNumber)) continue;
+      if (missionShape(missionNumber).kind !== 'portforward') continue;
+      if (portforwardJob(missionNumber).machine.service === service) return missionNumber;
+    }
+    throw new Error(`no portforward contract serving ${service} in range`);
+  };
+
+  it.each(['mysql', 'redis', 'web', 'ssh'] as const)(
+    'runs sshd, its %s service and its decoys, and nothing more',
+    (service) => {
+      const missionNumber = numberServing(service);
+      const box = buildMissionKeyBoxFs(missionNumber);
+
+      expect(
+        readOpenPorts(box)
+          .map((port) => port.service)
+          .sort(),
+      ).toEqual(servicesNamedFor(missionNumber));
+      expect(readOpenPorts(box)).toContainEqual(
+        expect.objectContaining({ port: portforwardJob(missionNumber).machine.insidePort }),
+      );
+    },
+  );
+
+  it.each(['mysql', 'redis', 'web', 'ssh'] as const)(
+    'shuts root on a %s target, so nobody roots it',
+    (service) => {
+      const missionNumber = numberServing(service);
+
+      expect(fileAt(buildMissionKeyBoxFs(missionNumber), ['etc', 'passwd'])).toContain(
+        `root:${missionShape(missionNumber).keyBox.rootHash}:`,
+      );
+      expect(SHUT_HASHES).toContain(missionShape(missionNumber).keyBox.rootHash);
+    },
+  );
+
+  it("guards a customer database's application and root accounts with shut words", () => {
+    const database = databaseIn(buildMissionKeyBoxFs(numberServing('mysql')));
+
+    expect(database?.credentials).toHaveLength(2);
+    for (const credential of database?.credentials ?? []) {
+      expect(SHUT_HASHES).toContain(credential.passwordHash);
+    }
+  });
+
+  it("keeps a cache server's store behind a shut password, the one the shape draws", () => {
+    const missionNumber = numberServing('redis');
+    const store = storeIn(buildMissionKeyBoxFs(missionNumber));
+
+    expect(store?.requirepassHash).toBe(missionShape(missionNumber).keyBox.storeHash);
+    expect(SHUT_HASHES).toContain(store?.requirepassHash);
+    expect(Object.keys(store?.keys ?? {}).length).toBeGreaterThan(0);
+  });
+
+  it("keeps the same cache store for a number every time, on the job's own stream", () => {
+    // Captured from the generator.
+    expect(md5(JSON.stringify(storeIn(buildMissionKeyBoxFs(48))))).toBe(
+      '0fedc0d27f56d989ad98820042700ccb',
+    );
+  });
+
+  it('configures a cache server for its own host and port, and gives it an empty log', () => {
+    const missionNumber = numberServing('redis');
+    const box = buildMissionKeyBoxFs(missionNumber);
+
+    expect(fileAt(box, ['etc', 'redis', 'redis.conf'])).toBe(
+      formatRedisConf({
+        hostname: `${missionShape(missionNumber).stem}-cache`,
+        port: 6379,
+        pidfilePath: '/var/run/redis-server.pid',
+      }),
+    );
+    expect(fileAt(box, ['var', 'log', 'redis.log'])).toBe('');
+  });
+
+  it('keeps a store on a cache server with no database beside it, from the application it runs', () => {
+    const missionNumber = Array.from({ length: 20000 }, (_unused, index) => index + 2).find(
+      (candidate) =>
+        isMissionNumber(candidate) &&
+        missionShape(candidate).kind === 'portforward' &&
+        portforwardJob(candidate).machine.service === 'redis' &&
+        !missionShape(candidate).keyBox.decoys.includes('mysql'),
+    )!;
+    const box = buildMissionKeyBoxFs(missionNumber);
+
+    expect(databaseIn(box)).toBeNull();
+    expect(Object.keys(storeIn(box)?.keys ?? {}).length).toBeGreaterThan(0);
+  });
+
+  it('keeps no cache store, cache config or cache log on a target that runs no cache', () => {
+    for (const service of ['mysql', 'web', 'ssh'] as const) {
+      const box = buildMissionKeyBoxFs(numberServing(service));
+
+      expect(storeIn(box), service).toBeNull();
+      expect(nodeAt(box, ['var', 'lib', 'redis']), service).toBeUndefined();
+      expect(nodeAt(box, ['etc', 'redis']), service).toBeUndefined();
+      expect(nodeAt(box, ['var', 'log', 'redis.log']), service).toBeUndefined();
+    }
+  });
+
+  it("serves a staff intranet's stock page", () => {
+    const box = buildMissionKeyBoxFs(numberServing('web'));
+
+    expect(fileAt(box, ['var', 'www', 'html', 'index.html'])).toContain('It works!');
+  });
+});

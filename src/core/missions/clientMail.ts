@@ -29,8 +29,12 @@
  * down, or says it is still up. A backdoor job asks for none either: the client reads its target
  * and completes the job when a listener holds the port the briefing named, whoever left it, or
  * says nothing is listening there, the same words for no listener, one on another port and a box
- * that no longer boots. Once any of them is completed, and nothing else is accepted here, any
- * mail is told the job is closed without the box being read.
+ * that no longer boots. A portforward job asks for none either: the client reads the contract's
+ * router, never the machine, and completes the job when the port the briefing named reaches the
+ * machine on its own port, whoever forwarded it, or says it does not, the same words for no
+ * forward, one to another machine or port, and a router that no longer boots. Once any of them is
+ * completed, and nothing else is accepted here, any mail is told the job is closed without the
+ * box or the router being read.
  *
  * A file job asks for the file, not a key: the client compares the file the mail carries with the
  * one the server laid on the target, character for character, and answers as for a key, with
@@ -50,9 +54,13 @@ import type { Directory } from '../filesystem/types.js';
 import { writeAmount } from '../wallet/amount.js';
 import { missionKey } from './missionSecret.js';
 import { missionFileContent, missionFilePath, missionPlantContent } from './missionFileItem.js';
-import { missionKind } from './missionShape.js';
+import { missionKind, missionTopology } from './missionShape.js';
 import { recordsLookRight } from './missionRecords.js';
 import { backdoorJob } from './targetRoles.js';
+import { portforwardJob } from './portforwardJob.js';
+import { missionEssid } from './missionNetwork.js';
+import { machineServing } from '../network/machineServing.js';
+import { lanSubnetPrefix } from '../network/lanAddress.js';
 import { listenerOn } from '../services/pidfile.js';
 import { createFsView } from '../filesystem/fsView.js';
 import { asAbsPath } from '../types.js';
@@ -84,8 +92,8 @@ export type ClientMailStore = {
   }) => StoreReply;
 };
 
-/** The box a tamper, sabotage or backdoor job is about, as it stands: up with its tree, not up, or
- *  not readable. */
+/** The box a tamper, sabotage, backdoor or infiltrate job is about, or a portforward job's router,
+ *  as it stands: up with its tree, not up, or not readable. */
 export type TargetBoxRead =
   | { readonly kind: 'up'; readonly fs: Directory }
   | { readonly kind: 'absent' }
@@ -117,6 +125,7 @@ const RECORDS_RECEIVED = 'The records look right.';
 const MACHINE_DOWN = 'The machine is down.';
 const LISTENING = "We're in.";
 const IN_PLACE = "It's in place.";
+const THROUGH = "We're through.";
 const NO_WALLET = 'You sent no wallet, so there is nothing to pay. No wallet, no money.';
 const RECORDS_WRONG = "Our records don't look right. No change, no money.";
 const STILL_UP = 'Their machine is still up. No outage, no money.';
@@ -125,6 +134,10 @@ const nothingListening = (port: number): string =>
   `Nothing is listening on port ${port}. No listener, no money.`;
 const notInPlace = (path: string): string =>
   `Our file is not at ${path}. No file in place, no money.`;
+/** One reply for every miss: no forward, one to another machine or port, or a router that no
+ *  longer boots. */
+const noWayIn = (port: number, noun: string): string =>
+  `Port ${port} doesn't reach their ${noun}. No way in, no money.`;
 const WRONG_KEY = 'That key opens nothing of ours.';
 const WRONG_FILE = "That's not the file we asked for.";
 const CLOSED = 'That job is already closed.';
@@ -158,10 +171,12 @@ type Decision =
   | { readonly kind: 'checkDown'; readonly number: number }
   | { readonly kind: 'checkListening'; readonly number: number }
   | { readonly kind: 'checkPlanted'; readonly number: number }
+  | { readonly kind: 'checkForward'; readonly number: number }
   | { readonly kind: 'reply'; readonly reply: ContractMail };
 
 /** How the client opens its reply to a job done: the key or the file it was sent, the records it
- *  read, the machine it found down, the listener it found, or its own file found in place. */
+ *  read, the machine it found down, the listener it found, its own file found in place, or the
+ *  way in it found open. */
 const RECEIVED: Readonly<Record<Exclude<Decision['kind'], 'reply'>, string>> = {
   complete: KEY_RECEIVED,
   completeFile: FILE_RECEIVED,
@@ -169,6 +184,7 @@ const RECEIVED: Readonly<Record<Exclude<Decision['kind'], 'reply'>, string>> = {
   checkDown: MACHINE_DOWN,
   checkListening: LISTENING,
   checkPlanted: IN_PLACE,
+  checkForward: THROUGH,
 };
 
 /** What the client says on a job the mail itself proves: when the mail carries no proof, when it
@@ -217,11 +233,26 @@ const decide = ({
   if (acceptedKind === 'sabotage') return { kind: 'checkDown', number: accepted.number };
   if (acceptedKind === 'backdoor') return { kind: 'checkListening', number: accepted.number };
   if (acceptedKind === 'infiltrate') return { kind: 'checkPlanted', number: accepted.number };
+  if (acceptedKind === 'portforward') return { kind: 'checkForward', number: accepted.number };
   const said = MAILED_PROOF[acceptedKind];
   if ((acceptedKind === 'file' ? file : key) === null) return reply(accepted.number, said.none);
   if (proves(accepted.number)) return { kind: said.done, number: accepted.number };
   if (closed !== undefined) return reply(closed.number, CLOSED);
   return reply(accepted.number, said.wrong);
+};
+
+/** Whether the router sends the port the client named to the machine it wants reached, on the
+ *  machine's own port. The router's routing decides, not the file's text: a port the router
+ *  itself answers on reaches the router, whatever a forward says. */
+const reachesMachine = (routerFs: Directory, missionNumber: number): boolean => {
+  const { machine, publicPort } = portforwardJob(missionNumber);
+  const served = machineServing({ routerFs, port: publicPort });
+  const machineIp = `${lanSubnetPrefix(missionEssid(missionNumber))}.${missionTopology(missionNumber).keyBoxOctet}`;
+  return (
+    served.kind === 'forward' &&
+    served.internalIp === machineIp &&
+    served.internalPort === machine.insidePort
+  );
 };
 
 /** Whether the box holds, at the path the client named, exactly the file the client sent. */
@@ -252,6 +283,7 @@ export const answerClientMail = async ({
   secret,
   store,
   readTargetBox,
+  readRouter,
 }: {
   readonly login: {
     readonly handle: string;
@@ -266,8 +298,11 @@ export const answerClientMail = async ({
   /** The deployment's mission secret, already checked present. */
   readonly secret: string;
   readonly store: ClientMailStore;
-  /** The box the tamper, sabotage or backdoor job numbered so is about, as it stands now. */
+  /** The box the tamper, sabotage, backdoor or infiltrate job numbered so is about, as it stands
+   *  now. */
   readonly readTargetBox: (missionNumber: number) => Promise<TargetBoxRead>;
+  /** The router of the portforward job numbered so, as it stands now. */
+  readonly readRouter: (missionNumber: number) => Promise<TargetBoxRead>;
 }): Promise<ClientMailAnswer | null> => {
   const opened = await store.open(login);
   const read = openedSchema.safeParse(opened.data);
@@ -312,6 +347,16 @@ export const answerClientMail = async ({
     // its file there, not to know who put it there.
     if (box.kind === 'absent' || !holdsPlant(box.fs, decision.number, secret)) {
       return sendReply(store, login.handle, replyAbout(terms, notInPlace(path)));
+    }
+  }
+  if (decision.kind === 'checkForward') {
+    const router = await readRouter(decision.number);
+    if (router.kind === 'error') return null;
+    // Anyone's forward counts, as anyone's listener does on a backdoor job. A router that no
+    // longer boots reaches nothing, so a bricked router loses the job for good.
+    if (router.kind === 'absent' || !reachesMachine(router.fs, decision.number)) {
+      const { machine, publicPort } = portforwardJob(decision.number);
+      return sendReply(store, login.handle, replyAbout(terms, noWayIn(publicPort, machine.noun)));
     }
   }
   const received = RECEIVED[decision.kind];

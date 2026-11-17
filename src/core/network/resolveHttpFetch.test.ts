@@ -2160,7 +2160,7 @@ describe('a contractor board takes an accept and a drop', () => {
 
   // An infiltrate job's briefing carries the client's file, drawn from the deployment's secret.
   describe('on an infiltrate offer', () => {
-    const INFILTRATE = 100009;
+    const INFILTRATE = 100014;
     const holdingInfiltrate = {
       postOffers: async () => ({
         data: { offers: [{ number: INFILTRATE, ref: 'abc' }], current: null },

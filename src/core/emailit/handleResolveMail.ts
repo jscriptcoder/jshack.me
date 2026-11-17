@@ -64,6 +64,9 @@ import { missionEssid } from '../missions/missionNetwork.js';
 import { missionTopology } from '../missions/missionShape.js';
 import { generateHomeLan } from '../generation/generateHomeLan.js';
 import { generatedLanBox } from '../network/generatedLanBox.js';
+import { materializeApGatewayFs } from '../network/materializeRouterFs.js';
+import { computeApGatewayId } from '../identity/router.js';
+import { canBoot } from '../boot/bootFiles.js';
 import { requireMissionSecret } from '../missions/missionSecret.js';
 import { listedMessageSchema, mailAttachmentSchema, openedMessageSchema } from './inbox.js';
 
@@ -135,6 +138,19 @@ const targetBoxReader =
     const essid = missionEssid(missionNumber);
     const address = `${generateHomeLan(essid).subnet}.${missionTopology(missionNumber).keyBoxOctet}`;
     return generatedLanBox(deps.findPatches, essid, address, deps.findMissionFiles);
+  };
+
+/** A portforward job's router as every door reads it: the gateway the contract's number
+ *  generates with its journal replayed, so the client sees the forwards a player's edits left,
+ *  and whether it still boots. A router that does not boot routes nothing. */
+const routerReader =
+  (deps: WebTargetDeps) =>
+  async (missionNumber: number): Promise<TargetBoxRead> => {
+    const essid = missionEssid(missionNumber);
+    const patches = await deps.findPatches({ machine_id: computeApGatewayId(essid) });
+    if (patches.error) return { kind: 'error' };
+    const fs = materializeApGatewayFs({ essid }, patches.data);
+    return canBoot(fs).ok ? { kind: 'up', fs } : { kind: 'absent' };
   };
 
 const inboxAnswerSchema = z.discriminatedUnion('outcome', [
@@ -286,6 +302,7 @@ export const handleResolveMail = async (
       secret,
       store: deps.clientMail,
       readTargetBox: targetBoxReader(deps),
+      readRouter: routerReader(deps),
     });
     if (answer === null) return MAIL_FAILED;
     if (answer !== 'replied') return refused(answer);

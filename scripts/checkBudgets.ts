@@ -69,8 +69,10 @@ import {
  *  draw, the port pool, and the seven machines' reasons for a way in, which ride in the bundle
  *  with the hostnames they share) added 674 B, rounded up to 700; then lynx keeping the
  *  selected link in sight (each selectable scrolling itself into view) added 47 B, rounded up
- *  to 100. */
-const BUNDLE_CEILING_BYTES = 302_075;
+ *  to 100; then the portforward kind (its seventh of the draw, the four machines with their
+ *  ports and reasons, which ride in the bundle with the hostnames they name) added 1,058 B,
+ *  rounded up to 1,100. */
+const BUNDLE_CEILING_BYTES = 303_175;
 
 /** About a tenth of that before world content, so a loaded machine's noise cannot fail
  *  the check while a content change that makes boxes ten times dearer still does. */

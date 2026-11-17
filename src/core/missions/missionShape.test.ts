@@ -3,6 +3,7 @@ import {
   MISSION_ROUTE_DAY,
   missionKind,
   missionShape,
+  missionTopology,
   type MissionBox,
   type MissionDecoy,
   type MissionForward,
@@ -21,9 +22,27 @@ import { accountIn } from '../sessions/passwdAccount.js';
 import { md5 } from '../generation/md5.js';
 import { DEFAULT_WORDLIST } from '../wordlist/defaultWordlist.js';
 import { LEAKABLE_HASHES, SHUT_HASHES, fixedBoxRootHash } from './leakablePool.js';
+import { portforwardJob, type PortforwardService } from './portforwardJob.js';
+import { missionEssid } from './missionNetwork.js';
+import { buildApGatewayBaseFs } from '../generation/routerFs.js';
+import { machineServing } from '../network/machineServing.js';
 
 /** A forward's two ports, whichever box it reaches. */
 type PortPair = Omit<MissionForward, 'boxOctet'>;
+
+/** A box without the cache hash, which is null on every box but a portforward job's cache
+ *  server, so a digest taken before the field existed still matches. */
+const withoutStoreHash = ({
+  storeHash: _storeHash,
+  ...box
+}: MissionBox): Omit<MissionBox, 'storeHash'> => box;
+
+/** The route a box falls to. Every box in the routed sample has one: only a portforward job's
+ *  target has none. */
+const routeOf = (box: MissionBox): MissionRoute => {
+  if (box.route === null) throw new Error(`the box at .${box.octet} has no route`);
+  return box.route;
+};
 
 /** The box the gateway forwards onto: the front box on a two-hop contract, else the key box. */
 const entryBox = (shape: MissionShape): MissionBox => shape.frontBox ?? shape.keyBox;
@@ -71,7 +90,13 @@ const SAMPLE_NUMBERS = Array.from({ length: 2000 }, (_unused, index) => index * 
   (missionNumber) => missionNumber % 256 >= 2 && missionNumber % 256 <= 254,
 );
 
-const SAMPLE_SHAPES: readonly MissionShape[] = SAMPLE_NUMBERS.map(missionShape);
+const ALL_SAMPLE_SHAPES: readonly MissionShape[] = SAMPLE_NUMBERS.map(missionShape);
+
+/** The sample's contracts whose boxes each fall to a route: all but the portforward jobs, whose
+ *  target nobody roots. */
+const SAMPLE_SHAPES: readonly MissionShape[] = ALL_SAMPLE_SHAPES.filter(
+  ({ kind }) => kind !== 'portforward',
+);
 
 /** Every box in the sample on `route`, with the contract it belongs to. */
 const boxesOnRoute = (
@@ -115,7 +140,8 @@ describe('missionShape', () => {
 
   it('draws every route about a sixth of the time', () => {
     const counts = SAMPLE_SHAPES.reduce<Record<string, number>>((tally, { keyBox }) => {
-      return { ...tally, [keyBox.route]: (tally[keyBox.route] ?? 0) + 1 };
+      const route = routeOf(keyBox);
+      return { ...tally, [route]: (tally[route] ?? 0) + 1 };
     }, {});
 
     expect(Object.keys(counts).sort()).toEqual([
@@ -127,13 +153,13 @@ describe('missionShape', () => {
       'web',
     ]);
     for (const count of Object.values(counts)) {
-      expect(count / SAMPLE_NUMBERS.length).toBeGreaterThan(0.12);
-      expect(count / SAMPLE_NUMBERS.length).toBeLessThan(0.22);
+      expect(count / SAMPLE_SHAPES.length).toBeGreaterThan(0.12);
+      expect(count / SAMPLE_SHAPES.length).toBeLessThan(0.22);
     }
   });
 
-  it('makes about a sixth of the contracts each of key, tamper, sabotage, file, backdoor and infiltrate jobs', () => {
-    const counts = SAMPLE_SHAPES.reduce<Record<string, number>>(
+  it('makes about a seventh of the contracts each of key, tamper, sabotage, file, backdoor, infiltrate and portforward jobs', () => {
+    const counts = ALL_SAMPLE_SHAPES.reduce<Record<string, number>>(
       (tally, { kind }) => ({ ...tally, [kind]: (tally[kind] ?? 0) + 1 }),
       {},
     );
@@ -143,37 +169,61 @@ describe('missionShape', () => {
       'file',
       'infiltrate',
       'key',
+      'portforward',
       'sabotage',
       'tamper',
     ]);
     for (const [kind, count] of Object.entries(counts)) {
-      expect(count / SAMPLE_SHAPES.length, kind).toBeGreaterThan(0.13);
-      expect(count / SAMPLE_SHAPES.length, kind).toBeLessThan(0.2);
+      expect(count / ALL_SAMPLE_SHAPES.length, kind).toBeGreaterThan(0.11);
+      expect(count / ALL_SAMPLE_SHAPES.length, kind).toBeLessThan(0.18);
     }
   });
 
-  it('turns no contract from one older kind into another: each keeps its kind or becomes an infiltrate job', () => {
-    // Contracts drawn just either side of every edge, with the kind each had before infiltrate
-    // jobs.
+  it('turns no contract from one older kind into another: each keeps its kind or becomes a portforward job', () => {
+    // Contracts drawn just above the bottom and just below the top of every piece of the draw,
+    // with the kind each had before portforward jobs. Each older kind gave up the top of one of
+    // its pieces.
     const drawnAtTheEdges = [
-      [1915, 'tamper', 'tamper'],
-      [860, 'tamper', 'infiltrate'],
-      [1235, 'tamper', 'infiltrate'],
-      [2597, 'backdoor', 'backdoor'],
-      [2626, 'sabotage', 'sabotage'],
-      [1345, 'sabotage', 'infiltrate'],
-      [2360, 'sabotage', 'infiltrate'],
+      [1215, 'tamper', 'tamper'],
+      [2188, 'tamper', 'tamper'],
+      [274, 'tamper', 'portforward'],
+      [9, 'tamper', 'portforward'],
+      [264, 'infiltrate', 'infiltrate'],
+      [1235, 'infiltrate', 'infiltrate'],
+      [269, 'backdoor', 'backdoor'],
+      [62, 'backdoor', 'backdoor'],
+      [836, 'backdoor', 'portforward'],
+      [492, 'backdoor', 'portforward'],
+      [413, 'file', 'file'],
+      [1516, 'file', 'file'],
+      [143, 'sabotage', 'sabotage'],
+      [438, 'sabotage', 'sabotage'],
+      [372, 'sabotage', 'portforward'],
+      [2626, 'sabotage', 'portforward'],
+      [1345, 'infiltrate', 'infiltrate'],
+      [827, 'infiltrate', 'infiltrate'],
       [466, 'backdoor', 'backdoor'],
-      [781, 'file', 'file'],
-      [383, 'file', 'infiltrate'],
-      [1594, 'file', 'infiltrate'],
-      [1596, 'backdoor', 'backdoor'],
-      [2181, 'key', 'key'],
-      [1214, 'key', 'infiltrate'],
-      [2319, 'key', 'infiltrate'],
-      [1179, 'backdoor', 'backdoor'],
-      [2066, 'backdoor', 'backdoor'],
-      [1962, 'backdoor', 'infiltrate'],
+      [1267, 'backdoor', 'backdoor'],
+      [247, 'file', 'file'],
+      [955, 'file', 'file'],
+      [505, 'file', 'portforward'],
+      [781, 'file', 'portforward'],
+      [383, 'infiltrate', 'infiltrate'],
+      [1594, 'infiltrate', 'infiltrate'],
+      [6, 'backdoor', 'backdoor'],
+      [778, 'backdoor', 'backdoor'],
+      [171, 'key', 'key'],
+      [736, 'key', 'key'],
+      [2872, 'key', 'portforward'],
+      [217, 'key', 'portforward'],
+      [1214, 'infiltrate', 'infiltrate'],
+      [146, 'infiltrate', 'infiltrate'],
+      [95, 'backdoor', 'backdoor'],
+      [331, 'backdoor', 'backdoor'],
+      [351, 'infiltrate', 'infiltrate'],
+      [281, 'infiltrate', 'infiltrate'],
+      [219, 'infiltrate', 'portforward'],
+      [328, 'infiltrate', 'portforward'],
     ] as const;
 
     for (const [missionNumber, before, now] of drawnAtTheEdges) {
@@ -232,7 +282,7 @@ describe('missionShape', () => {
       // The database route runs its own mysqld, its door; no other route runs one.
       expect(programs.includes('mysqld'), label).toBe(keyBox.route === 'mysql');
       if (shape.frontBox === null) {
-        expect(realForwards(shape), label).toEqual(ROUTE_FORWARDS[keyBox.route]);
+        expect(realForwards(shape), label).toEqual(ROUTE_FORWARDS[routeOf(keyBox)]);
       }
     }
   });
@@ -252,7 +302,7 @@ describe('missionShape', () => {
       // The database route runs its own mysqld, its door; no other route runs one.
       expect(programs.includes('mysqld'), label).toBe(keyBox.route === 'mysql');
       if (shape.frontBox === null) {
-        expect(realForwards(shape), label).toEqual(ROUTE_FORWARDS[keyBox.route]);
+        expect(realForwards(shape), label).toEqual(ROUTE_FORWARDS[routeOf(keyBox)]);
       }
     }
   });
@@ -274,7 +324,7 @@ describe('missionShape', () => {
       expect(shape.storage, label).toBeNull();
       expect(programs.includes('mysqld'), label).toBe(keyBox.route === 'mysql');
       if (shape.frontBox === null) {
-        expect(realForwards(shape), label).toEqual(ROUTE_FORWARDS[keyBox.route]);
+        expect(realForwards(shape), label).toEqual(ROUTE_FORWARDS[routeOf(keyBox)]);
       }
     }
   });
@@ -296,7 +346,7 @@ describe('missionShape', () => {
       expect(shape.storage, label).toBeNull();
       expect(programs.includes('mysqld'), label).toBe(keyBox.route === 'mysql');
       if (shape.frontBox === null) {
-        expect(realForwards(shape), label).toEqual(ROUTE_FORWARDS[keyBox.route]);
+        expect(realForwards(shape), label).toEqual(ROUTE_FORWARDS[routeOf(keyBox)]);
       }
     }
   });
@@ -318,7 +368,7 @@ describe('missionShape', () => {
       expect(shape.storage, label).toBeNull();
       expect(programs.includes('mysqld'), label).toBe(keyBox.route === 'mysql');
       if (shape.frontBox === null) {
-        expect(realForwards(shape), label).toEqual(ROUTE_FORWARDS[keyBox.route]);
+        expect(realForwards(shape), label).toEqual(ROUTE_FORWARDS[routeOf(keyBox)]);
       }
     }
   });
@@ -329,8 +379,8 @@ describe('missionShape', () => {
     const before = [
       [66051, 'hydra', 'corva', 87, '5fcfd41e547a12215b173ff47fdd3739'],
       [2, 'hydra', 'sternco', 150, '0d107d09f5bbe40cade3de5c71e9e9b7'],
-      [1234567, 'msfconsole', 'oakridge', 207, '505828c63fbafed59bd2d0cec555a8b9'],
-      [9999999, 'hydra', 'northgate', 153, 'dfeaf10390e560aea745ccba53e044ed'],
+      [1234573, 'msfconsole', 'brightmoor', 151, 'a333fc5371a08ccd9f6513e098c36172'],
+      [10000000, 'hydra', 'kestrelle', 166, '0571749e2ac330a7455809c6b0e7af90'],
     ] as const;
     for (const [missionNumber, route, stem, octet, rootHash] of before) {
       expect(missionShape(missionNumber)).toMatchObject({
@@ -347,10 +397,10 @@ describe('missionShape', () => {
      *  taken from the generator before a contract could have two hops. Two hops draw on a
      *  stream of their own, so a contract that stays single-hop keeps its network to the byte.
      *  Only key jobs: a contract that became a tamper job keeps its records in its database.
-     *  Contracts that later turned file, backdoor or infiltrate jobs were swapped for key jobs alike,
+     *  Contracts that later turned file, backdoor, infiltrate or portforward jobs were swapped for key jobs alike,
      *  digested on the generator before that kind. */
     const SINGLE_HOP_BEFORE: readonly (readonly [number, string])[] = [
-      [16764, '406a2ac2a2ac5d9d8aba524c1552d5a7'], // mysql, database
+      [16837, 'f27ddd33257d952bc4a6d15bf3649686'], // mysql, database
       [3989358, '82a4a03274db6a08767bd9b788c6b0ca'], // snmp, file
       [25, 'bc6079d753a35b0d2fbbc0d419866d9b'], // web, file
       [188, 'e22849bb6178062832ca21a15ac6ec26'], // snmp, database
@@ -363,7 +413,7 @@ describe('missionShape', () => {
     /** Two-hop key jobs across the routes and storages, and the digest of each key box as it
      *  stood before the contract had two hops, its forwards and decoys aside: its names, route,
      *  hashes and the doors it ran for its route and its storage. Contracts that later turned
-     *  sabotage, file, backdoor or infiltrate jobs were swapped for key jobs alike, digested on the generator before
+     *  sabotage, file, backdoor, infiltrate or portforward jobs were swapped for key jobs alike, digested on the generator before
      *  that kind. */
     const KEY_BOX_BEFORE: readonly (readonly [number, string])[] = [
       [8383, 'aaee771c5cc6118f6546fc3a4cd4f013'], // ftp, file
@@ -372,24 +422,38 @@ describe('missionShape', () => {
       [486100, '020cfae8783a805a9b0f791209f6e07f'], // snmp, file
       [461, '0308c54bcd0bf1b71bb3913967195582'], // msfconsole, gpg
       [3887, 'a51d66366f4e23dc7ad18bf28edd4a80'], // msfconsole, file
-      [1047627, 'f2547fb5f6635ed4b2d5f041fdd1ae32'], // hydra, file
+      [1049074, 'bfd8b75efdc9d35cae9ff1dc2f34617c'], // hydra, file
       [929, '2d4a5dc6923e351565f77cd2d1dbb97b'], // hydra, gpg
-      [5330318, '141ee9f7ca72a345278489238e192c4a'], // mysql, database
+      [5335433, 'cb9e8aac0ef614bd8d5b0547ed9e9d9a'], // mysql, database
       [1095, '156fa82806abd4a4bbf12ab943fcd9e4'], // web, gpg
       [12269786, '02f63ddca1bc7ff62bb445e814beb98d'], // ftp, gpg
     ];
 
-    it('puts the key box behind a front box about a third of the time', () => {
-      expect(twoHopShapes.length / SAMPLE_NUMBERS.length).toBeGreaterThan(0.28);
-      expect(twoHopShapes.length / SAMPLE_NUMBERS.length).toBeLessThan(0.39);
+    it('puts the key box behind a front box about a third of the time, on every kind but portforward', () => {
+      expect(twoHopShapes.length / SAMPLE_SHAPES.length).toBeGreaterThan(0.28);
+      expect(twoHopShapes.length / SAMPLE_SHAPES.length).toBeLessThan(0.39);
     });
 
     it('leaves a single-hop contract exactly as it was', () => {
       for (const [missionNumber, digest] of SINGLE_HOP_BEFORE) {
-        const { frontBox, kind, ...shape } = missionShape(missionNumber);
+        // The router's route came after these digests, null on every kind they are.
+        const { frontBox, kind, routerRoute, keyBox, ...shape } = missionShape(missionNumber);
         expect(frontBox, `contract ${missionNumber}`).toBeNull();
         expect(kind, `contract ${missionNumber}`).toBe('key');
-        expect(md5(JSON.stringify(shape)), `contract ${missionNumber}`).toBe(digest);
+        expect(routerRoute, `contract ${missionNumber}`).toBeNull();
+        const { missionNumber: _number, stem, storage, ...afterKeyBox } = shape;
+        expect(
+          md5(
+            JSON.stringify({
+              missionNumber,
+              stem,
+              storage,
+              keyBox: withoutStoreHash(keyBox),
+              ...afterKeyBox,
+            }),
+          ),
+          `contract ${missionNumber}`,
+        ).toBe(digest);
       }
     });
 
@@ -421,7 +485,7 @@ describe('missionShape', () => {
 
     /** Two-hop key jobs across the routes on each box, and the digest of everything but the key
      *  box, taken from the generator before the key box ran decoys of its own. Contracts that later turned
-     *  sabotage, file, backdoor or infiltrate jobs were swapped for key jobs alike, digested on the generator before
+     *  sabotage, file, backdoor, infiltrate or portforward jobs were swapped for key jobs alike, digested on the generator before
      *  that kind. */
     const BESIDE_KEY_BOX_BEFORE: readonly (readonly [number, string])[] = [
       [8383, '6f6f3067dd12250be4531b6a7a680890'], // ftp, front msfconsole
@@ -430,16 +494,31 @@ describe('missionShape', () => {
       [486100, 'c356fa209f4fec49e6c8b9a6e359dd89'], // snmp, front hydra
       [461, '443fc4633c17bed327adce4358d26cb2'], // msfconsole, front web
       [3887, 'fdbf255fc335327f5cf01a439ae01241'], // msfconsole, front web
-      [1047627, '2126d38910890ae0e2783d301f3e699b'], // hydra, front snmp
+      [1049074, '01d872c7ef8470098ac4b8177f582430'], // hydra, front snmp
       [929, '0bbb667b4152faaf0fc2594ad134cca4'], // hydra, front mysql
-      [5330318, 'dac53e92eef67b5ad68c0083305f7e89'], // mysql, front msfconsole
+      [5335433, '098b32e32ab6071111f6d6a429a06ff7'], // mysql, front msfconsole
       [1095, '9056602c14fca79c916e962c82f82c0d'], // web, front web
       [12269786, '7b5dd59c802097475555ac3286435859'], // ftp, front snmp
     ];
 
     it('leaves the front box, the forwards and the gateway as they were', () => {
       for (const [missionNumber, digest] of BESIDE_KEY_BOX_BEFORE) {
-        const { keyBox: _keyBox, kind: _kind, ...besideKeyBox } = missionShape(missionNumber);
+        // The router's route and the cache hash came after these digests, null on these contracts.
+        const {
+          keyBox: _keyBox,
+          kind: _kind,
+          routerRoute: _routerRoute,
+          frontBox,
+          ...rest
+        } = missionShape(missionNumber);
+        const { missionNumber: _number, stem, storage, ...afterFrontBox } = rest;
+        const besideKeyBox = {
+          missionNumber,
+          stem,
+          storage,
+          frontBox: frontBox === null ? null : withoutStoreHash(frontBox),
+          ...afterFrontBox,
+        };
         expect(md5(JSON.stringify(besideKeyBox)), `contract ${missionNumber}`).toBe(digest);
       }
     });
@@ -447,7 +526,7 @@ describe('missionShape', () => {
     describe('inside decoys', () => {
       /** The ports of the doors a key box runs for its route and its storage, in order. */
       const realDoorPorts = (shape: MissionShape): readonly number[] => {
-        const { route } = shape.keyBox;
+        const route = routeOf(shape.keyBox);
         const routeDoor = route === 'hydra' ? [] : [ROUTE_DOOR_PORTS[route]];
         const keptInDatabase = shape.storage === 'database' && route !== 'mysql' ? [3306] : [];
         return [...routeDoor, ...keptInDatabase];
@@ -620,7 +699,7 @@ describe('missionShape', () => {
   it('forwards the box it reaches its route doors, then :3306 for a key kept in a database', () => {
     for (const shape of SAMPLE_SHAPES) {
       const entry = entryBox(shape);
-      const routeForwards = ROUTE_FORWARDS[entry.route];
+      const routeForwards = ROUTE_FORWARDS[routeOf(entry)];
       const keptInDatabase =
         entry === shape.keyBox && shape.storage === 'database' && entry.route !== 'mysql';
 
@@ -667,17 +746,17 @@ describe('missionShape', () => {
 
     /** Single-hop key jobs across the routes and storages, and the digest of what each had
      *  before decoys, taken from the generator as it stood then. Contracts that later turned
-     *  sabotage, file, backdoor or infiltrate jobs were swapped for key jobs alike, digested on the generator before
+     *  sabotage, file, backdoor, infiltrate or portforward jobs were swapped for key jobs alike, digested on the generator before
      *  that kind. */
     const BEFORE_DECOYS: readonly (readonly [number, string])[] = [
       [26, '529fc16f6500aaea7286d4b3f6457e5c'], // ftp, file
-      [16764, '646ccb637762c304422bd9971fc3befc'], // mysql, database
+      [16837, '66ef50b38177d710035d491c3117101a'], // mysql, database
       [3989358, '522716c66d0a298f6c790b504f8095be'], // snmp, file
       [25, 'd6ab3acaa8ca2c0fb37bdd0aef86b65f'], // web, file
       [188, 'fa38e003de44240bca1b8067df439f9f'], // snmp, database
       [344, '558adceb43fcd922199593fdfda0010e'], // msfconsole, file
       [243051, 'fdc080efe1512df31eba9c8dac360134'], // hydra, file
-      [5, '6c8fb4d23a5af93550402b44d5da324c'], // hydra, database
+      [231, '116f11ad14d62f50f30b701bdc8799d0'], // hydra, database
     ];
 
     /** The public port each decoy kind answers on. */
@@ -692,7 +771,7 @@ describe('missionShape', () => {
     it('forwards three or four ports, each about half the time, whatever the route', () => {
       const countsByRoute = SAMPLE_SHAPES.reduce<Record<string, ReadonlySet<number>>>(
         (tally, shape) => {
-          const { route } = entryBox(shape);
+          const route = routeOf(entryBox(shape));
           return { ...tally, [route]: new Set([...(tally[route] ?? []), shape.forwards.length]) };
         },
         {},
@@ -962,6 +1041,138 @@ describe('missionShape', () => {
         } else if (box.route !== 'hydra') {
           expect(LEAKABLE_HASHES, label).toContain(box.rootHash);
         }
+      }
+    }
+  });
+});
+
+describe('a portforward contract', () => {
+  const portforwardShapes = ALL_SAMPLE_SHAPES.filter(({ kind }) => kind === 'portforward');
+
+  /** The program each machine's service runs as, none for ssh: sshd runs on every box. */
+  const PROGRAMS: Readonly<Record<PortforwardService, readonly string[]>> = {
+    mysql: ['mysqld'],
+    redis: ['redis-server'],
+    web: ['nginx'],
+    ssh: [],
+  };
+
+  /** The decoy that would already expose each machine's service, none for redis. */
+  const EXPOSING_DECOY: Readonly<Record<PortforwardService, MissionDecoy | null>> = {
+    mysql: 'mysql',
+    redis: null,
+    web: 'web',
+    ssh: 'ssh',
+  };
+
+  it('is single-hop: the target stands in the key-box slot, and no front box', () => {
+    expect(portforwardShapes.length).toBeGreaterThan(200);
+    for (const shape of portforwardShapes) {
+      expect(shape.frontBox, `contract ${shape.missionNumber}`).toBeNull();
+      expect(missionTopology(shape.missionNumber).frontBoxOctet).toBeNull();
+    }
+  });
+
+  it("runs the machine's service on its inside port, on a safe release, and keeps nothing", () => {
+    for (const shape of portforwardShapes) {
+      const { machine } = portforwardJob(shape.missionNumber);
+      const label = `${machine.noun} of ${shape.missionNumber}`;
+      const real = realServices(shape.keyBox);
+
+      expect(shape.storage, label).toBeNull();
+      expect(
+        real.map(({ program }) => program),
+        label,
+      ).toEqual(PROGRAMS[machine.service]);
+      for (const service of real) expect(service.port, label).toBe(machine.insidePort);
+      for (const severity of pinnedSeverities(shape.keyBox.versions)) {
+        expect(['low', 'medium'], label).toContain(severity);
+      }
+    }
+  });
+
+  it('gives the target no route and no way to root it: root, the database and the cache shut', () => {
+    for (const shape of portforwardShapes) {
+      const { machine } = portforwardJob(shape.missionNumber);
+      const { keyBox } = shape;
+      const label = `${machine.noun} of ${shape.missionNumber}`;
+
+      expect(keyBox.route, label).toBeNull();
+      expect(SHUT_HASHES, label).toContain(keyBox.rootHash);
+      if (machine.service === 'mysql') {
+        expect(SHUT_HASHES, label).toContain(keyBox.database?.accountHash);
+        expect(SHUT_HASHES, label).toContain(keyBox.database?.rootHash);
+      } else if (!keyBox.decoys.includes('mysql')) {
+        // A database decoy brings a database of its own; nothing else on the target keeps one.
+        expect(keyBox.database, label).toBeNull();
+      }
+      if (machine.service === 'redis') expect(SHUT_HASHES, label).toContain(keyBox.storeHash);
+      else expect(keyBox.storeHash, label).toBeNull();
+    }
+  });
+
+  it('forwards only three or four decoys onto the target, none of the kind the job exposes', () => {
+    for (const shape of portforwardShapes) {
+      const { machine } = portforwardJob(shape.missionNumber);
+      const label = `${machine.noun} of ${shape.missionNumber}`;
+
+      expect(realForwards(shape), label).toEqual([]);
+      expect([3, 4], label).toContain(shape.forwards.length);
+      expect(shape.keyBox.decoys, label).toHaveLength(shape.forwards.length);
+      for (const forward of shape.forwards)
+        expect(forward.boxOctet, label).toBe(shape.keyBox.octet);
+      const exposing = EXPOSING_DECOY[machine.service];
+      if (exposing !== null) expect(shape.keyBox.decoys, label).not.toContain(exposing);
+    }
+    for (const exposing of ['mysql', 'web', 'ssh'] as const) {
+      expect(
+        portforwardShapes.some(({ keyBox }) => keyBox.decoys.includes(exposing)),
+        `some target runs a ${exposing} decoy`,
+      ).toBe(true);
+    }
+  });
+
+  it('draws the same network for a number every time, on streams of its own', () => {
+    // Captured from the generator: one contract per machine.
+    expect(
+      [5, 9, 13, 48].map((missionNumber) => md5(JSON.stringify(missionShape(missionNumber)))),
+    ).toEqual([
+      '92d68227e72f1193b6fc072d61b8d359',
+      '2bb9658639354487f5c8f5b526ef74e9',
+      '9c352317e156e3c46110397fbb0b2cbc',
+      'd70d82f4dccfbdf9436b6efc10e7fb82',
+    ]);
+  });
+
+  it('asks for a public port the router neither listens on nor forwards', () => {
+    for (const shape of portforwardShapes) {
+      const { publicPort } = portforwardJob(shape.missionNumber);
+      const routerFs = buildApGatewayBaseFs(missionEssid(shape.missionNumber));
+
+      expect(
+        machineServing({ routerFs, port: publicPort }),
+        `contract ${shape.missionNumber}`,
+      ).toEqual({ kind: 'none' });
+    }
+  });
+
+  it("gives the router a crackable admin, the hydra route, and every other kind's router a shut one", () => {
+    for (const shape of ALL_SAMPLE_SHAPES) {
+      const label = `${shape.kind} contract ${shape.missionNumber}`;
+      if (shape.kind === 'portforward') {
+        expect(shape.routerRoute, label).toBe('hydra');
+        expect(UNCRACKABLE_HASHES, label).not.toContain(shape.gatewayAdminHash);
+      } else {
+        expect(shape.routerRoute, label).toBeNull();
+        expect(SHUT_HASHES, label).toContain(shape.gatewayAdminHash);
+      }
+    }
+  });
+
+  it('keeps everything else on the router safe, so the admin is the only way in', () => {
+    for (const shape of portforwardShapes) {
+      for (const severity of pinnedSeverities(shape.gatewayVersions)) {
+        expect(['low', 'medium'], `gateway for ${shape.missionNumber}`).toContain(severity);
       }
     }
   });
