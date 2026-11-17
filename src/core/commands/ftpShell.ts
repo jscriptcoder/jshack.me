@@ -84,10 +84,17 @@ const listThrough = async (
   return ls.execute({ ...env, fs: binding.fs }, bound.positional, bound.flags);
 };
 
+/** What landing a file answers: the write's own result, or the refusal `land` makes
+ *  before writing anything. */
+type Landed = PatchResult | { readonly ok: false; readonly error: 'is_directory' };
+
 /** Land `content` at `path` on the machine `into` addresses, marking a row this write
  *  INVENTED so a later `rm` deletes it, while an overwrite omits the flag and leaves
  *  the row's own answer alone — otherwise removing a file that arrived over a base-FS
  *  one would bring the original back.
+ *
+ *  A directory is refused rather than written over: the file would stand where the
+ *  directory stood, and everything beneath it would be gone.
  *
  *  Shared by both directions because the rule belongs to the JOURNAL, not to which
  *  machine is receiving: the same question is asked of the origin when a file is taken
@@ -96,10 +103,17 @@ const land = async (
   into: { readonly fs: FsView; readonly write: PatchApi['write'] },
   path: AbsPath,
   content: string,
-): Promise<PatchResult> =>
-  into.fs.stat(path) === null
-    ? into.write(path, content, { isNew: true })
-    : into.write(path, content);
+): Promise<Landed> => {
+  const standing = into.fs.stat(path);
+  if (standing === null) return into.write(path, content, { isNew: true });
+  if (standing.kind === 'directory') return { ok: false, error: 'is_directory' };
+  return into.write(path, content);
+};
+
+/** How a refused landing reads on the player's own machine, where it is the client's
+ *  own answer. */
+const landingRefusal = (error: Extract<Landed, { readonly ok: false }>['error']): string =>
+  error === 'is_directory' ? 'Is a directory' : PATCH_ERROR_REASON[error];
 
 /** Copy one file off the remote machine onto the origin. The remote read is the
  *  session's, at the tier the credential bought; the origin write is the player's
@@ -121,7 +135,7 @@ const download = async (
   const written = await land({ fs: env.fs, write: env.patches.write }, localPath, read.content);
   // A refused write on the player's OWN machine speaks the client's plain voice, not a
   // numbered response — the far side never heard about it.
-  if (!written.ok) return failure(`local: ${localPath}: ${PATCH_ERROR_REASON[written.error]}`);
+  if (!written.ok) return failure(`local: ${localPath}: ${landingRefusal(written.error)}`);
 
   // Only a completed transfer is recorded. A download line for a file the player
   // does not hold would be a false entry in someone else's evidence, and nothing
@@ -155,11 +169,14 @@ const upload = async (
   const written = await land({ fs: env.ftp.fs, write: env.ftp.write }, remotePath, read.content);
   // One answer for every refusal the far side can give. A tier that cannot write here
   // and a session that has gone are the same 403 by the time it reaches us, and
-  // naming them apart would be a guess dressed as a diagnosis. A file too big to send
-  // is not the far side's answer at all — it never left — so it says so instead.
+  // naming them apart would be a guess dressed as a diagnosis. A file too big to send,
+  // or a directory in its way, is not the far side's answer at all — it never left —
+  // so it says so instead.
   if (!written.ok) {
     const reason =
-      written.error === 'too_large' ? PATCH_ERROR_REASON.too_large : 'Permission denied';
+      written.error === 'too_large' || written.error === 'is_directory'
+        ? landingRefusal(written.error)
+        : 'Permission denied';
     return failure(`553 Could not create file: ${remotePath}: ${reason}`);
   }
 

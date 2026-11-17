@@ -218,13 +218,27 @@ const writeRefusal = (
  *  default it would take the login's instead, and a file carried in as root would be
  *  root's alone — unreadable to the account that carried it. The other edge is the
  *  player's to learn: a mode that leaves out the login's tier leaves that login unable
- *  to read its own copy. */
+ *  to read its own copy.
+ *
+ *  A destination that names a directory takes the file in under the name it wore at
+ *  home, as the download direction already does. Written to the directory's own path,
+ *  the file would stand where the directory stood — an account's whole home replaced by
+ *  one file. Only the target can say what the path is, so the transfer asks it first,
+ *  and a round-trip that never answered writes nothing rather than guess. */
 const carry = async (
   env: CommandEnv,
   session: Session,
-  destination: AbsPath,
+  named: AbsPath,
   source: Extract<Source, { readonly ok: true }>,
 ): Promise<Transfer> => {
+  const standing = await env.scp.read(session, named);
+  if (!standing.ok && standing.error === 'network_error') return refused(UNREACHABLE);
+  // The look was a round-trip, so Ctrl-C may have landed during it; nothing has moved yet.
+  if (env.signal.aborted) return INTERRUPTED;
+  const destination =
+    !standing.ok && standing.error === 'is_directory'
+      ? resolveAbsPath(named, basename(source.path))
+      : named;
   const written = await env.scp.write(session, destination, source.content, {
     permissions: source.permissions,
   });
@@ -740,7 +754,8 @@ export const scp: Command = {
       'Copy one file from the machine you are standing on to a remote host, using an ' +
       'account on that host. Prompts for the password, transfers the file, and hands ' +
       'the shell straight back — there is no prompt to leave. Use "-p" when the host ' +
-      'serves ssh on a non-standard port. The destination directory must already ' +
+      'serves ssh on a non-standard port. A destination that names a directory takes the ' +
+      'file in under its own name. The destination directory must already ' +
       'exist; create it with "mkdir -p" first if it does not. Run inside a remote ' +
       'shell, the transfer travels from that box over the network you are on there: it ' +
       'reaches what that box reaches, and the host records that box’s address. ' +

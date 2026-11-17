@@ -593,6 +593,80 @@ describe('scp', () => {
     expect(write.mock.calls[0]![1]).toBe('/root/list.txt');
   });
 
+  it('carries a file into a remote directory under the name it wore at home', async () => {
+    const { sshHost } = pickHosts();
+    const read = vi.fn<NonNullable<EnvOver['read']>>(async () => ({
+      ok: false,
+      error: 'is_directory',
+    }));
+    const write = vi.fn<NonNullable<EnvOver['write']>>(async () => ({ ok: true }));
+    const env = scpEnv({ read, write });
+
+    const { lines, exitCode } = await drain(
+      await scp.execute(env, [SOURCE, `pi@${sshHost.ip}:/home/pi`], new Map()),
+    );
+
+    // Written to the directory's own path, the file would stand where the directory
+    // stood and the account's home would be gone.
+    expect(read.mock.calls[0]![1]).toBe('/home/pi');
+    expect(write.mock.calls[0]![1]).toBe('/home/pi/passwords.txt');
+    expect(lines.at(-1)).toBe(`passwords.txt   100%  ${WORDS.length} bytes`);
+    expect(exitCode).toBe(0);
+  });
+
+  it('carries a file to a remote name nothing stands at yet as that name', async () => {
+    const { sshHost } = pickHosts();
+    const write = vi.fn<NonNullable<EnvOver['write']>>(async () => ({ ok: true }));
+    const env = scpEnv({
+      read: async () => ({ ok: false, error: 'not_found' }),
+      write,
+    });
+
+    await drain(await scp.execute(env, upload(sshHost, '/root/list.txt'), new Map()));
+
+    expect(write.mock.calls[0]![1]).toBe('/root/list.txt');
+  });
+
+  it('says the round-trip failed and writes nothing when it cannot see what the destination is', async () => {
+    const { sshHost } = pickHosts();
+    const write = vi.fn<NonNullable<EnvOver['write']>>(async () => ({ ok: true }));
+    const end = vi.fn<(sessionId: string) => void>();
+    const env = scpEnv({ read: async () => ({ ok: false, error: 'network_error' }), write, end });
+
+    const { lines, exitCode } = await drain(
+      await scp.execute(env, upload(sshHost, '/home/pi'), new Map()),
+    );
+
+    // Guessing would put the file at a path that may be a directory, which is the one
+    // write that destroys what it lands on.
+    expect(lines.at(-1)).toBe('Connection closed by remote host.');
+    expect(exitCode).toBe(1);
+    expect(write).not.toHaveBeenCalled();
+    expect(end).toHaveBeenCalledTimes(1);
+  });
+
+  it('writes nothing when interrupted while it was looking at the destination', async () => {
+    const { sshHost } = pickHosts();
+    const controller = new AbortController();
+    const write = vi.fn<NonNullable<EnvOver['write']>>(async () => ({ ok: true }));
+    const env = scpEnv({
+      signal: controller.signal,
+      read: async () => {
+        controller.abort();
+        return { ok: false, error: 'is_directory' };
+      },
+      write,
+    });
+
+    const { lines, exitCode } = await drain(
+      await scp.execute(env, upload(sshHost, '/home/pi'), new Map()),
+    );
+
+    expect(exitCode).toBe(130);
+    expect(lines).not.toContain(`passwords.txt   100%  ${WORDS.length} bytes`);
+    expect(write).not.toHaveBeenCalled();
+  });
+
   it('says the round-trip failed rather than blaming the tier when a carried file never arrives', async () => {
     const { sshHost } = pickHosts();
     const end = vi.fn<(sessionId: string) => void>();
