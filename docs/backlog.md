@@ -61,8 +61,9 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   since v0.457.0, one record changed or erased in one of eight settings ("Tamper jobs"), and a
   fourth since v0.461.0, one file brought back from the target and mailed to the client as an
   attachment, one of six items since v0.462.0 ("File jobs"), and a fifth since v0.464.0, a
-  listener left on one of the target's machines on a port the client names ("Backdoor jobs").
-  Left for later:
+  listener left on one of the target's machines on a port the client names ("Backdoor jobs"),
+  and a sixth since v0.465.0, the client's own file put at a path on one of the target's
+  machines, one of seven items since v0.466.0 ("Infiltrate jobs"). Left for later:
   - **Believable filler behind the doors.** A real door and a decoy are both the stock build (the
     `It works!` page, an empty `pub`, a `netops@corp.local` contact), which is what keeps them
     alike. A company homepage, mundane files in `pub` or a business contact would make the network
@@ -95,8 +96,11 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
     white-hat mirror, **an implant to find and kill** that someone else left (legacy's `malware`).
   - **Infiltrate twists**, set aside in the infiltrate grill (2026-11-16): **a planted file that
     does something** (an executable or script the box then runs), which needs the game to give a
-    planted binary an effect; **a directory to hunt for**, the briefing naming only the file and
-    its keepers; and **a client that resends its file** on request.
+    planted binary an effect. The boot script (v0.466.0) is that item as story only: a script in
+    `/etc/init.d` the client checks byte for byte and nothing runs. Next steps, set aside on
+    2026-11-17: the script shown started on the target's next boot (`systemctl`, `ps`), then a
+    script that really runs. Also set aside: **a directory to hunt for**, the briefing naming only
+    the file and its keepers; and **a client that resends its file** on request.
   - **Recognition for completed jobs**, the other half of a mission reward; completions are only
     in `hireme_missions` today.
   - **Places posting vacancies** that say how they run (the old `hireit.io` idea), and a second,

@@ -579,6 +579,26 @@ run matched on round 9.
 | 6 | At home: `mail read <n>`, then `mail save <n>` | The read ends `[attachment: <name>, <size> bytes]`. `mail save` prints nothing and writes `./<name>`, `-rwxrw----`, the same as any new file (`echo hi > x` gets it too) |
 | 7 | `mail reply <briefing n> -A <name>`, caret to the top, type the wallet address, `^O`, `close-nano.sh` | "File received. §<pay> sent to jsc…. Pleasure doing business." and `wallet balance` shows the pay. The attachment's name does not matter, only its bytes |
 
+### Then: an infiltrate job, the client's file slipped onto the target, to a payout
+
+Verified 2026-11-17 (v0.466.0), the infiltrate-jobs close-out: a single-hop boot script paid
+§1,700 and a two-hop signed contract paid §3,450. A sixth of the contracts are infiltrate jobs;
+the board names one `infiltrate a <item>` (`an internal <item>` on two-hop), one of seven items
+(the file job's six and a boot script). The briefing names the whole path and carries the
+client's file. Turn the board over with a script, as for a file job, matching
+`missionShape(n).kind === 'infiltrate'` with `keyBox.route` (and `frontBox.route`) `hydra`, and
+`missionFileItem(n).noun` for an item. Write both roots to a scratch file. A single-hop boot script
+on hydra matched on round 59, a two-hop hydra/hydra job on round 69.
+
+| # | Command | Trap |
+| --- | --- | --- |
+| 1 | `curl -d "offer=<ref>" http://<board>/accept`, then `mail read <n>` | The read ends `[attachment: <name>, <size> bytes]`: the client's file, sent once. Lose it and the job can only be dropped |
+| 2 | `mail reply <briefing n>` with the wallet, before anything | "Our file is not at <path>. No file in place, no money." and the job stays open: a free check of the miss path |
+| 3 | `mail save <briefing n>` | Writes `./<name>` at home, silently. A boot script has no extension (`backup-sync`) |
+| 4 | `scp -p 2222 <name> root@<address>:<path>`, then the target's root password | **The port flag is lower-case `-p`**, as `ssh` takes it here (real `scp` uses `-P`). The directory already exists, holding the company's own copy, root-only; scp writes over it and prints `100%  <size> bytes` |
+| 5 | Two-hop: `scp -p 2222 <name> root@<address>:/root/<name>` (the front box's password), then `ssh root@<address> -p 2222`, `ifconfig`, and `scp /root/<name> root@192.168.<x>.<octet>:<path>` (the target's password) | The target's octet is `missionShape(n).keyBox.octet`, so no `nmap` is needed on the front box. A file left on the front box at the path is a miss |
+| 6 | `exit` on two-hop, wait for the home prompt, then `mail reply <briefing n>` with the wallet | "It's in place. §<pay> sent to jsc…. Pleasure doing business."; a later mail gets "That job is already closed." |
+
 ### Then: a backdoor job, a listener left on the target, to a payout
 
 Verified 2026-11-16 (v0.464.0), the backdoor-jobs close-out: a single-hop CCTV recorder paid

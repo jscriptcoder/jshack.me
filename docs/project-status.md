@@ -1679,7 +1679,32 @@ agreed order:
     door-access controller was reached through `sternco-web`, found as `sternco-access` by a sweep
     of the inside network, given a listener on 1337 the same way, and paid §2,100. No defect.
     Announced on valleynews.io `/dev` (story 21). The plan was retired on close-out.
-    **Pick up here (2026-11-16):** the owner's choice from `backlog.md`.
+51. ✅ **Infiltrate jobs: a contract that asks for a file slipped onto a machine (v0.465.0–v0.466.0,
+    PRs #777 and #778, merged 2026-11-16 and 2026-11-17).** Two slices; as-built: "Infiltrate jobs"
+    in [`missions-architecture.md`](./missions-architecture.md). A sixth of the contracts are now
+    infiltrate jobs: each older kind gave up a thirtieth of the kind draw at one edge, so no number
+    changed between older kinds. The target is the file job's (`<stem>-files`, the key box's slot)
+    holding the company's own copy of the item at a path, root-only. The briefing carries the
+    client's copy as an attachment, a new pair of `hireme_accept` arguments
+    (`20261116000000_hireme_accept_attachment.sql`, on jshack-dev and jshack-prod), and an accept
+    with the mission secret unset fails whole. The client reads the target on every mail and pays
+    the key job's pay once its file, anyone's placing, is at the path byte for byte; every miss, a
+    bricked target and the front box included, gets "Our file is not at <path>. No file in place,
+    no money." Slice 1 shipped the firmware image; slice 2 drew one of seven items (the file job's
+    six and a **boot script**, the virus the owner asked for: the company's SysV init script with one
+    line more that runs the client's program, story only), with 28 infiltrate pitches. Evidence:
+    unit tests (10,869, then 10,882), `testMissionInfiltrate` 15/15 then 21/21 and every other
+    mission and mail wire-check green; mutation 334 killed / 9 survived / 2 no coverage on slice 1
+    (the focused rerun left 2 equivalents), 118/118 killed on slice 2 after the boot script's text
+    was pinned; 11,859 contracts byte-identical to `main` outside the infiltrate item.
+    **Close-out (2026-11-17, v0.466.0):** one browser run on a fresh player on COURTHOUSE-WIFI in
+    Kingsford, the board turned over by a script. A single-hop boot script (`infiltrate a boot
+    script`, §1,700) was mailed first and told "Our file is not at /etc/rc.d/init.d/backup-sync";
+    `mail save` wrote the 429-byte script with the client's extra line, `scp -p 2222` carried it
+    over the company's own, and the next mail paid §1,700. A two-hop signed contract (§3,450) was
+    carried to `/root` on `lumen-web` over `:2222`, then from there by `scp` to the inside target's
+    LAN address, and paid. No defect. The plan was retired on close-out.
+    **Pick up here (2026-11-17):** the owner's choice from `backlog.md`.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
