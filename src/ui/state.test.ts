@@ -852,11 +852,19 @@ describe('the tree of a machine across a machine change', () => {
     const written: Record<string, unknown>[] = [];
     // The hop as the server holds it. `afterNextServe` runs once the next tree has been
     // handed over, which is how a test changes the box in the middle of a line.
+    // `heldServe`, while set, keeps every tree answer waiting until it settles — the
+    // round-trip a slow connection stretches out.
     const hop: {
       journal: readonly Patch[];
       unreachable: boolean;
       afterNextServe: (() => void) | null;
-    } = { journal: [patchRow(REMOTE_FILE)], unreachable: false, afterNextServe: null };
+      heldServe: Promise<void> | null;
+    } = {
+      journal: [patchRow(REMOTE_FILE)],
+      unreachable: false,
+      afterNextServe: null,
+      heldServe: null,
+    };
     const json = (body: unknown) => ({ ok: true, status: 200, json: async () => body });
     vi.stubGlobal(
       'fetch',
@@ -867,6 +875,7 @@ describe('the tree of a machine across a machine change', () => {
         >;
         if (fields.action === 'listSessions') return json({ sessions: [hopSessionRow] });
         if (fields.action === 'resolveCrossPlayerFs') {
+          await hop.heldServe;
           if (hop.unreachable) return { ok: false, status: 500, json: async () => ({}) };
           const served = applyPatches(buildRemoteHostFs(ESSID, REMOTE_HOST), hop.journal);
           const changeTheBox = hop.afterNextServe;
@@ -939,6 +948,56 @@ describe('the tree of a machine across a machine change', () => {
 
     expect(listing).toContain(REMOTE_FILE);
     expect(listing).not.toContain(ABOVE_THE_TIER);
+  });
+
+  /** Hold the hop's next tree answers until the returned release is called. */
+  const holdServes = (hop: { heldServe: Promise<void> | null }): (() => Promise<void>) => {
+    let release = (): void => undefined;
+    hop.heldServe = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    return async () => {
+      hop.heldServe = null;
+      release();
+      await settle();
+    };
+  };
+
+  it('reads as busy from the moment a line is echoed, while it re-reads the box', async () => {
+    // Re-reading the box is a server round-trip. Were the shell idle through it, the
+    // empty prompt would come back under the echoed line and the busy bar would
+    // replace it only once the answer landed — a flicker as long as the latency.
+    const { state, hop } = await standOnTheHop();
+    const releaseServe = holdServes(hop);
+
+    state.setInput('ls /tmp');
+    const run = state.runInput();
+    await settle();
+
+    expect(state.scrollback().at(-1)?.content).toContain('ls /tmp');
+    expect(state.runningCommand()).toBe('ls');
+
+    await releaseServe();
+    await run;
+    expect(state.runningCommand()).toBeNull();
+  });
+
+  it('stops the line on Ctrl-C while it is still re-reading the box', async () => {
+    const { state, hop } = await standOnTheHop();
+    const releaseServe = holdServes(hop);
+
+    state.setInput('ls /tmp');
+    const run = state.runInput();
+    await settle();
+
+    expect(state.abortRunning()).toBe(true);
+    await releaseServe();
+    await run;
+
+    const output = state.scrollback().map((line) => line.content);
+    expect(output.at(-1)).toBe('^C');
+    expect(output.join('\n')).not.toContain(REMOTE_FILE);
+    expect(state.runningCommand()).toBeNull();
   });
 
   it('asks nobody for the journal of a machine on the player own network', async () => {
