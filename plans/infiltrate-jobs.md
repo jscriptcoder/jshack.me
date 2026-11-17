@@ -1,7 +1,8 @@
 # Plan: a contract that asks for a file slipped onto a machine
 
-**Status:** Grilled and planned 2026-11-16. Two slices. Next: slice 1's acceptance criteria to the
-owner, then RED.
+**Status:** Grilled and planned 2026-11-16. Slice 1 merged (#777, v0.465.0), its migration on
+jshack-dev and jshack-prod. Slice 2 grew a seventh item, a boot script (decisions 10–12,
+2026-11-17). Next: slice 2's criteria approved, then RED.
 
 A sixth kind of contract, the reverse of a file job. The client mails the player a file and wants
 it laid at a path on one of the target's machines; the client reads the box for it when the
@@ -112,6 +113,28 @@ contractor mails in, as a backdoor or sabotage client does. As-built context:
    briefing wording and directories, on code slice 1 built. Rejected: one PR (the SQL, the door and
    six items' content in one diff); three slices (a briefing that carries a file but pays nothing
    is half a story).
+
+### A seventh item (grilled at slice 2)
+
+10. **An infiltrate job may ask for a boot script, the virus the owner asked for (2026-11-17).**
+    A script laid in a folder the target's servers run when they start; the pitch says the
+    client's copy runs with them. It is story only, like every other item: nothing in the game
+    executes it, and the client checks its bytes at the path exactly as for the other six.
+    Rejected for now: the script shown started on the target's next boot (`systemctl`, `ps`), and
+    a script that really executes and does something, both new boot machinery; the latter stays
+    in the backlog's infiltrate twists.
+11. **The company's own boot script sits at the path, root-only, and the client's is a doctored
+    copy (2026-11-17)**, as decision 5 has it for every item: the same opening, its own bytes,
+    overwritten by the contractor, and an `ls` there confirms the place. Rejected: an empty
+    root-only directory the contractor adds a script to.
+12. **It is called `boot script` (2026-11-17)**: `infiltrate a boot script` on the board, "Their
+    admins keep a boot script. We want ours in its place." in the briefing, the virus told by the
+    pitch, as the board names every item plainly. Rejected: `startup script`; `virus`, which
+    tells the story on the board and breaks the briefing's keepers line.
+
+    Given, not grilled: only infiltrate jobs draw it (one in seven on `mission-file-item-<n>`),
+    because a file job drawing from seven would move every file job's item; and no box has
+    `/etc/init.d` today, so the job lays the directory as it lays `/opt/firmware`.
 
 ---
 
@@ -300,11 +323,40 @@ with anything else at that path gets "Our file is not at <path>. No file in plac
   what this slice built; `docs/email-architecture.md` notes that a briefing may carry a file.
 - v0.465.0 in `package.json` and `package-lock.json`.
 
-### Slice 2 — the other five items (v0.466.0)
+### Slice 2 — the other five items and a boot script (v0.466.0)
 
-**Value:** an infiltrate job asks for any of the six items, each with its flipped pitches, terms
-and briefing wording, at its own directories.
-**Class:** behavior change (content). Criteria to the owner once slice 1 merges.
+**Value:** an infiltrate job asks for any of seven items: the six a file job asks for, each with
+four flipped pitches, and a boot script the client's copy of which is a virus. Each keeps its own
+name, directories and format.
+**Class:** behavior change (content). **Branch:** `feat/infiltrate-items`.
+
+**Acceptance criteria**
+
+- An infiltrate number draws its item one in seven on `mission-file-item-<n>` from the six items
+  and the boot script, each about a seventh of the time. File jobs keep their item, name, path and
+  bytes exactly (still one in six, never a boot script). An infiltrate number keeps its kind,
+  shape, terms and pay; only its item and file change.
+- Each of the seven items carries four infiltrate pitches, 28 in all, shared with no other item
+  and no file-job pitch; the briefing opens with one of its item's.
+- The board reads `infiltrate a <noun>` (`an internal` on two-hop), the briefing "Their <keepers>
+  keep a <noun>. We want ours in its place.", and `show` `Kind: infiltrate, <noun>`, for all
+  seven.
+- For every item the client's file has the genuine file's name and path, opens the same way (a
+  header, or a jpeg's Exif or a pdf's Info), is never the genuine file, and is at most 8,000
+  characters a copy carries unchanged.
+- **The boot script:** noun `boot script`, keepers `admins`; named for a housekeeping service
+  (`backup-sync`, `logrotate-sync`, …) in `/etc/init.d` or `/etc/rc.d/init.d`, root-only, the
+  directory laid by the job. The company's copy is a readable shell script: `#!/bin/sh`, an
+  `### BEGIN INIT INFO` block naming the service, and the service's housekeeping lines. The
+  client's copy is the same script with one line more that starts the client's program, its path
+  and token drawn from the secret, so nobody writes it without the briefing.
+- Every other kind offers, briefs, completes, refuses and closes exactly as before.
+
+**Gates:** typecheck, lint, full suite, `build` with `checkBudgets` (raise the ceiling for the
+pitches); `testMissionInfiltrate.ts` reads the drawn item instead of naming the firmware image,
+and adds a boot-script contract and a jpeg- or pdf-item contract worked through to the payout,
+with every other mission wire-check green; the mutation gate on the changed lines;
+`docs/missions-architecture.md` lists the seven items; v0.466.0.
 
 ### Close-out
 
