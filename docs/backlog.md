@@ -101,6 +101,15 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
     2026-11-17: the script shown started on the target's next boot (`systemctl`, `ps`), then a
     script that really runs. Also set aside: **a directory to hunt for**, the briefing naming only
     the file and its keepers; and **a client that resends its file** on request.
+  - **Portforward twists**, set aside in the portforward grill (2026-11-17): **a chained two-hop
+    portforward**, the target behind an inner router on a second layer, two routers rooted and two
+    forwards written, at two-hop pay. It needs two things that do not exist: a public forward that
+    lands on a router following that router's own forwards (`resolvePublicTarget` stops at the
+    first box; only `resolveInnerGatewayTarget` walks a chain, and only from inside a LAN), and a
+    contract network with a second layer (deep chains, above). World first, so a player could also
+    expose a deep box on their own network, then the contract; its own grill. Also **an snmp
+    router route** (a read-write community and `snmpset`, no root) and **an inside leak** (the
+    router's admin in a backup config on the target).
   - **Recognition for completed jobs**, the other half of a mission reward; completions are only
     in `hireme_missions` today.
   - **Places posting vacancies** that say how they run (the old `hireit.io` idea), and a second,
