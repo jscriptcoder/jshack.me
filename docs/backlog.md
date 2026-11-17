@@ -175,6 +175,19 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
     make the world feel alive and give missions a channel. The third built on the shipped
     wallet and is done (2026-10-16), the forum is done (2026-10-20), and news remains.
 
+- **`ssh` and `scp` remember a login — not yet grilled (2026-11-17).** Noticed while playing: after
+  `ssh` into a box on port 2222 and back, the second `ssh` asked for the password again. The legacy
+  app skipped it: the first successful `ssh`/`scp` saved `user@ip:fingerprint` to `~/.ssh_keys` on
+  the machine you connected from, with fingerprint `md5(user:ip:passwordHash)`, so a changed
+  password voided it and a hand-written line was refused
+  ([`legacy/architecture.md`](./legacy/architecture.md), "SSH key persistence"). The rewrite never
+  carried it over: every path in `ssh.ts` prompts. Not a client-only change any more, since the
+  server checks every login, so it accepts the saved entry in place of the password; that is a
+  server change, a wire-check, and tests for `ssh` and `scp` both. To grill: keep the legacy
+  `~/.ssh_keys`, or something closer to `ssh-keygen` + `authorized_keys`; and whether the file is a
+  prize, since a player who takes your box can read your saved logins and use them onward, which
+  fits players learning the hard way.
+
 - **RESOLVED 2026-10-30 (v0.437.1) — two system log lines landing together could lose one.**
   System lines now land through the `append_machine_log` database function, which locks the log's
   path and appends in one transaction, and the journal stamps `updated_at` with
