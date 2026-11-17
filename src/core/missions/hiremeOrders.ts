@@ -23,6 +23,7 @@ import {
 import { FRONT_BOX_SUFFIX, GATEWAY_SUFFIX } from './pools.js';
 import { backdoorJob, keyBoxSuffix, sabotageRole } from './targetRoles.js';
 import { portforwardJob } from './portforwardJob.js';
+import { firmwarePackageOf } from '../packages/packageVersions.js';
 import { EMAILIT_DOMAIN } from '../generation/fixedSites.js';
 import { missionKeyFilePath, missionLeakPath, missionLeakWord } from './missionLeak.js';
 import { missionKey, missionPassphrase } from './missionSecret.js';
@@ -115,6 +116,14 @@ const storageDetail = (missionNumber: number, secret: string): string => {
   return storage === 'database' ? 'database, table api_keys' : 'file';
 };
 
+/** How a portforward job's router falls: `hydra`, or `msfconsole` with the vendor and the
+ *  firmware release whose hole it falls through. */
+const routerLine = (missionNumber: number): string => {
+  const { routerVendor, gatewayVersions } = missionShape(missionNumber);
+  if (routerVendor === null) return 'hydra';
+  return `msfconsole, ${routerVendor} ${gatewayVersions[firmwarePackageOf(routerVendor)]}`;
+};
+
 /** What a tamper, sabotage, file, backdoor, infiltrate or portforward job is, as the report names
  *  it: its kind, then a tamper job's setting and action, the machine a sabotage job asks taken
  *  down, the item a file job asks brought back, the machine a backdoor job wants a way into, the
@@ -138,7 +147,7 @@ const kindLine = (missionNumber: number, kind: MissionKind): readonly string[] =
     const { machine, publicPort } = portforwardJob(missionNumber);
     return [
       `  Kind:     portforward, ${machine.noun}, :${publicPort} -> :${machine.insidePort}`,
-      '  Router:   hydra',
+      `  Router:   ${routerLine(missionNumber)}`,
     ];
   }
   return [];

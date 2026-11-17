@@ -191,6 +191,9 @@ const buildGatewayBaseFs = (
      *  from a credential: the vendor is what the box IS, and deriving it from a
      *  password would move it whenever that password moved. */
     readonly firmwareSeed: string;
+    /** A vendor chosen for the box, which wins over the seed's draw: a router whose way in
+     *  is its firmware runs a vendor with a hole that lands a root shell. */
+    readonly firmwareVendor?: FirmwareVendor;
   },
   configEntries: Record<string, FileNode>,
   /** Which gateway this is, so it can know who ran it. */
@@ -278,7 +281,7 @@ const buildGatewayBaseFs = (
     grants: network.grants,
     hasSnmp: identity.hasSnmp,
   });
-  const firmwareVendor = pickFirmwareVendor(identity.firmwareSeed);
+  const firmwareVendor = identity.firmwareVendor ?? pickFirmwareVendor(identity.firmwareSeed);
   const denies = aclDeniesIn(configEntries);
   const backups = gatewayBackups({
     machineId: gateway.machineId,
@@ -367,6 +370,9 @@ export const buildRouterBaseFsFromIdentity = (
      *  from a credential: the vendor is what the box IS, and deriving it from a
      *  password would move it whenever that password moved. */
     readonly firmwareSeed: string;
+    /** A vendor chosen for the box, which wins over the seed's draw: a router whose way in
+     *  is its firmware runs a vendor with a hole that lands a root shell. */
+    readonly firmwareVendor?: FirmwareVendor;
   },
   site: { readonly essid: string; readonly machineId: string },
   network?: GatewayNetworkEntries,
@@ -419,6 +425,7 @@ const missionGatewayFs = (essid: string, missionNumber: number): Directory => {
       adminPwHash: shape.gatewayAdminHash,
       snmpCommunityHash: seedApGatewayCommunityHash(essid),
       firmwareSeed: `ap-gw-${essid}`,
+      ...(shape.routerVendor === null ? {} : { firmwareVendor: shape.routerVendor }),
       hasSsh: true,
       hasSnmp: false,
     },

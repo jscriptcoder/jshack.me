@@ -1,7 +1,7 @@
 # Plan: a contract that asks for a port forwarded into a machine
 
-**Status:** Grilled and planned 2026-11-17. Next: slice 1's criteria to the owner, then
-`feat/portforward-jobs`.
+**Status:** Slice 1 merged (v0.467.0, #780). Slice 2 on `feat/portforward-msfconsole`
+(v0.468.0). Then the close-out.
 
 A seventh kind of contract, and the first won on the router alone. The client wants one of the
 target's inside services reachable from outside, on a public port the briefing names; the player
@@ -113,9 +113,14 @@ the contractor mails in, as a backdoor client reads the target. As-built context
      hydra, and an `apt upgrade` flashes the firmware, which closes msfconsole and reboots the
      router. A rival can delete the forward. It is "whoever roots a box can close its route", as
      everywhere.
-   - **Nothing else on the router climbs.** sshd and the rest stay on safe releases; on the
-     msfconsole route only the firmware's critical hole lands root. The 2,000-number shape test
-     covers the router as it covers the key box.
+   - **Nothing else on the router is rated above medium.** sshd and the rest stay on safe
+     releases; on the msfconsole route only the firmware's critical-or-high hole does. The
+     2,000-number shape test covers the router as it covers the key box. **Amended 2026-11-17,
+     slice 2:** a router holds only root, so sshd's safe hole lands whatever it grants on root,
+     and about one portforward router in three falls to `msfconsole <address> 22` through sshd
+     itself (a password reset, a listener or a script). The owner accepted it as how every router
+     in the world falls: it only adds a way in, the drawn route stays open, and a listener never
+     opens on a port a job names.
    - **A firmware route release exists by `MISSION_ROUTE_DAY` (111):** a hole that lands a root
      shell, published on or before that day (item 9 found it critical or high, on four vendors).
      A test walks the firmware timelines as one already walks the service packages'.

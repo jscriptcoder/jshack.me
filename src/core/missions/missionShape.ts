@@ -61,7 +61,12 @@ import { createPrng, type Prng } from '../generation/prng.js';
 import { packageTimeline } from '../cve/packageTimeline.js';
 import { SYSTEM_LIBRARIES } from '../generation/libraries.js';
 import { drawPasswordHash, CRACK_CHANCE, UNCRACKABLE_HASHES } from '../generation/passwordPools.js';
-import { FIRMWARE_VENDORS, firmwarePackageOf } from '../packages/packageVersions.js';
+import {
+  FIRMWARE_VENDORS,
+  firmwarePackageOf,
+  type FirmwareVendor,
+} from '../packages/packageVersions.js';
+import { firmwareExploitOutcome } from '../cve/firmwareExploit.js';
 import { LEAKABLE_HASHES, SHUT_HASHES } from './leakablePool.js';
 import { TARGET_STEMS } from './pools.js';
 import { portforwardJob, type PortforwardService } from './portforwardJob.js';
@@ -73,6 +78,9 @@ export const MISSION_ROUTE_DAY = 111;
 /** Each route equally likely. Adding one re-rolls every contract's route, though never
  *  its address, key or key path. */
 const ROUTES = ['hydra', 'msfconsole', 'web', 'ftp', 'mysql', 'snmp'] as const;
+
+/** The ways a portforward job's router falls, each equally likely. */
+const ROUTER_ROUTES = ['hydra', 'msfconsole'] as const;
 
 export type MissionRoute = (typeof ROUTES)[number];
 
@@ -258,9 +266,13 @@ export type MissionShape = {
    *  so the gateway is a box the route passes through rather than one to break into, except on
    *  a portforward job, where it is crackable: the router is the job. */
   readonly gatewayAdminHash: string;
-  /** How the gateway falls on a portforward job: `hydra`, its admin swept on its own `:22`.
-   *  Null on every other kind, whose gateway does not fall. */
-  readonly routerRoute: 'hydra' | null;
+  /** How the gateway falls on a portforward job, half and half: `hydra`, its admin swept on
+   *  its own `:22`, or `msfconsole`, its firmware's hole fired at that port. Null on every
+   *  other kind, whose gateway does not fall. */
+  readonly routerRoute: 'hydra' | 'msfconsole' | null;
+  /** The vendor a gateway on the msfconsole route runs, one with a firmware release whose hole
+   *  lands a root shell. Null on every other gateway, which runs whatever its builder draws. */
+  readonly routerVendor: FirmwareVendor | null;
   /** Versions to pin on the gateway, package to version. Every firmware vendor is pinned
    *  safe, so whichever the gateway builder draws sits on a guest-at-most release. */
   readonly gatewayVersions: Readonly<Record<string, string>>;
@@ -378,6 +390,27 @@ const criticalRouteVersion = (key: string): string | undefined => {
     (release) => release.severity === 'critical' && release.publishedAt <= MISSION_ROUTE_DAY,
   );
   return critical[critical.length - 1]?.version;
+};
+
+/** The vendors with a firmware release, published by the cutoff, whose hole is `critical` or
+ *  `high` and lands a full shell: on a router, which holds only root, a root shell. */
+const ROOT_SHELL_VENDORS: readonly FirmwareVendor[] = ['cisco', 'openwrt', 'pfsense', 'ubiquiti'];
+
+/** The version of `vendor`'s newest firmware release whose hole is `critical` or `high` and,
+ *  live by the cutoff, lands a full shell — the msfconsole router's release. A hole not yet
+ *  published by then has no outcome, so the timeline's one release past the cutoff never
+ *  qualifies. Throws when there is none: a build-time invariant, caught by the timeline test. */
+const rootShellFirmwareVersion = (vendor: FirmwareVendor): string => {
+  const key = firmwarePackageOf(vendor);
+  const rootShells = packageTimeline(key, MISSION_ROUTE_DAY).filter(
+    (release) =>
+      (release.severity === 'critical' || release.severity === 'high') &&
+      firmwareExploitOutcome(new Map([[key, release.version]]), MISSION_ROUTE_DAY)?.effect ===
+        'shell_full',
+  );
+  const newest = rootShells[rootShells.length - 1];
+  if (newest === undefined) throw new Error(`no root-shell firmware for ${vendor}`);
+  return newest.version;
 };
 
 /** A safe release version of `key`, drawn deterministically. Throws when a package the
@@ -613,11 +646,13 @@ const drawFrontBox = (
 const pointedAt = (forwards: readonly PortPair[], boxOctet: number): readonly MissionForward[] =>
   forwards.map(({ publicPort, internalPort }) => ({ publicPort, boxOctet, internalPort }));
 
-/** A portforward job's network: the router, which falls to a crackable admin, and right behind
- *  it the machine the client wants reached, sealed. The machine runs the one service the job
- *  names on a safe release behind a shut login, keeps nothing and has no route, and the router
+/** A portforward job's network: the router, which falls to its own route, and right behind it
+ *  the machine the client wants reached, sealed. The machine runs the one service the job names
+ *  on a safe release behind a shut login, keeps nothing and has no route, and the router
  *  forwards only decoys onto it, none of the kind that would already reach that service. The
- *  machine and the admin are each drawn on a stream of their own. */
+ *  router falls half the time to a crackable admin (`hydra`) and half the time, its admin shut,
+ *  to a firmware release whose hole lands a root shell (`msfconsole`), on a vendor that has one.
+ *  The machine and the router's way in are each drawn on a stream of their own. */
 const portforwardShape = ({
   missionNumber,
   stem,
@@ -653,6 +688,9 @@ const portforwardShape = ({
     },
   };
   const entry = withDecoys(target, [], missionNumber, EXPOSING_DECOYS[service]);
+  const routerPrng = createPrng(`mission-router-${missionNumber}`);
+  const routerRoute = routerPrng.pick(ROUTER_ROUTES);
+  const routerVendor = routerRoute === 'msfconsole' ? routerPrng.pick(ROOT_SHELL_VENDORS) : null;
   return {
     missionNumber,
     kind: 'portforward',
@@ -660,9 +698,17 @@ const portforwardShape = ({
     storage: null,
     keyBox: entry.box,
     frontBox: null,
-    gatewayAdminHash: crackableHash(createPrng(`mission-router-${missionNumber}`)),
-    routerRoute: 'hydra',
-    gatewayVersions,
+    gatewayAdminHash:
+      routerRoute === 'hydra' ? crackableHash(routerPrng) : routerPrng.pick(SHUT_HASHES),
+    routerRoute,
+    routerVendor,
+    gatewayVersions:
+      routerVendor === null
+        ? gatewayVersions
+        : {
+            ...gatewayVersions,
+            [firmwarePackageOf(routerVendor)]: rootShellFirmwareVersion(routerVendor),
+          },
     forwards: pointedAt(entry.forwards, keyBoxOctet),
   };
 };
@@ -732,6 +778,7 @@ export const missionShape = (missionNumber: number): MissionShape => {
       frontBox: entry.box,
       gatewayAdminHash,
       routerRoute: null,
+      routerVendor: null,
       gatewayVersions,
       forwards: pointedAt(entry.forwards, entry.box.octet),
     };
@@ -751,6 +798,7 @@ export const missionShape = (missionNumber: number): MissionShape => {
     frontBox: null,
     gatewayAdminHash,
     routerRoute: null,
+    routerVendor: null,
     gatewayVersions,
     forwards: pointedAt(entry.forwards, keyBoxOctet),
   };
