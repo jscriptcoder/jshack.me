@@ -64,6 +64,7 @@ import { drawPasswordHash, CRACK_CHANCE, UNCRACKABLE_HASHES } from '../generatio
 import { FIRMWARE_VENDORS, firmwarePackageOf } from '../packages/packageVersions.js';
 import { LEAKABLE_HASHES, SHUT_HASHES } from './leakablePool.js';
 import { TARGET_STEMS } from './pools.js';
+import { portforwardJob, type PortforwardService } from './portforwardJob.js';
 
 /** The game day a route's hole must have published on or before: the day slice 1 ships.
  *  Fixed, never the live clock — moving it changes every existing contract's network. */
@@ -116,40 +117,55 @@ const TWO_HOP_SHARE = 1 / 3;
 
 /** What a contract asks for: a key the client wants brought back, a record on the box the
  *  client wants changed, the box itself taken down for good, a file on it brought back, a
- *  listener left on it, or the client's own file put on it. A tamper, sabotage, backdoor or
- *  infiltrate job is proved by the box itself when the contractor mails in, a file job by the
- *  file the mail carries. */
-export type MissionKind = 'key' | 'tamper' | 'sabotage' | 'file' | 'backdoor' | 'infiltrate';
+ *  listener left on it, the client's own file put on it, or a port on the gateway forwarded onto
+ *  it. A tamper, sabotage, backdoor or infiltrate job is proved by the box itself when the
+ *  contractor mails in, a portforward job by the gateway, a file job by the file the mail
+ *  carries. */
+export type MissionKind =
+  | 'key'
+  | 'tamper'
+  | 'sabotage'
+  | 'file'
+  | 'backdoor'
+  | 'infiltrate'
+  | 'portforward';
 
-/** Where the one draw on a contract's kind changes, in sixtieths. Each kind takes a sixth. Every
+/** Where the one draw on a contract's kind changes, in 420ths. Each kind takes a seventh. Every
  *  newer kind was carved from the edges of the ones before it, so a contract is the kind it was
  *  or has become the newer one, and none turned from one older kind into another: file jobs fill
  *  the gaps tamper, sabotage and key left as they shrank from thirds to quarters, backdoor jobs
- *  the twentieth each of the four gave up as they shrank to fifths, and infiltrate jobs the
- *  thirtieth each of the five gave up at the top of one piece as they shrank to sixths. A draw
- *  past the last cut, the top thirtieth, is an infiltrate job. */
+ *  the twentieth each of the four gave up as they shrank to fifths, infiltrate jobs the thirtieth
+ *  each of the five gave up at the top of one piece as they shrank to sixths, and portforward jobs
+ *  the forty-second each of the six gave up the same way as they shrank to sevenths. A draw past
+ *  the last cut, the top forty-second, is a portforward job. */
 const KIND_CUTS: readonly (readonly [below: number, kind: MissionKind])[] = [
-  [10, 'tamper'],
-  [12, 'infiltrate'],
-  [15, 'backdoor'],
-  [20, 'file'],
-  [30, 'sabotage'],
-  [32, 'infiltrate'],
-  [35, 'backdoor'],
-  [40, 'file'],
-  [42, 'infiltrate'],
-  [45, 'backdoor'],
-  [55, 'key'],
-  [57, 'infiltrate'],
-  [58, 'backdoor'],
+  [60, 'tamper'],
+  [70, 'portforward'],
+  [84, 'infiltrate'],
+  [95, 'backdoor'],
+  [105, 'portforward'],
+  [140, 'file'],
+  [200, 'sabotage'],
+  [210, 'portforward'],
+  [224, 'infiltrate'],
+  [245, 'backdoor'],
+  [270, 'file'],
+  [280, 'portforward'],
+  [294, 'infiltrate'],
+  [315, 'backdoor'],
+  [375, 'key'],
+  [385, 'portforward'],
+  [399, 'infiltrate'],
+  [406, 'backdoor'],
+  [410, 'infiltrate'],
 ];
 
 /** Whether a contract asks for a key, a changed record, a machine taken down, a file brought
- *  back, a listener left or a file slipped in. Drawn on a stream of its own, so a contract that
- *  keeps its kind keeps its network and its terms to the byte. */
+ *  back, a listener left, a file slipped in or a port opened onto a machine. Drawn on a stream of
+ *  its own, so a contract that keeps its kind keeps its network and its terms to the byte. */
 export const missionKind = (missionNumber: number): MissionKind => {
-  const sixtieths = createPrng(`mission-kind-${missionNumber}`).next() * 60;
-  return KIND_CUTS.find(([below]) => sixtieths < below)?.[1] ?? 'infiltrate';
+  const fourHundredTwentieths = createPrng(`mission-kind-${missionNumber}`).next() * 420;
+  return KIND_CUTS.find(([below]) => fourHundredTwentieths < below)?.[1] ?? 'portforward';
 };
 
 /** Where a contract's key box keeps what its job is about, each kind on a stream of its own. */
@@ -190,8 +206,9 @@ export type MissionDatabase = {
 export type MissionBox = {
   /** Its last octet on the contract's subnet. */
   readonly octet: number;
-  /** The one guaranteed way to root it. */
-  readonly route: MissionRoute;
+  /** The one guaranteed way to root it, or null on a portforward job's target, which nobody
+   *  roots: the job is the router's forward onto it. */
+  readonly route: MissionRoute | null;
   /** Its `root` password hash: crackable on the hydra route, one a file can leak on a leak
    *  route, and one that stays shut on the msfconsole route. */
   readonly rootHash: string;
@@ -201,6 +218,9 @@ export type MissionBox = {
   /** The hash of the read-write community: one a sweep finds on the snmp route, and one no
    *  sweep finds behind an snmp decoy. */
   readonly communityHash: string | null;
+  /** The hash of the password its cache answers to, on a portforward job's cache server, one
+   *  that stays shut. Null on every box that runs no cache. */
+  readonly storeHash: string | null;
   /** The services it runs: the route's service (on every route but hydra), then the database
    *  on a contract keeping its key in one, then the decoys' daemons, each already on its
    *  chosen release. */
@@ -234,10 +254,13 @@ export type MissionShape = {
    *  to a route of its own and holds nothing, and the key box is worked from a shell on it.
    *  Null on a single-hop contract. */
   readonly frontBox: MissionBox | null;
-  /** The gateway's `root` ("admin") password hash — always uncrackable and never one a
-   *  file can leak, so the gateway is a box the route passes through rather than one to
-   *  break into. */
+  /** The gateway's `root` ("admin") password hash — uncrackable and never one a file can leak,
+   *  so the gateway is a box the route passes through rather than one to break into, except on
+   *  a portforward job, where it is crackable: the router is the job. */
   readonly gatewayAdminHash: string;
+  /** How the gateway falls on a portforward job: `hydra`, its admin swept on its own `:22`.
+   *  Null on every other kind, whose gateway does not fall. */
+  readonly routerRoute: 'hydra' | null;
   /** Versions to pin on the gateway, package to version. Every firmware vendor is pinned
    *  safe, so whichever the gateway builder draws sits on a guest-at-most release. */
   readonly gatewayVersions: Readonly<Record<string, string>>;
@@ -284,6 +307,31 @@ const SNMP_AGENT: RouteCandidate = {
   package: 'snmp',
   program: 'snmpd',
   port: 161,
+};
+
+const CACHE_SERVER: RouteCandidate = {
+  service: 'redis',
+  package: 'redis',
+  program: 'redis-server',
+  port: 6379,
+};
+
+/** The daemon a portforward job's target runs for the service the client wants reached, or none
+ *  for ssh, whose sshd runs on every box. */
+const PORTFORWARD_SERVICES: Readonly<Record<PortforwardService, RouteCandidate | null>> = {
+  mysql: DATABASE_SERVER,
+  redis: CACHE_SERVER,
+  web: WEB_SERVER,
+  ssh: null,
+};
+
+/** The decoy whose forward would already reach the service a portforward job wants reached, and
+ *  so is never drawn on its target. None for redis, which no decoy is. */
+const EXPOSING_DECOYS: Readonly<Record<PortforwardService, MissionDecoy | null>> = {
+  mysql: 'mysql',
+  redis: null,
+  web: 'web',
+  ssh: 'ssh',
 };
 
 /** Only a service whose route release's hole lands a root shell: the gateway forwards just
@@ -472,17 +520,20 @@ const withInsideDecoys = (box: BareBox, missionNumber: number): MissionBox => {
 };
 
 /** The box the gateway forwards onto, with its decoys: doors filling its forwards to three or
- *  four, each running the real door's daemon. Drawn last on a stream of its own, so decoys
- *  moved nothing a contract already had. */
+ *  four, each running the real door's daemon, and never `barred`. Drawn last on a stream of its
+ *  own, so decoys moved nothing a contract already had. */
 const withDecoys = (
   box: BareBox,
   forwards: readonly PortPair[],
   missionNumber: number,
+  barred: MissionDecoy | null = null,
 ): { readonly box: MissionBox; readonly forwards: readonly PortPair[] } => {
   const decoyPrng = createPrng(`mission-decoys-${missionNumber}`);
   const forwardCount = decoyPrng.pick(FORWARD_COUNTS);
   const unforwarded = DECOY_KINDS.filter(
-    (decoy) => !forwards.some(({ publicPort }) => publicPort === decoyForward(decoy).publicPort),
+    (decoy) =>
+      decoy !== barred &&
+      !forwards.some(({ publicPort }) => publicPort === decoyForward(decoy).publicPort),
   );
   const decoys = decoyPrng.pickN(unforwarded, forwardCount - forwards.length);
   return {
@@ -515,8 +566,11 @@ const drawTopology = (
   const shapePrng = createPrng(`mission-shape-${missionNumber}`);
   const stem = shapePrng.pick(TARGET_STEMS);
   const keyBoxOctet = shapePrng.nextInt(2, 254);
-  // On a stream of its own, so a contract that stays single-hop keeps its network to the byte.
-  const twoHop = createPrng(`mission-template-${missionNumber}`).next() < TWO_HOP_SHARE;
+  // On a stream of its own, so a contract that stays single-hop keeps its network to the byte. A
+  // portforward job is never two-hop: the router is the job, and the target sits right behind it.
+  const twoHop =
+    createPrng(`mission-template-${missionNumber}`).next() < TWO_HOP_SHARE &&
+    missionKind(missionNumber) !== 'portforward';
   if (!twoHop) return { stem, keyBoxOctet, shapePrng, front: null };
   const prng = createPrng(`mission-front-${missionNumber}`);
   const octet = prng.pick(HOST_OCTETS.filter((candidate) => candidate !== keyBoxOctet));
@@ -547,6 +601,7 @@ const drawFrontBox = (
       rootHash: drawn.rootHash,
       database: drawn.database,
       communityHash: drawn.communityHash,
+      storeHash: null,
       services: drawn.services,
       versions: { ...baseVersions, ...drawn.versions },
     },
@@ -557,6 +612,60 @@ const drawFrontBox = (
 /** Forwards pointed at the box they reach. */
 const pointedAt = (forwards: readonly PortPair[], boxOctet: number): readonly MissionForward[] =>
   forwards.map(({ publicPort, internalPort }) => ({ publicPort, boxOctet, internalPort }));
+
+/** A portforward job's network: the router, which falls to a crackable admin, and right behind
+ *  it the machine the client wants reached, sealed. The machine runs the one service the job
+ *  names on a safe release behind a shut login, keeps nothing and has no route, and the router
+ *  forwards only decoys onto it, none of the kind that would already reach that service. The
+ *  machine and the admin are each drawn on a stream of their own. */
+const portforwardShape = ({
+  missionNumber,
+  stem,
+  keyBoxOctet,
+  keyBoxBase,
+  gatewayVersions,
+}: {
+  readonly missionNumber: number;
+  readonly stem: string;
+  readonly keyBoxOctet: number;
+  readonly keyBoxBase: Readonly<Record<string, string>>;
+  readonly gatewayVersions: Readonly<Record<string, string>>;
+}): MissionShape => {
+  const targetPrng = createPrng(`mission-portforward-target-${missionNumber}`);
+  const { service } = portforwardJob(missionNumber).machine;
+  const daemon = PORTFORWARD_SERVICES[service];
+  const running =
+    daemon === null ? [] : [{ ...daemon, version: safeVersionOf(daemon.package, targetPrng) }];
+  const target: BareBox = {
+    octet: keyBoxOctet,
+    route: null,
+    rootHash: targetPrng.pick(SHUT_HASHES),
+    database:
+      service === 'mysql'
+        ? { accountHash: targetPrng.pick(SHUT_HASHES), rootHash: targetPrng.pick(SHUT_HASHES) }
+        : null,
+    communityHash: null,
+    storeHash: service === 'redis' ? targetPrng.pick(SHUT_HASHES) : null,
+    services: running,
+    versions: {
+      ...keyBoxBase,
+      ...Object.fromEntries(running.map((daemonRun) => [daemonRun.package, daemonRun.version])),
+    },
+  };
+  const entry = withDecoys(target, [], missionNumber, EXPOSING_DECOYS[service]);
+  return {
+    missionNumber,
+    kind: 'portforward',
+    stem,
+    storage: null,
+    keyBox: entry.box,
+    frontBox: null,
+    gatewayAdminHash: crackableHash(createPrng(`mission-router-${missionNumber}`)),
+    routerRoute: 'hydra',
+    gatewayVersions,
+    forwards: pointedAt(entry.forwards, keyBoxOctet),
+  };
+};
 
 export const missionShape = (missionNumber: number): MissionShape => {
   const { stem, keyBoxOctet, shapePrng, front: frontDraw } = drawTopology(missionNumber);
@@ -570,6 +679,10 @@ export const missionShape = (missionNumber: number): MissionShape => {
     ...safeBaseVersions(versionPrng),
     ...safeFirmwareVersions(versionPrng),
   };
+
+  if (missionKind(missionNumber) === 'portforward') {
+    return portforwardShape({ missionNumber, stem, keyBoxOctet, keyBoxBase, gatewayVersions });
+  }
 
   const drawn = drawRoute(route, versionPrng);
   const gatewayAdminHash = versionPrng.pick(SHUT_HASHES);
@@ -593,6 +706,7 @@ export const missionShape = (missionNumber: number): MissionShape => {
     rootHash: drawn.rootHash,
     database: keptInDatabase ? databaseAccounts(versionPrng) : drawn.database,
     communityHash: drawn.communityHash,
+    storeHash: null,
     services:
       databaseVersion === null
         ? drawn.services
@@ -617,6 +731,7 @@ export const missionShape = (missionNumber: number): MissionShape => {
       keyBox: withInsideDecoys(keyBox, missionNumber),
       frontBox: entry.box,
       gatewayAdminHash,
+      routerRoute: null,
       gatewayVersions,
       forwards: pointedAt(entry.forwards, entry.box.octet),
     };
@@ -635,6 +750,7 @@ export const missionShape = (missionNumber: number): MissionShape => {
     keyBox: entry.box,
     frontBox: null,
     gatewayAdminHash,
+    routerRoute: null,
     gatewayVersions,
     forwards: pointedAt(entry.forwards, keyBoxOctet),
   };

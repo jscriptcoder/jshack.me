@@ -43,6 +43,10 @@
  * The snmp route carries the hashed read-write community a sweep attacks. Its agent config is
  * the server's alone, since that holds both the word and the community a walk can guess. An
  * snmp decoy's read-write hash is one no sweep finds.
+ *
+ * A portforward job's cache server runs a cache, and keeps a store of the application the box
+ * runs behind the shut password the shape draws, with the conf that says where it is. Nothing is
+ * laid on it by the server: the job is the router's forward onto it, not anything inside.
  */
 
 import {
@@ -82,6 +86,8 @@ import { AUTH_LOG_PERMISSIONS } from '../logging/authLog.js';
 import { KERN_LOG_PERMISSIONS } from '../logging/kernLog.js';
 import { MYSQL_LOG_PERMISSIONS } from '../logging/mysqlLog.js';
 import { SNMPD_LOG_PERMISSIONS } from '../logging/snmpdLog.js';
+import { REDIS_LOG_PERMISSIONS } from '../logging/redisLog.js';
+import { formatRedisConf, generateRedisStore } from './generateRedisStore.js';
 import { VSFTPD_LOG_PERMISSIONS } from '../logging/vsftpdLog.js';
 import { createPrng } from './prng.js';
 import { CRACK_CHANCE, drawPasswordHash } from './passwordPools.js';
@@ -100,6 +106,8 @@ import {
   type MissionService,
 } from '../missions/missionShape.js';
 import type { MysqlDatabase } from '../mysql/types.js';
+import type { Application } from './generateDatabase.js';
+import type { LanHost } from './generateHomeLan.js';
 import type { Directory, FileEntry, FileNode } from '../filesystem/types.js';
 
 const pidfile = (content: string, owner: string): FileEntry =>
@@ -123,8 +131,32 @@ const decoyAgentConfig = (community: string): string =>
     '',
   ].join('\n');
 
-/** The database as it generates. Its application is on a stream of its own, so nothing about
- *  it can move a draw the box's accounts make. */
+/** The box on the contract's LAN at `octet`. */
+const hostAt = (missionNumber: number, octet: number): LanHost => {
+  const lan = generateHomeLan(missionEssid(missionNumber));
+  const host = lan.hosts.find((candidate) => candidate.ip === `${lan.subnet}.${octet}`);
+  if (host === undefined) throw new Error(`no box at .${octet} on contract ${missionNumber}`);
+  return host;
+};
+
+/** The application the box runs, on a stream of its own, so nothing about it can move a draw the
+ *  box's accounts make. Staffed by the box's own account alone: the world's generator would list
+ *  each neighbour's NPC, a name the other contract box was never given, since a contract box
+ *  draws its own. */
+const boxApplication = (
+  missionNumber: number,
+  octet: number,
+  appSeed: string,
+  account: string,
+): Application =>
+  buildApplication({
+    prng: createPrng(appSeed),
+    essid: missionEssid(missionNumber),
+    host: hostAt(missionNumber, octet),
+    people: [account],
+  });
+
+/** The database as it generates. */
 const boxDatabase = (
   missionNumber: number,
   octet: number,
@@ -133,18 +165,7 @@ const boxDatabase = (
   account: string,
   applicationAccount: string,
 ): MysqlDatabase => {
-  const essid = missionEssid(missionNumber);
-  const lan = generateHomeLan(essid);
-  const host = lan.hosts.find((candidate) => candidate.ip === `${lan.subnet}.${octet}`);
-  if (host === undefined) throw new Error(`no box at .${octet} on contract ${missionNumber}`);
-  // Staffed by the box's own account alone. The world's generator would list each neighbour's
-  // NPC, a name the other contract box was never given, since a contract box draws its own.
-  const application = buildApplication({
-    prng: createPrng(appSeed),
-    essid,
-    host,
-    people: [account],
-  });
+  const application = boxApplication(missionNumber, octet, appSeed, account);
   return {
     ...application,
     credentials: [
@@ -155,9 +176,13 @@ const boxDatabase = (
 };
 
 /** The streams a box's own draws come off: its accounts (and the community and application
- *  account after them), and its database's application. Each box has its own, so neither box
- *  can move a draw the other makes. */
-type BoxStreams = { readonly accounts: string; readonly application: string };
+ *  account after them), its database's application, and its cache's store. Each box has its own,
+ *  so neither box can move a draw the other makes. */
+type BoxStreams = {
+  readonly accounts: string;
+  readonly application: string;
+  readonly cache: string;
+};
 
 const buildMissionBoxFs = (
   missionNumber: number,
@@ -219,6 +244,7 @@ const buildMissionBoxFs = (
   const servesFtp = runningServices.some(({ service }) => service === 'ftp');
   const servesDatabase = runningServices.some(({ service }) => service === 'mysql');
   const runsAgent = runningServices.some(({ service }) => service === 'snmp');
+  const cache = runningServices.find(({ service }) => service === 'redis');
   const lettingAnonymousIn = servesFtp;
   const database =
     box.database === null
@@ -231,6 +257,23 @@ const buildMissionBoxFs = (
           username,
           prng.pick(MYSQL_USERNAMES),
         );
+  // The store keeps the working set of the application the box runs: its database's, where a
+  // database decoy serves one, else the same application drawn the same way.
+  const store =
+    box.storeHash === null
+      ? null
+      : {
+          ...generateRedisStore({
+            seed: streams.cache,
+            appSeed: streams.cache,
+            essid: missionEssid(missionNumber),
+            host: hostAt(missionNumber, box.octet),
+            account: username,
+            application:
+              database ?? boxApplication(missionNumber, box.octet, streams.application, username),
+          }),
+          requirepassHash: box.storeHash,
+        };
   // Drawn after every other draw on this stream, so it moved nothing a box already had.
   const decoyAgent = box.decoys.includes('snmp')
     ? decoyAgentConfig(prng.pick(GUESSABLE_COMMUNITIES))
@@ -240,6 +283,11 @@ const buildMissionBoxFs = (
       ? {}
       : {
           mysql: dir({ 'data.json': file(JSON.stringify(database), DATADIR_FILE) }, TRAVERSABLE_DIR),
+        }),
+    ...(store === null
+      ? {}
+      : {
+          redis: dir({ 'data.json': file(JSON.stringify(store), DATADIR_FILE) }, TRAVERSABLE_DIR),
         }),
     ...(box.communityHash === null
       ? {}
@@ -271,6 +319,23 @@ const buildMissionBoxFs = (
             : {
                 snmp: dir(
                   { 'snmpd.conf': file(decoyAgent, SNMPD_CONF_PERMISSIONS) },
+                  TRAVERSABLE_DIR,
+                ),
+              }),
+          ...(cache === undefined
+            ? {}
+            : {
+                redis: dir(
+                  {
+                    'redis.conf': file(
+                      formatRedisConf({
+                        hostname: hostAt(missionNumber, box.octet).hostname,
+                        port: cache.port,
+                        pidfilePath: `/var/run/${cache.program}.pid`,
+                      }),
+                      SERVICE_CONFIG_FILE,
+                    ),
+                  },
                   TRAVERSABLE_DIR,
                 ),
               }),
@@ -323,6 +388,7 @@ const buildMissionBoxFs = (
               ...(servesFtp ? { 'vsftpd.log': file('', VSFTPD_LOG_PERMISSIONS) } : {}),
               ...(servesDatabase ? { 'mysql.log': file('', MYSQL_LOG_PERMISSIONS) } : {}),
               ...(runsAgent ? { 'snmpd.log': file('', SNMPD_LOG_PERMISSIONS) } : {}),
+              ...(cache === undefined ? {} : { 'redis.log': file('', REDIS_LOG_PERMISSIONS) }),
             },
             TRAVERSABLE_DIR,
           ),
@@ -348,6 +414,7 @@ export const buildMissionKeyBoxFs = (missionNumber: number): Directory =>
   buildMissionBoxFs(missionNumber, missionShape(missionNumber).keyBox, {
     accounts: `mission-keybox-${missionNumber}`,
     application: `mission-database-${missionNumber}`,
+    cache: `mission-cache-${missionNumber}`,
   });
 
 /** A two-hop contract's front box: built as the key box is, from its own record and on its own
@@ -359,5 +426,6 @@ export const buildMissionFrontBoxFs = (missionNumber: number): Directory => {
   return buildMissionBoxFs(missionNumber, frontBox, {
     accounts: `mission-frontbox-${missionNumber}`,
     application: `mission-front-database-${missionNumber}`,
+    cache: `mission-front-cache-${missionNumber}`,
   });
 };

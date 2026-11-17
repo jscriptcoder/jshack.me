@@ -22,6 +22,7 @@ import {
 } from './missionShape.js';
 import { FRONT_BOX_SUFFIX, GATEWAY_SUFFIX } from './pools.js';
 import { backdoorJob, keyBoxSuffix, sabotageRole } from './targetRoles.js';
+import { portforwardJob } from './portforwardJob.js';
 import { EMAILIT_DOMAIN } from '../generation/fixedSites.js';
 import { missionKeyFilePath, missionLeakPath, missionLeakWord } from './missionLeak.js';
 import { missionKey, missionPassphrase } from './missionSecret.js';
@@ -114,10 +115,11 @@ const storageDetail = (missionNumber: number, secret: string): string => {
   return storage === 'database' ? 'database, table api_keys' : 'file';
 };
 
-/** What a tamper, sabotage, file, backdoor or infiltrate job is, as the report names it: its
- *  kind, then a tamper job's setting and action, the machine a sabotage job asks taken down, the
- *  item a file job asks brought back, the machine a backdoor job wants a way into, or the item
- *  an infiltrate job slips in. A key job has no line. */
+/** What a tamper, sabotage, file, backdoor, infiltrate or portforward job is, as the report names
+ *  it: its kind, then a tamper job's setting and action, the machine a sabotage job asks taken
+ *  down, the item a file job asks brought back, the machine a backdoor job wants a way into, the
+ *  item an infiltrate job slips in, or the machine a portforward job wants reached and the
+ *  forward that reaches it. A key job has no line. */
 const kindLine = (missionNumber: number, kind: MissionKind): readonly string[] => {
   if (kind === 'tamper') {
     return [
@@ -131,6 +133,13 @@ const kindLine = (missionNumber: number, kind: MissionKind): readonly string[] =
   }
   if (kind === 'backdoor') {
     return [`  Kind:     backdoor, ${backdoorJob(missionNumber).role.noun}`];
+  }
+  if (kind === 'portforward') {
+    const { machine, publicPort } = portforwardJob(missionNumber);
+    return [
+      `  Kind:     portforward, ${machine.noun}, :${publicPort} -> :${machine.insidePort}`,
+      '  Router:   hydra',
+    ];
   }
   return [];
 };
@@ -155,11 +164,11 @@ const recordLines = (missionNumber: number): readonly string[] => {
 /** What the report says of the job in the key-box slot: a key job's storage, key path and key,
  *  a tamper job's records and the one change it asks, a file job's file and its size under the
  *  secret, the port a backdoor job's listener must hold, the path an infiltrate job's file goes
- *  to with the sizes of the company's file and the client's, and nothing for a sabotage job,
- *  whose box is the job and keeps nothing. */
+ *  to with the sizes of the company's file and the client's, and nothing for a sabotage or
+ *  portforward job, whose box is the job and keeps nothing. */
 const jobLines = (missionNumber: number, kind: MissionKind, secret: string): readonly string[] => {
   if (kind === 'tamper') return recordLines(missionNumber);
-  if (kind === 'sabotage') return [];
+  if (kind === 'sabotage' || kind === 'portforward') return [];
   if (kind === 'backdoor') return [`  Port:     ${backdoorJob(missionNumber).port}`];
   if (kind === 'infiltrate') {
     const sizeOf = (content: string): string => content.length.toLocaleString('en-US');
@@ -205,10 +214,13 @@ export const showReport = (
   const insideDecoyPorts = keyBox.services
     .slice(keyBox.services.length - keyBox.decoys.length)
     .map(({ port }) => port);
-  // A sabotage, backdoor or infiltrate job's box is the job itself, so the report calls it the
-  // target, not a key box.
+  // A sabotage, backdoor, infiltrate or portforward job's box is the job itself, so the report
+  // calls it the target, not a key box.
   const isTarget =
-    shape.kind === 'sabotage' || shape.kind === 'backdoor' || shape.kind === 'infiltrate';
+    shape.kind === 'sabotage' ||
+    shape.kind === 'backdoor' ||
+    shape.kind === 'infiltrate' ||
+    shape.kind === 'portforward';
   const slotName = isTarget ? 'target' : 'key box';
   const reached = frontBox === null ? slotName : 'front box';
   const keyLines = jobLines(missionNumber, shape.kind, secret);
@@ -245,7 +257,8 @@ export const showReport = (
     `  Template: ${frontBox === null ? 'single-hop' : 'two-hop'}`,
     ...kindLine(missionNumber, shape.kind),
     // One box needs no section, so its route heads the report as it always has.
-    ...(frontBox === null ? [`  Route:    ${keyBox.route}`] : []),
+    // A portforward job's target has no route: nobody roots it.
+    ...(frontBox === null ? [`  Route:    ${keyBox.route ?? 'none (sealed)'}`] : []),
     ...shape.forwards.map(
       (forward, index) =>
         `  Forward:  :${forward.publicPort} -> ${reached} :${forward.internalPort}` +

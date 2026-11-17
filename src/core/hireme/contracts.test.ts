@@ -18,6 +18,7 @@ import {
 } from '../missions/missionFileItem.js';
 import { missionShape } from '../missions/missionShape.js';
 import { backdoorJob } from '../missions/targetRoles.js';
+import { portforwardJob } from '../missions/portforwardJob.js';
 import {
   RECORD_SETTINGS,
   missionAction,
@@ -130,6 +131,16 @@ const backdoorNumber = (twoHop: boolean, machine = 'build server'): number => {
 
 const BACKDOOR_SINGLE_HOP = backdoorNumber(false);
 const BACKDOOR_TWO_HOP = backdoorNumber(true);
+
+/** The first portforward contract from 70,000 up on the machine called `noun`. */
+const portforwardNumber = (noun: string): number => {
+  for (let candidate = 70_000; candidate < 2_000_000; candidate++) {
+    if (!isMissionNumber(candidate)) continue;
+    if (missionShape(candidate).kind !== 'portforward') continue;
+    if (portforwardJob(candidate).machine.noun === noun) return candidate;
+  }
+  throw new Error(`no portforward contract on a ${noun}`);
+};
 
 /** The first single-hop file contract from 70,000 up asking for the item called `noun`. */
 const fileNumberFor = (noun: string): number => {
@@ -779,6 +790,57 @@ describe('accepting an offer', () => {
       expect(accepts[0]!.briefing.body.split('\n')).toContain(
         `We want a way into their ${machine} that stays open.`,
       );
+    });
+  });
+
+  describe('on a portforward job', () => {
+    it.each([
+      ['customer database', 3306],
+      ['cache server', 6379],
+      ['staff intranet', 80],
+      ['development server', 22],
+    ] as const)(
+      'asks for a way from outside into their %s, the public port sent to it on %i',
+      async (noun, insidePort) => {
+        const missionNumber = portforwardNumber(noun);
+        const { store, accepts } = boardStore({ offers: [{ number: missionNumber, ref: 'ppp' }] });
+        const terms = missionTerms(missionNumber);
+        const { publicPort } = portforwardJob(missionNumber);
+
+        await accept('offer=ppp', store);
+
+        expect(accepts[0]!.briefing.subject).toBe(`Contract: ${terms.targetCompany}`);
+        expect(accepts[0]!.briefing.body).toBe(
+          [
+            terms.pitch,
+            '',
+            `The target is ${terms.targetCompany}. Their network is at ${missionAddressForNumber(missionNumber)}.`,
+            '',
+            `We want to reach their ${noun} from outside.`,
+            `Their router should send port ${publicPort} to it, on ${insidePort}.`,
+            '',
+            'Write to this address with your wallet address once it is open.',
+            'No way in, no money. No wallet, no money.',
+            '',
+            `-- ${terms.client.company}`,
+            '',
+          ].join('\n'),
+        );
+        expect(accepts[0]!.briefing.attachment).toBeUndefined();
+      },
+    );
+
+    it('names no box, no address but the network, no file and no path', async () => {
+      const missionNumber = portforwardNumber('customer database');
+      const { store, accepts } = boardStore({ offers: [{ number: missionNumber, ref: 'ppp' }] });
+      const { stem } = missionShape(missionNumber);
+
+      await accept('offer=ppp', store);
+      const { body } = accepts[0]!.briefing;
+
+      expect(body).not.toContain(`${stem}-`);
+      expect(body).not.toMatch(/rules\.v4|iptables|\/etc|nano|\bkey\b/i);
+      expect(body.match(/\d+\.\d+\.\d+\.\d+/g)).toEqual([missionAddressForNumber(missionNumber)]);
     });
   });
 

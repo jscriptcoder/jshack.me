@@ -12,6 +12,14 @@ import { missionKind, missionShape } from '../missions/missionShape.js';
 import { missionFileContent } from '../missions/missionFileItem.js';
 import { missionEssid } from '../missions/missionNetwork.js';
 import { missionFilesForBox } from '../missions/missionLeak.js';
+import { portforwardJob } from '../missions/portforwardJob.js';
+import { buildApGatewayBaseFs } from '../generation/routerFs.js';
+import {
+  RULES_V4_PATH,
+  RULES_V4_PERMISSIONS,
+  readRulesV4,
+  withForward,
+} from '../network/iptablesRules.js';
 import { missionAction, missionRecords } from '../missions/missionRecords.js';
 import { generateHomeLan } from '../generation/generateHomeLan.js';
 import { resolveLanHostIdentity } from '../generation/lanHostIdentity.js';
@@ -865,6 +873,118 @@ describe('a mail on a sabotage job is answered from its target', () => {
           ? { data: null, error: new Error('down') }
           : { data: [], error: null },
       findMissionFiles,
+    });
+
+    expect(await handleResolveMail(doneRequest(), deps)).toEqual({
+      status: 500,
+      body: { error: 'mail_failed' },
+    });
+    expect(clientMail.complete).not.toHaveBeenCalled();
+  });
+});
+
+describe('a mail on a portforward job is answered from its router', () => {
+  const PORTFORWARD_JOB = Array.from(
+    { length: 4000 },
+    (_unused, index) => index * 263 + 70000,
+  ).find(
+    (missionNumber) =>
+      missionNumber % 256 >= 2 &&
+      missionNumber % 256 <= 254 &&
+      missionKind(missionNumber) === 'portforward',
+  )!;
+  const TERMS = missionTerms(PORTFORWARD_JOB);
+  const ESSID = missionEssid(PORTFORWARD_JOB);
+  const ROUTER_ID = computeApGatewayId(ESSID);
+  const { machine, publicPort } = portforwardJob(PORTFORWARD_JOB);
+  const MACHINE_IP = `${generateHomeLan(ESSID).subnet}.${missionShape(PORTFORWARD_JOB).keyBox.octet}`;
+
+  /** The journal row a root's save of the router's forwards writes. */
+  const rulesSaved = (target: { readonly internalIp: string; readonly internalPort: number }) => ({
+    path: RULES_V4_PATH,
+    content: withForward(readRulesV4(buildApGatewayBaseFs(ESSID)), publicPort, target),
+    owner: 'root',
+    permissions: RULES_V4_PERMISSIONS,
+    node_type: 'file' as const,
+    updated_at: '2026-11-17T12:00:00Z',
+    writer_key: 'b'.repeat(64),
+  });
+
+  /** The journal row a root's `rm` of a boot file writes. */
+  const removed = (path: string): OwnerPatchRow => ({
+    path,
+    content: null,
+    owner: 'root',
+    permissions: null,
+    node_type: null,
+    updated_at: '2026-11-17T12:01:00Z',
+    writer_key: 'b'.repeat(64),
+  });
+
+  const routerJournalOf =
+    (rows: readonly OwnerPatchRow[]): ResolveMailDeps['findPatches'] =>
+    async ({ machine_id }) => ({ data: machine_id === ROUTER_ID ? rows : [], error: null });
+
+  const doneRequest = () =>
+    inboxRequest({ op: 'send', to: TERMS.client.handle, subject: 'done', body: 'it is open' });
+
+  const holdingTheJob = {
+    outcome: 'opened',
+    jobs: [{ number: PORTFORWARD_JOB, state: 'accepted' }],
+  };
+
+  const NO_WAY_IN = `Port ${publicPort} doesn't reach their ${machine.noun}. No way in, no money.\n\n-- ${TERMS.client.company}\n`;
+
+  it("completes the job once the router's journal sends the port named to the machine", async () => {
+    const { deps, clientMail } = makeDeps({
+      clientOpened: holdingTheJob,
+      findPatches: routerJournalOf([
+        rulesSaved({ internalIp: MACHINE_IP, internalPort: machine.insidePort }),
+      ]),
+    });
+
+    expect(await handleResolveMail(doneRequest(), deps)).toEqual({
+      status: 200,
+      body: { ok: true },
+    });
+    expect(clientMail.complete).toHaveBeenCalledOnce();
+    expect(clientMail.complete.mock.calls[0]?.[0]).toMatchObject({
+      number: PORTFORWARD_JOB,
+      pay: TERMS.pay,
+    });
+  });
+
+  it.each([
+    ['the router as it generates', []],
+    [
+      'a forward to the machine on another port',
+      [rulesSaved({ internalIp: MACHINE_IP, internalPort: machine.insidePort + 1 })],
+    ],
+    [
+      'the right forward on a router that no longer boots',
+      [
+        rulesSaved({ internalIp: MACHINE_IP, internalPort: machine.insidePort }),
+        removed('/boot/vmlinuz'),
+      ],
+    ],
+  ] as const)("says the port doesn't reach the machine on %s", async (_case, rows) => {
+    const { deps, clientMail } = makeDeps({
+      clientOpened: holdingTheJob,
+      findPatches: routerJournalOf(rows),
+    });
+
+    expect((await handleResolveMail(doneRequest(), deps)).status).toBe(200);
+    expect(clientMail.complete).not.toHaveBeenCalled();
+    expect(clientMail.reply.mock.calls[0]?.[0].reply.body).toBe(NO_WAY_IN);
+  });
+
+  it('reports a router whose journal could not be read as a server error', async () => {
+    const { deps, clientMail } = makeDeps({
+      clientOpened: holdingTheJob,
+      findPatches: async ({ machine_id }) =>
+        machine_id === ROUTER_ID
+          ? { data: null, error: new Error('down') }
+          : { data: [], error: null },
     });
 
     expect(await handleResolveMail(doneRequest(), deps)).toEqual({

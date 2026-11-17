@@ -7,6 +7,7 @@ import {
 } from './hiremeOrders.js';
 import { missionLeakPath } from './missionLeak.js';
 import { backdoorJob } from './targetRoles.js';
+import { portforwardJob } from './portforwardJob.js';
 import { missionShape, type MissionShape } from './missionShape.js';
 import { missionKey, missionKeyPath, missionPassphrase } from './missionSecret.js';
 import { missionAddressForNumber, missionEssid } from './missionNetwork.js';
@@ -725,6 +726,46 @@ describe('showReport on a backdoor job', () => {
     expect(lines).toContain(`  Port:     ${backdoorJob(TWO_HOP).port}`);
     expect(report).not.toContain('Key');
     expect(report).not.toContain('Storage:');
+  });
+});
+
+describe('showReport on a portforward job', () => {
+  const SECRET = 'operator-test-secret';
+  const CUSTOMER_DATABASE = Array.from({ length: 8000 }, (_unused, index) => index * 256 + 2).find(
+    (candidate) =>
+      missionShape(candidate).kind === 'portforward' &&
+      portforwardJob(candidate).machine.noun === 'customer database',
+  )!;
+
+  it('prints the report line by line: the machine and the forward asked for, the router route, and a sealed target', () => {
+    const shape = missionShape(CUSTOMER_DATABASE);
+    const terms = missionTerms(CUSTOMER_DATABASE);
+    const { publicPort } = portforwardJob(CUSTOMER_DATABASE);
+    const [mysql, ...decoys] = shape.keyBox.services;
+
+    expect(showReport(CUSTOMER_DATABASE, SECRET, undefined)).toBe(
+      [
+        `Contract ${CUSTOMER_DATABASE} at ${missionAddressForNumber(CUSTOMER_DATABASE)} (essid ${missionEssid(CUSTOMER_DATABASE)})`,
+        `  Client:   ${terms.client.company} (${terms.client.handle}@emailit.io)`,
+        `  Target:   ${terms.targetCompany}, ${shape.stem}-gw / ${shape.stem}-db`,
+        `  Pay:      §${terms.pay.toLocaleString('en-US')}`,
+        '  Template: single-hop',
+        `  Kind:     portforward, customer database, :${publicPort} -> :3306`,
+        '  Router:   hydra',
+        '  Route:    none (sealed)',
+        // The router forwards only decoys: the forward asked for is the job.
+        ...shape.forwards.map(
+          (forward) =>
+            `  Forward:  :${forward.publicPort} -> target :${forward.internalPort} (decoy)`,
+        ),
+        '  Services:',
+        `    mysql (mysql ${mysql?.version}) :3306`,
+        ...decoys.map(
+          (service) =>
+            `    ${service.service} (${service.package} ${service.version}) :${service.port} (decoy)`,
+        ),
+      ].join('\n'),
+    );
   });
 });
 

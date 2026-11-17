@@ -35,7 +35,7 @@ import { DEFAULT_DIRLIST } from '../network/defaultDirlist.js';
 import { generateHomeLan } from '../generation/generateHomeLan.js';
 import { machineIdForLanHost } from '../generation/lanTopology.js';
 import { computeApGatewayId } from '../identity/router.js';
-import { missionEssid } from './missionNetwork.js';
+import { isMissionNumber, missionEssid } from './missionNetwork.js';
 import { missionTerms } from './missionTerms.js';
 import { buildMissionKeyBoxFs } from '../generation/missionKeyBoxFs.js';
 import { withMissionFiles } from '../network/missionBoxFiles.js';
@@ -518,10 +518,15 @@ describe('the files of a two-hop contract', () => {
 
   const twoHopShapes = SAMPLE_NUMBERS.map(missionShape).filter((shape) => shape.frontBox !== null);
 
+  /** The lowest two-hop contract that is `wanted`, drawn only as far as it: some pairings of
+   *  kind, storage and routes are rarer than one contract in a thousand. */
   const twoHopWith = (wanted: (shape: MissionShape) => boolean): number => {
-    const found = twoHopShapes.find(wanted);
-    if (found === undefined) throw new Error('no such two-hop contract in the sample');
-    return found.missionNumber;
+    for (let missionNumber = 2; missionNumber < 100_000; missionNumber++) {
+      if (!isMissionNumber(missionNumber)) continue;
+      const shape = missionShape(missionNumber);
+      if (shape.frontBox !== null && wanted(shape)) return missionNumber;
+    }
+    throw new Error('no such two-hop contract');
   };
 
   const frontWord = (missionNumber: number): string =>
@@ -1135,7 +1140,7 @@ describe("a sabotage job's target", () => {
       missionFilePaths(keyOf(missionNumber)).map((path) =>
         path === missionLeakPath(keyOf(missionNumber)) ? 'the leak' : path,
       );
-    const laidByRoute = new Map<MissionRoute, string>();
+    const laidByRoute = new Map<MissionRoute | null, string>();
 
     expect(new Set(sabotage.map(machineOf)).size).toBe(7);
     for (const missionNumber of sabotage) {
@@ -1145,6 +1150,25 @@ describe("a sabotage job's target", () => {
 
       expect(laid, label).toBe(laidByRoute.get(route) ?? laid);
       laidByRoute.set(route, laid);
+    }
+  });
+});
+
+describe("a portforward job's target", () => {
+  const HOLDING_BOTH = { keySecret: KEY_SECRET, rawSecrets: RAW_SECRETS };
+  const PORTFORWARD_NUMBERS = SAMPLE_NUMBERS.filter(
+    (missionNumber) => missionShape(missionNumber).kind === 'portforward',
+  );
+
+  // The job is the router's forward onto the machine, not anything inside it, so the server
+  // lays no key, records, file or leak there, whatever the machine runs.
+  it('has nothing laid on it: no key, records, file, leak or datadir', () => {
+    expect(PORTFORWARD_NUMBERS.length).toBeGreaterThan(200);
+    for (const missionNumber of PORTFORWARD_NUMBERS) {
+      expect(missionFilePaths(keyOf(missionNumber)), `contract ${missionNumber}`).toEqual([]);
+      expect(missionFiles(keyOf(missionNumber), HOLDING_BOTH), `contract ${missionNumber}`).toEqual(
+        [],
+      );
     }
   });
 });

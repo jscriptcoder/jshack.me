@@ -10,6 +10,7 @@
 
 import { createPrng } from '../generation/prng.js';
 import { missionKind } from './missionShape.js';
+import { portforwardJob } from './portforwardJob.js';
 import { KEY_BOX_SUFFIX } from './pools.js';
 
 /** A machine a client can want taken down, or want a way into. */
@@ -153,11 +154,12 @@ export const backdoorJob = (missionNumber: number): BackdoorJob => {
 };
 
 /** The suffix on the hostname of the box in a contract's key-box slot: the box holding the key
- *  or the records, or on a sabotage or backdoor job the machine the job is about, named for what
- *  it is. */
+ *  or the records, or on a sabotage, backdoor or portforward job the machine the job is about,
+ *  named for what it is. */
 export const keyBoxSuffix = (missionNumber: number): string => {
   const kind = missionKind(missionNumber);
   if (kind === 'sabotage') return sabotageRole(missionNumber).suffix;
   if (kind === 'backdoor') return backdoorJob(missionNumber).role.suffix;
+  if (kind === 'portforward') return portforwardJob(missionNumber).machine.suffix;
   return KEY_BOX_SUFFIX;
 };

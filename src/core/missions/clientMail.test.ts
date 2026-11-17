@@ -18,6 +18,16 @@ import { buildMissionKeyBoxFs } from '../generation/missionKeyBoxFs.js';
 import { DATADIR_FILE, ROOT_FILE, file, withFiles } from '../generation/baseFs.js';
 import type { Directory } from '../filesystem/types.js';
 import { backdoorJob } from './targetRoles.js';
+import { portforwardJob } from './portforwardJob.js';
+import { missionEssid } from './missionNetwork.js';
+import { buildApGatewayBaseFs } from '../generation/routerFs.js';
+import { lanSubnetPrefix } from '../network/lanAddress.js';
+import {
+  RULES_V4_PATH,
+  RULES_V4_PERMISSIONS,
+  readRulesV4,
+  withForward,
+} from '../network/iptablesRules.js';
 import {
   PIDFILE_PERMISSIONS,
   formatListenerContent,
@@ -116,6 +126,11 @@ const NO_TARGET_BOX = async (): Promise<TargetBoxRead> => {
   throw new Error('a key job read a box');
 };
 
+/** A router nobody should be asked for: only a portforward job's mail reads one. */
+const NO_ROUTER = async (): Promise<TargetBoxRead> => {
+  throw new Error('a job read a router');
+};
+
 const mailTo = (
   store: ClientMailStore,
   mail: {
@@ -124,6 +139,7 @@ const mailTo = (
     readonly body?: string;
     readonly file?: string;
     readonly readTargetBox?: (missionNumber: number) => Promise<TargetBoxRead>;
+    readonly readRouter?: (missionNumber: number) => Promise<TargetBoxRead>;
   } = {},
 ) =>
   answerClientMail({
@@ -135,6 +151,7 @@ const mailTo = (
     secret: SECRET,
     store,
     readTargetBox: mail.readTargetBox ?? NO_TARGET_BOX,
+    readRouter: mail.readRouter ?? NO_ROUTER,
   });
 
 /** What the client signs every reply with. */
@@ -849,6 +866,166 @@ describe('a mail on a backdoor job', () => {
     expect(box.reads).toEqual([]);
     expect(completes).toEqual([]);
     expect(replies).toEqual([fromBackdoorClient(CLOSED_LINE)]);
+  });
+});
+
+describe('a mail on a portforward job', () => {
+  const PORTFORWARD_JOB = ALL_HOST_NUMBERS.find(
+    (missionNumber) => missionKind(missionNumber) === 'portforward',
+  )!;
+  const PORTFORWARD_TERMS = missionTerms(PORTFORWARD_JOB);
+  const { machine: MACHINE, publicPort: PUBLIC_PORT } = portforwardJob(PORTFORWARD_JOB);
+  const SUBNET = lanSubnetPrefix(missionEssid(PORTFORWARD_JOB));
+  const TARGET_OCTET = missionShape(PORTFORWARD_JOB).keyBox.octet;
+  const TARGET_IP = `${SUBNET}.${TARGET_OCTET}`;
+
+  /** A router read answering with `read`, keeping every number it was asked for. */
+  const router = (read: TargetBoxRead) => {
+    const reads: number[] = [];
+    return {
+      reads,
+      readRouter: async (missionNumber: number): Promise<TargetBoxRead> => {
+        reads.push(missionNumber);
+        return read;
+      },
+    };
+  };
+
+  /** The contract's router up, its decoys forwarded as it generates plus each of `forwards`. */
+  const forwarding = (
+    ...forwards: readonly (readonly [
+      publicPort: number,
+      internalIp: string,
+      internalPort: number,
+    ])[]
+  ): TargetBoxRead => {
+    const generated = buildApGatewayBaseFs(missionEssid(PORTFORWARD_JOB));
+    const rules = forwards.reduce(
+      (table, [publicPort, internalIp, internalPort]) =>
+        withForward(table, publicPort, { internalIp, internalPort }),
+      readRulesV4(generated),
+    );
+    return {
+      kind: 'up',
+      fs: withFiles(generated, [[RULES_V4_PATH, file(rules, RULES_V4_PERMISSIONS)]]),
+    };
+  };
+
+  const fromPortforwardClient = (line: string): ContractMail => ({
+    sender: `${PORTFORWARD_TERMS.client.handle}@emailit.io`,
+    subject: `Contract: ${PORTFORWARD_TERMS.targetCompany}`,
+    body: signed(line, PORTFORWARD_TERMS.client.company),
+  });
+
+  const NO_WAY_IN = `Port ${PUBLIC_PORT} doesn't reach their ${MACHINE.noun}. No way in, no money.`;
+
+  const mailOnPortforwardJob = (
+    store: ClientMailStore,
+    readRouter: (missionNumber: number) => Promise<TargetBoxRead>,
+    body = `it is open\n${WALLET}\n`,
+  ) => mailTo(store, { to: PORTFORWARD_TERMS.client, body, readRouter });
+
+  it('reads the router of the job held, and pays once the port named reaches the machine', async () => {
+    const { store, completes, replies } = clientStore({
+      jobs: [{ number: PORTFORWARD_JOB, state: 'accepted' }],
+    });
+    const read = router(forwarding([PUBLIC_PORT, TARGET_IP, MACHINE.insidePort]));
+
+    expect(await mailOnPortforwardJob(store, read.readRouter)).toBe('replied');
+    expect(read.reads).toEqual([PORTFORWARD_JOB]);
+    expect(completes).toEqual([
+      {
+        number: PORTFORWARD_JOB,
+        wallet: WALLET,
+        pay: PORTFORWARD_TERMS.pay,
+        reply: fromPortforwardClient(
+          `We're through. §${PORTFORWARD_TERMS.pay.toLocaleString('en-US')} sent to ${WALLET}. Pleasure doing business.`,
+        ),
+      },
+    ]);
+    expect(replies).toEqual([]);
+  });
+
+  it('completes and pays nothing when the mail names no wallet', async () => {
+    const { store, completes } = clientStore({
+      jobs: [{ number: PORTFORWARD_JOB, state: 'accepted' }],
+    });
+    const read = router(forwarding([PUBLIC_PORT, TARGET_IP, MACHINE.insidePort]));
+
+    expect(await mailOnPortforwardJob(store, read.readRouter, 'done.\n')).toBe('replied');
+    expect(completes).toEqual([
+      {
+        number: PORTFORWARD_JOB,
+        wallet: null,
+        pay: PORTFORWARD_TERMS.pay,
+        reply: fromPortforwardClient(
+          "We're through. You sent no wallet, so there is nothing to pay. No wallet, no money.",
+        ),
+      },
+    ]);
+  });
+
+  /** A box on the LAN that is not the target. */
+  const OTHER_IP = `${SUBNET}.${TARGET_OCTET === 2 ? 3 : 2}`;
+
+  it.each([
+    ['the router forwards nothing on the port named', forwarding()],
+    [
+      'the port named reaches another machine',
+      forwarding([PUBLIC_PORT, OTHER_IP, MACHINE.insidePort]),
+    ],
+    [
+      'the port named reaches the machine on another port',
+      forwarding([PUBLIC_PORT, TARGET_IP, MACHINE.insidePort + 1]),
+    ],
+    ['the port named reaches the router itself', forwarding([PUBLIC_PORT, `${SUBNET}.1`, 22])],
+    [
+      'another port reaches the machine',
+      forwarding([PUBLIC_PORT + 1, TARGET_IP, MACHINE.insidePort]),
+    ],
+    ['the router no longer boots', { kind: 'absent' } as const],
+  ])(
+    "says the port named doesn't reach the machine when %s, and keeps the job open",
+    async (_case, read) => {
+      const { store, completes, replies } = clientStore({
+        jobs: [{ number: PORTFORWARD_JOB, state: 'accepted' }],
+      });
+
+      expect(await mailOnPortforwardJob(store, router(read).readRouter)).toBe('replied');
+      expect(completes).toEqual([]);
+      expect(replies).toEqual([fromPortforwardClient(NO_WAY_IN)]);
+    },
+  );
+
+  it('answers nothing when the router could not be read', async () => {
+    const { store, completes, replies } = clientStore({
+      jobs: [{ number: PORTFORWARD_JOB, state: 'accepted' }],
+    });
+
+    expect(await mailOnPortforwardJob(store, router({ kind: 'error' }).readRouter)).toBeNull();
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([]);
+  });
+
+  it('says the job is already closed once it is completed, without reading the router', async () => {
+    const { store, completes, replies } = clientStore({
+      jobs: [{ number: PORTFORWARD_JOB, state: 'completed' }],
+    });
+    const read = router(forwarding());
+
+    expect(await mailOnPortforwardJob(store, read.readRouter)).toBe('replied');
+    expect(read.reads).toEqual([]);
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromPortforwardClient(CLOSED_LINE)]);
+  });
+
+  it('never reads the target, only the router', async () => {
+    const { store } = clientStore({ jobs: [{ number: PORTFORWARD_JOB, state: 'accepted' }] });
+
+    await mailTo(store, {
+      to: PORTFORWARD_TERMS.client,
+      readRouter: router(forwarding([PUBLIC_PORT, TARGET_IP, MACHINE.insidePort])).readRouter,
+    });
   });
 });
 

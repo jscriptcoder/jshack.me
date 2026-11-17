@@ -314,6 +314,7 @@ const main = async () => {
     file: 'No file, no money.',
     backdoor: 'No listener, no money.',
     infiltrate: 'No file in place, no money.',
+    portforward: 'No way in, no money.',
   } as const;
   const offered = inState(turnedRows, 'offered');
   const taken = offered[1]!;

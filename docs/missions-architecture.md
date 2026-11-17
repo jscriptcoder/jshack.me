@@ -7,7 +7,8 @@ a sabotage job, by leaving one of the target's machines unable to boot and maili
 file job, by mailing them one of the target's files as an attachment, or, on a backdoor job, by
 leaving a listener on one of the target's machines and mailing them while it listens, or, on an
 infiltrate job, by putting the file the client mailed them at a path on one of the target's
-machines and mailing them while it is there. This is
+machines and mailing them while it is there, or, on a portforward job, by making the target's
+router send a public port to one of its machines and mailing them while it does. This is
 the shipped model of the missions epic, complete at **v0.441.0** (four slices, v0.438.0–v0.441.0,
 PRs #746–#749, 2026-11-01 to 2026-11-03), with the routes that leak a login added by the epic
 that followed (four slices, v0.442.0–v0.445.0, PRs #750–#753, 2026-11-03 to 2026-11-04), and a
@@ -17,7 +18,8 @@ second template, a key box behind a front box ("Two hops", four slices, v0.450.0
 machine taken down ("Sabotage jobs", two slices, v0.458.0–v0.459.0, PRs #770–#771, 2026-11-12),
 and a fourth, a file brought back ("File jobs", from v0.461.0, on mail that carries a file,
 v0.460.0, PR #772), and a fifth, a listener left on a machine ("Backdoor jobs", v0.464.0), and
-a sixth, the client's own file put in place ("Infiltrate jobs", v0.465.0–v0.466.0).
+a sixth, the client's own file put in place ("Infiltrate jobs", v0.465.0–v0.466.0), and a
+seventh, a port forwarded into a machine ("Portforward jobs", v0.467.0).
 It sits
 on top of the contractor boards
 ([`hireme-architecture.md`](./hireme-architecture.md)), emailit.io
@@ -60,9 +62,14 @@ From that follow the rest:
   every mail and pays while the file at the path its briefing named is, character for character,
   the file it mailed with that briefing, whoever put it there. A completed job is closed without
   reading it. See [Infiltrate jobs](#infiltrate-jobs).
+- **A portforward job's proof is the router's state:** the client reads the contract's router,
+  never the machine, on every mail and pays while the public port its briefing named reaches the
+  machine on the machine's own port, whoever wrote the forward. A completed job is closed without
+  reading it. See [Portforward jobs](#portforward-jobs).
 - **A key comes from a server-only secret**, because the generator ships in the bundle and the
-  seed is public. A tamper, sabotage or backdoor job needs none: what it asks for is in its
-  briefing, and the box only has to read right, not come up at all, or listen. A file or
+  seed is public. A tamper, sabotage, backdoor or portforward job needs none: what it asks for
+  is in its briefing, and the box only has to read right, not come up at all, or listen, or the
+  router only has to route. A file or
   infiltrate job's files are drawn from the same secret, so nobody makes them from the bundle.
 
 ## 1. The block and the lookup
@@ -118,7 +125,8 @@ clock:
     `:3306` or `:161`, with `:2222` to log in with it ("The routes that leak a login", below).
 - **The gateway is passed through, not broken.** It has router firmware as every gateway does, an
   admin password from the uncrackable pool, and the route's forwards in `rules.v4`: one on hydra
-  and msfconsole, two on a leak route.
+  and msfconsole, two on a leak route. A portforward job is the one exception: its job is the
+  gateway, so its admin is crackable ([Portforward jobs](#portforward-jobs)).
 - **The key box is built by a mission builder of its own**, not by `buildRemoteHostFs`'s role
   draws, so nothing the world scatters on an NPC (a database login, a backup, a backdoor) opens a
   way in nobody guaranteed. Its `root` is uncrackable on the msfconsole and leak routes; `guest`
@@ -204,7 +212,10 @@ forwards only to the front box; the key box has no forward and is reached from i
 standing on the front box. Storage, the key and completion are as on a single-hop contract.
 
 - **The template is drawn from the number** on `mission-template-<n>` (under one third is
-  two-hop), so a contract's shape stays a function of its number and computable offline. A stream
+  two-hop), so a contract's shape stays a function of its number and computable offline. A
+  portforward job is never two-hop: its machine sits behind the router itself, so a portforward
+  number is single-hop whatever its template draw, and the third holds over the other kinds
+  ([Portforward jobs](#portforward-jobs)). A stream
   of its own meant no single-hop contract's route, hashes, key or storage moved; an accepted
   contract that landed in the share turned two-hop, which cost nothing while prod had only test
   players. Rejected: choosing the template at posting and storing it (every door would need a
@@ -623,7 +634,8 @@ The third kind of contract (v0.458.0): a client wants one of the target's machin
 for good. `mission-kind-<n>` is split in thirds: below ⅓ tamper, from ⅓ to ⅔ sabotage, from ⅔
 key. The middle third was carved out of both older kinds, so some numbers that were key or tamper
 jobs are now sabotage jobs. That was accepted before launch. Every number that kept its kind kept
-its shape, terms and LAN exactly.
+its shape, terms and LAN exactly. Each later kind took its share the same way, and since v0.467.0
+each kind is a seventh ([Portforward jobs](#portforward-jobs)).
 
 - **The target is the key box's slot with nothing in it.** It has the same octet, route, decoys
   and front box. On two-hop it is the inside box. It has no storage (`MissionShape.storage` is
@@ -682,8 +694,9 @@ mailed back as an attachment ([`email-architecture.md`](./email-architecture.md)
 jobs in the two gaps, ¼ to ⅓ and 7⁄12 to ¾. The gaps are what tamper, sabotage and key gave up as
 they shrank from thirds, so a number is the kind it was or has become a file job; none turned
 from one older kind into another. Every number that kept its kind kept its shape, terms and LAN
-exactly. Since v0.464.0 each kind was a fifth ([Backdoor jobs](#backdoor-jobs)), and since
-v0.465.0 a sixth ([Infiltrate jobs](#infiltrate-jobs)).
+exactly. Since v0.464.0 each kind was a fifth ([Backdoor jobs](#backdoor-jobs)), since v0.465.0
+a sixth ([Infiltrate jobs](#infiltrate-jobs)), and since v0.467.0 a seventh
+([Portforward jobs](#portforward-jobs)).
 
 - **The target is the key box's slot,** as a sabotage target is: the same octet, route, decoys
   and front box, the inside box on two-hop. It keeps the key box's hostname, `<stem>-files`, and
@@ -931,6 +944,106 @@ another. In sixtieths (`KIND_CUTS`, `core/missions/missionShape.ts`):
   bytes`, calls the slot the target (`Target box:` on two-hop), and prints no storage, key path or
   key.
 
+## Portforward jobs
+
+The seventh kind of contract (v0.467.0): a client wants to reach one of the target's machines
+from outside, and asks for the target's router to send a public port the briefing names to it.
+Nobody roots the machine. The contractor roots the router and adds the forward to
+`/etc/iptables/rules.v4`, and the client reads the router when the contractor mails in.
+`mission-kind-<n>` is split in sevenths: each of the six older kinds gave up a forty-second at
+the top of one of its pieces, and portforward jobs fill those six gaps, so a number is the kind
+it was, with its shape, terms and LAN exactly, or has become a portforward job. None turned from
+one older kind into another. In 420ths (`KIND_CUTS`, `core/missions/missionShape.ts`):
+
+| Draw (×1⁄420) | Kind        |
+| ------------- | ----------- |
+| 0 to 60       | tamper      |
+| 60 to 70      | portforward |
+| 70 to 84      | infiltrate  |
+| 84 to 95      | backdoor    |
+| 95 to 105     | portforward |
+| 105 to 140    | file        |
+| 140 to 200    | sabotage    |
+| 200 to 210    | portforward |
+| 210 to 224    | infiltrate  |
+| 224 to 245    | backdoor    |
+| 245 to 270    | file        |
+| 270 to 280    | portforward |
+| 280 to 294    | infiltrate  |
+| 294 to 315    | backdoor    |
+| 315 to 375    | key         |
+| 375 to 385    | portforward |
+| 385 to 399    | infiltrate  |
+| 399 to 406    | backdoor    |
+| 406 to 410    | infiltrate  |
+| 410 to 420    | portforward |
+
+- **Single-hop only.** A portforward number never draws a front box: the machine sits behind the
+  router itself, so no front box stands between them.
+- **One stream, `mission-portforward-<n>`, draws the machine and then the public port**
+  (`portforwardJob`, `core/missions/portforwardJob.ts`). The machine is one of four, each running
+  one service on its usual port and named for it (`keyBoxSuffix`):
+
+  | Machine            | Host        | Service | Inside port | Public port  |
+  | ------------------ | ----------- | ------- | ----------- | ------------ |
+  | customer database  | `-db`       | mysql   | 3306        | 13306        |
+  | cache server       | `-cache`    | redis   | 6379        | 16379        |
+  | staff intranet     | `-intranet` | web     | 80          | 8080 or 8443 |
+  | development server | `-dev`      | ssh     | 22          | 2022 or 8022 |
+
+  Each machine brings three pitches of its own, twelve in all, shared with no other pitch.
+
+- **The router is the way in, and the only one.** Its admin is a crackable word
+  (`gatewayAdminHash` from `crackableHash`, `routerRoute: 'hydra'`), so `hydra` over the router's
+  own `:22` finds it, and `ssh` lands root on the router. Every other kind's router admin stays
+  shut. Its firmware is pinned safe, as every gateway's is.
+- **The target is sealed.** It sits in the key box's slot with no route (`MissionBox.route` is
+  `null`), and its own draws are on `mission-portforward-target-<n>`, so no older draw moved. Its
+  `root` is shut; a customer database's accounts are shut; a cache server lays
+  `/var/lib/redis/data.json` with a shut `requirepass` (`MissionBox.storeHash`) and keys behind
+  it. It carries no storage and no mission files. Its service runs a safe release, beside sshd and
+  three or four decoys, never one of the service's own kind. So the router forwards only decoys as
+  it generates: the public port named is never one the router serves.
+- **The terms**: `<Client> — open a way into a customer database — §<pay>`, at the single-hop
+  key job's pay (500–2,000, to the nearest 50). The target company is drawn as a key job's is.
+- **The briefing** names the machine, the public port and the machine's port, never the box, its
+  address, the rules file, `iptables` or `nano`:
+
+  ```text
+  We want to reach their customer database from outside.
+  Their router should send port 13306 to it, on 3306.
+
+  Write to this address with your wallet address once it is open.
+  No way in, no money. No wallet, no money.
+  ```
+
+- **Any mail from the contractor reads the router** (`readRouter`, beside `readTargetBox`, in
+  `core/missions/clientMail.ts`). On the server, `handleResolveMail` replays the router's journal
+  over its generated tree (`materializeApGatewayFs`) and checks that it still boots (`canBoot`).
+  The router's routing decides, not the file's text (`machineServing`): a port the router itself
+  answers on reaches the router, whatever a forward says. The mail's words do not matter; only its
+  wallet does. Anyone's forward counts. The first row that fits answers:
+
+  | The mail                                 | The reply                                                                | What changes              |
+  | ---------------------------------------- | ------------------------------------------------------------------------ | ------------------------- |
+  | No accepted job with this client         | "We have no contract with you."                                          | nothing                   |
+  | A completed job                          | "That job is already closed." (the router is not read)                   | nothing                   |
+  | The port named reaches it, with a wallet | "We're through. §1,450 sent to jsc…. Pleasure doing business."           | completed, the pay minted |
+  | The port named reaches it, no wallet     | "We're through. You sent no wallet, so there is nothing to pay. …"       | completed, nothing minted |
+  | Anything else                            | "Port 13306 doesn't reach their customer database. No way in, no money." | nothing                   |
+  | The read itself fails                    | nothing: 500, as any store failure                                       | nothing                   |
+
+  "Anything else" is one reply for no forward, one to another machine, one to the machine on
+  another port, one to the router's own address, and a router that no longer boots; it never says
+  which. A bricked router loses the job for good.
+
+- **A public scan shows the forward working.** Once it is written, the port named answers on the
+  contract's address as the machine's service (`mysql`, `redis`, `http` or `ssh`), as any live
+  forward does.
+- `hireme.ts show` prints `Kind: portforward, <machine>, :<public> -> :<inside>` and
+  `Router: hydra`, calls the slot the target, prints `Route: none (sealed)`, the decoy forwards
+  and the services, and no storage, key path or key.
+
 ## 7. What a root finds
 
 On the boards' server, beside `/etc/hireme/boards`, **`/etc/hireme/contracts`**: one
@@ -1023,7 +1136,14 @@ ceiling of 300,575 B (a tamper setting's content is not in it).
   the contractor, the file removed or the target bricked before the mail a miss, and on a two-hop
   job the file put at the same path on the front box a miss; then a boot script, a signed
   contract and a site photo, each accepted through the board, its file carried byte for byte and
-  paid once it is at the path). The
+  paid once it is at the path); `testMissionPortforward.ts` (15: `show` naming the machine and
+  the forward asked for, a scan showing the router's `:22` and the decoys but not the port named,
+  a mail before anything told the port doesn't reach the machine, `hydra` over the router's `:22`
+  and `ssh` landing root on it, the port named forwarded to the machine on another port and to the
+  router's own address each a miss, the right forward answering a scan as the machine's service
+  and paid once then closed, a second player's forward paying the contractor, the forward taken
+  out or the router bricked before the mail a miss, and one job per machine, each reached through
+  its forward). The
   board and pay checks each post a two-hop offer on a chosen number (21 and 17 checks at
   v0.452.0). The decoys' doors are also proven in `decoyMissionDoors.test.ts`.
 - **Mutation**: every slice's scoped run left no survivor but equivalents.
@@ -1122,7 +1242,9 @@ white-hat fix, and clients and settings of their own; and for sabotage jobs, wip
   tables); `targetRoles.ts` (the seven machines a sabotage job can ask down or a backdoor job a way
   into: each target's hostname, noun and both kinds' pitches, and a backdoor job's draw of the
   machine and the port); `missionFileItem.ts` (a file or infiltrate job's item and its pitches,
-  its file's name and place, and the bytes of the company's file and the client's, server only).
+  its file's name and place, and the bytes of the company's file and the client's, server only);
+  `portforwardJob.ts` (a portforward job's machine, its public and inside ports, and its
+  pitches).
 - **The lay-in and the doors**: `core/network/missionBoxFiles.ts`, `core/sessions/doorAdmission.ts`,
   `core/generation/missionKeyBoxFs.ts`, `core/crypto/gpgCodec.ts` (the cipher the server seals a
   gpg contract's key with).
