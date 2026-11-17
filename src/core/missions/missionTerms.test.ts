@@ -435,17 +435,17 @@ describe('missionTerms', () => {
   });
 
   describe('an infiltrate job', () => {
-    it('is offered as infiltrating a firmware image, an internal one on two hops', () => {
+    it('is offered as infiltrating its item, an internal one on two hops', () => {
       for (const missionNumber of INFILTRATE_NUMBERS) {
+        const { noun } = missionFileItem(missionNumber);
         expect(missionTerms(missionNumber).kind, `contract ${missionNumber}`).toBe(
-          isTwoHop(missionNumber)
-            ? 'infiltrate an internal firmware image'
-            : 'infiltrate a firmware image',
+          isTwoHop(missionNumber) ? `infiltrate an internal ${noun}` : `infiltrate a ${noun}`,
         );
       }
+      // Seven items, each offered on one hop and on two.
       expect(
         new Set(INFILTRATE_NUMBERS.map((missionNumber) => missionTerms(missionNumber).kind)).size,
-      ).toBe(2);
+      ).toBe(14);
     });
 
     // Putting a file in place is a key job's work, finding the way in and rooting the box.
@@ -495,11 +495,11 @@ describe('missionTerms', () => {
           missionTerms(missionNumber).pitch,
         );
       }
-      expect(pitches.size).toBe(4);
+      // Four for each of the seven items.
+      expect(pitches.size).toBe(28);
       for (const pitch of pitches) {
         expect(pitch).toMatch(/^[A-Z].{20,}\.$/);
         expect(otherPitches.has(pitch), pitch).toBe(false);
-        expect(missionFileItem(INFILTRATE_NUMBERS[0]!).pitches, pitch).not.toContain(pitch);
       }
     });
 

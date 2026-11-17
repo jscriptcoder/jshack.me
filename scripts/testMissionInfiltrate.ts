@@ -24,6 +24,8 @@
 //   - THE FRONT BOX IS NOT THE TARGET: on a two-hop job the front box rooted and the file put at
 //     the same path there, and the mail is told it is not in place.
 //   - `show` names the item and the path.
+//   - EVERY KIND OF FILE MAKES THE TRIP: a boot script, a pdf and a jpeg, each taken through the
+//     board, its file carried byte for byte by the briefing, put at the path as root, and paid.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testMissionInfiltrate.ts
@@ -54,6 +56,8 @@ import {
 import { missionShape, type MissionShape } from '../src/core/missions/missionShape.js';
 import { missionTerms } from '../src/core/missions/missionTerms.js';
 import {
+  missionFileContent,
+  missionFileItem,
   missionFileName,
   missionFilePath,
   missionPlantContent,
@@ -145,7 +149,21 @@ const [PLACED_JOB, RIVAL_JOB, REMOVED_JOB, BRICK_JOB] = infiltrateNumbers(
 const [FRONT_JOB] = infiltrateNumbers(400000, 1, ({ frontBox }) => frontBox?.route === 'hydra') as [
   number,
 ];
-const JOBS = [PLACED_JOB, RIVAL_JOB, REMOVED_JOB, BRICK_JOB, FRONT_JOB] as const;
+const BASE_JOBS: readonly number[] = [PLACED_JOB, RIVAL_JOB, REMOVED_JOB, BRICK_JOB, FRONT_JOB];
+/** The first single-hop hydra job from 400,000 slipping in the item called `noun`, not one of
+ *  the jobs above. */
+const itemJob = (noun: string): number => {
+  for (let candidate = 400000; candidate < 460000; candidate += 1) {
+    if (!isMissionNumber(candidate) || BASE_JOBS.includes(candidate)) continue;
+    if (missionFileItem(candidate).noun !== noun) continue;
+    const shape = missionShape(candidate);
+    if (shape.kind === 'infiltrate' && singleHopHydra(shape)) return candidate;
+  }
+  throw new Error(`no infiltrate job for a ${noun}`);
+};
+// One of each format the other jobs may not reach: a script, a pdf with its line breaks, a jpeg.
+const ITEM_JOBS = ['boot script', 'signed contract', 'site photo'].map(itemJob);
+const JOBS = [...BASE_JOBS, ...ITEM_JOBS] as const;
 
 type Job = {
   readonly missionNumber: number;
@@ -195,7 +213,10 @@ const RIVAL = jobOf(RIVAL_JOB, 'rival placing', 1);
 const REMOVED = jobOf(REMOVED_JOB, 'file removed', 2);
 const BRICK = jobOf(BRICK_JOB, 'target bricked', 3);
 const FRONT = jobOf(FRONT_JOB, 'file on the front box', 4);
-const ALL_JOBS = [PLACED, RIVAL, REMOVED, BRICK, FRONT] as const;
+const ITEMS = ITEM_JOBS.map((missionNumber, index) =>
+  jobOf(missionNumber, `a ${missionFileItem(missionNumber).noun}`, 5 + index),
+);
+const ALL_JOBS = [PLACED, RIVAL, REMOVED, BRICK, FRONT, ...ITEMS] as const;
 
 const notInPlace = (job: Job): string =>
   `Our file is not at ${job.path}. No file in place, no money.`;
@@ -480,7 +501,7 @@ const workThePlacedJob = async () => {
   const shown = runHireme(['show', job.address]);
   check(
     'show names the item and the path',
-    shown.includes('Kind:     infiltrate, firmware image') &&
+    shown.includes(`Kind:     infiltrate, ${missionFileItem(job.missionNumber).noun}`) &&
       shown.includes(`File:     ${job.path}, theirs `),
     shown
       .split('\n')
@@ -620,7 +641,7 @@ const workTheFrontJob = async () => {
   await stage(job);
 
   const rooted = await rootOver2222(contractor, job, 'front');
-  // The front box keeps no firmware, so its root makes the directory first, as they would.
+  // The front box keeps no such file, so its root makes the directory first, as they would.
   const directory = job.path.slice(0, job.path.lastIndexOf('/'));
   const made = job.front === null ? [] : await mkdirAsRoot(contractor, job.front, directory);
   const placed =
@@ -637,6 +658,34 @@ const workTheFrontJob = async () => {
       (await stateOf(job)) === 'accepted' &&
       (await balanceOf(job.wallet)) <= 0,
     `${rooted.detail}, mkdir ${made.join('/')}, write ${placed.status}, mail ${mailed.status}`,
+  );
+};
+
+/** Taken through the board, its file put at the path as root and the client mailed: paid. */
+const workAnItemJob = async (job: Job) => {
+  const briefingNumber = await acceptThroughBoard(job);
+  const pay = missionTerms(job.missionNumber).pay;
+  const { noun } = missionFileItem(job.missionNumber);
+
+  const briefing = await readMessage(job, briefingNumber);
+  check(
+    `a ${noun}'s briefing carries the client's file byte for byte`,
+    briefing?.attachment?.name === missionFileName(job.missionNumber) &&
+      briefing.attachment.content === job.ours,
+    `name ${briefing?.attachment?.name ?? 'none'}, ${briefing?.attachment?.content.length ?? 0} of ${job.ours.length} chars`,
+  );
+
+  const rooted = await rootOver2222(contractor, job, noun.replace(' ', '-'));
+  const placed = await writeAsRoot(contractor, job.target, job.path, job.ours);
+  const paid = await mailClient(job, `it is there\n${job.wallet}\n`);
+  check(
+    `a ${noun} put at the path in place of the company's own is paid`,
+    rooted.landedOn === job.target &&
+      placed.status === 200 &&
+      paid.status === 200 &&
+      (await stateOf(job)) === 'completed' &&
+      (await balanceOf(job.wallet)) === pay,
+    `${rooted.detail}, theirs ${missionFileContent(job.missionNumber, missionSecret).length} chars, write ${placed.status}, mail ${paid.status}, balance ${await balanceOf(job.wallet)} (want ${pay})`,
   );
 };
 
@@ -661,6 +710,7 @@ const main = async () => {
   await workTheRemovedJob();
   await workTheBrickJob();
   await workTheFrontJob();
+  for (const job of ITEMS) await workAnItemJob(job);
 
   await cleanup();
 

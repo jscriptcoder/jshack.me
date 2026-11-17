@@ -52,40 +52,200 @@ const INFILTRATE_JOBS = Array.from({ length: 6000 }, (_unused, index) => index *
   (missionNumber) => isMissionNumber(missionNumber) && missionKind(missionNumber) === 'infiltrate',
 );
 
-describe('the item an infiltrate job slips in', () => {
-  it("is the company's firmware image, at a firmware image's name and place", () => {
-    expect(INFILTRATE_JOBS.length).toBeGreaterThan(100);
-    for (const missionNumber of INFILTRATE_JOBS) {
-      const label = `contract ${missionNumber}`;
+/** What an infiltrate job may slip in: the six a file job asks for, and a boot script. */
+const INFILTRATE_NOUNS = [...ITEM_NOUNS, 'boot script'];
 
-      expect(missionFileItem(missionNumber).noun, label).toBe('firmware image');
-      expect(missionFileName(missionNumber), label).toMatch(
-        /^[a-z0-9]+(-[a-z0-9]+)*-fw-[\d.]+\.bin$/,
+/** The infiltrate jobs slipping in the item called `noun`. */
+const infiltrateJobsFor = (noun: string): readonly number[] =>
+  INFILTRATE_JOBS.filter((missionNumber) => missionFileItem(missionNumber).noun === noun);
+
+describe('the item an infiltrate job slips in', () => {
+  it("is one of seven, a file job's six and a boot script, each about a seventh of the time", () => {
+    expect(INFILTRATE_JOBS.length).toBeGreaterThan(700);
+    expect(
+      new Set(INFILTRATE_JOBS.map((missionNumber) => missionFileItem(missionNumber).noun)),
+    ).toEqual(new Set(INFILTRATE_NOUNS));
+    for (const noun of INFILTRATE_NOUNS) {
+      const share = infiltrateJobsFor(noun).length / INFILTRATE_JOBS.length;
+      expect(share, noun).toBeGreaterThan(0.11);
+      expect(share, noun).toBeLessThan(0.18);
+    }
+  });
+
+  // The company's own copy is the one a file job would come for, so it sits where that item
+  // sits on a file job, under a name of the same kind.
+  it('sits where a file job finds the same item, under a name of the same kind', () => {
+    const extensionOf = (name: string): string => name.slice(name.lastIndexOf('.'));
+    // A key ring may sit under the company's own name in /etc, which is each target's own.
+    const placeOf = (missionNumber: number): string =>
+      directoryOf(missionFilePath(missionNumber)).replace(
+        `/etc/${missionTopology(missionNumber).stem}`,
+        '/etc/<stem>',
       );
-      expect(directoryOf(missionFilePath(missionNumber)), label).toMatch(
-        /^\/(opt\/firmware|srv\/releases)$/,
-      );
+    for (const noun of ITEM_NOUNS) {
+      const fileJobPlaces = new Set(jobsFor(noun).map(placeOf));
+      const fileJobExtensions = new Set(jobsFor(noun).map(missionFileName).map(extensionOf));
+      for (const missionNumber of infiltrateJobsFor(noun)) {
+        const label = `${noun} ${missionNumber}`;
+
+        expect(fileJobPlaces.has(placeOf(missionNumber)), label).toBe(true);
+        expect(fileJobExtensions.has(extensionOf(missionFileName(missionNumber))), label).toBe(
+          true,
+        );
+      }
+    }
+  });
+
+  it('sits in its own name, and never in a home directory a user could empty', () => {
+    for (const missionNumber of INFILTRATE_JOBS) {
+      const path = missionFilePath(missionNumber);
+
+      expect(path.endsWith(`/${missionFileName(missionNumber)}`)).toBe(true);
+      expect(path.startsWith('/home/'), path).toBe(false);
+    }
+  });
+
+  it('carries four reasons of its own for slipping one in, never a reason for taking one', () => {
+    const itemOf = (noun: string) => missionFileItem(infiltrateJobsFor(noun)[0]!);
+    const every = INFILTRATE_NOUNS.flatMap((noun) => itemOf(noun).infiltratePitches);
+    const forTaking = new Set(ITEM_NOUNS.flatMap((noun) => itemOf(noun).pitches));
+
+    for (const noun of INFILTRATE_NOUNS) {
+      expect(itemOf(noun).infiltratePitches, noun).toHaveLength(4);
+    }
+    expect(new Set(every).size).toBe(28);
+    for (const pitch of every) {
+      expect(pitch).toMatch(/^[A-Z].{20,}\.$/);
+      expect(forTaking.has(pitch), pitch).toBe(false);
     }
   });
 });
 
-describe("the client's own file on an infiltrate job", () => {
-  /** A firmware image's header: its version and its device, before the noise. */
-  const headerOf = (content: string): string | undefined =>
-    /^FWIMG v[\d.]+ [a-z0-9-]+/.exec(content)?.[0];
+/** The services a company's boot scripts start, each named for its housekeeping. */
+const BOOT_SERVICES = [
+  'backup-sync',
+  'log-archive',
+  'mirror-sync',
+  'metrics-agent',
+  'cache-clean',
+  'disk-report',
+];
 
-  // The company's image and the client's look alike from outside: the same name in the same
-  // place, opening on the same header, so only their bytes tell them apart.
-  it("opens on the company's image's header and is never the company's image", () => {
-    for (const missionNumber of INFILTRATE_JOBS.slice(0, 60)) {
+describe('a boot script', () => {
+  it('is kept by admins, named for the service it starts, in /etc/init.d or /etc/rc.d/init.d', () => {
+    const jobs = infiltrateJobsFor('boot script');
+
+    expect(missionFileItem(jobs[0]!).keepers).toBe('admins');
+    // No file job asks for one, so it has no reason for taking one.
+    expect(missionFileItem(jobs[0]!).pitches).toEqual([]);
+    expect(new Set(jobs.map(missionFileName))).toEqual(new Set(BOOT_SERVICES));
+    expect(new Set(jobs.map(missionFilePath).map(directoryOf))).toEqual(
+      new Set(['/etc/init.d', '/etc/rc.d/init.d']),
+    );
+  });
+
+  /** Each service as its script describes it, and the housekeeping it runs as the box starts. */
+  const SERVICE_LINES: Readonly<Record<string, readonly [string, string]>> = {
+    'backup-sync': [
+      'Copy the served files to the backup volume',
+      'rsync -a /srv/ /var/backups/srv/',
+    ],
+    'log-archive': ["Archive the week's logs", 'tar -czf /var/backups/logs.tar.gz /var/log'],
+    'mirror-sync': [
+      'Keep the mirror in step with the site',
+      'rsync -a --delete /srv/www/ /srv/mirror/',
+    ],
+    'metrics-agent': ['Start the metrics agent', '/usr/local/bin/metrics-agent --daemon'],
+    'cache-clean': [
+      'Clear stale files from the cache',
+      'find /var/cache -type f -mtime +7 -delete',
+    ],
+    'disk-report': ['Record how full each disk is', 'df -h > /var/log/disk-report.log'],
+  };
+
+  it("is the company's own init script, which runs the service's housekeeping as it starts", () => {
+    const services = new Set<string>();
+    for (const missionNumber of infiltrateJobsFor('boot script')) {
+      const service = missionFileName(missionNumber);
+      const [description, housekeeping] = SERVICE_LINES[service]!;
+      services.add(service);
+
+      expect(missionFileContent(missionNumber, SECRET), `contract ${missionNumber}`).toBe(
+        [
+          '#!/bin/sh',
+          '### BEGIN INIT INFO',
+          `# Provides:          ${service}`,
+          '# Required-Start:    $network $remote_fs',
+          '# Required-Stop:     $network $remote_fs',
+          '# Default-Start:     2 3 4 5',
+          '# Default-Stop:      0 1 6',
+          `# Short-Description: ${description}`,
+          '### END INIT INFO',
+          '',
+          'case "$1" in',
+          '  start)',
+          `    ${housekeeping}`,
+          '    ;;',
+          '  stop)',
+          '    ;;',
+          'esac',
+          'exit 0',
+          '',
+        ].join('\n'),
+      );
+    }
+    expect(services).toEqual(new Set(BOOT_SERVICES));
+  });
+
+  // The virus: the company's script with one line more as it starts, which runs the client's
+  // program. Its path and token come from the secret, so nobody writes it without the briefing.
+  it("is, in the client's copy, the company's script with a line more that starts their program", () => {
+    const tokens = new Set<string>();
+    for (const missionNumber of infiltrateJobsFor('boot script').slice(0, 30)) {
+      const theirs = missionFileContent(missionNumber, SECRET).split('\n');
+      const ours = missionPlantContent(missionNumber, SECRET).split('\n');
+      const added = ours.findIndex((line, index) => line !== theirs[index]);
+      const label = `contract ${missionNumber}`;
+
+      expect(ours.toSpliced(added, 1), label).toEqual(theirs);
+      expect(ours[added], label).toMatch(/^ {4}(\/[a-z0-9.-]+)+ --token [0-9a-f]{16} &$/);
+      expect(ours.slice(ours.indexOf('  start)'), ours.indexOf('    ;;')), label).toContain(
+        ours[added],
+      );
+      tokens.add(ours[added]!.split(' ').at(-2)!);
+    }
+    expect(tokens.size).toBe(30);
+  });
+});
+
+describe("the client's own file on an infiltrate job", () => {
+  /** How a file opens, as a reader tells one copy of it from a stranger's: the runs `strings`
+   *  finds of a header or a jpeg's Exif, a pdf's Info, and a boot script's lines before its
+   *  housekeeping. A pdf's lengths and offsets follow its noise, so they are left out. */
+  const openingOf = (missionNumber: number, content: string): unknown => {
+    const { noun } = missionFileItem(missionNumber);
+    if (noun === 'signed contract') {
+      return readableRuns(content).find((run) => run.includes('/Title'));
+    }
+    if (noun === 'boot script') return content.slice(0, content.indexOf('  start)'));
+    return readableRuns(content);
+  };
+
+  // The company's file and the client's look alike from outside: the same name in the same
+  // place, opening the same way, so only their bytes tell them apart.
+  it("opens as the company's own does and is never the company's own, for every item", () => {
+    const seen = new Set<string>();
+    for (const missionNumber of INFILTRATE_JOBS.slice(0, 200)) {
       const theirs = missionFileContent(missionNumber, SECRET);
       const ours = missionPlantContent(missionNumber, SECRET);
       const label = `contract ${missionNumber}`;
 
-      expect(headerOf(ours), label).toBeDefined();
-      expect(headerOf(ours), label).toBe(headerOf(theirs));
+      expect(openingOf(missionNumber, ours), label).toBeTruthy();
+      expect(openingOf(missionNumber, ours), label).toEqual(openingOf(missionNumber, theirs));
       expect(ours, label).not.toBe(theirs);
+      seen.add(missionFileItem(missionNumber).noun);
     }
+    expect(seen).toEqual(new Set(INFILTRATE_NOUNS));
   });
 
   it('is the same file for the same number under the same secret, and another under another', () => {
@@ -122,12 +282,12 @@ describe("the client's own file on an infiltrate job", () => {
   // It reaches the contractor as the briefing's attachment, at most 8,000 characters, and goes
   // on through `mail save` and `scp`, which carry these characters unchanged.
   it('fits in one mail, made of characters a copy carries unchanged', () => {
-    for (const missionNumber of INFILTRATE_JOBS.slice(0, 60)) {
+    for (const missionNumber of INFILTRATE_JOBS.slice(0, 200)) {
       const content = missionPlantContent(missionNumber, SECRET);
       const label = `contract ${missionNumber}`;
 
       expect(content.length, label).toBeLessThanOrEqual(8000);
-      expect(content, label).toMatch(/^[ -~\u00a1-\u00ac\u00ae-\u00ff]+$/);
+      expect(content, label).toMatch(/^[\n -~\u00a1-\u00ac\u00ae-\u00ff]+$/);
     }
   });
 });

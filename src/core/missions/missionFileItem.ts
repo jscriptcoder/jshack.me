@@ -42,11 +42,13 @@ export type MissionFileItem = {
 };
 
 /** The job's file as the number draws it: its name and directory, and how its bytes are made
- *  from the secret's stream. */
+ *  from the secret's stream: the company's copy, and the client's where it is more than the
+ *  same item drawn from another stream. */
 type DrawnFile = {
   readonly name: string;
   readonly directory: string;
   readonly render: (secretPrng: Prng) => string;
+  readonly plant?: (secretPrng: Prng) => string;
 };
 
 type ItemSpec = MissionFileItem & {
@@ -113,7 +115,12 @@ const PROTOTYPE_RENDER: ItemSpec = {
     'We are bidding against them for the same retailer. We need to know what they are pitching.',
     'An investor asked us whether they are as far along as they claim. We would like to answer.',
   ],
-  infiltratePitches: [],
+  infiltratePitches: [
+    'They pitch that design to a retailer next week. We would like the render on the screen to be ours.',
+    'Their toolmakers cut the moulds from the last render signed off. Ours has a flaw nobody will see until then.',
+    'Their investors judge the product by that render. Ours makes it look a year behind.',
+    'Their designers build on whatever render sits in that folder. We have made a few changes they will not notice.',
+  ],
   draw: (prng) => {
     const code = `${prng.pick(LETTERS)}${prng.pick(LETTERS)}${prng.nextInt(0, 9)}`;
     const stage = prng.pick(['final', 'v2', 'v3', 'approved', 'review']);
@@ -139,7 +146,12 @@ const SITE_PHOTO: ItemSpec = {
     'They built on land we have a claim to. We need proof of when the work started.',
     'A buyer is asking about that site. We want to know what is really there before they do.',
   ],
-  infiltratePitches: [],
+  infiltratePitches: [
+    'The inspectors will check the site against their photos. Ours show a spill they never reported.',
+    'Their insurance claim rests on that photo. Ours shows the damage was there before the storm.',
+    'The planning board reads their survey before it rules. Ours shows the work started before the permit.',
+    'A buyer will judge that site by their photos. We would like the buyer to see the cracks.',
+  ],
   draw: (prng) => {
     const takenAt = drawMoment(prng);
     const { make, model } = prng.pick(CAMERAS);
@@ -181,7 +193,12 @@ const SIGNED_CONTRACT: ItemSpec = {
     'We think that deal breaks the exclusivity they promised us. We want to read it.',
     'Their lawyers are telling the court the deal never closed. The signed copy says it did.',
   ],
-  infiltratePitches: [],
+  infiltratePitches: [
+    'Their lawyers will argue from that copy. Ours carries a clause they never agreed to.',
+    'When our dispute reaches court, they will print their signed copy. It should be ours.',
+    'Their partner believes the exclusivity ends this year. Our copy says it runs five more.',
+    'The auditors read every signed deal in that folder. One of them should owe us money.',
+  ],
   draw: (prng) => {
     const project = prng.pick(PROJECTS);
     const deal = prng.pick(DEALS);
@@ -234,7 +251,12 @@ const CUSTOMER_EXPORT: ItemSpec = {
     "We believe they are selling our customers' data. Their export will show whether our people are in it.",
     'A former employee took our client list to them. We want to see how much of it they kept.',
   ],
-  infiltratePitches: [],
+  infiltratePitches: [
+    'Their sales team calls whoever is in that export. We would like them calling the wrong people.',
+    'Their buyers will price the company by that list. Ours is half the size.',
+    'Their accounts team bills from that export. Ours has a few accounts that owe nothing.',
+    'Their campaign mails everyone in that export next month. Ours sends every letter to an address nobody reads.',
+  ],
   draw: (prng) => {
     const month = new Date(drawMoment(prng));
     return {
@@ -254,7 +276,12 @@ const KEY_RING: ItemSpec = {
     'We sold them hardware and they still owe us. Their keys are worth the debt to us.',
     'Someone inside asked us to audit them without telling their bosses. Bring us the keys.',
   ],
-  infiltratePitches: [],
+  infiltratePitches: [
+    'Their servers let in any key on that ring. We would like one of them to be ours.',
+    'Every release they ship is checked against that ring. Ours carries one key more.',
+    'Their admins trust that ring without reading it. Ours holds a key they will not recognise.',
+    'We were their contractor until the spring. With our key on their ring, we still are.',
+  ],
   draw: (prng, missionNumber) => ({
     name: 'keyring.dat',
     directory: prng.pick(['/root/.vault', `/etc/${missionTopology(missionNumber).stem}`]),
@@ -262,7 +289,107 @@ const KEY_RING: ItemSpec = {
   }),
 };
 
-/** The six, in the order the item is drawn from. */
+/** The housekeeping a company's boot script runs as the box starts, and the service it is
+ *  named for. */
+const BOOT_SERVICES: readonly {
+  readonly name: string;
+  readonly description: string;
+  readonly housekeeping: string;
+}[] = [
+  {
+    name: 'backup-sync',
+    description: 'Copy the served files to the backup volume',
+    housekeeping: 'rsync -a /srv/ /var/backups/srv/',
+  },
+  {
+    name: 'log-archive',
+    description: "Archive the week's logs",
+    housekeeping: 'tar -czf /var/backups/logs.tar.gz /var/log',
+  },
+  {
+    name: 'mirror-sync',
+    description: 'Keep the mirror in step with the site',
+    housekeeping: 'rsync -a --delete /srv/www/ /srv/mirror/',
+  },
+  {
+    name: 'metrics-agent',
+    description: 'Start the metrics agent',
+    housekeeping: '/usr/local/bin/metrics-agent --daemon',
+  },
+  {
+    name: 'cache-clean',
+    description: 'Clear stale files from the cache',
+    housekeeping: 'find /var/cache -type f -mtime +7 -delete',
+  },
+  {
+    name: 'disk-report',
+    description: 'Record how full each disk is',
+    housekeeping: 'df -h > /var/log/disk-report.log',
+  },
+];
+
+/** Where the client's program sits, and what it is called: names a listing passes over. */
+const PROGRAM_DIRECTORIES = ['/usr/lib/dbus-1.0', '/usr/local/lib', '/var/lib/misc'] as const;
+const PROGRAM_NAMES = ['sysupd', 'kworker-cache', 'udev-sync', 'netlinkd', 'syslog-relay'] as const;
+
+const HEX_DIGITS = '0123456789abcdef'.split('');
+const TOKEN_LENGTH = 16;
+
+/** A SysV init script for the service, its housekeeping run as the box starts, then the lines
+ *  `extra` gives. */
+const initScript = (service: (typeof BOOT_SERVICES)[number], extra: readonly string[]): string =>
+  [
+    '#!/bin/sh',
+    '### BEGIN INIT INFO',
+    `# Provides:          ${service.name}`,
+    '# Required-Start:    $network $remote_fs',
+    '# Required-Stop:     $network $remote_fs',
+    '# Default-Start:     2 3 4 5',
+    '# Default-Stop:      0 1 6',
+    `# Short-Description: ${service.description}`,
+    '### END INIT INFO',
+    '',
+    'case "$1" in',
+    '  start)',
+    `    ${service.housekeeping}`,
+    ...extra,
+    '    ;;',
+    '  stop)',
+    '    ;;',
+    'esac',
+    'exit 0',
+    '',
+  ].join('\n');
+
+/** Only an infiltrate job asks for it: a client wants its own copy among the scripts the
+ *  company's servers run when they start, one line more that starts the client's program. The
+ *  game runs no script at boot; the client checks the bytes, as for every other item. */
+const BOOT_SCRIPT: ItemSpec = {
+  noun: 'boot script',
+  keepers: 'admins',
+  pitches: [],
+  infiltratePitches: [
+    'Their servers run everything in that folder when they start. Ours should run with them.',
+    'Their admins never read what runs at boot. The next time they restart, ours runs too.',
+    'We would like a way back into their machines that survives a restart. Their own startup is the way.',
+    'Every machine they build is cloned from that one. Whatever starts there will start everywhere.',
+  ],
+  draw: (prng) => {
+    const service = prng.pick(BOOT_SERVICES);
+    return {
+      name: service.name,
+      directory: prng.pick(['/etc/init.d', '/etc/rc.d/init.d']),
+      render: () => initScript(service, []),
+      plant: (secretPrng) => {
+        const program = `${secretPrng.pick(PROGRAM_DIRECTORIES)}/${secretPrng.pick(PROGRAM_NAMES)}`;
+        const token = Array.from({ length: TOKEN_LENGTH }, () => secretPrng.pick(HEX_DIGITS));
+        return initScript(service, [`    ${program} --token ${token.join('')} &`]);
+      },
+    };
+  },
+};
+
+/** The six a file job asks for, in the order the item is drawn from. */
 const ITEMS: readonly ItemSpec[] = [
   PROTOTYPE_RENDER,
   SITE_PHOTO,
@@ -272,12 +399,14 @@ const ITEMS: readonly ItemSpec[] = [
   KEY_RING,
 ];
 
-/** On a stream of its own, so drawing the item moved nothing a number drew before. An
- *  infiltrate job slips in a firmware image. */
+/** What an infiltrate job slips in: any of the six, or a boot script. */
+const INFILTRATE_ITEMS: readonly ItemSpec[] = [...ITEMS, BOOT_SCRIPT];
+
+/** On a stream of its own, so drawing the item moved nothing a number drew before. */
 const itemSpecOf = (missionNumber: number): ItemSpec =>
-  missionKind(missionNumber) === 'infiltrate'
-    ? FIRMWARE_IMAGE
-    : createPrng(`mission-file-item-${missionNumber}`).pick(ITEMS);
+  createPrng(`mission-file-item-${missionNumber}`).pick(
+    missionKind(missionNumber) === 'infiltrate' ? INFILTRATE_ITEMS : ITEMS,
+  );
 
 /** What the job asks for, as the board and the briefing name it. */
 export const missionFileItem = (missionNumber: number): MissionFileItem => {
@@ -299,19 +428,19 @@ export const missionFilePath = (missionNumber: number): string => {
 
 const encodeUtf8 = (text: string): Uint8Array => new TextEncoder().encode(text);
 
-/** The job's file rendered from an HMAC of `label` under the secret. */
-const renderUnder = (missionNumber: number, secret: string, label: string): string => {
-  const seed = bytesToHex(hmac(sha256, encodeUtf8(secret), encodeUtf8(label)));
-  return drawnFileOf(missionNumber).render(createPrng(seed));
-};
+/** The stream an HMAC of `label` under the secret seeds. */
+const streamUnder = (secret: string, label: string): Prng =>
+  createPrng(bytesToHex(hmac(sha256, encodeUtf8(secret), encodeUtf8(label))));
 
 /** The file the server lays on the target, under this deployment's secret: every byte the
  *  secret's own stream draws, from an HMAC of the number. */
 export const missionFileContent = (missionNumber: number, secret: string): string =>
-  renderUnder(missionNumber, secret, `file:${missionNumber}`);
+  drawnFileOf(missionNumber).render(streamUnder(secret, `file:${missionNumber}`));
 
 /** The file an infiltrate job's client sends to be put in place of the company's: the same
  *  item, name and header, its bytes drawn from an HMAC of its own, so it is never the company's
  *  file and nobody makes it without the briefing that carries it. */
-export const missionPlantContent = (missionNumber: number, secret: string): string =>
-  renderUnder(missionNumber, secret, `infiltrate:${missionNumber}`);
+export const missionPlantContent = (missionNumber: number, secret: string): string => {
+  const { render, plant = render } = drawnFileOf(missionNumber);
+  return plant(streamUnder(secret, `infiltrate:${missionNumber}`));
+};

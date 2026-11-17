@@ -17,7 +17,7 @@ second template, a key box behind a front box ("Two hops", four slices, v0.450.0
 machine taken down ("Sabotage jobs", two slices, v0.458.0–v0.459.0, PRs #770–#771, 2026-11-12),
 and a fourth, a file brought back ("File jobs", from v0.461.0, on mail that carries a file,
 v0.460.0, PR #772), and a fifth, a listener left on a machine ("Backdoor jobs", v0.464.0), and
-a sixth, the client's own file put in place ("Infiltrate jobs", from v0.465.0).
+a sixth, the client's own file put in place ("Infiltrate jobs", v0.465.0–v0.466.0).
 It sits
 on top of the contractor boards
 ([`hireme-architecture.md`](./hireme-architecture.md)), emailit.io
@@ -853,15 +853,30 @@ another. In sixtieths (`KIND_CUTS`, `core/missions/missionShape.ts`):
 - **The target is the file job's:** the key box's slot (same octet, route, decoys and front box;
   the inside box on two-hop), hostname `<stem>-files`, no storage and no service of its own, so a
   scan never tells a file job from an infiltrate job.
-- **The item is a firmware image** (v0.465.0), with the file job's name and directory draw
-  (`mission-file-<n>`), so `missionFileName` and `missionFilePath` answer for it unchanged. Each
-  item carries infiltrate pitches beside its file-job ones (`infiltratePitches`,
-  `core/missions/missionFileItem.ts`), shared with no other pitch.
+- **The item is one of seven** (v0.466.0; only the firmware image at v0.465.0), drawn one in
+  seven on `mission-file-item-<n>`: the six a file job asks for, each with its file-job name,
+  directory and format (`mission-file-<n>`), and a boot script, which only an infiltrate job asks
+  for (a file job still draws one in six, so no file job's item moved). Each item carries four
+  infiltrate pitches beside its file-job ones (`infiltratePitches`,
+  `core/missions/missionFileItem.ts`), 28 in all, shared with no other pitch.
+
+  | Item        | Keepers | Name                                         | Directory                          | What it is                                                                                  |
+  | ----------- | ------- | -------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------- |
+  | boot script | admins  | a housekeeping service (`backup-sync`, …, 6) | `/etc/init.d/`, `/etc/rc.d/init.d/` | a SysV init script: `#!/bin/sh`, the `INIT INFO` block, the service's housekeeping at start |
+
+  The boot script is the virus a client wants among the scripts the company's servers run when
+  they start: the company's copy runs its housekeeping, and the client's is the same script with
+  one line more in `start)`, `<program> --token <16 hex> &`, the program's path and the token drawn
+  from the secret's stream (`plant` beside `render` on the drawn file; every other item's client
+  copy is the same renderer on another stream). It is story only: the game runs no script at
+  boot, and the client checks the bytes as for every other item. No box carries `/etc/init.d`, so
+  the lay-in makes the directory, as it makes `/opt/firmware`.
 - **Two files, one path.** The server lays the company's genuine image at the path, root-only
   (`ROOT_FILE`), from an HMAC of `file:<n>` (`missionFileContent`), exactly as it lays a file
   job's (`holdsFile`, `core/missions/missionLeak.ts`), and the path is in `missionFilePaths`, so
   only root may write it. The client's file (`missionPlantContent`) is the same item rendered from
-  an HMAC of `infiltrate:<n>`: the same name, place and header, never the same bytes, and under the
+  an HMAC of `infiltrate:<n>`: the same name and place, opening the same way (a header, a jpeg's
+  Exif, a pdf's Info, a boot script's lines before its housekeeping), never the same bytes, and under the
   8,000 characters an attachment may be. A root's write over the path goes through the journal, so
   it is what every later read sees.
 - **The briefing carries the client's file.** `ContractMail` has an optional `attachment`, and an
@@ -873,8 +888,8 @@ another. In sixtieths (`KIND_CUTS`, `core/missions/missionShape.ts`):
   `hireme_accept` (`20261116000000_hireme_accept_attachment.sql`) takes the file as two more
   arguments, an empty name for none, as `email_send` does. The client sends the file once: a
   contractor who loses it can drop the contract.
-- **The terms**: `<Client> — infiltrate a firmware image — §<pay>`, and `infiltrate an internal
-  firmware image` on two-hop, at the key job's pay (500–2,000 single-hop, 2,000–4,000 two-hop, to
+- **The terms**: `<Client> — infiltrate a <item> — §<pay>`, and `infiltrate an internal <item>`
+  on two-hop, at the key job's pay (500–2,000 single-hop, 2,000–4,000 two-hop, to
   the nearest 50). The target company is drawn as a key job's is.
 - **The briefing** names the whole path, never the box or its address:
 
@@ -1001,12 +1016,14 @@ ceiling of 300,575 B (a tamper setting's content is not in it).
   paid); `testMissionFile.ts` (10: `show` naming the item and the file, root over `:2222` reading
   it root-only at its path with the secret's bytes, a mail with no file and one with a newline
   added refused, the file mailed back renamed paid once then closed, and a root's `rm` of it
-  sticking); `testMissionInfiltrate.ts` (15: a job accepted through a board's `/accept` whose
+  sticking); `testMissionInfiltrate.ts` (21: a job accepted through a board's `/accept` whose
   briefing carries the client's file byte for byte, `show` naming the item and the path, a mail
   while the company's file is there and one with a newline added told it is not in place, root
   over `:2222` writing the client's file paid once then closed, a second player's placing paying
   the contractor, the file removed or the target bricked before the mail a miss, and on a two-hop
-  job the file put at the same path on the front box a miss). The
+  job the file put at the same path on the front box a miss; then a boot script, a signed
+  contract and a site photo, each accepted through the board, its file carried byte for byte and
+  paid once it is at the path). The
   board and pay checks each post a two-hop offer on a chosen number (21 and 17 checks at
   v0.452.0). The decoys' doors are also proven in `decoyMissionDoors.test.ts`.
 - **Mutation**: every slice's scoped run left no survivor but equivalents.

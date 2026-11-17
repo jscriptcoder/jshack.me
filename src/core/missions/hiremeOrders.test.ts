@@ -758,7 +758,7 @@ describe('showReport on an infiltrate job', () => {
         `  Target:   ${terms.targetCompany}, ${shape.stem}-gw / ${shape.stem}-files`,
         `  Pay:      §${terms.pay.toLocaleString('en-US')}`,
         '  Template: single-hop',
-        '  Kind:     infiltrate, firmware image',
+        `  Kind:     infiltrate, ${missionFileItem(SINGLE_HOP).noun}`,
         '  Route:    hydra',
         ...shape.forwards.map(
           (forward, index) =>
@@ -781,7 +781,7 @@ describe('showReport on an infiltrate job', () => {
     const report = showReport(TWO_HOP, SECRET, undefined);
     const lines = report.split('\n');
 
-    expect(lines).toContain('  Kind:     infiltrate, firmware image');
+    expect(lines).toContain(`  Kind:     infiltrate, ${missionFileItem(TWO_HOP).noun}`);
     expect(lines).toContain(`  Target box: ${missionShape(TWO_HOP).stem}-files`);
     expect(lines.at(-1)).toBe(fileLine(TWO_HOP));
     expect(report).not.toContain('Key');
