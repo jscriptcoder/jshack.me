@@ -54,10 +54,9 @@ import {
 } from '../sessions/passwdAccount.js';
 import { PASSWD_FILE } from '../generation/baseFs.js';
 import { md5 } from '../generation/md5.js';
-import { libraryDeps, libraryPresent } from './libraryDeps.js';
+import { binaryPathFor, libraryDeps, libraryPresent } from './libraryDeps.js';
 import { SYSTEM_LIBRARIES } from '../generation/libraries.js';
 import { hasTty } from '../shell/runLine.js';
-import { resolveBinaryPath } from './availability.js';
 import { errorLine, streamedResult, text } from './streaming.js';
 import { PATCH_ERROR_REASON } from './types.js';
 import type {
@@ -971,9 +970,7 @@ const appendCrashTrace = async (
  *  as a tool that is not really there. */
 const invocationPath = (env: CommandEnv): string => {
   const token = env.argv0 ?? 'msfconsole';
-  return token.includes('/')
-    ? resolveAbsPath(env.fs.cwd(), token)
-    : (resolveBinaryPath(env, token) ?? resolveAbsPath(env.fs.cwd(), token));
+  return binaryPathFor(env, token) ?? resolveAbsPath(env.fs.cwd(), token);
 };
 
 /** A `--local` on a box that is not the player's own: the fire goes to the server and this

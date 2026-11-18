@@ -21,12 +21,10 @@
  * real Linux, so the output is deterministic.
  */
 
-import { resolveAbsPath } from '../filesystem/path.js';
-import type { FileNode } from '../filesystem/types.js';
 import type { SystemLibrary } from '../generation/libraries.js';
 import { stubName } from '../generation/binaries.js';
-import { resolveBinary } from './availability.js';
-import { libraryDeps, libraryPresent } from './libraryDeps.js';
+import type { AbsPath } from '../types.js';
+import { binaryPathFor, libraryDeps, resolveLibrary } from './libraryDeps.js';
 import type { Command, CommandEnv, CommandResult } from './types.js';
 
 const failure = (content: string): CommandResult => ({
@@ -44,23 +42,22 @@ const fakeLoadAddress = (library: string): string => {
   return `(0x${hash.toString(16).padStart(12, '0')})`;
 };
 
-const formatLine = (env: CommandEnv, library: SystemLibrary): string => {
-  const resolution = libraryPresent(env, library)
-    ? `/lib/${library}.so ${fakeLoadAddress(library)}`
-    : 'not found';
+const formatLine = (env: CommandEnv, library: SystemLibrary, binaryPath: AbsPath): string => {
+  const path = resolveLibrary(env, library, binaryPath);
+  const resolution = path === null ? 'not found' : `${path} ${fakeLoadAddress(library)}`;
   return `\t${library}.so => ${resolution}`;
 };
-
-/** The node the argument names: a path taken literally, a bare name searched. */
-const locate = (env: CommandEnv, arg: string): FileNode | null =>
-  arg.includes('/') ? env.fs.stat(resolveAbsPath(env.fs.cwd(), arg)) : resolveBinary(env, arg);
 
 const execute: Command['execute'] = async (env, args) => {
   const arg = args[0];
   if (arg === undefined) return failure('ldd: missing file arguments');
 
-  const node = locate(env, arg);
-  if (node === null) return failure(`ldd: ${arg}: No such file or directory`);
+  // A path taken literally, a bare name searched — the way the shell finds it.
+  const binaryPath = binaryPathFor(env, arg);
+  const node = binaryPath === null ? null : env.fs.stat(binaryPath);
+  if (binaryPath === null || node === null) {
+    return failure(`ldd: ${arg}: No such file or directory`);
+  }
   if (node.kind !== 'file') return failure(`ldd: ${arg}: not regular file`);
 
   const tool = stubName(node.content);
@@ -76,7 +73,10 @@ const execute: Command['execute'] = async (env, args) => {
   }
   return {
     kind: 'sync',
-    lines: deps.map((library) => ({ kind: 'text', content: formatLine(env, library) })),
+    lines: deps.map((library) => ({
+      kind: 'text',
+      content: formatLine(env, library, binaryPath),
+    })),
     exitCode: 0,
   };
 };
@@ -90,7 +90,7 @@ export const ldd: Command = {
   manual: {
     synopsis: 'ldd <command-or-path>',
     description:
-      'List the shared libraries a binary links and where each resolves under /lib. A library whose file is gone shows as "not found", which is also why the command itself will refuse to start. A bare name is looked up in /bin, /usr/bin and /usr/sbin; anything with a slash is taken as a path.',
+      'List the shared libraries a binary links and where each resolves: /lib first, then the directory the binary itself sits in. A library found in neither shows as "not found", which is also why the command itself will refuse to start. A bare name is looked up in /bin, /usr/bin and /usr/sbin; anything with a slash is taken as a path.',
     arguments: [
       {
         name: 'command-or-path',
