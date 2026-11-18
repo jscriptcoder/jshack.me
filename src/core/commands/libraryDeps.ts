@@ -3,10 +3,13 @@
  * (binary/availability model, Slice 3).
  *
  * `libraryDeps` maps a pre-installed command to the shared libraries it links.
- * `wrapWithLibraryCheck` verifies each linked `<lib>.so` exists on the current
- * machine BEFORE the command runs; the first missing one yields the canonical
- * glibc dynamic-linker error (exactly what real `ld.so` prints). The check is
- * FS-driven and opt-in: a command with no manifest entry passes through.
+ * `wrapWithLibraryCheck` verifies each linked `<lib>.so` loads on the current
+ * machine BEFORE the command runs — from `/lib`, or failing that from the
+ * directory the binary sits in — and the first that loads from neither yields
+ * the canonical glibc dynamic-linker error (exactly what real `ld.so` prints).
+ * The check is FS-driven and opt-in: a command with no manifest entry passes
+ * through. A library beside the binary only lets it START: the library-CVE
+ * route (`msfconsole --local`) still reads `/lib` alone.
  *
  * Applied in `registry.ts` INSIDE the binary check
  * (`wrapWithBinaryCheck(wrapWithLibraryCheck(cmd))`), so a missing binary
@@ -34,9 +37,12 @@
  * clear, whoami) — they run without a library check.
  */
 
-import { asAbsPath } from '../types.js';
+import { asAbsPath, type AbsPath } from '../types.js';
 import type { Command, CommandEnv, CommandResult } from './types.js';
 import type { SystemLibrary } from '../generation/libraries.js';
+import { stubName } from '../generation/binaries.js';
+import { dirname, resolveAbsPath } from '../filesystem/path.js';
+import { resolveBinaryPath } from './availability.js';
 
 export const libraryDeps: Readonly<Record<string, readonly SystemLibrary[]>> = {
   su: ['libpam', 'libcrypt'],
@@ -90,6 +96,32 @@ export const libraryDeps: Readonly<Record<string, readonly SystemLibrary[]>> = {
 export const libraryPresent = (env: CommandEnv, library: SystemLibrary): boolean =>
   env.fs.stat(asAbsPath(`/lib/${library}.so`))?.kind === 'file';
 
+/** The binary a typed token names: a token with a `/` is a path, resolved
+ *  against the cwd; a bare name is wherever the search path finds it. Null when
+ *  a bare name resolves nowhere. */
+export const binaryPathFor = (env: CommandEnv, token: string): AbsPath | null =>
+  token.includes('/') ? resolveAbsPath(env.fs.cwd(), token) : resolveBinaryPath(env, token);
+
+/**
+ * Where `library` loads from for the binary at `binaryPath`, or null when it
+ * loads from nowhere. `/lib` first; failing that, the binary's own directory,
+ * so a player without root can carry a library in beside a tool. Only `/lib` is
+ * root-writable, so beside the binary the file must BE that library — a
+ * `touch`ed or renamed file cannot stand in for one, or deleting a library
+ * would stop defending a box.
+ */
+export const resolveLibrary = (
+  env: CommandEnv,
+  library: SystemLibrary,
+  binaryPath: AbsPath | null,
+): AbsPath | null => {
+  if (libraryPresent(env, library)) return asAbsPath(`/lib/${library}.so`);
+  if (binaryPath === null) return null;
+  const beside = resolveAbsPath(dirname(binaryPath), `${library}.so`);
+  const node = env.fs.stat(beside);
+  return node?.kind === 'file' && stubName(node.content) === `${library}.so` ? beside : null;
+};
+
 /**
  * Wrap a command with a runtime shared-library check. A command not in
  * `libraryDeps` is returned untouched (opt-in). Otherwise, at execution time,
@@ -103,7 +135,10 @@ export const wrapWithLibraryCheck = (command: Command): Command => {
   return {
     ...command,
     execute: async (env, args, flags): Promise<CommandResult> => {
-      const missing = deps.find((lib) => !libraryPresent(env, lib));
+      // argv[0] is how the shell reached this binary; a command reached outside
+      // the shell has none, and is looked up by its own name.
+      const binaryPath = binaryPathFor(env, env.argv0 ?? command.name);
+      const missing = deps.find((lib) => resolveLibrary(env, lib, binaryPath) === null);
       if (missing !== undefined) {
         return {
           kind: 'sync',

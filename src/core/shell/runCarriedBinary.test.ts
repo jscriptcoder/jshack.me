@@ -119,6 +119,58 @@ describe('running a carried binary by its path', () => {
     ]);
   });
 
+  it.each([['/tmp/tool'], ['./tool']])(
+    'finds a library the box lacks when it sits next to the binary, run as %s',
+    async (path) => {
+      const box = buildBox(
+        {
+          tool: carried({ content: binaryStub('cat') }),
+          'libpcre.so': carried({ content: binaryStub('libpcre.so') }),
+        },
+        [],
+      );
+
+      const result = await run(box, `${path} /etc/motd`);
+
+      expect(result.exitCode).toBe(0);
+      expect(contents(result.lines)).toEqual(['welcome aboard']);
+    },
+  );
+
+  it.each([
+    ['a file that is not a library', 'not really a library\n'],
+    ['a different library under that name', binaryStub('libssl.so')],
+  ])('does not take %s next to the binary for the library it links', async (_label, content) => {
+    const box = buildBox(
+      { tool: carried({ content: binaryStub('cat') }), 'libpcre.so': carried({ content }) },
+      [],
+    );
+
+    const result = await run(box, '/tmp/tool /etc/motd');
+
+    expect(result.exitCode).toBe(127);
+    expect(contents(result.lines)).toEqual([
+      'cat: error while loading shared libraries: libpcre.so: cannot open shared object file: No such file or directory',
+    ]);
+  });
+
+  it('does not find a library that sits in a different directory from the binary', async () => {
+    const box = buildBox(
+      {
+        kit: buildDirectory({ tool: carried({ content: binaryStub('cat') }) }, { owner: 'guest' }),
+        'libpcre.so': carried({ content: binaryStub('libpcre.so') }),
+      },
+      [],
+    );
+
+    const result = await run(box, '/tmp/kit/tool /etc/motd');
+
+    expect(result.exitCode).toBe(127);
+    expect(contents(result.lines)).toEqual([
+      'cat: error while loading shared libraries: libpcre.so: cannot open shared object file: No such file or directory',
+    ]);
+  });
+
   it.each([
     ['nothing at that path', '/tmp/missing', {}],
     ['a directory', '/tmp', {}],

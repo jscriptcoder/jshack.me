@@ -266,6 +266,37 @@ describe('ldd', () => {
     expect((await runLdd(box, ['/tmp/su'])).lines).toEqual((await runLdd(box, ['grep'])).lines);
   });
 
+  it('resolves a library the box lacks to the copy next to the binary', async () => {
+    const box = buildBox({
+      tmp: { tool: binaryStub('grep'), 'libpcre.so': binaryStub('libpcre.so') },
+    });
+
+    const lines = linesOfKind((await runLdd(box, ['/tmp/tool'])).lines, 'text').map(parseLine);
+
+    expect(lines.map(({ library, resolution }) => [library, resolution])).toEqual([
+      ['libpcre.so', '/tmp/libpcre.so'],
+    ]);
+  });
+
+  it('resolves to /lib when the library is there as well as next to the binary', async () => {
+    const box = buildBox({
+      libs: ['libpcre'],
+      tmp: { tool: binaryStub('grep'), 'libpcre.so': binaryStub('libpcre.so') },
+    });
+
+    const [line] = linesOfKind((await runLdd(box, ['/tmp/tool'])).lines, 'text');
+
+    expect(parseLine(line ?? '').resolution).toBe('/lib/libpcre.so');
+  });
+
+  it('does not resolve to a file next to the binary that only has the library name', async () => {
+    const box = buildBox({ tmp: { tool: binaryStub('grep'), 'libpcre.so': 'fake\n' } });
+
+    const result = await runLdd(box, ['/tmp/tool']);
+
+    expect(linesOfKind(result.lines, 'text')).toEqual(['\tlibpcre.so => not found']);
+  });
+
   it('reports a file that is not a binary at all as not a dynamic executable', async () => {
     const box = buildBox({ tmp: { su: 'just some text\n' } });
 
