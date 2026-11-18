@@ -177,7 +177,7 @@ describe('missionShape', () => {
     }
   });
 
-  it('makes about a seventh of the contracts each of key, tamper, sabotage, file, backdoor, infiltrate and portforward jobs', () => {
+  it('makes about an eighth of the contracts each of key, tamper, sabotage, file, backdoor, infiltrate, portforward and credential jobs', () => {
     const counts = ALL_SAMPLE_SHAPES.reduce<Record<string, number>>(
       (tally, { kind }) => ({ ...tally, [kind]: (tally[kind] ?? 0) + 1 }),
       {},
@@ -185,6 +185,7 @@ describe('missionShape', () => {
 
     expect(Object.keys(counts).sort()).toEqual([
       'backdoor',
+      'credential',
       'file',
       'infiltrate',
       'key',
@@ -193,56 +194,69 @@ describe('missionShape', () => {
       'tamper',
     ]);
     for (const [kind, count] of Object.entries(counts)) {
-      expect(count / ALL_SAMPLE_SHAPES.length, kind).toBeGreaterThan(0.11);
-      expect(count / ALL_SAMPLE_SHAPES.length, kind).toBeLessThan(0.18);
+      expect(count / ALL_SAMPLE_SHAPES.length, kind).toBeGreaterThan(0.09);
+      expect(count / ALL_SAMPLE_SHAPES.length, kind).toBeLessThan(0.16);
     }
   });
 
-  it('turns no contract from one older kind into another: each keeps its kind or becomes a portforward job', () => {
-    // Contracts drawn just above the bottom and just below the top of every piece of the draw,
-    // with the kind each had before portforward jobs. Each older kind gave up the top of one of
-    // its pieces.
+  it('turns no contract from one older kind into another: each keeps its kind or becomes a credential job', () => {
+    // The contracts drawn nearest the bottom and the top of every piece of the draw, with the kind
+    // each had before credential jobs. Each older kind gave up the top of one of its pieces.
     const drawnAtTheEdges = [
-      [1215, 'tamper', 'tamper'],
-      [2188, 'tamper', 'tamper'],
-      [274, 'tamper', 'portforward'],
-      [9, 'tamper', 'portforward'],
-      [264, 'infiltrate', 'infiltrate'],
-      [1235, 'infiltrate', 'infiltrate'],
-      [269, 'backdoor', 'backdoor'],
-      [62, 'backdoor', 'backdoor'],
-      [836, 'backdoor', 'portforward'],
-      [492, 'backdoor', 'portforward'],
-      [413, 'file', 'file'],
-      [1516, 'file', 'file'],
-      [143, 'sabotage', 'sabotage'],
-      [438, 'sabotage', 'sabotage'],
-      [372, 'sabotage', 'portforward'],
-      [2626, 'sabotage', 'portforward'],
-      [1345, 'infiltrate', 'infiltrate'],
-      [827, 'infiltrate', 'infiltrate'],
-      [466, 'backdoor', 'backdoor'],
-      [1267, 'backdoor', 'backdoor'],
-      [247, 'file', 'file'],
-      [955, 'file', 'file'],
-      [505, 'file', 'portforward'],
-      [781, 'file', 'portforward'],
-      [383, 'infiltrate', 'infiltrate'],
-      [1594, 'infiltrate', 'infiltrate'],
-      [6, 'backdoor', 'backdoor'],
-      [778, 'backdoor', 'backdoor'],
-      [171, 'key', 'key'],
-      [736, 'key', 'key'],
-      [2872, 'key', 'portforward'],
-      [217, 'key', 'portforward'],
-      [1214, 'infiltrate', 'infiltrate'],
-      [146, 'infiltrate', 'infiltrate'],
-      [95, 'backdoor', 'backdoor'],
-      [331, 'backdoor', 'backdoor'],
-      [351, 'infiltrate', 'infiltrate'],
-      [281, 'infiltrate', 'infiltrate'],
-      [219, 'infiltrate', 'portforward'],
-      [328, 'infiltrate', 'portforward'],
+      [50188, 'tamper', 'tamper'],
+      [111531, 'tamper', 'tamper'],
+      [394474, 'tamper', 'credential'],
+      [159029, 'tamper', 'credential'],
+      [65482, 'portforward', 'portforward'],
+      [150704, 'portforward', 'portforward'],
+      [4238, 'infiltrate', 'infiltrate'],
+      [247387, 'infiltrate', 'infiltrate'],
+      [299480, 'infiltrate', 'credential'],
+      [386618, 'infiltrate', 'credential'],
+      [379538, 'backdoor', 'backdoor'],
+      [8680, 'backdoor', 'backdoor'],
+      [307488, 'backdoor', 'credential'],
+      [85779, 'backdoor', 'credential'],
+      [98011, 'portforward', 'portforward'],
+      [197989, 'portforward', 'portforward'],
+      [250014, 'portforward', 'credential'],
+      [178075, 'portforward', 'credential'],
+      [171959, 'file', 'file'],
+      [85176, 'file', 'file'],
+      [357602, 'file', 'credential'],
+      [122434, 'file', 'credential'],
+      [274029, 'sabotage', 'sabotage'],
+      [113543, 'sabotage', 'sabotage'],
+      [191694, 'sabotage', 'credential'],
+      [368933, 'sabotage', 'credential'],
+      [67874, 'portforward', 'portforward'],
+      [249111, 'portforward', 'portforward'],
+      [349488, 'infiltrate', 'infiltrate'],
+      [339062, 'infiltrate', 'infiltrate'],
+      [314335, 'backdoor', 'backdoor'],
+      [159977, 'backdoor', 'backdoor'],
+      [373540, 'file', 'file'],
+      [33426, 'file', 'file'],
+      [351177, 'portforward', 'portforward'],
+      [98506, 'portforward', 'portforward'],
+      [31807, 'infiltrate', 'infiltrate'],
+      [124259, 'infiltrate', 'infiltrate'],
+      [152931, 'backdoor', 'backdoor'],
+      [62849, 'backdoor', 'backdoor'],
+      [205635, 'key', 'key'],
+      [244565, 'key', 'key'],
+      [12571, 'key', 'credential'],
+      [76265, 'key', 'credential'],
+      [250139, 'portforward', 'portforward'],
+      [289215, 'portforward', 'portforward'],
+      [369810, 'infiltrate', 'infiltrate'],
+      [4512, 'infiltrate', 'infiltrate'],
+      [323218, 'backdoor', 'backdoor'],
+      [269448, 'backdoor', 'backdoor'],
+      [74985, 'infiltrate', 'infiltrate'],
+      [226749, 'infiltrate', 'infiltrate'],
+      [106274, 'portforward', 'portforward'],
+      [318254, 'portforward', 'portforward'],
     ] as const;
 
     for (const [missionNumber, before, now] of drawnAtTheEdges) {
@@ -425,14 +439,14 @@ describe('missionShape', () => {
       [188, 'e22849bb6178062832ca21a15ac6ec26'], // snmp, database
       [26, 'bebc7e5d21c0cec1690d8cf632581e64'], // ftp, file
       [344, 'a9c2a5d84ed39aa45909f2e69b9e8cdc'], // msfconsole, file
-      [243051, 'a661feaeb8e04ba2ad1a2f1dd140f0a4'], // hydra, file
+      [243309, 'a37fd0121d4123680e34e7515f119542'], // hydra, file
       [368903, '36a36b311b4534b957fdb586a4f25297'], // hydra, database
     ];
 
     /** Two-hop key jobs across the routes and storages, and the digest of each key box as it
      *  stood before the contract had two hops, its forwards and decoys aside: its names, route,
      *  hashes and the doors it ran for its route and its storage. Contracts that later turned
-     *  sabotage, file, backdoor, infiltrate or portforward jobs were swapped for key jobs alike, digested on the generator before
+     *  sabotage, file, backdoor, infiltrate, portforward or credential jobs were swapped for key jobs alike, digested on the generator before
      *  that kind. */
     const KEY_BOX_BEFORE: readonly (readonly [number, string])[] = [
       [8383, 'aaee771c5cc6118f6546fc3a4cd4f013'], // ftp, file
@@ -506,7 +520,7 @@ describe('missionShape', () => {
 
     /** Two-hop key jobs across the routes on each box, and the digest of everything but the key
      *  box, taken from the generator before the key box ran decoys of its own. Contracts that later turned
-     *  sabotage, file, backdoor, infiltrate or portforward jobs were swapped for key jobs alike, digested on the generator before
+     *  sabotage, file, backdoor, infiltrate, portforward or credential jobs were swapped for key jobs alike, digested on the generator before
      *  that kind. */
     const BESIDE_KEY_BOX_BEFORE: readonly (readonly [number, string])[] = [
       [8383, '6f6f3067dd12250be4531b6a7a680890'], // ftp, front msfconsole
@@ -769,7 +783,7 @@ describe('missionShape', () => {
 
     /** Single-hop key jobs across the routes and storages, and the digest of what each had
      *  before decoys, taken from the generator as it stood then. Contracts that later turned
-     *  sabotage, file, backdoor, infiltrate or portforward jobs were swapped for key jobs alike, digested on the generator before
+     *  sabotage, file, backdoor, infiltrate, portforward or credential jobs were swapped for key jobs alike, digested on the generator before
      *  that kind. */
     const BEFORE_DECOYS: readonly (readonly [number, string])[] = [
       [26, '529fc16f6500aaea7286d4b3f6457e5c'], // ftp, file
@@ -778,7 +792,7 @@ describe('missionShape', () => {
       [25, 'd6ab3acaa8ca2c0fb37bdd0aef86b65f'], // web, file
       [188, 'fa38e003de44240bca1b8067df439f9f'], // snmp, database
       [344, '558adceb43fcd922199593fdfda0010e'], // msfconsole, file
-      [243051, 'fdc080efe1512df31eba9c8dac360134'], // hydra, file
+      [243309, '9061288f18abfb9bb901c6f100316484'], // hydra, file
       [231, '116f11ad14d62f50f30b701bdc8799d0'], // hydra, database
     ];
 
@@ -1065,6 +1079,18 @@ describe('missionShape', () => {
           expect(LEAKABLE_HASHES, label).toContain(box.rootHash);
         }
       }
+    }
+  });
+});
+
+describe('a credential contract', () => {
+  const credentialShapes = ALL_SAMPLE_SHAPES.filter(({ kind }) => kind === 'credential');
+
+  it('keeps nothing on its target: the job is the login, on a box its route roots', () => {
+    expect(credentialShapes.length).toBeGreaterThan(100);
+    for (const { missionNumber, storage, keyBox } of credentialShapes) {
+      expect(storage, `contract ${missionNumber}`).toBeNull();
+      expect(keyBox.route, `contract ${missionNumber}`).not.toBeNull();
     }
   });
 });

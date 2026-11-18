@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { CLIENT_HANDLES, clientByHandle, missionTerms, type MissionTerms } from './missionTerms.js';
-import { missionKind, missionShape, missionTopology } from './missionShape.js';
+import {
+  missionKind,
+  missionShape,
+  missionTopology,
+  type MissionKind,
+} from './missionShape.js';
 import { missionAction, missionSetting, type RecordSetting } from './missionRecords.js';
 import { missionFileItem } from './missionFileItem.js';
 import { portforwardJob } from './portforwardJob.js';
@@ -12,6 +17,13 @@ import { validateUsername } from '../gameConfig/gameConfig.js';
 const SAMPLE_NUMBERS = Array.from({ length: 2000 }, (_unused, index) => index * 8381 + 2).filter(
   (missionNumber) => missionNumber % 256 >= 2 && missionNumber % 256 <= 254,
 );
+
+/** The jobs of one kind across a wider spread than the sample, for the checks that must reach
+ *  every share or both ends of a pay range: an eighth of the sample is too few to. */
+const widerJobsOf = (kind: MissionKind): readonly number[] =>
+  Array.from({ length: 6000 }, (_unused, index) => index * 2741 + 2).filter(
+    (missionNumber) => isMissionNumber(missionNumber) && missionKind(missionNumber) === kind,
+  );
 
 const isTwoHop = (missionNumber: number): boolean =>
   missionTopology(missionNumber).frontBoxOctet !== null;
@@ -57,7 +69,6 @@ const TWO_HOP_NUMBERS = KEY_NUMBERS.filter(isTwoHop);
 const SINGLE_HOP_TAMPER_NUMBERS = TAMPER_NUMBERS.filter(
   (missionNumber) => !isTwoHop(missionNumber),
 );
-const TWO_HOP_TAMPER_NUMBERS = TAMPER_NUMBERS.filter(isTwoHop);
 
 const isErase = (missionNumber: number): boolean => missionAction(missionNumber) === 'erase';
 
@@ -138,23 +149,24 @@ describe('missionTerms', () => {
     // Taken before a two-hop job had terms of its own: every single-hop contract's client,
     // target, pitch, key and pay. Retaken when sabotage jobs took a third of the numbers, again
     // when file jobs took a quarter, again when backdoor jobs took a fifth, and again when
-    // infiltrate jobs took a sixth, and again when portforward jobs took a seventh, each time
-    // over the key jobs left, whose terms the earlier digest's own fixture held unchanged.
+    // infiltrate jobs took a sixth, again when portforward jobs took a seventh, and again when
+    // credential jobs took an eighth, each time over the key jobs left, whose terms the earlier
+    // digest's own fixture held unchanged.
     expect(md5(JSON.stringify(SINGLE_HOP_NUMBERS.map(missionTerms).map(withoutJob)))).toBe(
-      '713c4bab7e57d6c394a48ce18906a74b',
+      '050fb7bc7b24c187ed5ea0a1c8055147',
     );
   });
 
-  // Retaken over the key jobs left when portforward jobs took a seventh of the numbers.
+  // Retaken over the key jobs left when credential jobs took an eighth of the numbers.
   it('keeps the client, target, pitch and key of a two-hop key job as they were', () => {
     const beside = TWO_HOP_NUMBERS.map(missionTerms)
       .map(withoutJob)
       .map(({ kind: _kind, pay: _pay, ...rest }) => rest);
 
-    expect(md5(JSON.stringify(beside))).toBe('4fe26092eed4bc97a20a0ebb2a6f527a');
+    expect(md5(JSON.stringify(beside))).toBe('d41d8f29e644f778beea07e1dae950f3');
   });
 
-  it('marks each contract a key, tamper, sabotage, file, backdoor, infiltrate or portforward job, as its shape does', () => {
+  it('marks each contract a key, tamper, sabotage, file, backdoor, infiltrate, portforward or credential job, as its shape does', () => {
     for (const missionNumber of SAMPLE_NUMBERS) {
       expect(missionTerms(missionNumber).job).toBe(missionShape(missionNumber).kind);
     }
@@ -198,7 +210,9 @@ describe('missionTerms', () => {
     });
 
     it('pays 2,500 to 5,000 JSC on two hops, in steps of 50, reaching both ends', () => {
-      const pays = TWO_HOP_TAMPER_NUMBERS.map((missionNumber) => missionTerms(missionNumber).pay);
+      const pays = widerJobsOf('tamper')
+        .filter(isTwoHop)
+        .map((missionNumber) => missionTerms(missionNumber).pay);
 
       for (const pay of pays) expect(pay % 50).toBe(0);
       expect(Math.min(...pays)).toBe(2500);
@@ -290,10 +304,11 @@ describe('missionTerms', () => {
     });
 
     it('asks for each machine about a seventh of the time', () => {
+      const sabotageJobs = widerJobsOf('sabotage');
       for (const machine of SABOTAGE_MACHINES) {
         const share =
-          SABOTAGE_NUMBERS.filter((missionNumber) => machineOf(missionNumber) === machine).length /
-          SABOTAGE_NUMBERS.length;
+          sabotageJobs.filter((missionNumber) => machineOf(missionNumber) === machine).length /
+          sabotageJobs.length;
         expect(share, machine).toBeGreaterThan(0.1);
         expect(share, machine).toBeLessThan(0.19);
       }
@@ -307,8 +322,8 @@ describe('missionTerms', () => {
         pay,
       }));
 
-      // Retaken over the sabotage jobs left when portforward jobs took a seventh of the numbers.
-      expect(md5(JSON.stringify(kept))).toBe('52e23ba760c97a625cef2e9b5ab891dc');
+      // Retaken over the sabotage jobs left when credential jobs took an eighth of the numbers.
+      expect(md5(JSON.stringify(kept))).toBe('15a7f4bd8a288752fcf856076c7ce3fa');
     });
 
     // The work is a key job's, finding the way in and rooting the box, so the pay is too.
@@ -483,7 +498,8 @@ describe('missionTerms', () => {
     });
 
     it("draws every client, and pitches from its item's four reasons for slipping one in", () => {
-      const terms = INFILTRATE_NUMBERS.map(missionTerms);
+      const infiltrateJobs = widerJobsOf('infiltrate');
+      const terms = infiltrateJobs.map(missionTerms);
       const otherPitches = new Set(
         [
           ...KEY_NUMBERS,
@@ -496,7 +512,7 @@ describe('missionTerms', () => {
       const pitches = new Set(terms.map(({ pitch }) => pitch));
 
       expect(new Set(terms.map(({ client }) => client.handle))).toEqual(new Set(CLIENT_HANDLES));
-      for (const missionNumber of INFILTRATE_NUMBERS) {
+      for (const missionNumber of infiltrateJobs) {
         expect(missionFileItem(missionNumber).infiltratePitches).toContain(
           missionTerms(missionNumber).pitch,
         );
@@ -541,15 +557,7 @@ describe('missionTerms', () => {
     });
 
     it('asks for each machine about a seventh of the time', () => {
-      // A wider spread than the sample: backdoor jobs are a sixth of the numbers, too few in the
-      // sample alone to hold seven shares within their bounds.
-      const backdoorJobs = Array.from(
-        { length: 6000 },
-        (_unused, index) => index * 2741 + 2,
-      ).filter(
-        (missionNumber) =>
-          isMissionNumber(missionNumber) && missionKind(missionNumber) === 'backdoor',
-      );
+      const backdoorJobs = widerJobsOf('backdoor');
       for (const machine of SABOTAGE_MACHINES) {
         const share =
           backdoorJobs.filter((missionNumber) => machineOf(missionNumber) === machine).length /
@@ -563,8 +571,9 @@ describe('missionTerms', () => {
     it('pays a key job: 500 to 2,000 JSC on one hop, 2,000 to 4,000 on two, in steps of 50', () => {
       const paysOf = (numbers: readonly number[]) =>
         numbers.map((missionNumber) => missionTerms(missionNumber).pay);
-      const singleHop = paysOf(SINGLE_HOP_BACKDOOR_NUMBERS);
-      const twoHop = paysOf(TWO_HOP_BACKDOOR_NUMBERS);
+      const backdoorJobs = widerJobsOf('backdoor');
+      const singleHop = paysOf(backdoorJobs.filter((missionNumber) => !isTwoHop(missionNumber)));
+      const twoHop = paysOf(backdoorJobs.filter(isTwoHop));
 
       for (const pay of [...singleHop, ...twoHop]) expect(pay % 50).toBe(0);
       expect([Math.min(...singleHop), Math.max(...singleHop)]).toEqual([500, 2000]);
@@ -617,6 +626,113 @@ describe('missionTerms', () => {
 
     it('promises no key', () => {
       for (const missionNumber of BACKDOOR_NUMBERS) {
+        expect('keyOpens' in missionTerms(missionNumber)).toBe(false);
+      }
+    });
+  });
+
+  describe('a credential job', () => {
+    const CREDENTIAL_NUMBERS = widerJobsOf('credential');
+    const SINGLE_HOP_CREDENTIAL_NUMBERS = CREDENTIAL_NUMBERS.filter(
+      (missionNumber) => !isTwoHop(missionNumber),
+    );
+    const TWO_HOP_CREDENTIAL_NUMBERS = CREDENTIAL_NUMBERS.filter(isTwoHop);
+
+    /** The machine a credential job wants the root login of, read off the board's line. */
+    const machineOf = (missionNumber: number): string =>
+      missionTerms(missionNumber).kind.replace(/^steal the root login for (a|an internal) /, '');
+
+    it('is offered as stealing the root login for one of the seven machines, an internal one on two hops', () => {
+      for (const missionNumber of SINGLE_HOP_CREDENTIAL_NUMBERS) {
+        expect(missionTerms(missionNumber).kind).toBe(
+          `steal the root login for a ${machineOf(missionNumber)}`,
+        );
+      }
+      for (const missionNumber of TWO_HOP_CREDENTIAL_NUMBERS) {
+        expect(missionTerms(missionNumber).kind).toBe(
+          `steal the root login for an internal ${machineOf(missionNumber)}`,
+        );
+      }
+      expect(new Set(CREDENTIAL_NUMBERS.map(machineOf))).toEqual(new Set(SABOTAGE_MACHINES));
+    });
+
+    it('asks for each machine about a seventh of the time', () => {
+      for (const machine of SABOTAGE_MACHINES) {
+        const share =
+          CREDENTIAL_NUMBERS.filter((missionNumber) => machineOf(missionNumber) === machine)
+            .length / CREDENTIAL_NUMBERS.length;
+        expect(share, machine).toBeGreaterThan(0.1);
+        expect(share, machine).toBeLessThan(0.19);
+      }
+    });
+
+    it('sits behind a front box about a third of the time', () => {
+      const share = TWO_HOP_CREDENTIAL_NUMBERS.length / CREDENTIAL_NUMBERS.length;
+
+      expect(share).toBeGreaterThan(0.28);
+      expect(share).toBeLessThan(0.39);
+    });
+
+    it('pays a key job: 500 to 2,000 JSC on one hop, 2,000 to 4,000 on two, in steps of 50', () => {
+      const paysOf = (numbers: readonly number[]) =>
+        numbers.map((missionNumber) => missionTerms(missionNumber).pay);
+      const singleHop = paysOf(SINGLE_HOP_CREDENTIAL_NUMBERS);
+      const twoHop = paysOf(TWO_HOP_CREDENTIAL_NUMBERS);
+
+      for (const pay of [...singleHop, ...twoHop]) expect(pay % 50).toBe(0);
+      expect([Math.min(...singleHop), Math.max(...singleHop)]).toEqual([500, 2000]);
+      expect([Math.min(...twoHop), Math.max(...twoHop)]).toEqual([2000, 4000]);
+    });
+
+    it('names the target after its stem and a trade a key job is drawn from', () => {
+      const keyJobTrades = new Set(
+        KEY_NUMBERS.map((missionNumber) => missionTerms(missionNumber).targetCompany.split(' ')[1]),
+      );
+
+      for (const missionNumber of CREDENTIAL_NUMBERS) {
+        const { stem } = missionShape(missionNumber);
+        const [company, trade, ...rest] = missionTerms(missionNumber).targetCompany.split(' ');
+        expect(company).toBe(capitalised(stem));
+        expect(keyJobTrades.has(trade ?? ''), `contract ${missionNumber}`).toBe(true);
+        expect(rest).toEqual([]);
+      }
+    });
+
+    it("draws every client, and pitches from three reasons of its machine's own", () => {
+      const otherPitches = new Set(
+        [
+          ...KEY_NUMBERS,
+          ...TAMPER_NUMBERS,
+          ...SABOTAGE_NUMBERS,
+          ...FILE_NUMBERS,
+          ...BACKDOOR_NUMBERS,
+          ...INFILTRATE_NUMBERS,
+          ...PORTFORWARD_NUMBERS,
+        ].map((missionNumber) => missionTerms(missionNumber).pitch),
+      );
+      const seen = new Set<string>();
+
+      expect(
+        new Set(CREDENTIAL_NUMBERS.map((missionNumber) => missionTerms(missionNumber).client.handle)),
+      ).toEqual(new Set(CLIENT_HANDLES));
+      for (const machine of SABOTAGE_MACHINES) {
+        const pitches = new Set(
+          CREDENTIAL_NUMBERS.filter((missionNumber) => machineOf(missionNumber) === machine).map(
+            (missionNumber) => missionTerms(missionNumber).pitch,
+          ),
+        );
+        expect(pitches.size, machine).toBe(3);
+        for (const pitch of pitches) {
+          expect(pitch).toMatch(/^[A-Z].{20,}\.$/);
+          expect(otherPitches.has(pitch), pitch).toBe(false);
+          expect(seen.has(pitch), pitch).toBe(false);
+          seen.add(pitch);
+        }
+      }
+    });
+
+    it('promises no key', () => {
+      for (const missionNumber of CREDENTIAL_NUMBERS) {
         expect('keyOpens' in missionTerms(missionNumber)).toBe(false);
       }
     });

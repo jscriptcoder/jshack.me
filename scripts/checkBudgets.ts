@@ -72,8 +72,10 @@ import {
  *  to 100; then the portforward kind (its seventh of the draw, the four machines with their
  *  ports and reasons, which ride in the bundle with the hostnames they name) added 1,058 B,
  *  rounded up to 1,100; then the msfconsole router route (its vendor draw, and the firmware
- *  hole reader the shape now asks for its release) added 419 B, rounded up to 500. */
-const BUNDLE_CEILING_BYTES = 303_675;
+ *  hole reader the shape now asks for its release) added 419 B, rounded up to 500; then the
+ *  credential kind (its eighth of the draw, the password line the client reads, and the seven
+ *  machines' reasons for wanting a root login) added 619 B, rounded up to 700. */
+const BUNDLE_CEILING_BYTES = 304_375;
 
 /** About a tenth of that before world content, so a loaded machine's noise cannot fail
  *  the check while a content change that makes boxes ten times dearer still does. */

@@ -41,6 +41,13 @@
  * "file" for "key". The file's name does not matter, the client never reads the box, and a key in
  * the text proves nothing. Every other kind ignores the file a mail carries.
  *
+ * A credential job asks for a password that works now: the client reads the first line of the body,
+ * outside the quotes, that starts with `password:`, whatever the label's case or the spaces before
+ * it, and tests what follows, trimmed and case-sensitive, against root's login on the target as it
+ * stands. So a password found and a password set with `passwd` both pay, and one changed since does
+ * not. One line is one guess: a mail cannot try a list of words. No line, an empty or wrong password
+ * and a target that no longer boots get the same words.
+ *
  * Completing is one step in the store under the handle's lock: a second right mail racing
  * the first finds the job completed and is told it is closed, so a job pays once. A store
  * that failed, or answered a word nobody taught it, has not said what happened, so the door
@@ -56,8 +63,10 @@ import { missionKey } from './missionSecret.js';
 import { missionFileContent, missionFilePath, missionPlantContent } from './missionFileItem.js';
 import { missionKind, missionTopology } from './missionShape.js';
 import { recordsLookRight } from './missionRecords.js';
-import { backdoorJob } from './targetRoles.js';
+import { backdoorJob, credentialRole } from './targetRoles.js';
 import { portforwardJob } from './portforwardJob.js';
+import { md5 } from '../generation/md5.js';
+import { accountIn } from '../sessions/passwdAccount.js';
 import { missionEssid } from './missionNetwork.js';
 import { machineServing } from '../network/machineServing.js';
 import { lanSubnetPrefix } from '../network/lanAddress.js';
@@ -126,6 +135,7 @@ const MACHINE_DOWN = 'The machine is down.';
 const LISTENING = "We're in.";
 const IN_PLACE = "It's in place.";
 const THROUGH = "We're through.";
+const LOGIN_WORKS = 'That login works.';
 const NO_WALLET = 'You sent no wallet, so there is nothing to pay. No wallet, no money.';
 const RECORDS_WRONG = "Our records don't look right. No change, no money.";
 const STILL_UP = 'Their machine is still up. No outage, no money.';
@@ -138,14 +148,36 @@ const notInPlace = (path: string): string =>
  *  longer boots. */
 const noWayIn = (port: number, noun: string): string =>
   `Port ${port} doesn't reach their ${noun}. No way in, no money.`;
+/** One reply for every miss: no password line, an empty or wrong password, or a target that no
+ *  longer boots. */
+const loginRefused = (noun: string): string =>
+  `That login doesn't open their ${noun}. No login, no money.`;
 const WRONG_KEY = 'That key opens nothing of ours.';
 const WRONG_FILE = "That's not the file we asked for.";
 const CLOSED = 'That job is already closed.';
 const NO_CONTRACT = 'We have no contract with you.';
 
+/** The body without the lines it quotes. */
+const unquotedLines = (body: string): readonly string[] =>
+  body.split('\n').filter((line) => !line.startsWith('>'));
+
 /** The subject, then the body without the lines it quotes. */
 const readableText = (subject: string, body: string): string =>
-  [subject, ...body.split('\n').filter((line) => !line.startsWith('>'))].join('\n');
+  [subject, ...unquotedLines(body)].join('\n');
+
+const PASSWORD_LABEL = /^\s*password:/i;
+
+/** What the first password line of the body gives, or null for a body with none. The subject is
+ *  never read for one: `mail reply` fills it in. */
+const mailedPassword = (body: string): string | null => {
+  const line = unquotedLines(body).find((candidate) => PASSWORD_LABEL.test(candidate));
+  return line === undefined ? null : line.replace(PASSWORD_LABEL, '').trim();
+};
+
+/** Whether `password` opens the box's root login as it stands. An empty password opens nothing,
+ *  whatever the box's root is set to. */
+const opensRoot = (fs: Directory, password: string | null): boolean =>
+  password !== null && password !== '' && accountIn(fs, 'root')?.hash === md5(password);
 
 const firstMatch = (text: string, shape: RegExp): string | null => shape.exec(text)?.[0] ?? null;
 
@@ -172,11 +204,12 @@ type Decision =
   | { readonly kind: 'checkListening'; readonly number: number }
   | { readonly kind: 'checkPlanted'; readonly number: number }
   | { readonly kind: 'checkForward'; readonly number: number }
+  | { readonly kind: 'checkLogin'; readonly number: number }
   | { readonly kind: 'reply'; readonly reply: ContractMail };
 
 /** How the client opens its reply to a job done: the key or the file it was sent, the records it
- *  read, the machine it found down, the listener it found, its own file found in place, or the
- *  way in it found open. */
+ *  read, the machine it found down, the listener it found, its own file found in place, the way
+ *  in it found open, or the login it found working. */
 const RECEIVED: Readonly<Record<Exclude<Decision['kind'], 'reply'>, string>> = {
   complete: KEY_RECEIVED,
   completeFile: FILE_RECEIVED,
@@ -185,6 +218,7 @@ const RECEIVED: Readonly<Record<Exclude<Decision['kind'], 'reply'>, string>> = {
   checkListening: LISTENING,
   checkPlanted: IN_PLACE,
   checkForward: THROUGH,
+  checkLogin: LOGIN_WORKS,
 };
 
 /** What the client says on a job the mail itself proves: when the mail carries no proof, when it
@@ -234,6 +268,7 @@ const decide = ({
   if (acceptedKind === 'backdoor') return { kind: 'checkListening', number: accepted.number };
   if (acceptedKind === 'infiltrate') return { kind: 'checkPlanted', number: accepted.number };
   if (acceptedKind === 'portforward') return { kind: 'checkForward', number: accepted.number };
+  if (acceptedKind === 'credential') return { kind: 'checkLogin', number: accepted.number };
   const said = MAILED_PROOF[acceptedKind];
   if ((acceptedKind === 'file' ? file : key) === null) return reply(accepted.number, said.none);
   if (proves(accepted.number)) return { kind: said.done, number: accepted.number };
@@ -357,6 +392,14 @@ export const answerClientMail = async ({
     if (router.kind === 'absent' || !reachesMachine(router.fs, decision.number)) {
       const { machine, publicPort } = portforwardJob(decision.number);
       return sendReply(store, login.handle, replyAbout(terms, noWayIn(publicPort, machine.noun)));
+    }
+  }
+  if (decision.kind === 'checkLogin') {
+    const box = await readTargetBox(decision.number);
+    if (box.kind === 'error') return null;
+    if (box.kind === 'absent' || !opensRoot(box.fs, mailedPassword(body))) {
+      const { noun } = credentialRole(decision.number);
+      return sendReply(store, login.handle, replyAbout(terms, loginRefused(noun)));
     }
   }
   const received = RECEIVED[decision.kind];

@@ -15,9 +15,11 @@ import {
 import { runStatement } from '../mysql/statements.js';
 import { DATADIR_PATH, databaseIn } from '../mysql/datadir.js';
 import { buildMissionKeyBoxFs } from '../generation/missionKeyBoxFs.js';
-import { DATADIR_FILE, ROOT_FILE, file, withFiles } from '../generation/baseFs.js';
+import { DATADIR_FILE, PASSWD_FILE, ROOT_FILE, file, withFiles } from '../generation/baseFs.js';
+import { md5 } from '../generation/md5.js';
+import { PASSWD_PATH, withAccountHash } from '../sessions/passwdAccount.js';
 import type { Directory } from '../filesystem/types.js';
-import { backdoorJob } from './targetRoles.js';
+import { backdoorJob, credentialRole } from './targetRoles.js';
 import { portforwardJob } from './portforwardJob.js';
 import { missionEssid } from './missionNetwork.js';
 import { buildApGatewayBaseFs } from '../generation/routerFs.js';
@@ -866,6 +868,248 @@ describe('a mail on a backdoor job', () => {
     expect(box.reads).toEqual([]);
     expect(completes).toEqual([]);
     expect(replies).toEqual([fromBackdoorClient(CLOSED_LINE)]);
+  });
+});
+
+describe('a mail on a credential job', () => {
+  const CREDENTIAL_JOB = ALL_HOST_NUMBERS.find(
+    (missionNumber) => missionKind(missionNumber) === 'credential',
+  )!;
+  const CREDENTIAL_TERMS = missionTerms(CREDENTIAL_JOB);
+  const { noun: MACHINE } = credentialRole(CREDENTIAL_JOB);
+  const PASSWORD = 'Tr0ub4dor-3';
+
+  /** The target up, its root's password set to `password`. */
+  const rootAnswersTo = (password: string): TargetBoxRead => {
+    const fs = buildMissionKeyBoxFs(CREDENTIAL_JOB);
+    return {
+      kind: 'up',
+      fs: withFiles(fs, [
+        [PASSWD_PATH, file(withAccountHash(fs, 'root', md5(password)), PASSWD_FILE)],
+      ]),
+    };
+  };
+
+  /** The target up, with no account called root left on it. */
+  const NO_ROOT_ACCOUNT: TargetBoxRead = {
+    kind: 'up',
+    fs: withFiles(buildMissionKeyBoxFs(CREDENTIAL_JOB), [
+      [PASSWD_PATH, file('guest:x:1000:1000:guest:/home/guest:/bin/bash\n', PASSWD_FILE)],
+    ]),
+  };
+
+  /** A box read answering with `read`, keeping every number it was asked for. */
+  const targetBox = (read: TargetBoxRead) => {
+    const reads: number[] = [];
+    return {
+      reads,
+      readTargetBox: async (missionNumber: number): Promise<TargetBoxRead> => {
+        reads.push(missionNumber);
+        return read;
+      },
+    };
+  };
+
+  const fromCredentialClient = (line: string): ContractMail => ({
+    sender: `${CREDENTIAL_TERMS.client.handle}@emailit.io`,
+    subject: `Contract: ${CREDENTIAL_TERMS.targetCompany}`,
+    body: signed(line, CREDENTIAL_TERMS.client.company),
+  });
+
+  const REFUSED = `That login doesn't open their ${MACHINE}. No login, no money.`;
+
+  const acceptedStore = () =>
+    clientStore({ jobs: [{ number: CREDENTIAL_JOB, state: 'accepted' }] });
+
+  const mailOnCredentialJob = (
+    store: ClientMailStore,
+    read: TargetBoxRead,
+    mail: { readonly body: string; readonly subject?: string },
+  ) =>
+    mailTo(store, {
+      to: CREDENTIAL_TERMS.client,
+      readTargetBox: targetBox(read).readTargetBox,
+      ...mail,
+    });
+
+  it("reads the target of the job held, and pays once the password opens its root's login", async () => {
+    const { store, completes, replies } = acceptedStore();
+    const box = targetBox(rootAnswersTo(PASSWORD));
+
+    expect(
+      await mailTo(store, {
+        to: CREDENTIAL_TERMS.client,
+        body: `password: ${PASSWORD}\n${WALLET}\n`,
+        readTargetBox: box.readTargetBox,
+      }),
+    ).toBe('replied');
+    expect(box.reads).toEqual([CREDENTIAL_JOB]);
+    expect(completes).toEqual([
+      {
+        number: CREDENTIAL_JOB,
+        wallet: WALLET,
+        pay: CREDENTIAL_TERMS.pay,
+        reply: fromCredentialClient(
+          `That login works. §${CREDENTIAL_TERMS.pay.toLocaleString('en-US')} sent to ${WALLET}. Pleasure doing business.`,
+        ),
+      },
+    ]);
+    expect(replies).toEqual([]);
+  });
+
+  it('completes and pays nothing when the mail names no wallet', async () => {
+    const { store, completes } = acceptedStore();
+
+    await mailOnCredentialJob(store, rootAnswersTo(PASSWORD), { body: `password: ${PASSWORD}\n` });
+
+    expect(completes).toEqual([
+      {
+        number: CREDENTIAL_JOB,
+        wallet: null,
+        pay: CREDENTIAL_TERMS.pay,
+        reply: fromCredentialClient(
+          'That login works. You sent no wallet, so there is nothing to pay. No wallet, no money.',
+        ),
+      },
+    ]);
+  });
+
+  it.each([
+    ['indented as the briefing shows it', `  password: ${PASSWORD}`],
+    ['indented with a tab', `\tpassword: ${PASSWORD}`],
+    ['with a capital label', `Password: ${PASSWORD}`],
+    ['with the label in capitals', `PASSWORD: ${PASSWORD}`],
+    ['with no space after the label', `password:${PASSWORD}`],
+    ['with spaces around the password', `password:    ${PASSWORD}   `],
+    ['ending in a carriage return', `password: ${PASSWORD}\r`],
+  ])('reads the password line %s', async (_case, line) => {
+    const { store, completes } = acceptedStore();
+
+    await mailOnCredentialJob(store, rootAnswersTo(PASSWORD), { body: `${line}\n${WALLET}\n` });
+
+    expect(completes.map(({ number }) => number)).toEqual([CREDENTIAL_JOB]);
+  });
+
+  it('reads a password line below the briefing it quotes', async () => {
+    const { store, completes } = acceptedStore();
+
+    await mailOnCredentialJob(store, rootAnswersTo(PASSWORD), {
+      body: `> password: <the password>\npassword: ${PASSWORD}\n${WALLET}\n`,
+    });
+
+    expect(completes.map(({ number }) => number)).toEqual([CREDENTIAL_JOB]);
+  });
+
+  it('counts the first password line and no other, so a right word above a wrong one pays', async () => {
+    const { store, completes } = acceptedStore();
+
+    await mailOnCredentialJob(store, rootAnswersTo(PASSWORD), {
+      body: `password: ${PASSWORD}\npassword: wrong\n${WALLET}\n`,
+    });
+
+    expect(completes.map(({ number }) => number)).toEqual([CREDENTIAL_JOB]);
+  });
+
+  it('reads past a line that only mentions a password, to the line that starts with the label', async () => {
+    const { store, completes } = acceptedStore();
+
+    await mailOnCredentialJob(store, rootAnswersTo(PASSWORD), {
+      body: `my password: is below\npassword: ${PASSWORD}\n${WALLET}\n`,
+    });
+
+    expect(completes.map(({ number }) => number)).toEqual([CREDENTIAL_JOB]);
+  });
+
+  // A mail with no line tests no word at all, not the word a missing value would print as.
+  it('refuses a mail with no password line, even with a root whose password is "null"', async () => {
+    const { store, completes, replies } = acceptedStore();
+
+    await mailOnCredentialJob(store, rootAnswersTo('null'), { body: `here it is\n${WALLET}\n` });
+
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromCredentialClient(REFUSED)]);
+  });
+
+  it.each([
+    ['carries no password line', { body: `here it is\n${WALLET}\n` }],
+    ['carries a wrong password', { body: `password: wrong\n${WALLET}\n` }],
+    ['changes the case of the password', { body: `password: ${PASSWORD.toUpperCase()}\n` }],
+    ['tries a second word below a wrong one', { body: `password: wrong\npassword: ${PASSWORD}\n` }],
+    ['gives the password only in a quote', { body: `> password: ${PASSWORD}\n${WALLET}\n` }],
+    ['gives the password in the middle of a line', { body: `my password: ${PASSWORD}\n` }],
+    ['gives the password only in its subject', { subject: `password: ${PASSWORD}`, body: 'hi\n' }],
+  ])('refuses a mail that %s, and keeps the job open', async (_case, mail) => {
+    const { store, completes, replies } = acceptedStore();
+
+    expect(await mailOnCredentialJob(store, rootAnswersTo(PASSWORD), mail)).toBe('replied');
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromCredentialClient(REFUSED)]);
+  });
+
+  it.each(['password:', 'password:   '])(
+    'refuses the empty password line %j, even with a root whose password is empty',
+    async (line) => {
+      const { store, completes, replies } = acceptedStore();
+
+      await mailOnCredentialJob(store, rootAnswersTo(''), { body: `${line}\n${WALLET}\n` });
+
+      expect(completes).toEqual([]);
+      expect(replies).toEqual([fromCredentialClient(REFUSED)]);
+    },
+  );
+
+  it('tests the password root has now, so a password changed since is refused and the new one pays', async () => {
+    const before = acceptedStore();
+    await mailOnCredentialJob(before.store, rootAnswersTo('changed-since'), {
+      body: `password: ${PASSWORD}\n`,
+    });
+    expect(before.completes).toEqual([]);
+
+    const after = acceptedStore();
+    await mailOnCredentialJob(after.store, rootAnswersTo('changed-since'), {
+      body: 'password: changed-since\n',
+    });
+    expect(after.completes.map(({ number }) => number)).toEqual([CREDENTIAL_JOB]);
+  });
+
+  it.each([
+    ['the target no longer boots', { kind: 'absent' } as const],
+    ['the target has no root account', NO_ROOT_ACCOUNT],
+  ])('refuses the right password when %s', async (_case, read) => {
+    const { store, completes, replies } = acceptedStore();
+
+    expect(
+      await mailOnCredentialJob(store, read, { body: `password: ${PASSWORD}\n${WALLET}\n` }),
+    ).toBe('replied');
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromCredentialClient(REFUSED)]);
+  });
+
+  it('answers nothing when the target could not be read', async () => {
+    const { store, completes, replies } = acceptedStore();
+
+    expect(
+      await mailOnCredentialJob(store, { kind: 'error' }, { body: `password: ${PASSWORD}\n` }),
+    ).toBeNull();
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([]);
+  });
+
+  it('says the job is already closed once it is completed, without reading the target', async () => {
+    const { store, completes, replies } = clientStore({
+      jobs: [{ number: CREDENTIAL_JOB, state: 'completed' }],
+    });
+    const box = targetBox(rootAnswersTo(PASSWORD));
+
+    await mailTo(store, {
+      to: CREDENTIAL_TERMS.client,
+      body: `password: ${PASSWORD}\n${WALLET}\n`,
+      readTargetBox: box.readTargetBox,
+    });
+
+    expect(box.reads).toEqual([]);
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromCredentialClient(CLOSED_LINE)]);
   });
 });
 

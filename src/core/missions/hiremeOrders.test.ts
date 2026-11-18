@@ -667,6 +667,46 @@ describe('showReport on a sabotage job', () => {
   });
 });
 
+describe('showReport on a credential job', () => {
+  const SECRET = 'operator-test-secret';
+  /** The first credential job on a build server `wanted` accepts. */
+  const credentialJobWhere = (wanted: (shape: MissionShape) => boolean): number =>
+    Array.from({ length: 16000 }, (_unused, index) => index * 256 + 2).find((candidate) => {
+      const shape = missionShape(candidate);
+      return (
+        shape.kind === 'credential' &&
+        missionTerms(candidate).kind.endsWith(' build server') &&
+        wanted(shape)
+      );
+    })!;
+  const SINGLE_HOP = credentialJobWhere(({ frontBox }) => frontBox === null);
+  const TWO_HOP = credentialJobWhere(({ frontBox }) => frontBox !== null);
+
+  it('names the kind and the machine, calls the slot the target, and prints no key', () => {
+    const { stem } = missionShape(SINGLE_HOP);
+    const report = showReport(SINGLE_HOP, SECRET, undefined);
+    const lines = report.split('\n');
+
+    expect(lines).toContain('  Kind:     credential, build server');
+    expect(lines).toContain(
+      `  Target:   ${missionTerms(SINGLE_HOP).targetCompany}, ${stem}-gw / ${stem}-ci`,
+    );
+    expect(report).toContain('-> target :');
+    expect(report).not.toContain('Key');
+    expect(report).not.toContain('Storage:');
+  });
+
+  it('names the target box by its hostname on a two-hop job', () => {
+    const { stem } = missionShape(TWO_HOP);
+    const report = showReport(TWO_HOP, SECRET, undefined);
+    const lines = report.split('\n');
+
+    expect(lines).toContain('  Kind:     credential, build server');
+    expect(lines).toContain(`  Target box: ${stem}-ci`);
+    expect(report).not.toContain('Key');
+  });
+});
+
 describe('showReport on a backdoor job', () => {
   const SECRET = 'operator-test-secret';
   /** The first backdoor job `wanted` accepts. */

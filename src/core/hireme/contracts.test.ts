@@ -132,6 +132,24 @@ const backdoorNumber = (twoHop: boolean, machine = 'build server'): number => {
 const BACKDOOR_SINGLE_HOP = backdoorNumber(false);
 const BACKDOOR_TWO_HOP = backdoorNumber(true);
 
+/** The machine a credential contract wants the root login of, read off the board's line. */
+const credentialMachineOf = (missionNumber: number): string =>
+  missionTerms(missionNumber).kind.replace(/^steal the root login for (a|an internal) /, '');
+
+/** The first credential contract from 70,000 up on `machine`, on one hop or on two. */
+const credentialNumber = (twoHop: boolean, machine = 'backup server'): number => {
+  for (let candidate = 70_000; candidate < 2_000_000; candidate++) {
+    if (!isMissionNumber(candidate)) continue;
+    const shape = missionShape(candidate);
+    if (shape.kind !== 'credential' || (shape.frontBox !== null) !== twoHop) continue;
+    if (credentialMachineOf(candidate) === machine) return candidate;
+  }
+  throw new Error(`no credential contract on a ${machine}`);
+};
+
+const CREDENTIAL_SINGLE_HOP = credentialNumber(false);
+const CREDENTIAL_TWO_HOP = credentialNumber(true);
+
 /** The first portforward contract from 70,000 up on the machine called `noun`. */
 const portforwardNumber = (noun: string): number => {
   for (let candidate = 70_000; candidate < 2_000_000; candidate++) {
@@ -789,6 +807,105 @@ describe('accepting an offer', () => {
 
       expect(accepts[0]!.briefing.body.split('\n')).toContain(
         `We want a way into their ${machine} that stays open.`,
+      );
+    });
+  });
+
+  describe('on a credential job', () => {
+    const offeredCredential = () =>
+      boardStore({
+        offers: [
+          { number: CREDENTIAL_SINGLE_HOP, ref: 'bbb' },
+          { number: CREDENTIAL_TWO_HOP, ref: 'ccc' },
+        ],
+      });
+
+    it('writes a single-hop briefing asking for the root login on a labelled line', async () => {
+      const { store, accepts } = offeredCredential();
+      const terms = missionTerms(CREDENTIAL_SINGLE_HOP);
+
+      await accept('offer=bbb', store);
+
+      expect(accepts[0]!.briefing.subject).toBe(`Contract: ${terms.targetCompany}`);
+      expect(accepts[0]!.briefing.body).toBe(
+        [
+          terms.pitch,
+          '',
+          `The target is ${terms.targetCompany}. Their network is at ${missionAddressForNumber(CREDENTIAL_SINGLE_HOP)}.`,
+          '',
+          'Bring us the root login for their backup server.',
+          'Put the password on a line of its own, like this:',
+          '',
+          '  password: <the password>',
+          '',
+          'Reply to this address with that line and your wallet address.',
+          'No login, no money. No wallet, no money.',
+          '',
+          `-- ${terms.client.company}`,
+          '',
+        ].join('\n'),
+      );
+    });
+
+    it('tells a two-hop contractor the machine is inside the network, not on the edge', async () => {
+      const { store, accepts } = offeredCredential();
+      const terms = missionTerms(CREDENTIAL_TWO_HOP);
+
+      await accept('offer=ccc', store);
+
+      expect(accepts[0]!.briefing.body).toBe(
+        [
+          terms.pitch,
+          '',
+          `The target is ${terms.targetCompany}. Their network is at ${missionAddressForNumber(CREDENTIAL_TWO_HOP)}.`,
+          '',
+          'Bring us the root login for their backup server.',
+          'It is a machine inside their network, not on the edge.',
+          'Put the password on a line of its own, like this:',
+          '',
+          '  password: <the password>',
+          '',
+          'Reply to this address with that line and your wallet address.',
+          'No login, no money. No wallet, no money.',
+          '',
+          `-- ${terms.client.company}`,
+          '',
+        ].join('\n'),
+      );
+    });
+
+    it("names neither the machine's hostname nor any address but the network's", async () => {
+      for (const [missionNumber, ref] of [
+        [CREDENTIAL_SINGLE_HOP, 'bbb'],
+        [CREDENTIAL_TWO_HOP, 'ccc'],
+      ] as const) {
+        const { store, accepts } = offeredCredential();
+        const { stem } = missionShape(missionNumber);
+
+        await accept(`offer=${ref}`, store);
+        const { body } = accepts[0]!.briefing;
+
+        expect(body).not.toContain(`${stem}-`);
+        expect(body.match(/\d+\.\d+\.\d+\.\d+/g)).toEqual([missionAddressForNumber(missionNumber)]);
+      }
+    });
+
+    it.each([
+      'CCTV recorder',
+      'backup server',
+      'monitoring station',
+      'build server',
+      'licence server',
+      'door-access controller',
+      'billing server',
+    ])('asks for the root login of a %s, in so many words', async (machine) => {
+      const missionNumber = credentialNumber(false, machine);
+      const { store, accepts } = boardStore({ offers: [{ number: missionNumber, ref: 'mmm' }] });
+
+      await accept('offer=mmm', store);
+
+      expect(accepts[0]!.briefing.body.split('\n')).toContain(
+        `Bring us the root login for their ${machine}.`,
       );
     });
   });
