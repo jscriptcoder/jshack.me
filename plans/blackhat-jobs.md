@@ -1,6 +1,6 @@
 # Plan: four more black-hat contracts
 
-**Status:** Grilled 2026-11-18. Slices to be planned below.
+**Status:** Grilled and planned 2026-11-18. Slice 1 is next, on `feat/credential-jobs`.
 
 Four new kinds of contract, built in this order: credential theft, destroy a file, wipe a table,
 and a chain job that combines them. As-built context:
@@ -99,3 +99,115 @@ and a chain job that combines them. As-built context:
 
 - **A hidden second copy of a destroyed file**, which the client also wants gone.
 - **Chains longer than two steps.**
+
+---
+
+## Where credential theft plugs in
+
+Read before the slice; every path is today's code (v0.470.0).
+
+- **The kind** is `missionKind` (`src/core/missions/missionShape.ts`). `MissionKind` gains
+  `'credential'`. Each of the seven kinds goes from 1⁄7 to 1⁄8 by giving up 15⁄840 at the top of one
+  of its pieces, so a number is the kind it was or has become a credential job. In 840ths (today's
+  420ths × 2), a draw past the last cut staying portforward:
+
+  | Draw (×1⁄840) | Kind        | Was         |
+  | ------------- | ----------- | ----------- |
+  | 0 to 105      | tamper      | tamper      |
+  | 105 to 120    | credential  | tamper      |
+  | 120 to 140    | portforward | portforward |
+  | 140 to 153    | infiltrate  | infiltrate  |
+  | 153 to 168    | credential  | infiltrate  |
+  | 168 to 175    | backdoor    | backdoor    |
+  | 175 to 190    | credential  | backdoor    |
+  | 190 to 195    | portforward | portforward |
+  | 195 to 210    | credential  | portforward |
+  | 210 to 265    | file        | file        |
+  | 265 to 280    | credential  | file        |
+  | 280 to 385    | sabotage    | sabotage    |
+  | 385 to 400    | credential  | sabotage    |
+  | 400 to 420    | portforward | portforward |
+  | 420 to 448    | infiltrate  | infiltrate  |
+  | 448 to 490    | backdoor    | backdoor    |
+  | 490 to 540    | file        | file        |
+  | 540 to 560    | portforward | portforward |
+  | 560 to 588    | infiltrate  | infiltrate  |
+  | 588 to 630    | backdoor    | backdoor    |
+  | 630 to 735    | key         | key         |
+  | 735 to 750    | credential  | key         |
+  | 750 to 770    | portforward | portforward |
+  | 770 to 798    | infiltrate  | infiltrate  |
+  | 798 to 812    | backdoor    | backdoor    |
+  | 812 to 820    | infiltrate  | infiltrate  |
+  | 820 to 840    | portforward | portforward |
+
+- **The machine** is `credentialRole(n)` on `mission-credential-role-<n>`
+  (`src/core/missions/targetRoles.ts`), one of the seven, each gaining three `credentialPitches`.
+  `keyBoxSuffix` answers its suffix. Storage is `null`.
+- **The client's check** is a `checkLogin` decision in `src/core/missions/clientMail.ts`, reading
+  the target through `readTargetBox` and comparing `md5(<word>)` with `accountIn(fs, 'root')`.
+- **Terms** (`missionTerms.ts`): `job: 'credential'`, `steal the root login for a backup server`,
+  `... for an internal backup server` on two-hop, at the key job's pay.
+- **The briefing** (`jobLines`, `src/core/hireme/contracts.ts`):
+
+  ```text
+  Bring us the root login for their backup server.
+  Put the password on a line of its own, like this:
+
+    password: <the password>
+
+  Reply to this address with that line and your wallet address.
+  No login, no money. No wallet, no money.
+  ```
+
+  Two-hop adds "It is a machine inside their network, not on the edge."
+- **`show`** (`hiremeOrders.ts`): `Kind: credential, <machine>`, the slot called the target.
+
+## Slices
+
+Load `tdd`, `testing` and `refactoring` before code and `mutation-testing` at the PR gate. Each
+slice bumps the version, re-picks any pinned number its kind draw moved, and is proved by its own
+wire-check against `vercel dev` and supabase.
+
+### Slice 1: a client pays for a working root login (v0.471.0)
+
+**Value:** a contractor takes a credential job off the board, gets root on the named machine, mails
+its password and is paid once. **Class:** behavior change. **Branch:** `feat/credential-jobs`.
+
+- [ ] An eighth of numbers are credential jobs, cut as the table above, and every number that keeps
+      its kind keeps its shape, terms and LAN exactly.
+- [ ] The target sits in the key-box slot, named for one of the seven machines, with no storage.
+- [ ] The board and briefing read as above, at the key job's pay, and name no hostname or address.
+- [ ] A mail whose first `password:` line outside the quote matches root's current password
+      completes the job and pays once, with or without a wallet as every kind does.
+- [ ] A password set with `passwd` from a root shell on the target pays.
+- [ ] No line, a wrong password, the front box's password and a target that no longer boots each get
+      "That login doesn't open their <machine>. No login, no money."
+- [ ] Only the first `password:` line counts, so a mail cannot try several words.
+- [ ] A later mail on the completed job is told it is closed, without reading the box.
+- [ ] `show` names the kind and the machine.
+
+### Slice 2: a client pays for a file destroyed (v0.472.0)
+
+**Class:** behavior change. **Branch:** `feat/destroy-jobs`. Decisions 6–9 and 19–20: the kind, the
+six items laid root-only, the check at the path, a bricked target a miss, the key job's pay.
+
+### Slice 3: a client pays for a table wiped (v0.473.0)
+
+**Class:** behavior change. **Branch:** `feat/wipe-jobs`. Decisions 10–14 and 19–20: the kind, the
+eight settings in either storage, the check of all three tables, the tamper job's pay.
+
+### Slice 4: a chain job pays for a listener and a machine taken down (v0.474.0)
+
+**Class:** behavior change. **Branch:** `feat/chain-jobs`. Decisions 15, 17–19: the kind, always
+two-hop, both steps checked on every mail, the reply naming the first unfinished step, the pay.
+
+### Slice 5: a chain job's final step can destroy a file or wipe a table (v0.475.0)
+
+**Class:** behavior change. **Branch:** `feat/chain-finals`. Decision 16: the even draw of the final
+step, on the machinery slices 2 and 3 shipped.
+
+### Close-out
+
+One browser run over all four kinds, a valleynews `/dev` post, the as-built sections in
+`docs/missions-architecture.md`, and this plan retired.
