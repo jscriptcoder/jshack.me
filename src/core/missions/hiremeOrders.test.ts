@@ -884,6 +884,48 @@ describe('showReport on an infiltrate job', () => {
   });
 });
 
+describe('showReport on a destroy job', () => {
+  const SECRET = 'operator-test-secret';
+  /** The first destroy job `wanted` accepts. */
+  const destroyJob = (wanted: (shape: MissionShape) => boolean): number =>
+    Array.from({ length: 8000 }, (_unused, index) => index * 256 + 2).find((candidate) => {
+      const shape = missionShape(candidate);
+      return shape.kind === 'destroy' && wanted(shape);
+    })!;
+  const SINGLE_HOP = destroyJob(({ frontBox }) => frontBox === null);
+  const TWO_HOP = destroyJob(({ frontBox }) => frontBox !== null);
+
+  /** The line naming the file's path and its size under the secret. */
+  const fileLine = (missionNumber: number, indent: string): string =>
+    `${indent}File:     ${missionFilePath(missionNumber)}, ` +
+    `${missionFileContent(missionNumber, SECRET).length.toLocaleString('en-US')} bytes`;
+
+  it("names the kind, the item and the file's path, calls the slot the target, and prints no key", () => {
+    const { stem } = missionShape(SINGLE_HOP);
+    const report = showReport(SINGLE_HOP, SECRET, undefined);
+    const lines = report.split('\n');
+
+    expect(lines).toContain(`  Kind:     destroy, ${missionFileItem(SINGLE_HOP).noun}`);
+    expect(lines).toContain(
+      `  Target:   ${missionTerms(SINGLE_HOP).targetCompany}, ${stem}-gw / ${stem}-files`,
+    );
+    expect(lines).toContain(fileLine(SINGLE_HOP, '  '));
+    expect(report).toContain('-> target :');
+    expect(report).not.toContain('Key');
+    expect(report).not.toContain('Storage:');
+  });
+
+  it('names the target box by its hostname on a two-hop job, with the file under it', () => {
+    const report = showReport(TWO_HOP, SECRET, undefined);
+    const lines = report.split('\n');
+
+    expect(lines).toContain(`  Kind:     destroy, ${missionFileItem(TWO_HOP).noun}`);
+    expect(lines).toContain(`  Target box: ${missionShape(TWO_HOP).stem}-files`);
+    expect(lines.at(-1)).toBe(fileLine(TWO_HOP, '  '));
+    expect(report).not.toContain('Key');
+  });
+});
+
 describe('showReport on a file job', () => {
   const SECRET = 'operator-test-secret';
   /** The first file job `wanted` accepts. */

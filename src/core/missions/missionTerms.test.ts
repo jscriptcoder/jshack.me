@@ -19,7 +19,7 @@ const SAMPLE_NUMBERS = Array.from({ length: 2000 }, (_unused, index) => index * 
 );
 
 /** The jobs of one kind across a wider spread than the sample, for the checks that must reach
- *  every share or both ends of a pay range: an eighth of the sample is too few to. */
+ *  every share or both ends of a pay range: a ninth of the sample is too few to. */
 const widerJobsOf = (kind: MissionKind): readonly number[] =>
   Array.from({ length: 6000 }, (_unused, index) => index * 2741 + 2).filter(
     (missionNumber) => isMissionNumber(missionNumber) && missionKind(missionNumber) === kind,
@@ -149,24 +149,24 @@ describe('missionTerms', () => {
     // Taken before a two-hop job had terms of its own: every single-hop contract's client,
     // target, pitch, key and pay. Retaken when sabotage jobs took a third of the numbers, again
     // when file jobs took a quarter, again when backdoor jobs took a fifth, and again when
-    // infiltrate jobs took a sixth, again when portforward jobs took a seventh, and again when
-    // credential jobs took an eighth, each time over the key jobs left, whose terms the earlier
-    // digest's own fixture held unchanged.
+    // infiltrate jobs took a sixth, again when portforward jobs took a seventh, again when
+    // credential jobs took an eighth, and again when destroy jobs took a ninth, each time over the
+    // key jobs left, whose terms the earlier digest's own fixture held unchanged.
     expect(md5(JSON.stringify(SINGLE_HOP_NUMBERS.map(missionTerms).map(withoutJob)))).toBe(
-      '050fb7bc7b24c187ed5ea0a1c8055147',
+      '69659d0d689e1a5b7d9fcd5f2de7b4a7',
     );
   });
 
-  // Retaken over the key jobs left when credential jobs took an eighth of the numbers.
+  // Retaken over the key jobs left when destroy jobs took a ninth of the numbers.
   it('keeps the client, target, pitch and key of a two-hop key job as they were', () => {
     const beside = TWO_HOP_NUMBERS.map(missionTerms)
       .map(withoutJob)
       .map(({ kind: _kind, pay: _pay, ...rest }) => rest);
 
-    expect(md5(JSON.stringify(beside))).toBe('d41d8f29e644f778beea07e1dae950f3');
+    expect(md5(JSON.stringify(beside))).toBe('6ee09a322664bf399e935c9cbadfdb78');
   });
 
-  it('marks each contract a key, tamper, sabotage, file, backdoor, infiltrate, portforward or credential job, as its shape does', () => {
+  it('marks each contract a key, tamper, sabotage, file, backdoor, infiltrate, portforward, credential or destroy job, as its shape does', () => {
     for (const missionNumber of SAMPLE_NUMBERS) {
       expect(missionTerms(missionNumber).job).toBe(missionShape(missionNumber).kind);
     }
@@ -257,7 +257,7 @@ describe('missionTerms', () => {
     // three to five of its own for each thing it asks.
     it('pitches each setting from three to five reasons of its own for each action', () => {
       const pitchesBy = new Map<string, Set<string>>();
-      for (const missionNumber of TAMPER_NUMBERS) {
+      for (const missionNumber of widerJobsOf('tamper')) {
         const asked = `${missionSetting(missionNumber)} ${missionAction(missionNumber)}`;
         pitchesBy.set(
           asked,
@@ -322,8 +322,8 @@ describe('missionTerms', () => {
         pay,
       }));
 
-      // Retaken over the sabotage jobs left when credential jobs took an eighth of the numbers.
-      expect(md5(JSON.stringify(kept))).toBe('15a7f4bd8a288752fcf856076c7ce3fa');
+      // Retaken over the sabotage jobs left when destroy jobs took a ninth of the numbers.
+      expect(md5(JSON.stringify(kept))).toBe('a5b957c88d96a029eced04ddf6993c62');
     });
 
     // The work is a key job's, finding the way in and rooting the box, so the pay is too.
@@ -626,6 +626,92 @@ describe('missionTerms', () => {
 
     it('promises no key', () => {
       for (const missionNumber of BACKDOOR_NUMBERS) {
+        expect('keyOpens' in missionTerms(missionNumber)).toBe(false);
+      }
+    });
+  });
+
+  describe('a destroy job', () => {
+    const DESTROY_NUMBERS = widerJobsOf('destroy');
+    const SINGLE_HOP_DESTROY_NUMBERS = DESTROY_NUMBERS.filter(
+      (missionNumber) => !isTwoHop(missionNumber),
+    );
+    const TWO_HOP_DESTROY_NUMBERS = DESTROY_NUMBERS.filter(isTwoHop);
+
+    /** The six items a client can want gone. */
+    const DESTROY_ITEMS = [
+      'prototype render',
+      'site photo',
+      'signed contract',
+      'firmware image',
+      'customer export',
+      'key ring',
+    ];
+
+    it('is offered as destroying the item it names, an internal one on two hops', () => {
+      for (const missionNumber of SINGLE_HOP_DESTROY_NUMBERS) {
+        expect(missionTerms(missionNumber).kind).toBe(
+          `destroy a ${missionFileItem(missionNumber).noun}`,
+        );
+      }
+      for (const missionNumber of TWO_HOP_DESTROY_NUMBERS) {
+        expect(missionTerms(missionNumber).kind).toBe(
+          `destroy an internal ${missionFileItem(missionNumber).noun}`,
+        );
+      }
+      expect(
+        new Set(DESTROY_NUMBERS.map((missionNumber) => missionFileItem(missionNumber).noun)),
+      ).toEqual(new Set(DESTROY_ITEMS));
+    });
+
+    it('sits behind a front box about a third of the time', () => {
+      const share = TWO_HOP_DESTROY_NUMBERS.length / DESTROY_NUMBERS.length;
+
+      expect(share).toBeGreaterThan(0.28);
+      expect(share).toBeLessThan(0.39);
+    });
+
+    it('pays a key job: 500 to 2,000 JSC on one hop, 2,000 to 4,000 on two, in steps of 50', () => {
+      const paysOf = (numbers: readonly number[]) =>
+        numbers.map((missionNumber) => missionTerms(missionNumber).pay);
+      const singleHop = paysOf(SINGLE_HOP_DESTROY_NUMBERS);
+      const twoHop = paysOf(TWO_HOP_DESTROY_NUMBERS);
+
+      for (const pay of [...singleHop, ...twoHop]) expect(pay % 50).toBe(0);
+      expect([Math.min(...singleHop), Math.max(...singleHop)]).toEqual([500, 2000]);
+      expect([Math.min(...twoHop), Math.max(...twoHop)]).toEqual([2000, 4000]);
+    });
+
+    it('names the target after its stem and a trade a key job is drawn from', () => {
+      const keyJobTrades = new Set(
+        KEY_NUMBERS.map((missionNumber) => missionTerms(missionNumber).targetCompany.split(' ')[1]),
+      );
+
+      for (const missionNumber of DESTROY_NUMBERS) {
+        const { stem } = missionShape(missionNumber);
+        const [company, trade, ...rest] = missionTerms(missionNumber).targetCompany.split(' ');
+        expect(company).toBe(capitalised(stem));
+        expect(keyJobTrades.has(trade ?? ''), `contract ${missionNumber}`).toBe(true);
+        expect(rest).toEqual([]);
+      }
+    });
+
+    it("draws every client, and pitches from its item's four reasons for wanting it gone", () => {
+      expect(
+        new Set(DESTROY_NUMBERS.map((missionNumber) => missionTerms(missionNumber).client.handle)),
+      ).toEqual(new Set(CLIENT_HANDLES));
+      for (const noun of DESTROY_ITEMS) {
+        const jobs = DESTROY_NUMBERS.filter(
+          (missionNumber) => missionFileItem(missionNumber).noun === noun,
+        );
+        const pitches = new Set(jobs.map((missionNumber) => missionTerms(missionNumber).pitch));
+
+        expect(pitches, noun).toEqual(new Set(missionFileItem(jobs[0]!).destroyPitches));
+      }
+    });
+
+    it('promises no key', () => {
+      for (const missionNumber of DESTROY_NUMBERS) {
         expect('keyOpens' in missionTerms(missionNumber)).toBe(false);
       }
     });

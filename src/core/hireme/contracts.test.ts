@@ -150,6 +150,21 @@ const credentialNumber = (twoHop: boolean, machine = 'backup server'): number =>
 const CREDENTIAL_SINGLE_HOP = credentialNumber(false);
 const CREDENTIAL_TWO_HOP = credentialNumber(true);
 
+/** The first destroy contract from 70,000 up wanting the item called `noun` gone, on one hop or
+ *  on two. */
+const destroyNumber = (twoHop: boolean, noun = 'signed contract'): number => {
+  for (let candidate = 70_000; candidate < 2_000_000; candidate++) {
+    if (!isMissionNumber(candidate)) continue;
+    const shape = missionShape(candidate);
+    if (shape.kind !== 'destroy' || (shape.frontBox !== null) !== twoHop) continue;
+    if (missionFileItem(candidate).noun === noun) return candidate;
+  }
+  throw new Error(`no destroy contract for a ${noun}`);
+};
+
+const DESTROY_SINGLE_HOP = destroyNumber(false);
+const DESTROY_TWO_HOP = destroyNumber(true);
+
 /** The first portforward contract from 70,000 up on the machine called `noun`. */
 const portforwardNumber = (noun: string): number => {
   for (let candidate = 70_000; candidate < 2_000_000; candidate++) {
@@ -906,6 +921,106 @@ describe('accepting an offer', () => {
 
       expect(accepts[0]!.briefing.body.split('\n')).toContain(
         `Bring us the root login for their ${machine}.`,
+      );
+    });
+  });
+
+  describe('on a destroy job', () => {
+    const offeredDestroy = () =>
+      boardStore({
+        offers: [
+          { number: DESTROY_SINGLE_HOP, ref: 'bbb' },
+          { number: DESTROY_TWO_HOP, ref: 'ccc' },
+        ],
+      });
+
+    it("writes a single-hop briefing giving the file's name and asking for it gone", async () => {
+      const { store, accepts } = offeredDestroy();
+      const terms = missionTerms(DESTROY_SINGLE_HOP);
+
+      await accept('offer=bbb', store);
+
+      expect(accepts[0]!.briefing.subject).toBe(`Contract: ${terms.targetCompany}`);
+      expect(accepts[0]!.briefing.body).toBe(
+        [
+          terms.pitch,
+          '',
+          `The target is ${terms.targetCompany}. Their network is at ${missionAddressForNumber(DESTROY_SINGLE_HOP)}.`,
+          '',
+          'Their lawyers keep a signed contract. We want it gone. Its name is:',
+          '',
+          `  ${missionFileName(DESTROY_SINGLE_HOP)}`,
+          '',
+          'Write to this address with your wallet address once it is gone.',
+          'Not gone, no money. No wallet, no money.',
+          '',
+          `-- ${terms.client.company}`,
+          '',
+        ].join('\n'),
+      );
+    });
+
+    it('tells a two-hop contractor the file is on a machine inside the network', async () => {
+      const { store, accepts } = offeredDestroy();
+      const terms = missionTerms(DESTROY_TWO_HOP);
+
+      await accept('offer=ccc', store);
+
+      expect(accepts[0]!.briefing.body).toBe(
+        [
+          terms.pitch,
+          '',
+          `The target is ${terms.targetCompany}. Their network is at ${missionAddressForNumber(DESTROY_TWO_HOP)}.`,
+          '',
+          'Their lawyers keep a signed contract. We want it gone. Its name is:',
+          '',
+          `  ${missionFileName(DESTROY_TWO_HOP)}`,
+          '',
+          'The file is on a machine inside their network, not on the edge.',
+          '',
+          'Write to this address with your wallet address once it is gone.',
+          'Not gone, no money. No wallet, no money.',
+          '',
+          `-- ${terms.client.company}`,
+          '',
+        ].join('\n'),
+      );
+    });
+
+    it("never gives the file's path, the machine's hostname or any address but the network's", async () => {
+      for (const [missionNumber, ref] of [
+        [DESTROY_SINGLE_HOP, 'bbb'],
+        [DESTROY_TWO_HOP, 'ccc'],
+      ] as const) {
+        const { store, accepts } = offeredDestroy();
+        const { stem } = missionShape(missionNumber);
+        const directory = missionFilePath(missionNumber).replace(/\/[^/]+$/, '');
+
+        await accept(`offer=${ref}`, store);
+        const { body, attachment } = accepts[0]!.briefing;
+
+        expect(body).not.toContain(directory);
+        expect(body).not.toContain(`${stem}-`);
+        expect(body.match(/\d+\.\d+\.\d+\.\d+/g)).toEqual([missionAddressForNumber(missionNumber)]);
+        expect(attachment).toBeUndefined();
+      }
+    });
+
+    it.each([
+      ['prototype render', 'designers'],
+      ['site photo', 'surveyors'],
+      ['signed contract', 'lawyers'],
+      ['firmware image', 'engineers'],
+      ['customer export', 'salespeople'],
+      ['key ring', 'admins'],
+    ])('asks for a %s gone, in the words of the %s who keep it', async (noun, keepers) => {
+      const missionNumber = destroyNumber(false, noun);
+      const { store, accepts } = boardStore({ offers: [{ number: missionNumber, ref: 'mmm' }] });
+
+      await accept('offer=mmm', store);
+
+      expect(accepts[0]!.briefing.body.split('\n')).toContain(
+        `Their ${keepers} keep a ${noun}. We want it gone. Its name is:`,
       );
     });
   });

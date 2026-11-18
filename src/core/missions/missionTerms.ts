@@ -61,7 +61,8 @@ export type MissionTerms =
   | ({ readonly job: 'backdoor' } & CommonTerms)
   | ({ readonly job: 'infiltrate' } & CommonTerms)
   | ({ readonly job: 'portforward' } & CommonTerms)
-  | ({ readonly job: 'credential' } & CommonTerms);
+  | ({ readonly job: 'credential' } & CommonTerms)
+  | ({ readonly job: 'destroy' } & CommonTerms);
 
 const CLIENTS: readonly MissionClient[] = [
   { company: 'Copper Systems', handle: 'copper-ops' },
@@ -365,6 +366,18 @@ export const missionTerms = (missionNumber: number): MissionTerms => {
       kind: `infiltrate ${singleHop ? 'a' : 'an internal'} ${noun}`,
       pitch: prng.pick(infiltratePitches),
       // Putting a file in place is a key job's work, finding the way in and rooting the box.
+      pay: payFrom(prng, job),
+    };
+  }
+  if (missionKind(missionNumber) === 'destroy') {
+    const { noun, destroyPitches } = missionFileItem(missionNumber);
+    return {
+      job: 'destroy',
+      client: prng.pick(CLIENTS),
+      targetCompany: `${capitalised(stem)} ${prng.pick(TARGET_TRADES)}`,
+      kind: `destroy ${singleHop ? 'a' : 'an internal'} ${noun}`,
+      pitch: prng.pick(destroyPitches),
+      // The work is a key job's, finding the way in, rooting the box and finding the file.
       pay: payFrom(prng, job),
     };
   }

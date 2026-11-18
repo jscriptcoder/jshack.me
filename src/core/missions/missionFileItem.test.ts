@@ -121,6 +121,55 @@ describe('the item an infiltrate job slips in', () => {
   });
 });
 
+/** Destroy jobs, from the same dense spread. */
+const DESTROY_JOBS = Array.from({ length: 12000 }, (_unused, index) => index * 1373 + 2).filter(
+  (missionNumber) => isMissionNumber(missionNumber) && missionKind(missionNumber) === 'destroy',
+);
+
+/** The destroy jobs asking for the item called `noun` gone. */
+const destroyJobsFor = (noun: string): readonly number[] =>
+  DESTROY_JOBS.filter((missionNumber) => missionFileItem(missionNumber).noun === noun);
+
+describe('the item a destroy job wants gone', () => {
+  it("is one of a file job's six, each about a sixth of the time, and never a boot script", () => {
+    expect(DESTROY_JOBS.length).toBeGreaterThan(700);
+    expect(
+      new Set(DESTROY_JOBS.map((missionNumber) => missionFileItem(missionNumber).noun)),
+    ).toEqual(new Set(ITEM_NOUNS));
+    for (const noun of ITEM_NOUNS) {
+      const share = destroyJobsFor(noun).length / DESTROY_JOBS.length;
+      expect(share, noun).toBeGreaterThan(0.13);
+      expect(share, noun).toBeLessThan(0.21);
+    }
+  });
+
+  it('carries four reasons of its own for wanting one gone, never a reason another job gives', () => {
+    const itemOf = (noun: string) => missionFileItem(destroyJobsFor(noun)[0]!);
+    const every = ITEM_NOUNS.flatMap((noun) => itemOf(noun).destroyPitches);
+    const otherJobs = new Set(
+      ITEM_NOUNS.flatMap((noun) => [...itemOf(noun).pitches, ...itemOf(noun).infiltratePitches]),
+    );
+
+    for (const noun of ITEM_NOUNS) {
+      expect(itemOf(noun).destroyPitches, noun).toHaveLength(4);
+    }
+    expect(new Set(every).size).toBe(24);
+    for (const pitch of every) {
+      expect(pitch).toMatch(/^[A-Z].{20,}\.$/);
+      expect(otherJobs.has(pitch), pitch).toBe(false);
+    }
+  });
+
+  it('sits in its own name, and never in a home directory a user could empty', () => {
+    for (const missionNumber of DESTROY_JOBS) {
+      const path = missionFilePath(missionNumber);
+
+      expect(path.endsWith(`/${missionFileName(missionNumber)}`)).toBe(true);
+      expect(path.startsWith('/home/'), path).toBe(false);
+    }
+  });
+});
+
 /** The services a company's boot scripts start, each named for its housekeeping. */
 const BOOT_SERVICES = [
   'backup-sync',

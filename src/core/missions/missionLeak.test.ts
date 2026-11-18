@@ -17,6 +17,7 @@ import {
   MissionSecretMissingError,
 } from './missionSecret.js';
 import {
+  missionKind,
   missionShape,
   type MissionBoxRef,
   type MissionRoute,
@@ -1345,6 +1346,73 @@ describe("an infiltrate job's target", () => {
   });
 });
 
+describe("a destroy job's target", () => {
+  const HOLDING_BOTH = { keySecret: KEY_SECRET, rawSecrets: RAW_SECRETS };
+
+  /** The first destroy job in the sample whose target falls to `route`, on one hop or two. */
+  const firstDestroyJob = (route: MissionRoute, twoHop = false): number => {
+    const [found] = SAMPLE_NUMBERS.filter((missionNumber) => {
+      const shape = missionShape(missionNumber);
+      return (
+        shape.kind === 'destroy' &&
+        shape.keyBox.route === route &&
+        (shape.frontBox !== null) === twoHop
+      );
+    });
+    if (found === undefined) throw new Error(`no destroy ${route} contract in the sample`);
+    return found;
+  };
+
+  /** The company's file, as the server lays it. */
+  const theirFileOf = (missionNumber: number) => ({
+    path: missionFilePath(missionNumber),
+    content: missionFileContent(missionNumber, KEY_SECRET),
+    perms: ROOT_FILE,
+  });
+
+  it('lays the file alone off a leak route, root-only, behind the write gate', () => {
+    for (const route of ['hydra', 'msfconsole'] as const) {
+      const missionNumber = firstDestroyJob(route);
+      const label = `${route} contract ${missionNumber}`;
+
+      expect(missionFiles(keyOf(missionNumber), HOLDING_BOTH), label).toEqual([
+        theirFileOf(missionNumber),
+      ]);
+      expect(missionFilePaths(keyOf(missionNumber)), label).toEqual([
+        missionFilePath(missionNumber),
+      ]);
+    }
+  });
+
+  it('lays the file beside the leak on a leak route, and no key or records', () => {
+    for (const route of ['web', 'ftp', 'mysql', 'snmp'] as const) {
+      const missionNumber = firstDestroyJob(route);
+      const laid = missionFiles(keyOf(missionNumber), HOLDING_BOTH);
+      const label = `${route} contract ${missionNumber}`;
+
+      expect(laid[0], label).toEqual(theirFileOf(missionNumber));
+      expect(laid.length, label).toBe(2);
+      expect(missionFilePaths(keyOf(missionNumber)), label).toEqual(laid.map(({ path }) => path));
+    }
+  });
+
+  it('cannot be laid without the key secret, which the bytes are drawn from', () => {
+    const missionNumber = firstDestroyJob('hydra');
+
+    expect(() =>
+      missionFiles(keyOf(missionNumber), { keySecret: undefined, rawSecrets: RAW_SECRETS }),
+    ).toThrow(MissionSecretMissingError);
+  });
+
+  it('keeps the file on the inside machine of a two-hop job, never on the front box', () => {
+    const missionNumber = firstDestroyJob('hydra', true);
+    const front = missionFiles(frontOf(missionNumber), HOLDING_BOTH);
+
+    expect(front.map(({ path }) => path)).not.toContain(missionFilePath(missionNumber));
+    expect(missionFiles(keyOf(missionNumber), HOLDING_BOTH)).toEqual([theirFileOf(missionNumber)]);
+  });
+});
+
 describe("a tamper job's records box", () => {
   const HOLDING_BOTH = { keySecret: KEY_SECRET, rawSecrets: RAW_SECRETS };
 
@@ -1396,7 +1464,15 @@ describe("a tamper job's records box", () => {
   });
 
   it('holds the target table and both tables beside it, whatever the setting', () => {
-    const settings = tamperNumbersWithRoute('hydra').map((missionNumber) => {
+    // A wider spread than the sample: a ninth of it, on one route, is too few to reach all eight.
+    const hydraTamperJobs = Array.from({ length: 6000 }, (_unused, index) => index * 2741 + 2).filter(
+      (missionNumber) => {
+        if (!isMissionNumber(missionNumber) || missionKind(missionNumber) !== 'tamper') return false;
+        const shape = missionShape(missionNumber);
+        return shape.keyBox.route === 'hydra' && shape.storage === 'database';
+      },
+    );
+    const settings = hydraTamperJobs.map((missionNumber) => {
       expect(recordsAndOthers(missionNumber).records).toHaveLength(3);
       return missionSetting(missionNumber);
     });

@@ -1273,6 +1273,181 @@ describe('a mail on a portforward job', () => {
   });
 });
 
+describe('a mail on a destroy job', () => {
+  const DESTROY_JOB = ALL_HOST_NUMBERS.find(
+    (missionNumber) => missionKind(missionNumber) === 'destroy',
+  )!;
+  const DESTROY_TERMS = missionTerms(DESTROY_JOB);
+  const PATH = missionFilePath(DESTROY_JOB);
+  const THEIRS = missionFileContent(DESTROY_JOB, SECRET);
+
+  /** A box read answering with `read`, keeping every number it was asked for. */
+  const targetBox = (read: TargetBoxRead) => {
+    const reads: number[] = [];
+    return {
+      reads,
+      readTargetBox: async (missionNumber: number): Promise<TargetBoxRead> => {
+        reads.push(missionNumber);
+        return read;
+      },
+    };
+  };
+
+  /** The target up, holding `content` at the file's path, or nothing there. */
+  const holding = (content: string | null): TargetBoxRead => ({
+    kind: 'up',
+    fs:
+      content === null
+        ? buildMissionKeyBoxFs(DESTROY_JOB)
+        : withFiles(buildMissionKeyBoxFs(DESTROY_JOB), [[PATH, file(content, ROOT_FILE)]]),
+  });
+
+  const fromDestroyClient = (line: string): ContractMail => ({
+    sender: `${DESTROY_TERMS.client.handle}@emailit.io`,
+    subject: `Contract: ${DESTROY_TERMS.targetCompany}`,
+    body: signed(line, DESTROY_TERMS.client.company),
+  });
+
+  const NOT_GONE = "We can't confirm that file is gone. Not gone, no money.";
+
+  const acceptedStore = () => clientStore({ jobs: [{ number: DESTROY_JOB, state: 'accepted' }] });
+
+  const mailOnDestroyJob = (
+    store: ClientMailStore,
+    read: TargetBoxRead,
+    body = `it is gone\n${WALLET}\n`,
+  ) =>
+    mailTo(store, { to: DESTROY_TERMS.client, body, readTargetBox: targetBox(read).readTargetBox });
+
+  it('reads the target of the job held, and pays once the file is gone from its path', async () => {
+    const { store, completes, replies } = acceptedStore();
+    const box = targetBox(holding(null));
+
+    expect(
+      await mailTo(store, {
+        to: DESTROY_TERMS.client,
+        body: `it is gone\n${WALLET}\n`,
+        readTargetBox: box.readTargetBox,
+      }),
+    ).toBe('replied');
+    expect(box.reads).toEqual([DESTROY_JOB]);
+    expect(completes).toEqual([
+      {
+        number: DESTROY_JOB,
+        wallet: WALLET,
+        pay: DESTROY_TERMS.pay,
+        reply: fromDestroyClient(
+          `It's gone. §${DESTROY_TERMS.pay.toLocaleString('en-US')} sent to ${WALLET}. Pleasure doing business.`,
+        ),
+      },
+    ]);
+    expect(replies).toEqual([]);
+  });
+
+  it('completes and pays nothing when the mail names no wallet', async () => {
+    const { store, completes } = acceptedStore();
+
+    await mailOnDestroyJob(store, holding(null), 'it is gone\n');
+
+    expect(completes).toEqual([
+      {
+        number: DESTROY_JOB,
+        wallet: null,
+        pay: DESTROY_TERMS.pay,
+        reply: fromDestroyClient(
+          "It's gone. You sent no wallet, so there is nothing to pay. No wallet, no money.",
+        ),
+      },
+    ]);
+  });
+
+  it.each([
+    ['overwritten with other bytes', holding('nothing to see here\n')],
+    ['emptied', holding('')],
+    ['changed by one character at the end', holding(`${THEIRS.slice(0, -1)}#`)],
+    ['longer by a newline', holding(`${THEIRS}\n`)],
+    [
+      'moved to another path',
+      {
+        kind: 'up',
+        fs: withFiles(buildMissionKeyBoxFs(DESTROY_JOB), [
+          [`${PATH}.bak`, file(THEIRS, ROOT_FILE)],
+        ]),
+      } as const,
+    ],
+  ])('pays for a file %s', async (_case, read) => {
+    const { store, completes, replies } = acceptedStore();
+
+    expect(await mailOnDestroyJob(store, read)).toBe('replied');
+    expect(completes.map(({ number }) => number)).toEqual([DESTROY_JOB]);
+    expect(replies).toEqual([]);
+  });
+
+  it.each([
+    ['the file is untouched', holding(THEIRS)],
+    [
+      'the same bytes were put back with other permissions',
+      {
+        kind: 'up',
+        fs: withFiles(buildMissionKeyBoxFs(DESTROY_JOB), [[PATH, file(THEIRS, PASSWD_FILE)]]),
+      } as const,
+    ],
+    ['the target no longer boots', { kind: 'absent' } as const],
+  ])('cannot confirm the file is gone when %s, and keeps the job open', async (_case, read) => {
+    const { store, completes, replies } = acceptedStore();
+
+    expect(await mailOnDestroyJob(store, read)).toBe('replied');
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromDestroyClient(NOT_GONE)]);
+  });
+
+  // The client looks at the box, not the mail: the file mailed back proves nothing either way.
+  it('ignores a copy of the file carried by the mail', async () => {
+    const untouched = acceptedStore();
+    await mailTo(untouched.store, {
+      to: DESTROY_TERMS.client,
+      body: `it is gone\n${WALLET}\n`,
+      file: 'not their file',
+      readTargetBox: targetBox(holding(THEIRS)).readTargetBox,
+    });
+    expect(untouched.completes).toEqual([]);
+
+    const destroyed = acceptedStore();
+    await mailTo(destroyed.store, {
+      to: DESTROY_TERMS.client,
+      body: `it is gone\n${WALLET}\n`,
+      file: THEIRS,
+      readTargetBox: targetBox(holding(null)).readTargetBox,
+    });
+    expect(destroyed.completes.map(({ number }) => number)).toEqual([DESTROY_JOB]);
+  });
+
+  it('answers nothing when the target could not be read', async () => {
+    const { store, completes, replies } = acceptedStore();
+
+    expect(await mailOnDestroyJob(store, { kind: 'error' })).toBeNull();
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([]);
+  });
+
+  it('says the job is already closed once it is completed, without reading the target', async () => {
+    const { store, completes, replies } = clientStore({
+      jobs: [{ number: DESTROY_JOB, state: 'completed' }],
+    });
+    const box = targetBox(holding(null));
+
+    await mailTo(store, {
+      to: DESTROY_TERMS.client,
+      body: `it is gone\n${WALLET}\n`,
+      readTargetBox: box.readTargetBox,
+    });
+
+    expect(box.reads).toEqual([]);
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromDestroyClient(CLOSED_LINE)]);
+  });
+});
+
 describe('a mail on an infiltrate job', () => {
   const INFILTRATE_JOB = ALL_HOST_NUMBERS.find(
     (missionNumber) => missionKind(missionNumber) === 'infiltrate',

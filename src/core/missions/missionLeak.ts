@@ -32,7 +32,8 @@
  * laid once with every table the contract adds, so on the database route it holds both.
  *
  * A file job's target holds the file the client wants brought back, root-only, its bytes drawn
- * from the key's secret, so nobody makes it without taking it. Nothing is laid beside it.
+ * from the key's secret, so nobody makes it without taking it. Nothing is laid beside it. A destroy
+ * job's target holds the same kind of file, the one the client wants gone.
  */
 
 import { DATADIR_FILE, FTP_PUBLIC_FILE, ROOT_FILE } from '../generation/baseFs.js';
@@ -328,11 +329,12 @@ const keyFiles = (missionNumber: number, secret: string): readonly MissionFile[]
 const holdsKey = (ref: MissionBoxRef): boolean =>
   ref.role === 'key' && missionKind(ref.missionNumber) === 'key';
 
-/** Whether the box is a file or infiltrate job's target, holding the company's file: the one a
- *  file job's client wants, or the one an infiltrate job's client wants theirs put in place of. */
+/** Whether the box is a file, infiltrate or destroy job's target, holding the company's file: the
+ *  one a file job's client wants, the one an infiltrate job's client wants theirs put in place of,
+ *  or the one a destroy job's client wants gone. */
 const holdsFile = (ref: MissionBoxRef): boolean => {
   const kind = missionKind(ref.missionNumber);
-  return ref.role === 'key' && (kind === 'file' || kind === 'infiltrate');
+  return ref.role === 'key' && (kind === 'file' || kind === 'infiltrate' || kind === 'destroy');
 };
 
 /** A file job's file, as the server lays it: root-only, like the key. */
