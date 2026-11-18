@@ -19,7 +19,7 @@
 
 import { createPrng } from '../generation/prng.js';
 import { missionKind, missionTopology } from './missionShape.js';
-import { backdoorJob, sabotageRole } from './targetRoles.js';
+import { backdoorJob, credentialRole, sabotageRole } from './targetRoles.js';
 import { missionFileItem } from './missionFileItem.js';
 import { portforwardJob } from './portforwardJob.js';
 import {
@@ -60,7 +60,8 @@ export type MissionTerms =
   | ({ readonly job: 'file' } & CommonTerms)
   | ({ readonly job: 'backdoor' } & CommonTerms)
   | ({ readonly job: 'infiltrate' } & CommonTerms)
-  | ({ readonly job: 'portforward' } & CommonTerms);
+  | ({ readonly job: 'portforward' } & CommonTerms)
+  | ({ readonly job: 'credential' } & CommonTerms);
 
 const CLIENTS: readonly MissionClient[] = [
   { company: 'Copper Systems', handle: 'copper-ops' },
@@ -327,6 +328,18 @@ export const missionTerms = (missionNumber: number): MissionTerms => {
       kind: `plant a backdoor on ${singleHop ? 'a' : 'an internal'} ${noun}`,
       pitch: prng.pick(backdoorPitches),
       // The work is a key job's, finding the way in and rooting the box, with one step more.
+      pay: payFrom(prng, job),
+    };
+  }
+  if (missionKind(missionNumber) === 'credential') {
+    const { noun, credentialPitches } = credentialRole(missionNumber);
+    return {
+      job: 'credential',
+      client: prng.pick(CLIENTS),
+      targetCompany: `${capitalised(stem)} ${prng.pick(TARGET_TRADES)}`,
+      kind: `steal the root login for ${singleHop ? 'a' : 'an internal'} ${noun}`,
+      pitch: prng.pick(credentialPitches),
+      // The work is a key job's, finding the way in and rooting the box.
       pay: payFrom(prng, job),
     };
   }

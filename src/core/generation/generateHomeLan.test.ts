@@ -583,7 +583,7 @@ describe('generateHomeLan for a contract network', () => {
   it('places the key box where the shape says, so the gateway forwards onto it', () => {
     // The topology and the shape draw the stem and the key-box octet independently off
     // one seed; the forward points at the octet, so the two must agree.
-    for (const missionNumber of [66052, 131590, 1000002, 16000002]) {
+    for (const missionNumber of [66052, 131590, 1000002, 16000011]) {
       const lan = generateHomeLan(`mission-${missionNumber}`);
       const shape = missionShape(missionNumber);
       const keyBox = lan.hosts[1];
@@ -594,7 +594,7 @@ describe('generateHomeLan for a contract network', () => {
   });
 
   it('stands a front box beside the key box on a two-hop contract, where the shape says', () => {
-    for (const missionNumber of [8383, 66056, 134098, 326861]) {
+    for (const missionNumber of [8383, 66056, 134098, 326872]) {
       const lan = generateHomeLan(`mission-${missionNumber}`);
       const { stem, keyBox, frontBox } = missionShape(missionNumber);
 
@@ -609,7 +609,7 @@ describe('generateHomeLan for a contract network', () => {
     }
   });
 
-  it('names a sabotage target for the machine the client wants down, and every key box but a backdoor or portforward target as before', () => {
+  it('names a sabotage target for the machine the client wants down, and every key box but a backdoor, portforward or credential target as before', () => {
     // The board names the machine; the box the contractor lands on carries the name to match.
     const suffixByMachine: Readonly<Record<string, string>> = {
       'CCTV recorder': 'nvr',
@@ -634,7 +634,7 @@ describe('generateHomeLan for a contract network', () => {
     expect(new Set(sabotage.map(suffixOf))).toEqual(new Set(Object.values(suffixByMachine)));
     const namedAsBefore = CONTRACT_NUMBERS.filter((missionNumber) => {
       const { kind } = missionShape(missionNumber);
-      return kind !== 'backdoor' && kind !== 'portforward';
+      return kind !== 'backdoor' && kind !== 'portforward' && kind !== 'credential';
     });
     for (const missionNumber of namedAsBefore) {
       const lan = generateHomeLan(`mission-${missionNumber}`);
@@ -677,6 +677,42 @@ describe('generateHomeLan for a contract network', () => {
     ).toEqual(new Set([true, false]));
     expect(new Set(backdoor.map(suffixOf))).toEqual(new Set(Object.values(suffixByMachine)));
     for (const missionNumber of backdoor) {
+      const lan = generateHomeLan(`mission-${missionNumber}`);
+      const { stem, keyBox } = missionShape(missionNumber);
+
+      expect(
+        lan.hosts.find(({ ip }) => ip === `${lan.subnet}.${keyBox.octet}`)?.hostname,
+        `contract ${missionNumber}`,
+      ).toBe(`${stem}-${suffixOf(missionNumber)}`);
+    }
+  });
+
+  it('names a credential target for the machine whose root login the client wants, as a sabotage target is named', () => {
+    // The kinds share the machines, so a hostname alone never says which job a box is.
+    const suffixByMachine: Readonly<Record<string, string>> = {
+      'CCTV recorder': 'nvr',
+      'backup server': 'backup',
+      'monitoring station': 'mon',
+      'build server': 'ci',
+      'licence server': 'lic',
+      'door-access controller': 'access',
+      'billing server': 'billing',
+    };
+    const credential = CONTRACT_NUMBERS.filter(
+      (missionNumber) => missionShape(missionNumber).kind === 'credential',
+    );
+    const suffixOf = (missionNumber: number): string => {
+      const machine = missionTerms(missionNumber).kind.replace(
+        /^steal the root login for (a|an internal) /,
+        '',
+      );
+      return suffixByMachine[machine] ?? `unknown machine ${machine}`;
+    };
+
+    expect(
+      new Set(credential.map((missionNumber) => missionShape(missionNumber).frontBox === null)),
+    ).toEqual(new Set([true, false]));
+    for (const missionNumber of credential) {
       const lan = generateHomeLan(`mission-${missionNumber}`);
       const { stem, keyBox } = missionShape(missionNumber);
 

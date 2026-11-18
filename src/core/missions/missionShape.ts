@@ -125,10 +125,10 @@ const TWO_HOP_SHARE = 1 / 3;
 
 /** What a contract asks for: a key the client wants brought back, a record on the box the
  *  client wants changed, the box itself taken down for good, a file on it brought back, a
- *  listener left on it, the client's own file put on it, or a port on the gateway forwarded onto
- *  it. A tamper, sabotage, backdoor or infiltrate job is proved by the box itself when the
- *  contractor mails in, a portforward job by the gateway, a file job by the file the mail
- *  carries. */
+ *  listener left on it, the client's own file put on it, a port on the gateway forwarded onto
+ *  it, or the password of its root. A tamper, sabotage, backdoor, infiltrate or credential job is
+ *  proved by the box itself when the contractor mails in, a portforward job by the gateway, a file
+ *  job by the file the mail carries. */
 export type MissionKind =
   | 'key'
   | 'tamper'
@@ -136,49 +136,65 @@ export type MissionKind =
   | 'file'
   | 'backdoor'
   | 'infiltrate'
-  | 'portforward';
+  | 'portforward'
+  | 'credential';
 
-/** Where the one draw on a contract's kind changes, in 420ths. Each kind takes a seventh. Every
+/** Where the one draw on a contract's kind changes, in 840ths. Each kind takes an eighth. Every
  *  newer kind was carved from the edges of the ones before it, so a contract is the kind it was
  *  or has become the newer one, and none turned from one older kind into another: file jobs fill
  *  the gaps tamper, sabotage and key left as they shrank from thirds to quarters, backdoor jobs
  *  the twentieth each of the four gave up as they shrank to fifths, infiltrate jobs the thirtieth
- *  each of the five gave up at the top of one piece as they shrank to sixths, and portforward jobs
- *  the forty-second each of the six gave up the same way as they shrank to sevenths. A draw past
- *  the last cut, the top forty-second, is a portforward job. */
+ *  each of the five gave up at the top of one piece as they shrank to sixths, portforward jobs
+ *  the forty-second each of the six gave up the same way as they shrank to sevenths, and credential
+ *  jobs the fifty-sixth each of the seven gave up the same way as they shrank to eighths. A draw
+ *  past the last cut, the top forty-second, is a portforward job. */
 const KIND_CUTS: readonly (readonly [below: number, kind: MissionKind])[] = [
-  [60, 'tamper'],
-  [70, 'portforward'],
-  [84, 'infiltrate'],
-  [95, 'backdoor'],
-  [105, 'portforward'],
-  [140, 'file'],
-  [200, 'sabotage'],
-  [210, 'portforward'],
-  [224, 'infiltrate'],
-  [245, 'backdoor'],
-  [270, 'file'],
-  [280, 'portforward'],
-  [294, 'infiltrate'],
-  [315, 'backdoor'],
-  [375, 'key'],
-  [385, 'portforward'],
-  [399, 'infiltrate'],
-  [406, 'backdoor'],
-  [410, 'infiltrate'],
+  [105, 'tamper'],
+  [120, 'credential'],
+  [140, 'portforward'],
+  [153, 'infiltrate'],
+  [168, 'credential'],
+  [175, 'backdoor'],
+  [190, 'credential'],
+  [195, 'portforward'],
+  [210, 'credential'],
+  [265, 'file'],
+  [280, 'credential'],
+  [385, 'sabotage'],
+  [400, 'credential'],
+  [420, 'portforward'],
+  [448, 'infiltrate'],
+  [490, 'backdoor'],
+  [540, 'file'],
+  [560, 'portforward'],
+  [588, 'infiltrate'],
+  [630, 'backdoor'],
+  [735, 'key'],
+  [750, 'credential'],
+  [770, 'portforward'],
+  [798, 'infiltrate'],
+  [812, 'backdoor'],
+  [820, 'infiltrate'],
 ];
 
 /** Whether a contract asks for a key, a changed record, a machine taken down, a file brought
- *  back, a listener left, a file slipped in or a port opened onto a machine. Drawn on a stream of
- *  its own, so a contract that keeps its kind keeps its network and its terms to the byte. */
+ *  back, a listener left, a file slipped in, a port opened onto a machine or a root login. Drawn
+ *  on a stream of its own, so a contract that keeps its kind keeps its network and its terms to
+ *  the byte. */
 export const missionKind = (missionNumber: number): MissionKind => {
-  const fourHundredTwentieths = createPrng(`mission-kind-${missionNumber}`).next() * 420;
-  return KIND_CUTS.find(([below]) => fourHundredTwentieths < below)?.[1] ?? 'portforward';
+  const eightHundredFortieths = createPrng(`mission-kind-${missionNumber}`).next() * 840;
+  return KIND_CUTS.find(([below]) => eightHundredFortieths < below)?.[1] ?? 'portforward';
 };
 
 /** Where a contract's key box keeps what its job is about, each kind on a stream of its own. */
 const storageOf = (kind: MissionKind, missionNumber: number): MissionStorage | null => {
-  if (kind === 'sabotage' || kind === 'file' || kind === 'backdoor' || kind === 'infiltrate') {
+  if (
+    kind === 'sabotage' ||
+    kind === 'file' ||
+    kind === 'backdoor' ||
+    kind === 'infiltrate' ||
+    kind === 'credential'
+  ) {
     return null;
   }
   if (kind === 'tamper') return recordsStorage(missionNumber);

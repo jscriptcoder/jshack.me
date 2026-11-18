@@ -47,8 +47,8 @@ const ITEM_NOUNS = [
   'key ring',
 ];
 
-/** Infiltrate jobs, from the same spread. */
-const INFILTRATE_JOBS = Array.from({ length: 6000 }, (_unused, index) => index * 2741 + 2).filter(
+/** Infiltrate jobs, from a denser spread: seven shares need more of them than a file job's six. */
+const INFILTRATE_JOBS = Array.from({ length: 12000 }, (_unused, index) => index * 1373 + 2).filter(
   (missionNumber) => isMissionNumber(missionNumber) && missionKind(missionNumber) === 'infiltrate',
 );
 
