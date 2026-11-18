@@ -723,6 +723,25 @@ describe('generateHomeLan for a contract network', () => {
     }
   });
 
+  it("keeps a destroy job's target under the file server's name, on one hop or two", () => {
+    const destroy = CONTRACT_NUMBERS.filter(
+      (missionNumber) => missionShape(missionNumber).kind === 'destroy',
+    );
+
+    expect(
+      new Set(destroy.map((missionNumber) => missionShape(missionNumber).frontBox === null)),
+    ).toEqual(new Set([true, false]));
+    for (const missionNumber of destroy) {
+      const lan = generateHomeLan(`mission-${missionNumber}`);
+      const { stem, keyBox } = missionShape(missionNumber);
+
+      expect(
+        lan.hosts.find(({ ip }) => ip === `${lan.subnet}.${keyBox.octet}`)?.hostname,
+        `contract ${missionNumber}`,
+      ).toBe(`${stem}-files`);
+    }
+  });
+
   it('names a portforward target for the machine the client wants reached', () => {
     const suffixByMachine: Readonly<Record<string, string>> = {
       'customer database': 'db',

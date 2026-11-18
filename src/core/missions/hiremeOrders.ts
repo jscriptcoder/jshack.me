@@ -124,12 +124,12 @@ const routerLine = (missionNumber: number): string => {
   return `msfconsole, ${routerVendor} ${gatewayVersions[firmwarePackageOf(routerVendor)]}`;
 };
 
-/** What a tamper, sabotage, file, backdoor, infiltrate, credential or portforward job is, as the
- *  report names it: its kind, then a tamper job's setting and action, the machine a sabotage job
- *  asks taken down, the item a file job asks brought back, the machine a backdoor job wants a way
- *  into, the item an infiltrate job slips in, the machine a credential job wants the root login
- *  of, or the machine a portforward job wants reached and the forward that reaches it. A key job
- *  has no line. */
+/** What a tamper, sabotage, file, backdoor, infiltrate, credential, destroy or portforward job is,
+ *  as the report names it: its kind, then a tamper job's setting and action, the machine a sabotage
+ *  job asks taken down, the item a file job asks brought back, the machine a backdoor job wants a
+ *  way into, the item an infiltrate job slips in, the machine a credential job wants the root login
+ *  of, the item a destroy job wants gone, or the machine a portforward job wants reached and the
+ *  forward that reaches it. A key job has no line. */
 const kindLine = (missionNumber: number, kind: MissionKind): readonly string[] => {
   if (kind === 'tamper') {
     return [
@@ -138,6 +138,7 @@ const kindLine = (missionNumber: number, kind: MissionKind): readonly string[] =
   }
   if (kind === 'sabotage') return [`  Kind:     sabotage, ${sabotageRole(missionNumber).noun}`];
   if (kind === 'file') return [`  Kind:     file, ${missionFileItem(missionNumber).noun}`];
+  if (kind === 'destroy') return [`  Kind:     destroy, ${missionFileItem(missionNumber).noun}`];
   if (kind === 'infiltrate') {
     return [`  Kind:     infiltrate, ${missionFileItem(missionNumber).noun}`];
   }
@@ -175,8 +176,8 @@ const recordLines = (missionNumber: number): readonly string[] => {
 };
 
 /** What the report says of the job in the key-box slot: a key job's storage, key path and key,
- *  a tamper job's records and the one change it asks, a file job's file and its size under the
- *  secret, the port a backdoor job's listener must hold, the path an infiltrate job's file goes
+ *  a tamper job's records and the one change it asks, a file or destroy job's file and its size
+ *  under the secret, the port a backdoor job's listener must hold, the path an infiltrate job's file goes
  *  to with the sizes of the company's file and the client's, and nothing for a sabotage,
  *  credential or portforward job, whose box is the job and keeps nothing. */
 const jobLines = (missionNumber: number, kind: MissionKind, secret: string): readonly string[] => {
@@ -191,7 +192,7 @@ const jobLines = (missionNumber: number, kind: MissionKind, secret: string): rea
         `ours ${sizeOf(missionPlantContent(missionNumber, secret))} bytes`,
     ];
   }
-  if (kind === 'file') {
+  if (kind === 'file' || kind === 'destroy') {
     const size = missionFileContent(missionNumber, secret).length.toLocaleString('en-US');
     return [`  File:     ${missionFilePath(missionNumber)}, ${size} bytes`];
   }
@@ -227,13 +228,14 @@ export const showReport = (
   const insideDecoyPorts = keyBox.services
     .slice(keyBox.services.length - keyBox.decoys.length)
     .map(({ port }) => port);
-  // A sabotage, backdoor, infiltrate, credential or portforward job's box is the job itself, so
-  // the report calls it the target, not a key box.
+  // A sabotage, backdoor, infiltrate, credential, destroy or portforward job's box is the job
+  // itself, so the report calls it the target, not a key box.
   const isTarget =
     shape.kind === 'sabotage' ||
     shape.kind === 'backdoor' ||
     shape.kind === 'infiltrate' ||
     shape.kind === 'credential' ||
+    shape.kind === 'destroy' ||
     shape.kind === 'portforward';
   const slotName = isTarget ? 'target' : 'key box';
   const reached = frontBox === null ? slotName : 'front box';

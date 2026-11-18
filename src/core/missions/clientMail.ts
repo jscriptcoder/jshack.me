@@ -48,6 +48,12 @@
  * not. One line is one guess: a mail cannot try a list of words. No line, an empty or wrong password
  * and a target that no longer boots get the same words.
  *
+ * A destroy job asks for the company's file gone: the client reads the target as it stands and
+ * completes the job once the file's path no longer holds exactly the bytes the server laid, whoever
+ * deleted, overwrote or moved it. The same bytes put back count as still there. A target that no
+ * longer boots cannot be looked at, so it gets the same words as a file still in place, even if the
+ * file went first.
+ *
  * Completing is one step in the store under the handle's lock: a second right mail racing
  * the first finds the job completed and is told it is closed, so a job pays once. A store
  * that failed, or answered a word nobody taught it, has not said what happened, so the door
@@ -101,8 +107,8 @@ export type ClientMailStore = {
   }) => StoreReply;
 };
 
-/** The box a tamper, sabotage, backdoor or infiltrate job is about, or a portforward job's router,
- *  as it stands: up with its tree, not up, or not readable. */
+/** The box a tamper, sabotage, backdoor, infiltrate, credential or destroy job is about, or a
+ *  portforward job's router, as it stands: up with its tree, not up, or not readable. */
 export type TargetBoxRead =
   | { readonly kind: 'up'; readonly fs: Directory }
   | { readonly kind: 'absent' }
@@ -136,6 +142,7 @@ const LISTENING = "We're in.";
 const IN_PLACE = "It's in place.";
 const THROUGH = "We're through.";
 const LOGIN_WORKS = 'That login works.';
+const FILE_GONE = "It's gone.";
 const NO_WALLET = 'You sent no wallet, so there is nothing to pay. No wallet, no money.';
 const RECORDS_WRONG = "Our records don't look right. No change, no money.";
 const STILL_UP = 'Their machine is still up. No outage, no money.';
@@ -152,6 +159,8 @@ const noWayIn = (port: number, noun: string): string =>
  *  longer boots. */
 const loginRefused = (noun: string): string =>
   `That login doesn't open their ${noun}. No login, no money.`;
+/** One reply for every miss: the file still in place, or a target that no longer boots. */
+const NOT_GONE = "We can't confirm that file is gone. Not gone, no money.";
 const WRONG_KEY = 'That key opens nothing of ours.';
 const WRONG_FILE = "That's not the file we asked for.";
 const CLOSED = 'That job is already closed.';
@@ -205,11 +214,12 @@ type Decision =
   | { readonly kind: 'checkPlanted'; readonly number: number }
   | { readonly kind: 'checkForward'; readonly number: number }
   | { readonly kind: 'checkLogin'; readonly number: number }
+  | { readonly kind: 'checkGone'; readonly number: number }
   | { readonly kind: 'reply'; readonly reply: ContractMail };
 
 /** How the client opens its reply to a job done: the key or the file it was sent, the records it
  *  read, the machine it found down, the listener it found, its own file found in place, the way
- *  in it found open, or the login it found working. */
+ *  in it found open, the login it found working, or the company's file it found gone. */
 const RECEIVED: Readonly<Record<Exclude<Decision['kind'], 'reply'>, string>> = {
   complete: KEY_RECEIVED,
   completeFile: FILE_RECEIVED,
@@ -219,6 +229,7 @@ const RECEIVED: Readonly<Record<Exclude<Decision['kind'], 'reply'>, string>> = {
   checkPlanted: IN_PLACE,
   checkForward: THROUGH,
   checkLogin: LOGIN_WORKS,
+  checkGone: FILE_GONE,
 };
 
 /** What the client says on a job the mail itself proves: when the mail carries no proof, when it
@@ -269,6 +280,7 @@ const decide = ({
   if (acceptedKind === 'infiltrate') return { kind: 'checkPlanted', number: accepted.number };
   if (acceptedKind === 'portforward') return { kind: 'checkForward', number: accepted.number };
   if (acceptedKind === 'credential') return { kind: 'checkLogin', number: accepted.number };
+  if (acceptedKind === 'destroy') return { kind: 'checkGone', number: accepted.number };
   const said = MAILED_PROOF[acceptedKind];
   if ((acceptedKind === 'file' ? file : key) === null) return reply(accepted.number, said.none);
   if (proves(accepted.number)) return { kind: said.done, number: accepted.number };
@@ -290,12 +302,12 @@ const reachesMachine = (routerFs: Directory, missionNumber: number): boolean => 
   );
 };
 
-/** Whether the box holds, at the path the client named, exactly the file the client sent. */
-const holdsPlant = (fs: Directory, missionNumber: number, secret: string): boolean => {
+/** Whether the box holds exactly `content` at the job's file path. */
+const holdsAtFilePath = (fs: Directory, missionNumber: number, content: string): boolean => {
   const read = createFsView(fs, { userType: 'root' }).read(
     asAbsPath(missionFilePath(missionNumber)),
   );
-  return read.ok && read.content === missionPlantContent(missionNumber, secret);
+  return read.ok && read.content === content;
 };
 
 const sendReply = async (
@@ -333,8 +345,8 @@ export const answerClientMail = async ({
   /** The deployment's mission secret, already checked present. */
   readonly secret: string;
   readonly store: ClientMailStore;
-  /** The box the tamper, sabotage, backdoor or infiltrate job numbered so is about, as it stands
-   *  now. */
+  /** The box the tamper, sabotage, backdoor, infiltrate, credential or destroy job numbered so is
+   *  about, as it stands now. */
   readonly readTargetBox: (missionNumber: number) => Promise<TargetBoxRead>;
   /** The router of the portforward job numbered so, as it stands now. */
   readonly readRouter: (missionNumber: number) => Promise<TargetBoxRead>;
@@ -380,7 +392,8 @@ export const answerClientMail = async ({
     const path = missionFilePath(decision.number);
     // Anyone's placing counts, as anyone's listener does on a backdoor job: the client wants
     // its file there, not to know who put it there.
-    if (box.kind === 'absent' || !holdsPlant(box.fs, decision.number, secret)) {
+    const ours = missionPlantContent(decision.number, secret);
+    if (box.kind === 'absent' || !holdsAtFilePath(box.fs, decision.number, ours)) {
       return sendReply(store, login.handle, replyAbout(terms, notInPlace(path)));
     }
   }
@@ -400,6 +413,16 @@ export const answerClientMail = async ({
     if (box.kind === 'absent' || !opensRoot(box.fs, mailedPassword(body))) {
       const { noun } = credentialRole(decision.number);
       return sendReply(store, login.handle, replyAbout(terms, loginRefused(noun)));
+    }
+  }
+  if (decision.kind === 'checkGone') {
+    const box = await readTargetBox(decision.number);
+    if (box.kind === 'error') return null;
+    const theirs = missionFileContent(decision.number, secret);
+    // Anyone's deleting counts, as anyone's brick does on a sabotage job. A target that no longer
+    // boots cannot be looked at, so the client cannot confirm anything about it.
+    if (box.kind === 'absent' || holdsAtFilePath(box.fs, decision.number, theirs)) {
+      return sendReply(store, login.handle, replyAbout(terms, NOT_GONE));
     }
   }
   const received = RECEIVED[decision.kind];

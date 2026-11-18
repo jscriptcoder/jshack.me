@@ -39,6 +39,8 @@ export type MissionFileItem = {
   readonly pitches: readonly string[];
   /** Why a client wants its own version put in place of the company's, on an infiltrate job. */
   readonly infiltratePitches: readonly string[];
+  /** Why a client wants the company's copy gone for good, on a destroy job. */
+  readonly destroyPitches: readonly string[];
 };
 
 /** The job's file as the number draws it: its name and directory, and how its bytes are made
@@ -121,6 +123,12 @@ const PROTOTYPE_RENDER: ItemSpec = {
     'Their investors judge the product by that render. Ours makes it look a year behind.',
     'Their designers build on whatever render sits in that folder. We have made a few changes they will not notice.',
   ],
+  destroyPitches: [
+    'That render is the only proof they had the design before we did. It should stop existing.',
+    'Their launch hangs on one approved render. Without it their designers start again.',
+    'Our designer drew that for them before joining us. We would rather nobody could compare the two.',
+    'Their investors see that render next week. We want them to have nothing to show.',
+  ],
   draw: (prng) => {
     const code = `${prng.pick(LETTERS)}${prng.pick(LETTERS)}${prng.nextInt(0, 9)}`;
     const stage = prng.pick(['final', 'v2', 'v3', 'approved', 'review']);
@@ -151,6 +159,12 @@ const SITE_PHOTO: ItemSpec = {
     'Their insurance claim rests on that photo. Ours shows the damage was there before the storm.',
     'The planning board reads their survey before it rules. Ours shows the work started before the permit.',
     'A buyer will judge that site by their photos. We would like the buyer to see the cracks.',
+  ],
+  destroyPitches: [
+    'One photo shows what was on that site before the inspectors came. We want it gone.',
+    'Their claim against us rests on a single photo. Without it they have a story and nothing else.',
+    'That photo puts our crew on their land a month too early. Nobody should be able to find it.',
+    'The buyer will ask for proof of the damage. There should be no proof left to send.',
   ],
   draw: (prng) => {
     const takenAt = drawMoment(prng);
@@ -199,6 +213,12 @@ const SIGNED_CONTRACT: ItemSpec = {
     'Their partner believes the exclusivity ends this year. Our copy says it runs five more.',
     'The auditors read every signed deal in that folder. One of them should owe us money.',
   ],
+  destroyPitches: [
+    'Their lawyers hold the only signed copy of a deal we would like to forget.',
+    'Without that signature they cannot prove we ever agreed to those terms.',
+    'The dispute reaches court next month. Their signed copy should not make the trip.',
+    'We signed that in a bad year. If their copy disappears, so does the clause.',
+  ],
   draw: (prng) => {
     const project = prng.pick(PROJECTS);
     const deal = prng.pick(DEALS);
@@ -231,6 +251,12 @@ const FIRMWARE_IMAGE: ItemSpec = {
     'We sell the fix for the fault our build brings. Their customers will be needing it soon.',
     'Their engineers trust that server. The next build they push should be one we wrote.',
   ],
+  destroyPitches: [
+    'Their next release is built from that image. Without it they lose months.',
+    'That build carries code they took from us. We want it off their servers for good.',
+    'Their engineers never kept a second copy of that build. Make them wish they had.',
+    'A recall is coming, and that image is the evidence. It should not be there to find.',
+  ],
   draw: (prng) => {
     const device = prng.pick(['ctl', 'plc', 'rtu', 'hmi', 'cam']);
     const version = [prng.nextInt(1, 5), prng.nextInt(0, 9), prng.nextInt(0, 20)].join('.');
@@ -257,6 +283,12 @@ const CUSTOMER_EXPORT: ItemSpec = {
     'Their accounts team bills from that export. Ours has a few accounts that owe nothing.',
     'Their campaign mails everyone in that export next month. Ours sends every letter to an address nobody reads.',
   ],
+  destroyPitches: [
+    'Their sales team lives off that export. Let them start the quarter with nothing.',
+    'Our customers ended up in that file without our leave. We want it gone.',
+    'Their buyers will pay for that list next month. There should be no list to sell.',
+    'A former employee built that export from our accounts. It should stop existing.',
+  ],
   draw: (prng) => {
     const month = new Date(drawMoment(prng));
     return {
@@ -281,6 +313,12 @@ const KEY_RING: ItemSpec = {
     'Every release they ship is checked against that ring. Ours carries one key more.',
     'Their admins trust that ring without reading it. Ours holds a key they will not recognise.',
     'We were their contractor until the spring. With our key on their ring, we still are.',
+  ],
+  destroyPitches: [
+    'Their admins sign every release with that ring. Let them find out what happens without it.',
+    'Lose that ring and they are locked out of their own machines. Our client would enjoy that.',
+    'A key on that ring still opens something of ours. The simplest fix is no ring at all.',
+    'They rotate their keys once a year, from that file. This year there will be nothing to rotate.',
   ],
   draw: (prng, missionNumber) => ({
     name: 'keyring.dat',
@@ -374,6 +412,7 @@ const BOOT_SCRIPT: ItemSpec = {
     'We would like a way back into their machines that survives a restart. Their own startup is the way.',
     'Every machine they build is cloned from that one. Whatever starts there will start everywhere.',
   ],
+  destroyPitches: [],
   draw: (prng) => {
     const service = prng.pick(BOOT_SERVICES);
     return {
@@ -389,7 +428,7 @@ const BOOT_SCRIPT: ItemSpec = {
   },
 };
 
-/** The six a file job asks for, in the order the item is drawn from. */
+/** The six a file or destroy job asks for, in the order the item is drawn from. */
 const ITEMS: readonly ItemSpec[] = [
   PROTOTYPE_RENDER,
   SITE_PHOTO,
@@ -410,8 +449,8 @@ const itemSpecOf = (missionNumber: number): ItemSpec =>
 
 /** What the job asks for, as the board and the briefing name it. */
 export const missionFileItem = (missionNumber: number): MissionFileItem => {
-  const { noun, keepers, pitches, infiltratePitches } = itemSpecOf(missionNumber);
-  return { noun, keepers, pitches, infiltratePitches };
+  const { noun, keepers, pitches, infiltratePitches, destroyPitches } = itemSpecOf(missionNumber);
+  return { noun, keepers, pitches, infiltratePitches, destroyPitches };
 };
 
 const drawnFileOf = (missionNumber: number): DrawnFile =>

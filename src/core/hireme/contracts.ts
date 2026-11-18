@@ -212,11 +212,11 @@ const askedSentence = (setting: RecordSetting, target: RecordTarget): string => 
 /** What the job is and how it is paid: a key fetched and mailed back, a record changed or
  *  erased and the client told, a machine taken down and the client told, a file fetched and
  *  mailed back attached, a listener left on a machine and the client told while it listens, a
- *  port on the router sent to a machine and the client told while it is open, or a machine's root
- *  password mailed back on a line of its own. A tamper job names whose record and what it should
- *  say, or that it should not exist, never where; a sabotage, backdoor, credential or portforward
- *  job names what the machine is, never which box; a file job names the file, never where it
- *  sits. */
+ *  port on the router sent to a machine and the client told while it is open, a machine's root
+ *  password mailed back on a line of its own, or a file destroyed and the client told. A tamper job
+ *  names whose record and what it should say, or that it should not exist, never where; a sabotage,
+ *  backdoor, credential or portforward job names what the machine is, never which box; a file or
+ *  destroy job names the file, never where it sits. */
 const jobLines = (
   missionNumber: number,
   terms: MissionTerms,
@@ -292,6 +292,18 @@ const jobLines = (
       ...(inside ? insideLines('The file is') : []),
       'Mail it to this address as an attachment, with your wallet address.',
       'No file, no money. No wallet, no money.',
+    ];
+  }
+  if (terms.job === 'destroy') {
+    const { keepers, noun } = missionFileItem(missionNumber);
+    return [
+      `Their ${keepers} keep a ${noun}. We want it gone. Its name is:`,
+      '',
+      `  ${missionFileName(missionNumber)}`,
+      '',
+      ...(inside ? insideLines('The file is') : []),
+      'Write to this address with your wallet address once it is gone.',
+      'Not gone, no money. No wallet, no money.',
     ];
   }
   if (terms.job === 'tamper') {
