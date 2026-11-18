@@ -22,7 +22,7 @@
  * Libraries are thematic capability groupings, not a strict real-world
  * dependency chart: regex tools (ls/find/grep/cat/strings/rm/chmod/ps) link
  * libpcre; service-control verbs (systemctl/reboot/kill) link libsystemd; su
- * links libpam+libcrypt; anything speaking TLS or the network links libssl; an
+ * and passwd link libpam+libcrypt; anything speaking TLS or the network links libssl; an
  * interactive prompt links libreadline; a markup reader links libxml2; and
  * anything handling hashes or ciphers links libcrypt. A tool that belongs to
  * two groups links BOTH, and the group it belongs to most links first, because
@@ -40,6 +40,7 @@ import type { SystemLibrary } from '../generation/libraries.js';
 
 export const libraryDeps: Readonly<Record<string, readonly SystemLibrary[]>> = {
   su: ['libpam', 'libcrypt'],
+  passwd: ['libpam', 'libcrypt'],
   systemctl: ['libsystemd'],
   reboot: ['libsystemd'],
   kill: ['libsystemd'],
@@ -80,6 +81,8 @@ export const libraryDeps: Readonly<Record<string, readonly SystemLibrary[]>> = {
   'airodump-ng': ['libcrypt'],
   'aircrack-ng': ['libcrypt'],
   node: ['libreadline'],
+  mail: ['libssl'],
+  whois: ['libssl'],
 };
 
 /** Whether `<library>.so` is loadable on the current machine — the one test
