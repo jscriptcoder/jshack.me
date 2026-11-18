@@ -247,11 +247,12 @@ const jobLines = (
   if (terms.job === 'credential') {
     return [
       `Bring us the root login for their ${credentialRole(missionNumber).noun}.`,
+      // Beside the machine it describes: after the sample line, "It" would read as the password.
+      ...(inside ? ['It is a machine inside their network, not on the edge.'] : []),
       'Put the password on a line of its own, like this:',
       '',
       '  password: <the password>',
       '',
-      ...(inside ? ['It is a machine inside their network, not on the edge.', ''] : []),
       'Reply to this address with that line and your wallet address.',
       'No login, no money. No wallet, no money.',
     ];
