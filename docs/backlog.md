@@ -113,6 +113,9 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
     expose a deep box on their own network, then the contract; its own grill. Also **an snmp
     router route** (a read-write community and `snmpset`, no root) and **an inside leak** (the
     router's admin in a backup config on the target).
+  - **Destroy and chain twists**, set aside in the black-hat jobs grill (2026-11-18): **a hidden
+    second copy** of a destroyed file, which the client also wants gone; and **chains longer than
+    two steps**.
   - **Recognition for completed jobs**, the other half of a mission reward; completions are only
     in `hireme_missions` today.
   - **Places posting vacancies** that say how they run (the old `hireit.io` idea), and a second,
