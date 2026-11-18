@@ -830,6 +830,38 @@ describe('commandRegistry — binary + library gating composed (slice 3)', () =>
     expect(result.kind === 'sync' && result.exitCode).toBe(127);
   });
 
+  it.each([
+    // passwd rewrites a password hash, so it links what su links, PAM first.
+    { name: 'passwd', dir: 'bin', present: [], missing: 'libpam' },
+    { name: 'passwd', dir: 'bin', present: ['libpam'], missing: 'libcrypt' },
+    // mail and whois speak to a server over the network, so they link libssl.
+    { name: 'mail', dir: 'usr/bin', present: [], missing: 'libssl' },
+    { name: 'whois', dir: 'usr/bin', present: [], missing: 'libssl' },
+  ])('refuses $name when the $missing library it links is gone', async ({ name, dir, present, missing }) => {
+    const command = commandRegistry.get(name);
+    if (command === undefined) throw new Error(`${name} not registered`);
+    const binary = buildDirectory({
+      [name]: buildFile('', { owner: 'root', perms: { execute: ['root', 'user', 'guest'] } }),
+    });
+    const tree = buildDirectory({
+      ...(dir === 'bin' ? { bin: binary } : { usr: buildDirectory({ bin: binary }) }),
+      lib: buildDirectory(
+        Object.fromEntries(present.map((library) => [`${library}.so`, libFile()])),
+      ),
+      tmp: buildDirectory({}),
+    });
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(tree, { userType: 'user', cwd: asAbsPath('/tmp') }),
+    });
+
+    const result = await command.execute(env, [], NO_FLAGS);
+
+    expect(errorLines(result)).toEqual([
+      `${name}: error while loading shared libraries: ${missing}.so: cannot open shared object file: No such file or directory`,
+    ]);
+    expect(result.kind === 'sync' && result.exitCode).toBe(127);
+  });
+
   it('prioritises command-not-found over the linker error when the binary is absent', async () => {
     // Binary check is outermost: no /bin/ls AND no libpcre.so → not-found wins.
     const ls = commandRegistry.get('ls');
