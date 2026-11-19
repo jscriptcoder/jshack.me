@@ -25,6 +25,7 @@ import { missionAddressForNumber } from '../missions/missionNetwork.js';
 import { missionTopology } from '../missions/missionShape.js';
 import {
   missionRecords,
+  missionSetting,
   type RecordSetting,
   type RecordTarget,
 } from '../missions/missionRecords.js';
@@ -200,6 +201,19 @@ const ERASE_SENTENCES: Readonly<Record<RecordSetting, (at: (column: string) => s
       `Their registry flags ${at('plate')} as stolen. That record should not exist.`,
   };
 
+/** What a wipe job's briefing says each setting's records hold, never the table they sit in:
+ *  working out which of the three it means is part of the job. */
+const WIPE_DESCRIPTIONS: Readonly<Record<RecordSetting, string>> = {
+  school: 'what each student scored in each subject',
+  police: 'everyone they want arrested',
+  payroll: 'what they pay each of their people',
+  dmv: 'the points held against each driver',
+  tournament: 'what each player has racked up',
+  admissions: 'everyone waiting on a place',
+  club: 'everyone who belongs to the club',
+  registry: 'who owns which car',
+};
+
 /** The sentence naming the record a tamper job is about: who, which field and old to new, or
  *  that it should not exist. Never the row's id, its table, its file or its box. */
 const askedSentence = (setting: RecordSetting, target: RecordTarget): string => {
@@ -213,10 +227,12 @@ const askedSentence = (setting: RecordSetting, target: RecordTarget): string => 
  *  erased and the client told, a machine taken down and the client told, a file fetched and
  *  mailed back attached, a listener left on a machine and the client told while it listens, a
  *  port on the router sent to a machine and the client told while it is open, a machine's root
- *  password mailed back on a line of its own, or a file destroyed and the client told. A tamper job
+ *  password mailed back on a line of its own, a file destroyed and the client told, or a table of
+ *  records emptied and the client told. A tamper job
  *  names whose record and what it should say, or that it should not exist, never where; a sabotage,
  *  backdoor, credential or portforward job names what the machine is, never which box; a file or
- *  destroy job names the file, never where it sits. */
+ *  destroy job names the file, never where it sits; a wipe job describes what the records hold,
+ *  never their table, file or box. */
 const jobLines = (
   missionNumber: number,
   terms: MissionTerms,
@@ -304,6 +320,16 @@ const jobLines = (
       ...(inside ? insideLines('The file is') : []),
       'Write to this address with your wallet address once it is gone.',
       'Not gone, no money. No wallet, no money.',
+    ];
+  }
+  if (terms.job === 'wipe') {
+    return [
+      // Never a warning off the two tables beside it: telling them apart is the job.
+      `Their records hold ${WIPE_DESCRIPTIONS[missionSetting(missionNumber)]}. We want all of it gone.`,
+      '',
+      ...(inside ? insideLines('The records are') : []),
+      'Mail this address when it is done, with your wallet address.',
+      'Not wiped, no money. No wallet, no money.',
     ];
   }
   if (terms.job === 'tamper') {

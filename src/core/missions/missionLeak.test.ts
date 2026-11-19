@@ -47,7 +47,7 @@ import { DATADIR_PATH, databaseIn } from '../mysql/datadir.js';
 import { parseSnmpdConf, SNMPD_CONF_PATH, SNMPD_CONF_PERMISSIONS } from '../snmp/conf.js';
 import { parseMysqlDatabase } from '../mysql/types.js';
 import { runStatement } from '../mysql/statements.js';
-import { missionAction, missionRecords, missionSetting } from './missionRecords.js';
+import { missionAction, missionRecords, missionSetting, recordsFiles } from './missionRecords.js';
 import { missionFileContent, missionFileItem, missionFilePath } from './missionFileItem.js';
 import {
   COMMON_PASSWORDS,
@@ -1649,5 +1649,67 @@ describe("a tamper job's records kept in a file", () => {
       expect(createFsView(box, { userType: 'user' }).read(asAbsPath(path)).ok).toBe(false);
       expect(createFsView(box, { userType: 'guest' }).read(asAbsPath(path)).ok).toBe(false);
     }
+  });
+});
+
+describe("a wipe job's records box", () => {
+  const NO_SECRETS = { keySecret: undefined, rawSecrets: undefined };
+
+  /** The first wipe job in a wide spread that `wanted` accepts: wipe jobs are a tenth of it. */
+  const firstWipeJob = (wanted: (shape: MissionShape) => boolean): number => {
+    for (let index = 0; index < 6000; index++) {
+      const missionNumber = index * 2741 + 2;
+      if (!isMissionNumber(missionNumber) || missionKind(missionNumber) !== 'wipe') continue;
+      if (wanted(missionShape(missionNumber))) return missionNumber;
+    }
+    throw new Error('no such wipe job in the spread');
+  };
+
+  it("adds the setting's three tables to the database the box generates, and needs no secret", () => {
+    const missionNumber = firstWipeJob(
+      ({ keyBox, storage, frontBox }) =>
+        keyBox.route === 'hydra' && storage === 'database' && frontBox === null,
+    );
+    const laid = missionFiles(keyOf(missionNumber), NO_SECRETS);
+    const database = parseMysqlDatabase(laid[0]?.content ?? '');
+    const generated = databaseIn(buildMissionKeyBoxFs(missionNumber));
+
+    expect(laid.map(({ path, perms }) => ({ path, perms }))).toEqual([
+      { path: DATADIR_PATH, perms: DATADIR_FILE },
+    ]);
+    expect(database?.tables).toEqual({
+      ...generated?.tables,
+      ...Object.fromEntries(
+        missionRecords(missionNumber).tables.map(({ name, table }) => [name, table]),
+      ),
+    });
+    expect(missionFilePaths(keyOf(missionNumber))).toEqual([DATADIR_PATH]);
+  });
+
+  it('lays the three tables as root-only CSVs when it keeps them in files', () => {
+    const missionNumber = firstWipeJob(
+      ({ keyBox, storage, frontBox }) =>
+        keyBox.route === 'msfconsole' && storage === 'file' && frontBox === null,
+    );
+    const files = recordsFiles(missionNumber).map(({ path, content }) => ({
+      path,
+      content,
+      perms: ROOT_FILE,
+    }));
+
+    expect(files).toHaveLength(3);
+    expect(missionFiles(keyOf(missionNumber), NO_SECRETS)).toEqual(files);
+    expect(missionFilePaths(keyOf(missionNumber))).toEqual(files.map(({ path }) => path));
+  });
+
+  it('keeps the records on the inside machine of a two-hop job, never on the front box', () => {
+    const missionNumber = firstWipeJob(
+      ({ keyBox, storage, frontBox }) =>
+        keyBox.route === 'hydra' && storage === 'file' && frontBox?.route === 'hydra',
+    );
+    const paths = recordsFiles(missionNumber).map(({ path }) => path);
+
+    expect(missionFilePaths(frontOf(missionNumber))).toEqual([]);
+    expect(missionFilePaths(keyOf(missionNumber))).toEqual(paths);
   });
 });

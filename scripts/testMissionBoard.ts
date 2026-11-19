@@ -317,6 +317,7 @@ const main = async () => {
     portforward: 'No way in, no money.',
     credential: 'No login, no money.',
     destroy: 'Not gone, no money.',
+    wipe: 'Not wiped, no money.',
   } as const;
   const offered = inState(turnedRows, 'offered');
   const taken = offered[1]!;

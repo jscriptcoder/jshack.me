@@ -5,11 +5,17 @@ import {
   missionRecords,
   missionSetting,
   recordsLookRight,
+  recordsWiped,
   type RecordSetting,
   type RecordTarget,
 } from './missionRecords.js';
 import { missionFiles } from './missionLeak.js';
-import { missionShape, type MissionStorage } from './missionShape.js';
+import {
+  missionKind,
+  missionShape,
+  type MissionRoute,
+  type MissionStorage,
+} from './missionShape.js';
 import { isMissionNumber } from './missionNetwork.js';
 import { mysqlTableSchema, type MysqlDatabase, type MysqlRow } from '../mysql/types.js';
 import { runStatement } from '../mysql/statements.js';
@@ -20,6 +26,12 @@ import { materializeMachineFs } from '../network/materializeMachineFs.js';
 import type { Directory } from '../filesystem/types.js';
 import { createFsView } from '../filesystem/fsView.js';
 import { asAbsPath } from '../types.js';
+import {
+  COMMON_PASSWORDS,
+  CRACKABLE_PASSWORDS,
+  UNCRACKABLE_PASSWORDS,
+  WIFI_PASSWORDS,
+} from '../../test/passwords.js';
 
 /** A spread of contract numbers whose last octet is a host octet (2–254). */
 const SAMPLE_NUMBERS = Array.from({ length: 400 }, (_unused, index) => index * 41893 + 7).filter(
@@ -436,9 +448,11 @@ describe('missionRecords', () => {
   });
 
   it('meets every storage, route and two-hop placement, and every action it allows, in each setting', () => {
-    const tamper = WIDE_SAMPLE.filter(
-      (missionNumber) => missionShape(missionNumber).kind === 'tamper',
-    );
+    // Wider than the sample the other tests share: each setting's tamper jobs must meet every
+    // route, storage, hop count and action, and tamper jobs are a tenth of the numbers.
+    const tamper = Array.from({ length: 4200 }, (_unused, index) => index * 3967 + 11)
+      .filter(isMissionNumber)
+      .filter((missionNumber) => missionKind(missionNumber) === 'tamper');
     for (const setting of RECORD_SETTINGS) {
       const met = tamper
         .filter((missionNumber) => missionSetting(missionNumber) === setting)
@@ -706,15 +720,14 @@ type Rows = readonly Record<string, unknown>[];
 
 /** A records box as the server lays it; as it stands after the application account ran each
  *  statement, each one landing; and after that with its grades rewritten by hand, as a root on
- *  the box can. */
-const recordsBoxOf = (missionNumber: number) => {
+ *  the box can. A box on the database route needs the password pools its leaked word comes from. */
+const recordsBoxOf = (missionNumber: number, rawSecrets?: string) => {
   const laid = (): Directory =>
     withFiles(
       buildMissionKeyBoxFs(missionNumber),
-      missionFiles(
-        { missionNumber, role: 'key' },
-        { keySecret: undefined, rawSecrets: undefined },
-      ).map(({ path, content, perms }) => [path, file(content, perms)] as const),
+      missionFiles({ missionNumber, role: 'key' }, { keySecret: undefined, rawSecrets }).map(
+        ({ path, content, perms }) => [path, file(content, perms)] as const,
+      ),
     );
   const after = (...lines: readonly string[]): Directory => {
     const box = laid();
@@ -1462,4 +1475,268 @@ describe('recordsLookRight in every setting, kept in files', () => {
     expect(recordsLookRight(missionNumber, edited(withAge('21')))).toBe(true);
     expect(recordsLookRight(missionNumber, edited(withAge('21.0')))).toBe(false);
   });
+});
+
+/** The first wipe job, on the hydra route unless `route` says otherwise, keeping its records in
+ *  `storage` and drawing `setting`. */
+const wipeNumber = (
+  setting: RecordSetting,
+  storage: MissionStorage,
+  route: MissionRoute = 'hydra',
+): number =>
+  firstNumber((candidate) => {
+    if (missionKind(candidate) !== 'wipe' || missionSetting(candidate) !== setting) return false;
+    const shape = missionShape(candidate);
+    return shape.keyBox.route === route && shape.storage === storage;
+  });
+
+/** A hand edit of a table's rows. */
+type RowsRewrite = (rows: readonly MysqlRow[]) => readonly MysqlRow[];
+
+describe('recordsWiped on records kept in a database', () => {
+  const WIPE_NUMBER = wipeNumber('school', 'database');
+  const { laid, after } = recordsBoxOf(WIPE_NUMBER);
+
+  /** The box after the statements, its tables then rewritten by hand, as a root on it can. */
+  const rewritten = (
+    lines: readonly string[],
+    rewrite: (tables: MysqlDatabase['tables']) => MysqlDatabase['tables'],
+  ): Directory => {
+    const database = databaseIn(after(...lines));
+    if (database === null) throw new Error('the datadir could not be read');
+    return withDatadir(laid(), JSON.stringify({ ...database, tables: rewrite(database.tables) }));
+  };
+
+  /** `tables` with the rows of `name` run through `rewrite`. */
+  const withRows = (
+    tables: MysqlDatabase['tables'],
+    name: string,
+    rewrite: RowsRewrite,
+  ): MysqlDatabase['tables'] => {
+    const table = tables[name];
+    if (table === undefined) throw new Error(`the datadir has no ${name}`);
+    return { ...tables, [name]: { ...table, rows: rewrite(table.rows) } };
+  };
+
+  /** The name of the first table the records keep beside the grades. */
+  const besideName = (): string => {
+    const name = missionRecords(WIPE_NUMBER).tables[1]?.name;
+    if (name === undefined) throw new Error('no table beside the grades');
+    return name;
+  };
+
+  it('reads wiped once every grade is deleted and the tables beside it are untouched', () => {
+    expect(recordsWiped(WIPE_NUMBER, after('DELETE FROM grades'))).toBe(true);
+  });
+
+  it('reads not wiped as the box was laid', () => {
+    expect(recordsWiped(WIPE_NUMBER, laid())).toBe(false);
+  });
+
+  it('reads not wiped while one grade is left', () => {
+    const oneLeft = rewritten([], (tables) =>
+      withRows(tables, 'grades', (rows) => rows.slice(0, 1)),
+    );
+
+    expect(recordsWiped(WIPE_NUMBER, oneLeft)).toBe(false);
+  });
+
+  it('reads wiped once the grades table is gone from the datadir', () => {
+    const gone = rewritten([], ({ grades: _grades, ...others }) => others);
+
+    expect(recordsWiped(WIPE_NUMBER, gone)).toBe(true);
+  });
+
+  it('reads not wiped once a table beside it is emptied too', () => {
+    for (const { name } of missionRecords(WIPE_NUMBER).tables.slice(1)) {
+      const box = after('DELETE FROM grades', `DELETE FROM ${name}`);
+      expect(recordsWiped(WIPE_NUMBER, box), name).toBe(false);
+    }
+  });
+
+  it('reads not wiped once a table beside it loses, gains, reorders or changes a row', () => {
+    const rewrites: readonly (readonly [string, RowsRewrite])[] = [
+      ['a row gone', (rows) => rows.slice(1)],
+      ['a row added', (rows) => [...rows, { ...rows[0], id: rows.length + 1 }]],
+      ['two rows swapped', (rows) => [rows[1] ?? {}, rows[0] ?? {}, ...rows.slice(2)]],
+      ['a value changed', (rows) => [{ ...rows[0], id: 99 }, ...rows.slice(1)]],
+      ['a cell added', (rows) => [{ ...rows[0], extra: 'x' }, ...rows.slice(1)]],
+    ];
+
+    for (const [change, rewrite] of rewrites) {
+      const box = rewritten(['DELETE FROM grades'], (tables) =>
+        withRows(tables, besideName(), rewrite),
+      );
+      expect(recordsWiped(WIPE_NUMBER, box), change).toBe(false);
+    }
+  });
+
+  it('reads not wiped once a table beside it is gone', () => {
+    const box = rewritten(['DELETE FROM grades'], (tables) =>
+      Object.fromEntries(Object.entries(tables).filter(([name]) => name !== besideName())),
+    );
+
+    expect(recordsWiped(WIPE_NUMBER, box)).toBe(false);
+  });
+
+  it('reads the same whatever became of the tables the box generated beside the records', () => {
+    const names = new Set(missionRecords(WIPE_NUMBER).tables.map(({ name }) => name));
+    const box = rewritten(['DELETE FROM grades'], (tables) =>
+      Object.fromEntries(Object.entries(tables).filter(([name]) => names.has(name))),
+    );
+
+    expect(recordsWiped(WIPE_NUMBER, box)).toBe(true);
+  });
+
+  it('reads wiped on the database route with its settings table emptied too', () => {
+    const missionNumber = wipeNumber('school', 'database', 'mysql');
+    const { after: routeAfter } = recordsBoxOf(
+      missionNumber,
+      JSON.stringify({
+        UNCRACKABLE_PASSWORDS,
+        CRACKABLE_PASSWORDS,
+        COMMON_PASSWORDS,
+        WIFI_PASSWORDS,
+      }),
+    );
+    const box = routeAfter('DELETE FROM grades', 'DELETE FROM settings');
+
+    expect(databaseIn(box)?.tables['settings']?.rows).toEqual([]);
+    expect(recordsWiped(missionNumber, box)).toBe(true);
+  });
+
+  it("reads not wiped once a root's rm took the datadir", () => {
+    const box = materializeMachineFs(laid(), [
+      {
+        path: DATADIR_PATH,
+        content: null,
+        owner: 'root',
+        permissions: null,
+        node_type: null,
+        updated_at: '2026-11-19T12:00:00Z',
+        writer_key: 'a-root-on-the-box',
+      },
+    ]);
+
+    expect(recordsWiped(WIPE_NUMBER, box)).toBe(false);
+  });
+
+  it('refuses the application account a DROP of the grades', () => {
+    const database = databaseIn(laid());
+    if (database === null) throw new Error('the datadir could not be read');
+    const application = database.credentials.find(({ userType }) => userType === 'user');
+
+    const dropped = runStatement({
+      database,
+      line: 'DROP TABLE grades',
+      username: application?.username ?? '',
+      userType: 'user',
+      sourceIp: '198.51.100.7',
+    });
+
+    expect(dropped.database).toBeUndefined();
+    expect(dropped.output.join('\n')).toContain('DROP command denied');
+  });
+});
+
+describe('recordsWiped on records kept in files', () => {
+  const WIPE_NUMBER = wipeNumber('school', 'file');
+  const { laid, saved, laidLines, edited } = csvBoxOf(WIPE_NUMBER);
+  const { stem } = missionShape(WIPE_NUMBER);
+  const besidePaths = missionRecords(WIPE_NUMBER)
+    .tables.slice(1)
+    .map(({ name }) => `/srv/${stem}/records/${name}.csv`);
+  const headerOnly = (lines: readonly string[]): readonly string[] => lines.slice(0, 1);
+
+  it('reads not wiped as the box was laid', () => {
+    expect(recordsWiped(WIPE_NUMBER, laid())).toBe(false);
+  });
+
+  it("reads wiped once a root's rm took the file", () => {
+    expect(recordsWiped(WIPE_NUMBER, saved(null))).toBe(true);
+  });
+
+  it('reads wiped once the file is emptied to no bytes, or to blank lines', () => {
+    expect(recordsWiped(WIPE_NUMBER, saved(''))).toBe(true);
+    expect(recordsWiped(WIPE_NUMBER, saved('\n \n'))).toBe(true);
+  });
+
+  it('reads wiped with only its header left, however the lines end', () => {
+    expect(recordsWiped(WIPE_NUMBER, edited(headerOnly))).toBe(true);
+    expect(recordsWiped(WIPE_NUMBER, edited(headerOnly, '\r\n'))).toBe(true);
+    expect(recordsWiped(WIPE_NUMBER, saved(`\n${laidLines()[0]}\n\n`))).toBe(true);
+  });
+
+  it('reads not wiped while one line of grades is left below the header', () => {
+    expect(
+      recordsWiped(
+        WIPE_NUMBER,
+        edited((lines) => lines.slice(0, 2)),
+      ),
+    ).toBe(false);
+  });
+
+  it('reads not wiped with one line of grades left and no header', () => {
+    expect(
+      recordsWiped(
+        WIPE_NUMBER,
+        edited((lines) => lines.slice(1, 2)),
+      ),
+    ).toBe(false);
+  });
+
+  it('reads not wiped with uneven lines, which may still hold grades, and wiped once finished', () => {
+    const uneven = edited((lines) => [lines[0] ?? '', 'Aiden Marsh']);
+
+    expect(recordsWiped(WIPE_NUMBER, uneven)).toBe(false);
+    expect(recordsWiped(WIPE_NUMBER, edited(headerOnly))).toBe(true);
+  });
+
+  it('reads not wiped once a file beside it is gone, emptied or changed', () => {
+    const besideSaves: readonly (readonly [string, string | null])[] = [
+      ['gone', null],
+      ['emptied', ''],
+      ['changed', 'id,name\n1,Nobody\n'],
+    ];
+    for (const path of besidePaths) {
+      for (const [change, content] of besideSaves) {
+        const box = edited(headerOnly, '\n', [{ path, content }]);
+        expect(recordsWiped(WIPE_NUMBER, box), `${path} ${change}`).toBe(false);
+      }
+    }
+  });
+});
+
+describe('recordsWiped in every setting', () => {
+  it.each(RECORD_SETTINGS)(
+    'reads a %s wipe in a database done once its table is emptied',
+    (setting) => {
+      const missionNumber = wipeNumber(setting, 'database');
+      const { table, neighbours } = SETTINGS[setting];
+      const { laid, after } = recordsBoxOf(missionNumber);
+
+      expect(recordsWiped(missionNumber, laid())).toBe(false);
+      expect(recordsWiped(missionNumber, after(`DELETE FROM ${table}`))).toBe(true);
+      for (const neighbour of neighbours) {
+        const box = after(`DELETE FROM ${table}`, `DELETE FROM ${neighbour}`);
+        expect(recordsWiped(missionNumber, box), neighbour).toBe(false);
+      }
+    },
+  );
+
+  it.each(RECORD_SETTINGS)(
+    'reads a %s wipe in files done once its file holds only the header',
+    (setting) => {
+      const missionNumber = wipeNumber(setting, 'file');
+      const { laid, edited } = csvBoxOf(missionNumber, SETTINGS[setting].table);
+
+      expect(recordsWiped(missionNumber, laid())).toBe(false);
+      expect(
+        recordsWiped(
+          missionNumber,
+          edited((lines) => lines.slice(0, 1)),
+        ),
+      ).toBe(true);
+    },
+  );
 });

@@ -587,6 +587,85 @@ describe('showReport on a tamper job', () => {
   });
 });
 
+describe('showReport on a wipe job', () => {
+  const SECRET = 'operator-test-secret';
+  /** The first wipe job that `wanted` accepts, in `setting` when one is named. */
+  const wipeJob = (wanted: (shape: MissionShape) => boolean, setting?: RecordSetting): number =>
+    Array.from({ length: 8000 }, (_unused, index) => index * 256 + 2).find((candidate) => {
+      const shape = missionShape(candidate);
+      return (
+        shape.kind === 'wipe' &&
+        (setting === undefined || missionSetting(candidate) === setting) &&
+        wanted(shape)
+      );
+    })!;
+  // On the hydra route, so no leak follows the records at the end of the report.
+  const DATABASE = wipeJob(
+    ({ frontBox, keyBox, storage }) =>
+      frontBox === null && keyBox.route === 'hydra' && storage === 'database',
+  );
+  const FILE = wipeJob(
+    ({ frontBox, keyBox, storage }) =>
+      frontBox === null && keyBox.route === 'hydra' && storage === 'file',
+  );
+  const TWO_HOP = wipeJob(({ frontBox, storage }) => frontBox !== null && storage === 'database');
+
+  const kindLine = (missionNumber: number): string =>
+    `  Kind:     wipe, ${missionSetting(missionNumber)}`;
+
+  /** The table the job asks emptied. */
+  const tableOf = (missionNumber: number): string =>
+    missionRecords(missionNumber).tables[0]?.name ?? '';
+
+  it('names the kind, the setting and the table the records are kept in, and prints no key', () => {
+    const { stem } = missionShape(DATABASE);
+    const report = showReport(DATABASE, SECRET, undefined);
+    const lines = report.split('\n');
+
+    expect(lines).toContain(kindLine(DATABASE));
+    expect(lines).toContain(
+      `  Target:   ${missionTerms(DATABASE).targetCompany}, ${stem}-gw / ${stem}-files`,
+    );
+    expect(lines.slice(-2)).toEqual([
+      `  Storage:  database, table ${tableOf(DATABASE)}`,
+      '  Records:  /var/lib/mysql/data.json',
+    ]);
+    expect(report).toContain('-> key box :');
+    expect(report).not.toContain('Key:');
+    expect(report).not.toContain('Change:');
+    expect(report).not.toContain('Erase:');
+  });
+
+  it('names the file the target table is kept in, on a job keeping its records in files', () => {
+    const path = `/srv/${missionShape(FILE).stem}/records/${tableOf(FILE)}.csv`;
+    const lines = showReport(FILE, SECRET, undefined).split('\n');
+
+    expect(lines).toContain(kindLine(FILE));
+    expect(lines.at(-1)).toBe(`  Storage:  file, ${path}`);
+    expect(lines.some((line) => line.includes('Records:'))).toBe(false);
+  });
+
+  it('prints the records under the key box of a two-hop job', () => {
+    const lines = showReport(TWO_HOP, SECRET, undefined).split('\n');
+    const keyBoxAt = lines.findIndex((line) => line.startsWith('  Key box:'));
+
+    expect(lines).toContain(kindLine(TWO_HOP));
+    expect(keyBoxAt).toBeGreaterThan(0);
+    expect(lines.slice(keyBoxAt)).toContain(`  Storage:  database, table ${tableOf(TWO_HOP)}`);
+  });
+
+  it.each(RECORD_SETTINGS)(
+    'names a job in the %s setting by that setting and its table',
+    (setting) => {
+      const missionNumber = wipeJob(({ storage }) => storage === 'database', setting);
+      const lines = showReport(missionNumber, SECRET, undefined).split('\n');
+
+      expect(lines).toContain(`  Kind:     wipe, ${setting}`);
+      expect(lines).toContain(`  Storage:  database, table ${tableOf(missionNumber)}`);
+    },
+  );
+});
+
 describe('showReport on a sabotage job', () => {
   const SECRET = 'operator-test-secret';
   /** The first sabotage job `wanted` accepts. */

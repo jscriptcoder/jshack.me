@@ -349,15 +349,17 @@ const fileJobFile = (missionNumber: number, secret: string): MissionFile => ({
 const keepsKeyInDatabase = (ref: MissionBoxRef): boolean =>
   holdsKey(ref) && missionShape(ref.missionNumber).storage === 'database';
 
-/** Whether the box holds the records a tamper job asks to have changed: its records box. */
+/** Whether the box holds the records a tamper job asks to have changed or a wipe job asks to
+ *  have emptied: its records box. */
 const holdsRecords = (ref: MissionBoxRef): boolean =>
-  ref.role === 'key' && missionKind(ref.missionNumber) === 'tamper';
+  ref.role === 'key' &&
+  (missionKind(ref.missionNumber) === 'tamper' || missionKind(ref.missionNumber) === 'wipe');
 
-/** Whether the box keeps a tamper job's records in its database. */
+/** Whether the box keeps a tamper or wipe job's records in its database. */
 const holdsRecordsInDatabase = (ref: MissionBoxRef): boolean =>
   holdsRecords(ref) && recordsStorage(ref.missionNumber) === 'database';
 
-/** Whether the box keeps a tamper job's records in a root-only file. */
+/** Whether the box keeps a tamper or wipe job's records in root-only files. */
 const holdsRecordsInFile = (ref: MissionBoxRef): boolean =>
   holdsRecords(ref) && recordsStorage(ref.missionNumber) === 'file';
 

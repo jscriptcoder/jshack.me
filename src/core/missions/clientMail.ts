@@ -54,6 +54,12 @@
  * longer boots cannot be looked at, so it gets the same words as a file still in place, even if the
  * file went first.
  *
+ * A wipe job asks for the records emptied: the client reads the target as it stands and completes
+ * the job once the table the briefing describes holds nothing and the two beside it read exactly as
+ * they were laid, whoever emptied it. A table with rows left, a file the client cannot read as rows,
+ * either table beside it changed in any way, and a target that no longer boots get the same words,
+ * and the job stays open, so finishing the wipe then pays.
+ *
  * Completing is one step in the store under the handle's lock: a second right mail racing
  * the first finds the job completed and is told it is closed, so a job pays once. A store
  * that failed, or answered a word nobody taught it, has not said what happened, so the door
@@ -68,7 +74,7 @@ import { writeAmount } from '../wallet/amount.js';
 import { missionKey } from './missionSecret.js';
 import { missionFileContent, missionFilePath, missionPlantContent } from './missionFileItem.js';
 import { missionKind, missionTopology } from './missionShape.js';
-import { recordsLookRight } from './missionRecords.js';
+import { recordsLookRight, recordsWiped } from './missionRecords.js';
 import { backdoorJob, credentialRole } from './targetRoles.js';
 import { portforwardJob } from './portforwardJob.js';
 import { md5 } from '../generation/md5.js';
@@ -107,8 +113,8 @@ export type ClientMailStore = {
   }) => StoreReply;
 };
 
-/** The box a tamper, sabotage, backdoor, infiltrate, credential or destroy job is about, or a
- *  portforward job's router, as it stands: up with its tree, not up, or not readable. */
+/** The box a tamper, sabotage, backdoor, infiltrate, credential, destroy or wipe job is about, or
+ *  a portforward job's router, as it stands: up with its tree, not up, or not readable. */
 export type TargetBoxRead =
   | { readonly kind: 'up'; readonly fs: Directory }
   | { readonly kind: 'absent' }
@@ -143,6 +149,7 @@ const IN_PLACE = "It's in place.";
 const THROUGH = "We're through.";
 const LOGIN_WORKS = 'That login works.';
 const FILE_GONE = "It's gone.";
+const RECORDS_GONE = 'The records are gone.';
 const NO_WALLET = 'You sent no wallet, so there is nothing to pay. No wallet, no money.';
 const RECORDS_WRONG = "Our records don't look right. No change, no money.";
 const STILL_UP = 'Their machine is still up. No outage, no money.';
@@ -161,6 +168,9 @@ const loginRefused = (noun: string): string =>
   `That login doesn't open their ${noun}. No login, no money.`;
 /** One reply for every miss: the file still in place, or a target that no longer boots. */
 const NOT_GONE = "We can't confirm that file is gone. Not gone, no money.";
+/** One reply for every miss: rows left, a table beside it touched, or a target that no longer
+ *  boots. */
+const NOT_WIPED = "That's not what we asked for. Not wiped, no money.";
 const WRONG_KEY = 'That key opens nothing of ours.';
 const WRONG_FILE = "That's not the file we asked for.";
 const CLOSED = 'That job is already closed.';
@@ -215,11 +225,13 @@ type Decision =
   | { readonly kind: 'checkForward'; readonly number: number }
   | { readonly kind: 'checkLogin'; readonly number: number }
   | { readonly kind: 'checkGone'; readonly number: number }
+  | { readonly kind: 'checkWiped'; readonly number: number }
   | { readonly kind: 'reply'; readonly reply: ContractMail };
 
 /** How the client opens its reply to a job done: the key or the file it was sent, the records it
  *  read, the machine it found down, the listener it found, its own file found in place, the way
- *  in it found open, the login it found working, or the company's file it found gone. */
+ *  in it found open, the login it found working, the company's file it found gone, or the records
+ *  it found emptied. */
 const RECEIVED: Readonly<Record<Exclude<Decision['kind'], 'reply'>, string>> = {
   complete: KEY_RECEIVED,
   completeFile: FILE_RECEIVED,
@@ -230,6 +242,7 @@ const RECEIVED: Readonly<Record<Exclude<Decision['kind'], 'reply'>, string>> = {
   checkForward: THROUGH,
   checkLogin: LOGIN_WORKS,
   checkGone: FILE_GONE,
+  checkWiped: RECORDS_GONE,
 };
 
 /** What the client says on a job the mail itself proves: when the mail carries no proof, when it
@@ -281,6 +294,7 @@ const decide = ({
   if (acceptedKind === 'portforward') return { kind: 'checkForward', number: accepted.number };
   if (acceptedKind === 'credential') return { kind: 'checkLogin', number: accepted.number };
   if (acceptedKind === 'destroy') return { kind: 'checkGone', number: accepted.number };
+  if (acceptedKind === 'wipe') return { kind: 'checkWiped', number: accepted.number };
   const said = MAILED_PROOF[acceptedKind];
   if ((acceptedKind === 'file' ? file : key) === null) return reply(accepted.number, said.none);
   if (proves(accepted.number)) return { kind: said.done, number: accepted.number };
@@ -345,8 +359,8 @@ export const answerClientMail = async ({
   /** The deployment's mission secret, already checked present. */
   readonly secret: string;
   readonly store: ClientMailStore;
-  /** The box the tamper, sabotage, backdoor, infiltrate, credential or destroy job numbered so is
-   *  about, as it stands now. */
+  /** The box the tamper, sabotage, backdoor, infiltrate, credential, destroy or wipe job numbered so
+   *  is about, as it stands now. */
   readonly readTargetBox: (missionNumber: number) => Promise<TargetBoxRead>;
   /** The router of the portforward job numbered so, as it stands now. */
   readonly readRouter: (missionNumber: number) => Promise<TargetBoxRead>;
@@ -423,6 +437,14 @@ export const answerClientMail = async ({
     // boots cannot be looked at, so the client cannot confirm anything about it.
     if (box.kind === 'absent' || holdsAtFilePath(box.fs, decision.number, theirs)) {
       return sendReply(store, login.handle, replyAbout(terms, NOT_GONE));
+    }
+  }
+  if (decision.kind === 'checkWiped') {
+    const box = await readTargetBox(decision.number);
+    if (box.kind === 'error') return null;
+    // Anyone's wiping counts, as anyone's deleting does on a destroy job.
+    if (box.kind === 'absent' || !recordsWiped(decision.number, box.fs)) {
+      return sendReply(store, login.handle, replyAbout(terms, NOT_WIPED));
     }
   }
   const received = RECEIVED[decision.kind];

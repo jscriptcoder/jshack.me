@@ -124,8 +124,9 @@ const routerLine = (missionNumber: number): string => {
   return `msfconsole, ${routerVendor} ${gatewayVersions[firmwarePackageOf(routerVendor)]}`;
 };
 
-/** What a tamper, sabotage, file, backdoor, infiltrate, credential, destroy or portforward job is,
- *  as the report names it: its kind, then a tamper job's setting and action, the machine a sabotage
+/** What a tamper, wipe, sabotage, file, backdoor, infiltrate, credential, destroy or portforward job
+ *  is, as the report names it: its kind, then a tamper job's setting and action, a wipe job's
+ *  setting, the machine a sabotage
  *  job asks taken down, the item a file job asks brought back, the machine a backdoor job wants a
  *  way into, the item an infiltrate job slips in, the machine a credential job wants the root login
  *  of, the item a destroy job wants gone, or the machine a portforward job wants reached and the
@@ -136,6 +137,7 @@ const kindLine = (missionNumber: number, kind: MissionKind): readonly string[] =
       `  Kind:     tamper, ${missionSetting(missionNumber)}, ${missionAction(missionNumber)}`,
     ];
   }
+  if (kind === 'wipe') return [`  Kind:     wipe, ${missionSetting(missionNumber)}`];
   if (kind === 'sabotage') return [`  Kind:     sabotage, ${sabotageRole(missionNumber).noun}`];
   if (kind === 'file') return [`  Kind:     file, ${missionFileItem(missionNumber).noun}`];
   if (kind === 'destroy') return [`  Kind:     destroy, ${missionFileItem(missionNumber).noun}`];
@@ -158,17 +160,23 @@ const kindLine = (missionNumber: number, kind: MissionKind): readonly string[] =
   return [];
 };
 
+/** Where a tamper or wipe job keeps the table it is about: the file, or the table in the
+ *  datadir. */
+const recordsStorageLines = (missionNumber: number): readonly string[] =>
+  missionShape(missionNumber).storage === 'file'
+    ? [`  Storage:  file, ${recordsFilePath(missionNumber)}`]
+    : [
+        `  Storage:  database, table ${missionRecords(missionNumber).target.table}`,
+        `  Records:  ${DATADIR_PATH}`,
+      ];
+
 /** Where a tamper job's records are kept and the one change or erase it asks, where a key job's
  *  storage, key path and key go. */
 const recordLines = (missionNumber: number): readonly string[] => {
   const { target } = missionRecords(missionNumber);
-  const storage =
-    missionShape(missionNumber).storage === 'file'
-      ? [`  Storage:  file, ${recordsFilePath(missionNumber)}`]
-      : [`  Storage:  database, table ${target.table}`, `  Records:  ${DATADIR_PATH}`];
   const names = Object.values(target.namedBy).join(', ');
   return [
-    ...storage,
+    ...recordsStorageLines(missionNumber),
     target.action === 'erase'
       ? `  Erase:    ${names}`
       : `  Change:   ${names}: ${target.column} ${target.from} -> ${target.to}`,
@@ -176,12 +184,14 @@ const recordLines = (missionNumber: number): readonly string[] => {
 };
 
 /** What the report says of the job in the key-box slot: a key job's storage, key path and key,
- *  a tamper job's records and the one change it asks, a file or destroy job's file and its size
+ *  a tamper job's records and the one change it asks, where a wipe job keeps the table it asks
+ *  emptied, a file or destroy job's file and its size
  *  under the secret, the port a backdoor job's listener must hold, the path an infiltrate job's file goes
  *  to with the sizes of the company's file and the client's, and nothing for a sabotage,
  *  credential or portforward job, whose box is the job and keeps nothing. */
 const jobLines = (missionNumber: number, kind: MissionKind, secret: string): readonly string[] => {
   if (kind === 'tamper') return recordLines(missionNumber);
+  if (kind === 'wipe') return recordsStorageLines(missionNumber);
   if (kind === 'sabotage' || kind === 'credential' || kind === 'portforward') return [];
   if (kind === 'backdoor') return [`  Port:     ${backdoorJob(missionNumber).port}`];
   if (kind === 'infiltrate') {

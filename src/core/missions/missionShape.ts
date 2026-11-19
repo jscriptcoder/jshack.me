@@ -91,13 +91,13 @@ const STORAGES = ['file', 'gpg', 'database'] as const;
 
 export type MissionStorage = (typeof STORAGES)[number];
 
-/** Where a tamper job's records box keeps them, each equally likely: a table in its database, or
- *  a root-only CSV file. */
+/** Where a tamper or wipe job's records box keeps them, each equally likely: a table in its
+ *  database, or a root-only CSV file. */
 const RECORDS_STORAGES = ['database', 'file'] as const;
 
 export type RecordsStorage = (typeof RECORDS_STORAGES)[number];
 
-/** Where a tamper job keeps its records. On a stream of its own, so drawing it moved no
+/** Where a tamper or wipe job keeps its records. On a stream of its own, so drawing it moved no
  *  contract's topology, route, hashes, records or terms. */
 export const recordsStorage = (missionNumber: number): RecordsStorage =>
   createPrng(`mission-records-storage-${missionNumber}`).pick(RECORDS_STORAGES);
@@ -126,9 +126,10 @@ const TWO_HOP_SHARE = 1 / 3;
 /** What a contract asks for: a key the client wants brought back, a record on the box the
  *  client wants changed, the box itself taken down for good, a file on it brought back, a
  *  listener left on it, the client's own file put on it, a port on the gateway forwarded onto
- *  it, the password of its root, or a file on it destroyed. A tamper, sabotage, backdoor,
- *  infiltrate, credential or destroy job is proved by the box itself when the contractor mails in,
- *  a portforward job by the gateway, a file job by the file the mail carries. */
+ *  it, the password of its root, a file on it destroyed, or a table of its records wiped. A
+ *  tamper, sabotage, backdoor, infiltrate, credential, destroy or wipe job is proved by the box
+ *  itself when the contractor mails in, a portforward job by the gateway, a file job by the file
+ *  the mail carries. */
 export type MissionKind =
   | 'key'
   | 'tamper'
@@ -138,22 +139,27 @@ export type MissionKind =
   | 'infiltrate'
   | 'portforward'
   | 'credential'
-  | 'destroy';
+  | 'destroy'
+  | 'wipe';
 
-/** Where the one draw on a contract's kind changes, in 2520ths. Each kind takes a ninth. Every
+/** Where the one draw on a contract's kind changes, in 2520ths. Each kind takes a tenth. Every
  *  newer kind was carved from the edges of the ones before it, so a contract is the kind it was
  *  or has become the newer one, and none turned from one older kind into another: file jobs fill
  *  the gaps tamper, sabotage and key left as they shrank from thirds to quarters, backdoor jobs
  *  the twentieth each of the four gave up as they shrank to fifths, infiltrate jobs the thirtieth
  *  each of the five gave up at the top of one piece as they shrank to sixths, portforward jobs
  *  the forty-second each of the six gave up the same way as they shrank to sevenths, credential
- *  jobs the fifty-sixth each of the seven gave up the same way as they shrank to eighths, and
- *  destroy jobs the seventy-second each of the eight gave up the same way as they shrank to
- *  ninths. A draw past the last cut, the top forty-second, is a portforward job. */
+ *  jobs the fifty-sixth each of the seven gave up the same way as they shrank to eighths, destroy
+ *  jobs the seventy-second each of the eight gave up the same way as they shrank to ninths, and
+ *  wipe jobs the ninetieth each of the nine gave up the same way as they shrank to tenths. A draw
+ *  past the last cut, the top forty-second, is a portforward job. */
 const KIND_CUTS: readonly (readonly [below: number, kind: MissionKind])[] = [
-  [280, 'tamper'],
-  [315, 'destroy'],
-  [360, 'credential'],
+  [252, 'tamper'],
+  [280, 'wipe'],
+  [287, 'destroy'],
+  [315, 'wipe'],
+  [332, 'credential'],
+  [360, 'wipe'],
   [385, 'portforward'],
   [420, 'destroy'],
   [459, 'infiltrate'],
@@ -162,22 +168,28 @@ const KIND_CUTS: readonly (readonly [below: number, kind: MissionKind])[] = [
   [570, 'credential'],
   [585, 'portforward'],
   [630, 'credential'],
-  [760, 'file'],
+  [732, 'file'],
+  [760, 'wipe'],
   [795, 'destroy'],
   [840, 'credential'],
-  [1120, 'sabotage'],
+  [1092, 'sabotage'],
+  [1120, 'wipe'],
   [1155, 'destroy'],
   [1200, 'credential'],
-  [1260, 'portforward'],
+  [1232, 'portforward'],
+  [1260, 'wipe'],
   [1309, 'infiltrate'],
   [1344, 'destroy'],
   [1435, 'backdoor'],
   [1470, 'destroy'],
   [1620, 'file'],
   [1680, 'portforward'],
-  [1764, 'infiltrate'],
-  [1890, 'backdoor'],
-  [2170, 'key'],
+  [1736, 'infiltrate'],
+  [1764, 'wipe'],
+  [1862, 'backdoor'],
+  [1890, 'wipe'],
+  [2142, 'key'],
+  [2170, 'wipe'],
   [2205, 'destroy'],
   [2215, 'credential'],
   [2250, 'destroy'],
@@ -188,9 +200,9 @@ const KIND_CUTS: readonly (readonly [below: number, kind: MissionKind])[] = [
 ];
 
 /** Whether a contract asks for a key, a changed record, a machine taken down, a file brought
- *  back, a listener left, a file slipped in, a port opened onto a machine, a root login or a file
- *  destroyed. Drawn on a stream of its own, so a contract that keeps its kind keeps its network
- *  and its terms to the byte. */
+ *  back, a listener left, a file slipped in, a port opened onto a machine, a root login, a file
+ *  destroyed or a table wiped. Drawn on a stream of its own, so a contract that keeps its kind
+ *  keeps its network and its terms to the byte. */
 export const missionKind = (missionNumber: number): MissionKind => {
   const twentyFiveHundredTwentieths = createPrng(`mission-kind-${missionNumber}`).next() * 2520;
   return KIND_CUTS.find(([below]) => twentyFiveHundredTwentieths < below)?.[1] ?? 'portforward';
@@ -208,7 +220,7 @@ const storageOf = (kind: MissionKind, missionNumber: number): MissionStorage | n
   ) {
     return null;
   }
-  if (kind === 'tamper') return recordsStorage(missionNumber);
+  if (kind === 'tamper' || kind === 'wipe') return recordsStorage(missionNumber);
   return createPrng(`mission-storage-${missionNumber}`).pick(STORAGES);
 };
 

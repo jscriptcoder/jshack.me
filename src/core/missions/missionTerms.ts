@@ -62,7 +62,8 @@ export type MissionTerms =
   | ({ readonly job: 'infiltrate' } & CommonTerms)
   | ({ readonly job: 'portforward' } & CommonTerms)
   | ({ readonly job: 'credential' } & CommonTerms)
-  | ({ readonly job: 'destroy' } & CommonTerms);
+  | ({ readonly job: 'destroy' } & CommonTerms)
+  | ({ readonly job: 'wipe' } & CommonTerms);
 
 const CLIENTS: readonly MissionClient[] = [
   { company: 'Copper Systems', handle: 'copper-ops' },
@@ -132,12 +133,14 @@ const TAMPER_PAY = {
 } as const;
 
 /** What a setting's target is called after its stem ("Halden Academy"), what the board calls
- *  its records, and why a client wants one changed or gone, in the same two moral lights as a
- *  key job's. A setting that asks nothing gone has no erase pitches. */
+ *  its records, why a client wants one changed or gone, in the same two moral lights as a key
+ *  job's, and why a client wants every one of them gone. A setting that asks nothing gone has no
+ *  erase pitches. */
 type SettingTerms = {
   readonly institution: string;
   readonly noun: string;
   readonly pitches: Readonly<Record<RecordAction, readonly string[]>>;
+  readonly wipePitches: readonly string[];
 };
 
 const SETTING_TERMS: Readonly<Record<RecordSetting, SettingTerms>> = {
@@ -160,6 +163,11 @@ const SETTING_TERMS: Readonly<Record<RecordSetting, SettingTerms>> = {
         'A failing mark is costing our client a place on the course. Make it disappear.',
       ],
     },
+    wipePitches: [
+      'An inspection next week will find what the school did to its marks. Leave nothing to find.',
+      'Our client wants the school to lose a whole term of marks and have to start again.',
+      'A grading scandal is about to break, and the proof is in their gradebook. Empty it.',
+    ],
   },
   police: {
     institution: 'Police Dept',
@@ -177,6 +185,11 @@ const SETTING_TERMS: Readonly<Record<RecordSetting, SettingTerms>> = {
         'Our client is moving abroad next week. That warrant cannot follow them.',
       ],
     },
+    wipePitches: [
+      "Half the names on their list are our client's people. Take the whole list away.",
+      'A raid is planned for the end of the month. Without their list, it does not happen.',
+      'Our client wants the department to spend a year rebuilding its list from paper.',
+    ],
   },
   payroll: {
     institution: 'Holdings',
@@ -190,6 +203,11 @@ const SETTING_TERMS: Readonly<Record<RecordSetting, SettingTerms>> = {
       ],
       erase: [],
     },
+    wipePitches: [
+      'Payday is on Friday. Our client wants nobody at that company to be paid.',
+      'A takeover goes through cheaper if their staff walk out over missing wages.',
+      'The salaries on file prove what the owners have been hiding. Make them disappear.',
+    ],
   },
   dmv: {
     institution: 'Motor Registry',
@@ -206,6 +224,11 @@ const SETTING_TERMS: Readonly<Record<RecordSetting, SettingTerms>> = {
         'The camera caught the wrong car. Our client wants the offence gone.',
       ],
     },
+    wipePitches: [
+      "Our client's drivers carry more points than the law allows. Clear every driver at once.",
+      'A rival registry wins the contract if this one loses its records. Make it lose them.',
+      'Nobody looks for one offence when every offence is gone. Our client is counting on that.',
+    ],
   },
   tournament: {
     institution: 'Esports League',
@@ -222,6 +245,11 @@ const SETTING_TERMS: Readonly<Record<RecordSetting, SettingTerms>> = {
         'Our client loses a sponsorship to one entry on that ladder. Make it vanish.',
       ],
     },
+    wipePitches: [
+      'The season was rigged, and our client wants it voided. Leave nothing on the ladder.',
+      'A rival league wants this one to lose a season of results the week before the final.',
+      'Our client bet heavily against the standings. With nothing on the ladder, there are none.',
+    ],
   },
   admissions: {
     institution: 'University',
@@ -238,6 +266,11 @@ const SETTING_TERMS: Readonly<Record<RecordSetting, SettingTerms>> = {
         'One application stands between our client and a place. Remove it.',
       ],
     },
+    wipePitches: [
+      'A rival university wants this one to miss its intake. Clear the whole waiting list.',
+      'Our client was told the list was full. Empty it, and they are first on the new one.',
+      'The places were sold to the highest bidders. Our client wants every one of them open again.',
+    ],
   },
   club: {
     institution: 'Members Club',
@@ -254,6 +287,11 @@ const SETTING_TERMS: Readonly<Record<RecordSetting, SettingTerms>> = {
         'The owner banned our client to settle a grudge. Take the ban off the list.',
       ],
     },
+    wipePitches: [
+      'Our client is buying the club and wants nobody on its books left to buy out.',
+      'Everyone who belongs gets a vote on who runs the club next. Leave nobody to vote.',
+      'Their list proves who was in the room that night. Our client wants no list.',
+    ],
   },
   registry: {
     institution: 'Vehicle Registry',
@@ -270,8 +308,17 @@ const SETTING_TERMS: Readonly<Record<RecordSetting, SettingTerms>> = {
         'The car was recovered weeks ago. Nobody took the flag off, so we will.',
       ],
     },
+    wipePitches: [
+      'Our client runs a yard full of cars with the wrong owners on file. Clear every owner.',
+      'A rival dealer wants the registry out of action for a month. Wipe who owns what.',
+      'Without the registry, nobody can prove whose car is whose. That suits our client.',
+    ],
   },
 };
+
+/** The board line for a wipe job: the setting's records, `internal` ones behind a second box. */
+const wipeKind = (noun: string, singleHop: boolean): string =>
+  `wipe ${singleHop ? '' : 'internal '}${noun} records`;
 
 /** The board line for a tamper job: what it does to which setting's records, and `internal`
  *  for one behind a second box. */
@@ -304,6 +351,18 @@ export const missionTerms = (missionNumber: number): MissionTerms => {
       kind: tamperKind(action, noun, singleHop),
       // One draw from any list, so every setting's pay is drawn where the school's was.
       pitch: prng.pick(pitches[action]),
+      pay: payFrom(prng, TAMPER_PAY[singleHop ? 'singleHop' : 'twoHop']),
+    };
+  }
+  if (missionKind(missionNumber) === 'wipe') {
+    const { institution, noun, wipePitches } = SETTING_TERMS[missionSetting(missionNumber)];
+    return {
+      job: 'wipe',
+      client: prng.pick(CLIENTS),
+      targetCompany: `${capitalised(stem)} ${institution}`,
+      kind: wipeKind(noun, singleHop),
+      pitch: prng.pick(wipePitches),
+      // The same records, rooted the same way, and every row of a table gone: a tamper job's work.
       pay: payFrom(prng, TAMPER_PAY[singleHop ? 'singleHop' : 'twoHop']),
     };
   }
