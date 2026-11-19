@@ -641,3 +641,35 @@ matched a single-hop job on round 11 and a two-hop one on round 32.
 | 3 | `ssh root@<address> -p 2222` (two-hop: root the front, `apt install nmap` there, `nmap 192.168.<x>.1-254`, then `ssh root@<target>`) | The prompt names the box for its machine (`<stem>-nvr`, `<stem>-access`, …), as on a sabotage job. **The hop's `password:` prompt can take several seconds to appear**: a helper that types the password before it shows finds no `<input>` |
 | 4 | `apt install netcat`, then `nc -l <port>` | `nc` is not on the target: it answers `command not found. Install with: apt install netcat`. `nc -l` returns at once (`Listening on 0.0.0.0 <port>`) and writes `/var/run/nc-<port>.pid`, which `ls -l /var/run` shows beside the box's own daemons |
 | 5 | `exit` (twice on two-hop), then `mail reply <briefing n>` with the wallet | **Wait for the home prompt after each `exit`** before typing the next command: typed while the hop is still closing, `mail reply` is swallowed and the next typed line lands in the shell. "We're in. §<pay> sent to jsc…. Pleasure doing business."; a later mail gets "That job is already closed." |
+
+### Then: a chain job, a listener on the edge and a machine inside taken down, to a payout
+
+Verified 2026-11-19 (v0.474.0), the chain-jobs close-out: contract 10898669, msfconsole on the
+front box and the ftp route on a licence server inside, paid §5,950. An eleventh of the contracts
+are chain jobs; the board names one `break in and take down an internal <machine>`. A chain job is
+always two-hop: the listener goes on the front box, on the port the briefing names, and the
+machine to take down is the one behind it, one of the seven sabotage machines. Both parts or no
+pay.
+
+**Take the first chain offer, whatever its routes.** Hydra on both boxes is about one chain offer
+in 36: the run saw 71 chain offers in 230 rounds and none was hydra/hydra. Every route roots
+offline, so the turnover script (as for a file job) only needs to match `missionShape(n).kind ===
+'chain'`. Then write to a scratch file, per box:
+
+- msfconsole: no word, the exploit lands root;
+- hydra: `plaintextFor(missionShape(n).frontBox.rootHash)`, or `.keyBox.rootHash`;
+- a leak route (web, ftp, mysql, snmp): `missionLeakWord({ missionNumber: n, role: 'front' | 'key' }, process.env.JSHACK_SECRETS)`, which is root's ssh word.
+
+Also write `chainJob(n).port` (`core/missions/targetRoles.ts`) and the target's LAN address,
+`generateHomeLan(missionEssid(n)).subnet` with `missionShape(n).keyBox.octet`. Run the script under
+`npx dotenv -e .env.development.local --` so `JSHACK_SECRETS` is set.
+
+| # | Command | Trap |
+| --- | --- | --- |
+| 1 | `curl -d "offer=<ref>" http://<board>/accept`, then `mail read <n>` | The briefing gives the port and the machine's noun, says it is "inside their network, not on the edge", and never names a host |
+| 2 | `mail reply <briefing n>` with the wallet, before anything | "Nothing is listening on port N on the edge. No listener, no money." and the job stays open |
+| 3 | Root the front box: `msfconsole <address> 80`, or `ssh root@<address> -p 2222` and its word | The prompt becomes `root@<stem>-web` |
+| 4 | On the front box: `apt install netcat`, `nc -l <port>`, then `exit` and mail again | `ls -l /var/run` shows `nc-<port>.pid`. The reply is now "Their machine is still up. No outage, no money.": the listener counted, the outage hasn't happened yet |
+| 5 | Root the front box again, `apt install nmap`, `nmap 192.168.<x>.1-254` | Lists `<stem>-gw`, `<stem>-web` and the target by its machine (`<stem>-lic`, `-nvr`, …). `nmap` is not on the front box. The listener survives the `exit` and the second root |
+| 6 | `ssh root@<target>` (no `-p`), its word, then `rm /boot/vmlinuz` | Poll for `password:` before typing the word: the hop's prompt can take seconds. **Never `rm` a boot file on the front box**: a front box that no longer boots reads as no listener, and the job can't be finished |
+| 7 | `exit` twice, waiting for each prompt, then `mail reply <briefing n>` with the wallet | "Both done. §<pay> sent to jsc…. Pleasure doing business." (4,000–7,000); a later mail gets "That job is already closed." |
