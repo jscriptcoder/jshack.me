@@ -11,6 +11,7 @@ import { publisherSite } from './publisher.js';
 import { DECLARED_NETWORKS, type DeclaredNetwork } from './world.js';
 import { isDeskMachine } from './npcHome.js';
 import { keepsSnapshots } from './share.js';
+import { chainJob } from '../missions/targetRoles.js';
 
 /**
  * `generateHomeLan` is the pure topology generator behind `nmap <subnet>`. Given an
@@ -551,7 +552,7 @@ describe('generateHomeLan for a network sized by its profile', () => {
 });
 
 describe('generateHomeLan for a contract network', () => {
-  const MISSION_ESSID = 'mission-66052';
+  const MISSION_ESSID = 'mission-66059';
 
   it('is a gateway and a key box alone, both named for one target company', () => {
     const lan = generateHomeLan(MISSION_ESSID);
@@ -583,7 +584,7 @@ describe('generateHomeLan for a contract network', () => {
   it('places the key box where the shape says, so the gateway forwards onto it', () => {
     // The topology and the shape draw the stem and the key-box octet independently off
     // one seed; the forward points at the octet, so the two must agree.
-    for (const missionNumber of [66052, 131590, 1000002, 16000011]) {
+    for (const missionNumber of [66059, 131590, 1000002, 16000011]) {
       const lan = generateHomeLan(`mission-${missionNumber}`);
       const shape = missionShape(missionNumber);
       const keyBox = lan.hosts[1];
@@ -609,7 +610,7 @@ describe('generateHomeLan for a contract network', () => {
     }
   });
 
-  it('names a sabotage target for the machine the client wants down, and every key box but a backdoor, portforward or credential target as before', () => {
+  it('names a sabotage target for the machine the client wants down, and every key box but a backdoor, portforward, credential or chain target as before', () => {
     // The board names the machine; the box the contractor lands on carries the name to match.
     const suffixByMachine: Readonly<Record<string, string>> = {
       'CCTV recorder': 'nvr',
@@ -634,7 +635,9 @@ describe('generateHomeLan for a contract network', () => {
     expect(new Set(sabotage.map(suffixOf))).toEqual(new Set(Object.values(suffixByMachine)));
     const namedAsBefore = CONTRACT_NUMBERS.filter((missionNumber) => {
       const { kind } = missionShape(missionNumber);
-      return kind !== 'backdoor' && kind !== 'portforward' && kind !== 'credential';
+      return (
+        kind !== 'backdoor' && kind !== 'portforward' && kind !== 'credential' && kind !== 'chain'
+      );
     });
     for (const missionNumber of namedAsBefore) {
       const lan = generateHomeLan(`mission-${missionNumber}`);
@@ -767,6 +770,25 @@ describe('generateHomeLan for a contract network', () => {
         lan.hosts.find(({ ip }) => ip === `${lan.subnet}.${keyBox.octet}`)?.hostname,
         `contract ${missionNumber}`,
       ).toBe(`${stem}-${suffixOf(missionNumber)}`);
+    }
+  });
+
+  it('names a chain target for the machine the client wants down, behind the front box the listener goes on', () => {
+    const chain = CONTRACT_NUMBERS.filter(
+      (missionNumber) => missionShape(missionNumber).kind === 'chain',
+    );
+
+    expect(chain.length).toBeGreaterThan(0);
+    for (const missionNumber of chain) {
+      const lan = generateHomeLan(`mission-${missionNumber}`);
+      const { stem, keyBox, frontBox } = missionShape(missionNumber);
+      const hostnameAt = (octet: number | undefined) =>
+        lan.hosts.find(({ ip }) => ip === `${lan.subnet}.${octet}`)?.hostname;
+
+      expect(hostnameAt(keyBox.octet), `contract ${missionNumber}`).toBe(
+        `${stem}-${chainJob(missionNumber).role.suffix}`,
+      );
+      expect(hostnameAt(frontBox?.octet), `contract ${missionNumber}`).toBe(`${stem}-web`);
     }
   });
 

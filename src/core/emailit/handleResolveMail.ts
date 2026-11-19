@@ -140,6 +140,19 @@ const targetBoxReader =
     return generatedLanBox(deps.findPatches, essid, address, deps.findMissionFiles);
   };
 
+/** A two-hop contract's front box as every door reads it, the way the box in the key-box slot is
+ *  read. Only a chain job asks for it, and every chain job has one; a contract without one has
+ *  nothing standing there. */
+const frontBoxReader =
+  (deps: WebTargetDeps) =>
+  async (missionNumber: number): Promise<TargetBoxRead> => {
+    const { frontBoxOctet } = missionTopology(missionNumber);
+    if (frontBoxOctet === null) return { kind: 'absent' };
+    const essid = missionEssid(missionNumber);
+    const address = `${generateHomeLan(essid).subnet}.${frontBoxOctet}`;
+    return generatedLanBox(deps.findPatches, essid, address, deps.findMissionFiles);
+  };
+
 /** A portforward job's router as every door reads it: the gateway the contract's number
  *  generates with its journal replayed, so the client sees the forwards a player's edits left,
  *  and whether it still boots. A router that does not boot routes nothing. */
@@ -303,6 +316,7 @@ export const handleResolveMail = async (
       store: deps.clientMail,
       readTargetBox: targetBoxReader(deps),
       readRouter: routerReader(deps),
+      readFrontBox: frontBoxReader(deps),
     });
     if (answer === null) return MAIL_FAILED;
     if (answer !== 'replied') return refused(answer);

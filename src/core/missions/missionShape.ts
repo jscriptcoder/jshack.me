@@ -126,10 +126,11 @@ const TWO_HOP_SHARE = 1 / 3;
 /** What a contract asks for: a key the client wants brought back, a record on the box the
  *  client wants changed, the box itself taken down for good, a file on it brought back, a
  *  listener left on it, the client's own file put on it, a port on the gateway forwarded onto
- *  it, the password of its root, a file on it destroyed, or a table of its records wiped. A
- *  tamper, sabotage, backdoor, infiltrate, credential, destroy or wipe job is proved by the box
- *  itself when the contractor mails in, a portforward job by the gateway, a file job by the file
- *  the mail carries. */
+ *  it, the password of its root, a file on it destroyed, a table of its records wiped, or a
+ *  listener left on the front box and the box behind it taken down. A tamper, sabotage,
+ *  backdoor, infiltrate, credential, destroy or wipe job is proved by the box itself when the
+ *  contractor mails in, a chain job by both its boxes, a portforward job by the gateway, a file
+ *  job by the file the mail carries. */
 export type MissionKind =
   | 'key'
   | 'tamper'
@@ -140,9 +141,10 @@ export type MissionKind =
   | 'portforward'
   | 'credential'
   | 'destroy'
-  | 'wipe';
+  | 'wipe'
+  | 'chain';
 
-/** Where the one draw on a contract's kind changes, in 2520ths. Each kind takes a tenth. Every
+/** Where the one draw on a contract's kind changes, in 27720ths. Each kind takes an eleventh. Every
  *  newer kind was carved from the edges of the ones before it, so a contract is the kind it was
  *  or has become the newer one, and none turned from one older kind into another: file jobs fill
  *  the gaps tamper, sabotage and key left as they shrank from thirds to quarters, backdoor jobs
@@ -150,62 +152,73 @@ export type MissionKind =
  *  each of the five gave up at the top of one piece as they shrank to sixths, portforward jobs
  *  the forty-second each of the six gave up the same way as they shrank to sevenths, credential
  *  jobs the fifty-sixth each of the seven gave up the same way as they shrank to eighths, destroy
- *  jobs the seventy-second each of the eight gave up the same way as they shrank to ninths, and
- *  wipe jobs the ninetieth each of the nine gave up the same way as they shrank to tenths. A draw
- *  past the last cut, the top forty-second, is a portforward job. */
+ *  jobs the seventy-second each of the eight gave up the same way as they shrank to ninths, wipe
+ *  jobs the ninetieth each of the nine gave up the same way as they shrank to tenths, and chain
+ *  jobs the hundred-and-tenth each of the ten gave up the same way as they shrank to elevenths. A
+ *  draw past the last cut, the top forty-second, is a portforward job. */
 const KIND_CUTS: readonly (readonly [below: number, kind: MissionKind])[] = [
-  [252, 'tamper'],
-  [280, 'wipe'],
-  [287, 'destroy'],
-  [315, 'wipe'],
-  [332, 'credential'],
-  [360, 'wipe'],
-  [385, 'portforward'],
-  [420, 'destroy'],
-  [459, 'infiltrate'],
-  [504, 'credential'],
-  [525, 'backdoor'],
-  [570, 'credential'],
-  [585, 'portforward'],
-  [630, 'credential'],
-  [732, 'file'],
-  [760, 'wipe'],
-  [795, 'destroy'],
-  [840, 'credential'],
-  [1092, 'sabotage'],
-  [1120, 'wipe'],
-  [1155, 'destroy'],
-  [1200, 'credential'],
-  [1232, 'portforward'],
-  [1260, 'wipe'],
-  [1309, 'infiltrate'],
-  [1344, 'destroy'],
-  [1435, 'backdoor'],
-  [1470, 'destroy'],
-  [1620, 'file'],
-  [1680, 'portforward'],
-  [1736, 'infiltrate'],
-  [1764, 'wipe'],
-  [1862, 'backdoor'],
-  [1890, 'wipe'],
-  [2142, 'key'],
-  [2170, 'wipe'],
-  [2205, 'destroy'],
-  [2215, 'credential'],
-  [2250, 'destroy'],
-  [2310, 'portforward'],
-  [2394, 'infiltrate'],
-  [2436, 'backdoor'],
-  [2460, 'infiltrate'],
+  [2520, 'tamper'],
+  [2772, 'chain'],
+  [2828, 'wipe'],
+  [3080, 'chain'],
+  [3157, 'destroy'],
+  [3465, 'wipe'],
+  [3652, 'credential'],
+  [3960, 'wipe'],
+  [3983, 'portforward'],
+  [4235, 'chain'],
+  [4368, 'destroy'],
+  [4620, 'chain'],
+  [4797, 'infiltrate'],
+  [5049, 'chain'],
+  [5292, 'credential'],
+  [5544, 'chain'],
+  [5775, 'backdoor'],
+  [6270, 'credential'],
+  [6435, 'portforward'],
+  [6930, 'credential'],
+  [7800, 'file'],
+  [8052, 'chain'],
+  [8360, 'wipe'],
+  [8745, 'destroy'],
+  [9240, 'credential'],
+  [11760, 'sabotage'],
+  [12012, 'chain'],
+  [12320, 'wipe'],
+  [12705, 'destroy'],
+  [13200, 'credential'],
+  [13552, 'portforward'],
+  [13860, 'wipe'],
+  [14399, 'infiltrate'],
+  [14784, 'destroy'],
+  [15533, 'backdoor'],
+  [15785, 'chain'],
+  [16170, 'destroy'],
+  [17820, 'file'],
+  [18480, 'portforward'],
+  [19096, 'infiltrate'],
+  [19404, 'wipe'],
+  [20482, 'backdoor'],
+  [20790, 'wipe'],
+  [23310, 'key'],
+  [23562, 'chain'],
+  [23870, 'wipe'],
+  [24255, 'destroy'],
+  [24365, 'credential'],
+  [24750, 'destroy'],
+  [25410, 'portforward'],
+  [26334, 'infiltrate'],
+  [26796, 'backdoor'],
+  [27060, 'infiltrate'],
 ];
 
 /** Whether a contract asks for a key, a changed record, a machine taken down, a file brought
  *  back, a listener left, a file slipped in, a port opened onto a machine, a root login, a file
- *  destroyed or a table wiped. Drawn on a stream of its own, so a contract that keeps its kind
+ *  destroyed, a table wiped, or a listener left and a machine taken down. Drawn on a stream of its own, so a contract that keeps its kind
  *  keeps its network and its terms to the byte. */
 export const missionKind = (missionNumber: number): MissionKind => {
-  const twentyFiveHundredTwentieths = createPrng(`mission-kind-${missionNumber}`).next() * 2520;
-  return KIND_CUTS.find(([below]) => twentyFiveHundredTwentieths < below)?.[1] ?? 'portforward';
+  const draw = createPrng(`mission-kind-${missionNumber}`).next() * 27720;
+  return KIND_CUTS.find(([below]) => draw < below)?.[1] ?? 'portforward';
 };
 
 /** Where a contract's key box keeps what its job is about, each kind on a stream of its own. */
@@ -216,7 +229,8 @@ const storageOf = (kind: MissionKind, missionNumber: number): MissionStorage | n
     kind === 'backdoor' ||
     kind === 'infiltrate' ||
     kind === 'credential' ||
-    kind === 'destroy'
+    kind === 'destroy' ||
+    kind === 'chain'
   ) {
     return null;
   }
@@ -640,9 +654,12 @@ const drawTopology = (
   const keyBoxOctet = shapePrng.nextInt(2, 254);
   // On a stream of its own, so a contract that stays single-hop keeps its network to the byte. A
   // portforward job is never two-hop: the router is the job, and the target sits right behind it.
+  // A chain job always is: its first step is on the front box and its last on the machine behind.
+  const kind = missionKind(missionNumber);
   const twoHop =
-    createPrng(`mission-template-${missionNumber}`).next() < TWO_HOP_SHARE &&
-    missionKind(missionNumber) !== 'portforward';
+    kind === 'chain' ||
+    (createPrng(`mission-template-${missionNumber}`).next() < TWO_HOP_SHARE &&
+      kind !== 'portforward');
   if (!twoHop) return { stem, keyBoxOctet, shapePrng, front: null };
   const prng = createPrng(`mission-front-${missionNumber}`);
   const octet = prng.pick(HOST_OCTETS.filter((candidate) => candidate !== keyBoxOctet));

@@ -30,7 +30,7 @@ import {
   type RecordTarget,
 } from '../missions/missionRecords.js';
 import { missionTerms, type MissionTerms } from '../missions/missionTerms.js';
-import { backdoorJob, credentialRole, sabotageRole } from '../missions/targetRoles.js';
+import { backdoorJob, chainJob, credentialRole, sabotageRole } from '../missions/targetRoles.js';
 import { portforwardJob } from '../missions/portforwardJob.js';
 import {
   missionFileItem,
@@ -227,10 +227,11 @@ const askedSentence = (setting: RecordSetting, target: RecordTarget): string => 
  *  erased and the client told, a machine taken down and the client told, a file fetched and
  *  mailed back attached, a listener left on a machine and the client told while it listens, a
  *  port on the router sent to a machine and the client told while it is open, a machine's root
- *  password mailed back on a line of its own, a file destroyed and the client told, or a table of
- *  records emptied and the client told. A tamper job
+ *  password mailed back on a line of its own, a file destroyed and the client told, a table of
+ *  records emptied and the client told, or a listener left on the front box and the machine behind
+ *  it taken down and the client told. A tamper job
  *  names whose record and what it should say, or that it should not exist, never where; a sabotage,
- *  backdoor, credential or portforward job names what the machine is, never which box; a file or
+ *  backdoor, credential, portforward or chain job names what the machine is, never which box; a file or
  *  destroy job names the file, never where it sits; a wipe job describes what the records hold,
  *  never their table, file or box. */
 const jobLines = (
@@ -330,6 +331,20 @@ const jobLines = (
       ...(inside ? insideLines('The records are') : []),
       'Mail this address when it is done, with your wallet address.',
       'Not wiped, no money. No wallet, no money.',
+    ];
+  }
+  if (terms.job === 'chain') {
+    const { role, port } = chainJob(missionNumber);
+    // Every chain job is two-hop, so the machine is always inside, and the edge box is named by
+    // where it stands, never by what it is.
+    return [
+      'This job has two parts. We pay for both or for neither.',
+      '',
+      `First, leave a listener on the machine on the edge of their network, on port ${port}.`,
+      `Then take their ${role.noun} offline. It is a machine inside their network, not on the edge.`,
+      '',
+      'Write to this address with your wallet address once both are done.',
+      'Both done or no money. No wallet, no money.',
     ];
   }
   if (terms.job === 'tamper') {

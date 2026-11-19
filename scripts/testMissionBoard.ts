@@ -318,6 +318,7 @@ const main = async () => {
     credential: 'No login, no money.',
     destroy: 'Not gone, no money.',
     wipe: 'Not wiped, no money.',
+    chain: 'Both done or no money.',
   } as const;
   const offered = inState(turnedRows, 'offered');
   const taken = offered[1]!;

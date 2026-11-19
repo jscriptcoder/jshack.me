@@ -60,6 +60,13 @@
  * either table beside it changed in any way, and a target that no longer boots get the same words,
  * and the job stays open, so finishing the wipe then pays.
  *
+ * A chain job asks for two steps and pays for both or neither: the client reads the front box and
+ * then the target as they stand, and completes the job once a listener holds the port the briefing
+ * named on the front box and the target no longer boots, whoever did either and in whichever order.
+ * The first step unfinished answers: no listener on the front box, one on another port, one on the
+ * target instead, and a front box that no longer boots get the listener's words, and with the
+ * listener in place a target still up gets a sabotage job's. Either miss keeps the job open.
+ *
  * Completing is one step in the store under the handle's lock: a second right mail racing
  * the first finds the job completed and is told it is closed, so a job pays once. A store
  * that failed, or answered a word nobody taught it, has not said what happened, so the door
@@ -75,7 +82,7 @@ import { missionKey } from './missionSecret.js';
 import { missionFileContent, missionFilePath, missionPlantContent } from './missionFileItem.js';
 import { missionKind, missionTopology } from './missionShape.js';
 import { recordsLookRight, recordsWiped } from './missionRecords.js';
-import { backdoorJob, credentialRole } from './targetRoles.js';
+import { backdoorJob, chainJob, credentialRole } from './targetRoles.js';
 import { portforwardJob } from './portforwardJob.js';
 import { md5 } from '../generation/md5.js';
 import { accountIn } from '../sessions/passwdAccount.js';
@@ -113,8 +120,9 @@ export type ClientMailStore = {
   }) => StoreReply;
 };
 
-/** The box a tamper, sabotage, backdoor, infiltrate, credential, destroy or wipe job is about, or
- *  a portforward job's router, as it stands: up with its tree, not up, or not readable. */
+/** The box a tamper, sabotage, backdoor, infiltrate, credential, destroy, wipe or chain job is
+ *  about, a chain job's front box, or a portforward job's router, as it stands: up with its tree,
+ *  not up, or not readable. */
 export type TargetBoxRead =
   | { readonly kind: 'up'; readonly fs: Directory }
   | { readonly kind: 'absent' }
@@ -150,12 +158,17 @@ const THROUGH = "We're through.";
 const LOGIN_WORKS = 'That login works.';
 const FILE_GONE = "It's gone.";
 const RECORDS_GONE = 'The records are gone.';
+const BOTH_DONE = 'Both done.';
 const NO_WALLET = 'You sent no wallet, so there is nothing to pay. No wallet, no money.';
 const RECORDS_WRONG = "Our records don't look right. No change, no money.";
 const STILL_UP = 'Their machine is still up. No outage, no money.';
 /** One reply for every miss: no listener, one on another port, or a box that no longer boots. */
 const nothingListening = (port: number): string =>
   `Nothing is listening on port ${port}. No listener, no money.`;
+/** One reply for every miss on a chain job's first step: no listener on the front box, one on
+ *  another port, one on the machine inside, or a front box that no longer boots. */
+const nothingOnTheEdge = (port: number): string =>
+  `Nothing is listening on port ${port} on the edge. No listener, no money.`;
 const notInPlace = (path: string): string =>
   `Our file is not at ${path}. No file in place, no money.`;
 /** One reply for every miss: no forward, one to another machine or port, or a router that no
@@ -226,12 +239,13 @@ type Decision =
   | { readonly kind: 'checkLogin'; readonly number: number }
   | { readonly kind: 'checkGone'; readonly number: number }
   | { readonly kind: 'checkWiped'; readonly number: number }
+  | { readonly kind: 'checkChain'; readonly number: number }
   | { readonly kind: 'reply'; readonly reply: ContractMail };
 
 /** How the client opens its reply to a job done: the key or the file it was sent, the records it
  *  read, the machine it found down, the listener it found, its own file found in place, the way
- *  in it found open, the login it found working, the company's file it found gone, or the records
- *  it found emptied. */
+ *  in it found open, the login it found working, the company's file it found gone, the records
+ *  it found emptied, or both steps of a chain job found done. */
 const RECEIVED: Readonly<Record<Exclude<Decision['kind'], 'reply'>, string>> = {
   complete: KEY_RECEIVED,
   completeFile: FILE_RECEIVED,
@@ -243,6 +257,7 @@ const RECEIVED: Readonly<Record<Exclude<Decision['kind'], 'reply'>, string>> = {
   checkLogin: LOGIN_WORKS,
   checkGone: FILE_GONE,
   checkWiped: RECORDS_GONE,
+  checkChain: BOTH_DONE,
 };
 
 /** What the client says on a job the mail itself proves: when the mail carries no proof, when it
@@ -295,6 +310,7 @@ const decide = ({
   if (acceptedKind === 'credential') return { kind: 'checkLogin', number: accepted.number };
   if (acceptedKind === 'destroy') return { kind: 'checkGone', number: accepted.number };
   if (acceptedKind === 'wipe') return { kind: 'checkWiped', number: accepted.number };
+  if (acceptedKind === 'chain') return { kind: 'checkChain', number: accepted.number };
   const said = MAILED_PROOF[acceptedKind];
   if ((acceptedKind === 'file' ? file : key) === null) return reply(accepted.number, said.none);
   if (proves(accepted.number)) return { kind: said.done, number: accepted.number };
@@ -345,6 +361,7 @@ export const answerClientMail = async ({
   store,
   readTargetBox,
   readRouter,
+  readFrontBox,
 }: {
   readonly login: {
     readonly handle: string;
@@ -359,11 +376,13 @@ export const answerClientMail = async ({
   /** The deployment's mission secret, already checked present. */
   readonly secret: string;
   readonly store: ClientMailStore;
-  /** The box the tamper, sabotage, backdoor, infiltrate, credential, destroy or wipe job numbered so
-   *  is about, as it stands now. */
+  /** The box the tamper, sabotage, backdoor, infiltrate, credential, destroy, wipe or chain job
+   *  numbered so is about, as it stands now. */
   readonly readTargetBox: (missionNumber: number) => Promise<TargetBoxRead>;
   /** The router of the portforward job numbered so, as it stands now. */
   readonly readRouter: (missionNumber: number) => Promise<TargetBoxRead>;
+  /** The front box of the chain job numbered so, as it stands now. */
+  readonly readFrontBox: (missionNumber: number) => Promise<TargetBoxRead>;
 }): Promise<ClientMailAnswer | null> => {
   const opened = await store.open(login);
   const read = openedSchema.safeParse(opened.data);
@@ -446,6 +465,20 @@ export const answerClientMail = async ({
     if (box.kind === 'absent' || !recordsWiped(decision.number, box.fs)) {
       return sendReply(store, login.handle, replyAbout(terms, NOT_WIPED));
     }
+  }
+  if (decision.kind === 'checkChain') {
+    // The first unfinished step answers, the listener before the outage. Both are read as they
+    // stand on every mail, so the steps can be done in either order, and anyone's counts.
+    const front = await readFrontBox(decision.number);
+    if (front.kind === 'error') return null;
+    const { port } = chainJob(decision.number);
+    // A bricked front box holds no listener, so it loses the job for good.
+    if (front.kind === 'absent' || listenerOn(front.fs, port) === null) {
+      return sendReply(store, login.handle, replyAbout(terms, nothingOnTheEdge(port)));
+    }
+    const box = await readTargetBox(decision.number);
+    if (box.kind === 'error') return null;
+    if (box.kind === 'up') return sendReply(store, login.handle, replyAbout(terms, STILL_UP));
   }
   const received = RECEIVED[decision.kind];
   const wallet = firstMatch(text, WALLET_SHAPE)?.toLowerCase() ?? null;
