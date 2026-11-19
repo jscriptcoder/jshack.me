@@ -1,6 +1,7 @@
 /**
- * What a sabotage, backdoor or credential job's target is: the machine the client wants taken down
- * for good, wants a way into that stays open, or wants the root login of. The role names the box,
+ * What a sabotage, backdoor, credential or chain job's target is: the machine the client wants taken
+ * down for good, wants a way into that stays open, wants the root login of, or wants taken down
+ * once a listener holds the front box before it. The role names the box,
  * so a contractor who lands on it can tell it is the one the briefing meant. The three kinds share
  * the machines, so a hostname alone never says which job a box is; each brings its own reasons.
  *
@@ -195,14 +196,31 @@ export const backdoorJob = (missionNumber: number): BackdoorJob => {
   return { role, port: prng.pick(BACKDOOR_PORTS) };
 };
 
+/** What a chain job asks for: a listener left on the front box, on one port, and the machine
+ *  behind it taken down. */
+export type ChainJob = {
+  readonly role: TargetRole;
+  readonly port: number;
+};
+
+/** The machine a chain job wants taken down and the port its listener on the front box must hold,
+ *  drawn on a stream of their own, the machine first, so nothing the contract drew before them
+ *  moves. */
+export const chainJob = (missionNumber: number): ChainJob => {
+  const prng = createPrng(`mission-chain-${missionNumber}`);
+  const role = prng.pick(TARGET_ROLES);
+  return { role, port: prng.pick(BACKDOOR_PORTS) };
+};
+
 /** The suffix on the hostname of the box in a contract's key-box slot: the box holding the key
- *  or the records, or on a sabotage, backdoor, credential or portforward job the machine the job
- *  is about, named for what it is. */
+ *  or the records, or on a sabotage, backdoor, credential, portforward or chain job the machine the
+ *  job is about, named for what it is. */
 export const keyBoxSuffix = (missionNumber: number): string => {
   const kind = missionKind(missionNumber);
   if (kind === 'sabotage') return sabotageRole(missionNumber).suffix;
   if (kind === 'backdoor') return backdoorJob(missionNumber).role.suffix;
   if (kind === 'credential') return credentialRole(missionNumber).suffix;
+  if (kind === 'chain') return chainJob(missionNumber).role.suffix;
   if (kind === 'portforward') return portforwardJob(missionNumber).machine.suffix;
   return KEY_BOX_SUFFIX;
 };

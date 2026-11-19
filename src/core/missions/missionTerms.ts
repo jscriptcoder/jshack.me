@@ -19,7 +19,7 @@
 
 import { createPrng } from '../generation/prng.js';
 import { missionKind, missionTopology } from './missionShape.js';
-import { backdoorJob, credentialRole, sabotageRole } from './targetRoles.js';
+import { backdoorJob, chainJob, credentialRole, sabotageRole } from './targetRoles.js';
 import { missionFileItem } from './missionFileItem.js';
 import { portforwardJob } from './portforwardJob.js';
 import {
@@ -63,7 +63,8 @@ export type MissionTerms =
   | ({ readonly job: 'portforward' } & CommonTerms)
   | ({ readonly job: 'credential' } & CommonTerms)
   | ({ readonly job: 'destroy' } & CommonTerms)
-  | ({ readonly job: 'wipe' } & CommonTerms);
+  | ({ readonly job: 'wipe' } & CommonTerms)
+  | ({ readonly job: 'chain' } & CommonTerms);
 
 const CLIENTS: readonly MissionClient[] = [
   { company: 'Copper Systems', handle: 'copper-ops' },
@@ -316,6 +317,19 @@ const SETTING_TERMS: Readonly<Record<RecordSetting, SettingTerms>> = {
   },
 };
 
+/** Why a client wants a way into a network left open and one of its machines taken down. Any
+ *  machine can be the one, so the reasons are the job's, not the machine's. */
+const CHAIN_PITCHES: readonly string[] = [
+  'Our client wants a door into their network that stays open, and one of their machines dark while they use it.',
+  'Two things, one job: a way back in for later, and an outage they will put down to bad luck.',
+  'They will spend a week fixing the machine that went down, and never look at the edge.',
+  'Our client wants to come and go on their network as it likes, and wants them busy while it does.',
+];
+
+/** What a chain job pays, in JSC: two boxes rooted and a step done on each, the most work any
+ *  contract asks. */
+const CHAIN_PAY = { minPay: 4000, maxPay: 7000 } as const;
+
 /** The board line for a wipe job: the setting's records, `internal` ones behind a second box. */
 const wipeKind = (noun: string, singleHop: boolean): string =>
   `wipe ${singleHop ? '' : 'internal '}${noun} records`;
@@ -364,6 +378,17 @@ export const missionTerms = (missionNumber: number): MissionTerms => {
       pitch: prng.pick(wipePitches),
       // The same records, rooted the same way, and every row of a table gone: a tamper job's work.
       pay: payFrom(prng, TAMPER_PAY[singleHop ? 'singleHop' : 'twoHop']),
+    };
+  }
+  if (missionKind(missionNumber) === 'chain') {
+    return {
+      job: 'chain',
+      client: prng.pick(CLIENTS),
+      targetCompany: `${capitalised(stem)} ${prng.pick(TARGET_TRADES)}`,
+      // Always two-hop: the listener goes on the front box and the machine is behind it.
+      kind: `break in and take down an internal ${chainJob(missionNumber).role.noun}`,
+      pitch: prng.pick(CHAIN_PITCHES),
+      pay: payFrom(prng, CHAIN_PAY),
     };
   }
   const job = singleHop ? SINGLE_HOP : TWO_HOP;

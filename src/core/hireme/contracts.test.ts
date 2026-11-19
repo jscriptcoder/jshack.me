@@ -17,7 +17,7 @@ import {
   missionPlantContent,
 } from '../missions/missionFileItem.js';
 import { missionShape } from '../missions/missionShape.js';
-import { backdoorJob } from '../missions/targetRoles.js';
+import { backdoorJob, chainJob } from '../missions/targetRoles.js';
 import { portforwardJob } from '../missions/portforwardJob.js';
 import {
   RECORD_SETTINGS,
@@ -1625,6 +1625,57 @@ describe('accepting an offer', () => {
 
     expect(await accept('offer=bbb', downAfterFirstRead(store))).toBeNull();
     expect(accepts).toHaveLength(1);
+  });
+
+  describe('on a chain job', () => {
+    /** The first chain contract from 70,000 up. */
+    const CHAIN = (() => {
+      for (let candidate = 70_000; candidate < 2_000_000; candidate++) {
+        if (isMissionNumber(candidate) && missionShape(candidate).kind === 'chain')
+          return candidate;
+      }
+      throw new Error('no chain contract');
+    })();
+
+    it('writes a briefing asking for a listener on the edge and the machine inside taken down', async () => {
+      const { store, accepts } = boardStore({ offers: [{ number: CHAIN, ref: 'ddd' }] });
+      const terms = missionTerms(CHAIN);
+      const { role, port } = chainJob(CHAIN);
+
+      await accept('offer=ddd', store);
+
+      expect(accepts[0]!.briefing.subject).toBe(`Contract: ${terms.targetCompany}`);
+      expect(accepts[0]!.briefing.body).toBe(
+        [
+          terms.pitch,
+          '',
+          `The target is ${terms.targetCompany}. Their network is at ${missionAddressForNumber(CHAIN)}.`,
+          '',
+          'This job has two parts. We pay for both or for neither.',
+          '',
+          `First, leave a listener on the machine on the edge of their network, on port ${port}.`,
+          `Then take their ${role.noun} offline. It is a machine inside their network, not on the edge.`,
+          '',
+          'Write to this address with your wallet address once both are done.',
+          'Both done or no money. No wallet, no money.',
+          '',
+          `-- ${terms.client.company}`,
+          '',
+        ].join('\n'),
+      );
+      expect(accepts[0]!.briefing.attachment).toBeUndefined();
+    });
+
+    it('names no hostname and no address but the network', async () => {
+      const { store, accepts } = boardStore({ offers: [{ number: CHAIN, ref: 'eee' }] });
+      const { stem } = missionShape(CHAIN);
+
+      await accept('offer=eee', store);
+      const { body } = accepts[0]!.briefing;
+
+      expect(body).not.toContain(`${stem}-`);
+      expect(body.match(/\d+\.\d+\.\d+\.\d+/g)).toEqual([missionAddressForNumber(CHAIN)]);
+    });
   });
 });
 

@@ -6,7 +6,7 @@ import {
   showReport,
 } from './hiremeOrders.js';
 import { missionLeakPath } from './missionLeak.js';
-import { backdoorJob } from './targetRoles.js';
+import { backdoorJob, chainJob } from './targetRoles.js';
 import { portforwardJob } from './portforwardJob.js';
 import { firmwarePackageOf } from '../packages/packageVersions.js';
 import { missionShape, type MissionShape } from './missionShape.js';
@@ -844,6 +844,27 @@ describe('showReport on a backdoor job', () => {
     expect(lines).toContain('  Kind:     backdoor, build server');
     expect(lines).toContain(`  Target box: ${stem}-ci`);
     expect(lines).toContain(`  Port:     ${backdoorJob(TWO_HOP).port}`);
+    expect(report).not.toContain('Key');
+    expect(report).not.toContain('Storage:');
+  });
+});
+
+describe('showReport on a chain job', () => {
+  const SECRET = 'operator-test-secret';
+  const CHAIN = Array.from({ length: 8000 }, (_unused, index) => index * 256 + 2).find(
+    (candidate) => missionShape(candidate).kind === 'chain',
+  )!;
+
+  it('names the kind and the machine to take down, the port the listener holds on the front box, and no key', () => {
+    const { stem } = missionShape(CHAIN);
+    const { role, port } = chainJob(CHAIN);
+    const report = showReport(CHAIN, SECRET, undefined);
+    const lines = report.split('\n');
+
+    expect(lines).toContain('  Template: two-hop');
+    expect(lines).toContain(`  Kind:     chain, ${role.noun}`);
+    expect(lines).toContain(`  Listener: :${port} on the front box`);
+    expect(lines).toContain(`  Target box: ${stem}-${role.suffix}`);
     expect(report).not.toContain('Key');
     expect(report).not.toContain('Storage:');
   });

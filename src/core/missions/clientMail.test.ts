@@ -14,12 +14,12 @@ import {
 } from './missionFileItem.js';
 import { runStatement } from '../mysql/statements.js';
 import { DATADIR_PATH, databaseIn } from '../mysql/datadir.js';
-import { buildMissionKeyBoxFs } from '../generation/missionKeyBoxFs.js';
+import { buildMissionFrontBoxFs, buildMissionKeyBoxFs } from '../generation/missionKeyBoxFs.js';
 import { DATADIR_FILE, PASSWD_FILE, ROOT_FILE, file, withFiles } from '../generation/baseFs.js';
 import { md5 } from '../generation/md5.js';
 import { PASSWD_PATH, withAccountHash } from '../sessions/passwdAccount.js';
 import type { Directory } from '../filesystem/types.js';
-import { backdoorJob, credentialRole } from './targetRoles.js';
+import { backdoorJob, chainJob, credentialRole } from './targetRoles.js';
 import { portforwardJob } from './portforwardJob.js';
 import { missionEssid } from './missionNetwork.js';
 import { buildApGatewayBaseFs } from '../generation/routerFs.js';
@@ -133,6 +133,11 @@ const NO_ROUTER = async (): Promise<TargetBoxRead> => {
   throw new Error('a job read a router');
 };
 
+/** A front box nobody should be asked for: only a chain job's mail reads one. */
+const NO_FRONT_BOX = async (): Promise<TargetBoxRead> => {
+  throw new Error('a job read a front box');
+};
+
 const mailTo = (
   store: ClientMailStore,
   mail: {
@@ -142,6 +147,7 @@ const mailTo = (
     readonly file?: string;
     readonly readTargetBox?: (missionNumber: number) => Promise<TargetBoxRead>;
     readonly readRouter?: (missionNumber: number) => Promise<TargetBoxRead>;
+    readonly readFrontBox?: (missionNumber: number) => Promise<TargetBoxRead>;
   } = {},
 ) =>
   answerClientMail({
@@ -154,6 +160,7 @@ const mailTo = (
     store,
     readTargetBox: mail.readTargetBox ?? NO_TARGET_BOX,
     readRouter: mail.readRouter ?? NO_ROUTER,
+    readFrontBox: mail.readFrontBox ?? NO_FRONT_BOX,
   });
 
 /** What the client signs every reply with. */
@@ -1933,5 +1940,188 @@ describe('a mail carrying a file on a key job', () => {
     expect(await mailTo(store, { body: `${WALLET}\n`, file: SOME_FILE })).toBe('replied');
     expect(completes).toEqual([]);
     expect(replies).toEqual([fromClient('No key, no money. Send the key.')]);
+  });
+});
+
+describe('a mail on a chain job', () => {
+  const CHAIN_JOB = ALL_HOST_NUMBERS.find(
+    (missionNumber) => missionKind(missionNumber) === 'chain',
+  )!;
+  const CHAIN_TERMS = missionTerms(CHAIN_JOB);
+  const { port: PORT } = chainJob(CHAIN_JOB);
+  /** A classic port the client did not name. */
+  const OTHER_PORT = PORT === 4444 ? 5555 : 4444;
+
+  /** A box read answering with `read`, keeping every number it was asked for. */
+  const boxRead = (read: TargetBoxRead) => {
+    const reads: number[] = [];
+    return {
+      reads,
+      read: async (missionNumber: number): Promise<TargetBoxRead> => {
+        reads.push(missionNumber);
+        return read;
+      },
+    };
+  };
+
+  /** `fs` up, with a root's listener on each of `ports`. */
+  const upListeningOn = (fs: Directory, ...ports: readonly number[]): TargetBoxRead => ({
+    kind: 'up',
+    fs: withFiles(
+      fs,
+      ports.map((port) => [
+        listenerPidfilePath(port),
+        file(formatListenerContent({ port, user: 'root', userType: 'root' }), PIDFILE_PERMISSIONS),
+      ]),
+    ),
+  });
+
+  /** The front box up, with a listener on each of `ports`. */
+  const frontListeningOn = (...ports: readonly number[]): TargetBoxRead =>
+    upListeningOn(buildMissionFrontBoxFs(CHAIN_JOB), ...ports);
+
+  /** The machine to take down, still up, with a listener on each of `ports`. */
+  const targetListeningOn = (...ports: readonly number[]): TargetBoxRead =>
+    upListeningOn(buildMissionKeyBoxFs(CHAIN_JOB), ...ports);
+
+  const DOWN: TargetBoxRead = { kind: 'absent' };
+
+  const fromChainClient = (line: string): ContractMail => ({
+    sender: `${CHAIN_TERMS.client.handle}@emailit.io`,
+    subject: `Contract: ${CHAIN_TERMS.targetCompany}`,
+    body: signed(line, CHAIN_TERMS.client.company),
+  });
+
+  const NO_LISTENER = `Nothing is listening on port ${PORT} on the edge. No listener, no money.`;
+  const STILL_UP = 'Their machine is still up. No outage, no money.';
+
+  const mailOnChainJob = (
+    store: ClientMailStore,
+    boxes: { readonly front: TargetBoxRead; readonly target: TargetBoxRead },
+    body = `both done\n${WALLET}\n`,
+  ) =>
+    mailTo(store, {
+      to: CHAIN_TERMS.client,
+      body,
+      readFrontBox: boxRead(boxes.front).read,
+      readTargetBox: boxRead(boxes.target).read,
+    });
+
+  const acceptedChainJob = () => clientStore({ jobs: [{ number: CHAIN_JOB, state: 'accepted' }] });
+
+  it('reads both boxes of the job held, and pays once the listener holds the port and the machine is down', async () => {
+    const { store, completes, replies } = acceptedChainJob();
+    const front = boxRead(frontListeningOn(PORT));
+    const target = boxRead(DOWN);
+
+    expect(
+      await mailTo(store, {
+        to: CHAIN_TERMS.client,
+        body: `both done\n${WALLET}\n`,
+        readFrontBox: front.read,
+        readTargetBox: target.read,
+      }),
+    ).toBe('replied');
+    expect(front.reads).toEqual([CHAIN_JOB]);
+    expect(target.reads).toEqual([CHAIN_JOB]);
+    expect(completes).toEqual([
+      {
+        number: CHAIN_JOB,
+        wallet: WALLET,
+        pay: CHAIN_TERMS.pay,
+        reply: fromChainClient(
+          `Both done. §${CHAIN_TERMS.pay.toLocaleString('en-US')} sent to ${WALLET}. Pleasure doing business.`,
+        ),
+      },
+    ]);
+    expect(replies).toEqual([]);
+  });
+
+  it('pays whatever else the front box listens on beside the port named', async () => {
+    const { store, completes } = acceptedChainJob();
+
+    await mailOnChainJob(store, { front: frontListeningOn(OTHER_PORT, PORT), target: DOWN });
+
+    expect(completes.map(({ number }) => number)).toEqual([CHAIN_JOB]);
+  });
+
+  it('completes and pays nothing when the mail names no wallet', async () => {
+    const { store, completes } = acceptedChainJob();
+
+    await mailOnChainJob(store, { front: frontListeningOn(PORT), target: DOWN }, 'done.\n');
+
+    expect(completes).toEqual([
+      {
+        number: CHAIN_JOB,
+        wallet: null,
+        pay: CHAIN_TERMS.pay,
+        reply: fromChainClient(
+          'Both done. You sent no wallet, so there is nothing to pay. No wallet, no money.',
+        ),
+      },
+    ]);
+  });
+
+  it.each([
+    ['neither step is done', frontListeningOn(), targetListeningOn()],
+    ['only the machine is down', frontListeningOn(), DOWN],
+    ['the listener on the edge holds another port', frontListeningOn(OTHER_PORT), DOWN],
+    [
+      'the listener is on the machine inside, not the edge',
+      frontListeningOn(),
+      targetListeningOn(PORT),
+    ],
+    ['the front box no longer boots, though the machine is down', DOWN, DOWN],
+  ])(
+    'says nothing is listening on the edge when %s, and keeps the job open',
+    async (_case, front, target) => {
+      const { store, completes, replies } = acceptedChainJob();
+
+      expect(await mailOnChainJob(store, { front, target })).toBe('replied');
+      expect(completes).toEqual([]);
+      expect(replies).toEqual([fromChainClient(NO_LISTENER)]);
+    },
+  );
+
+  it('says the machine is still up when only the listener is left, and keeps the job open', async () => {
+    const { store, completes, replies } = acceptedChainJob();
+
+    expect(
+      await mailOnChainJob(store, { front: frontListeningOn(PORT), target: targetListeningOn() }),
+    ).toBe('replied');
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromChainClient(STILL_UP)]);
+  });
+
+  it.each([
+    ['the front box', { kind: 'error' } as const, DOWN],
+    ['the machine', frontListeningOn(PORT), { kind: 'error' } as const],
+  ])('answers nothing when %s could not be read', async (_case, front, target) => {
+    const { store, completes, replies } = acceptedChainJob();
+
+    expect(await mailOnChainJob(store, { front, target })).toBeNull();
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([]);
+  });
+
+  it('says the job is already closed once it is completed, without reading either box', async () => {
+    const { store, completes, replies } = clientStore({
+      jobs: [{ number: CHAIN_JOB, state: 'completed' }],
+    });
+    const front = boxRead(frontListeningOn());
+    const target = boxRead(targetListeningOn());
+
+    expect(
+      await mailTo(store, {
+        to: CHAIN_TERMS.client,
+        body: `both done\n${WALLET}\n`,
+        readFrontBox: front.read,
+        readTargetBox: target.read,
+      }),
+    ).toBe('replied');
+    expect(front.reads).toEqual([]);
+    expect(target.reads).toEqual([]);
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromChainClient(CLOSED_LINE)]);
   });
 });

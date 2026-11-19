@@ -485,9 +485,15 @@ describe('missionFilesForBox', () => {
 
 describe('missionFilePaths', () => {
   it('names the same files the server lays in, from the number alone', () => {
+    // The sample's shapes drawn once for all eighteen pairs: drawing them per pair takes long
+    // enough to time out under a full run.
+    const keyJobs = SAMPLE_NUMBERS.map(missionShape).filter(({ kind }) => kind === 'key');
     for (const route of ['hydra', 'msfconsole', 'web', 'ftp', 'mysql', 'snmp'] as const) {
       for (const storage of ['file', 'gpg', 'database'] as const) {
-        const missionNumber = firstWithRoute(route, storage);
+        const missionNumber = keyJobs.find(
+          (shape) => shape.keyBox.route === route && shape.storage === storage,
+        )?.missionNumber;
+        if (missionNumber === undefined) throw new Error(`no ${route} ${storage} contract`);
         const laid = missionFiles(keyOf(missionNumber), {
           keySecret: KEY_SECRET,
           rawSecrets: RAW_SECRETS,
