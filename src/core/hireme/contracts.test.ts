@@ -1025,6 +1025,104 @@ describe('accepting an offer', () => {
     });
   });
 
+  describe('on a wipe job', () => {
+    /** The first wipe contract from 70,000 up drawing `setting`, on one hop or on two. */
+    const wipeNumber = (setting: RecordSetting, twoHop: boolean): number => {
+      for (let candidate = 70_000; candidate < 2_000_000; candidate++) {
+        if (!isMissionNumber(candidate)) continue;
+        const shape = missionShape(candidate);
+        if (shape.kind !== 'wipe' || (shape.frontBox !== null) !== twoHop) continue;
+        if (missionSetting(candidate) === setting) return candidate;
+      }
+      throw new Error(`no ${setting} wipe contract`);
+    };
+
+    const WIPE_SINGLE_HOP = wipeNumber('police', false);
+    const WIPE_TWO_HOP = wipeNumber('police', true);
+
+    it('writes a single-hop briefing describing the records and asking for all of it gone', async () => {
+      const { store, accepts } = boardStore({ offers: [{ number: WIPE_SINGLE_HOP, ref: 'bbb' }] });
+      const terms = missionTerms(WIPE_SINGLE_HOP);
+
+      await accept('offer=bbb', store);
+
+      expect(accepts[0]!.briefing.subject).toBe(`Contract: ${terms.targetCompany}`);
+      expect(accepts[0]!.briefing.body).toBe(
+        [
+          terms.pitch,
+          '',
+          `The target is ${terms.targetCompany}. Their network is at ${missionAddressForNumber(WIPE_SINGLE_HOP)}.`,
+          '',
+          'Their records hold everyone they want arrested. We want all of it gone.',
+          '',
+          'Mail this address when it is done, with your wallet address.',
+          'Not wiped, no money. No wallet, no money.',
+          '',
+          `-- ${terms.client.company}`,
+          '',
+        ].join('\n'),
+      );
+    });
+
+    it('tells a two-hop contractor the records are on a machine inside the network', async () => {
+      const { store, accepts } = boardStore({ offers: [{ number: WIPE_TWO_HOP, ref: 'ccc' }] });
+      const terms = missionTerms(WIPE_TWO_HOP);
+
+      await accept('offer=ccc', store);
+
+      expect(accepts[0]!.briefing.body).toBe(
+        [
+          terms.pitch,
+          '',
+          `The target is ${terms.targetCompany}. Their network is at ${missionAddressForNumber(WIPE_TWO_HOP)}.`,
+          '',
+          'Their records hold everyone they want arrested. We want all of it gone.',
+          '',
+          'The records are on a machine inside their network, not on the edge.',
+          '',
+          'Mail this address when it is done, with your wallet address.',
+          'Not wiped, no money. No wallet, no money.',
+          '',
+          `-- ${terms.client.company}`,
+          '',
+        ].join('\n'),
+      );
+    });
+
+    it.each([
+      ['school', 'what each student scored in each subject'],
+      ['police', 'everyone they want arrested'],
+      ['payroll', 'what they pay each of their people'],
+      ['dmv', 'the points held against each driver'],
+      ['tournament', 'what each player has racked up'],
+      ['admissions', 'everyone waiting on a place'],
+      ['club', 'everyone who belongs to the club'],
+      ['registry', 'who owns which car'],
+    ] as const)(
+      'describes the records on a %s job as %s, and names no table, file or machine',
+      async (setting, description) => {
+        const missionNumber = wipeNumber(setting, false);
+        const { store, accepts } = boardStore({ offers: [{ number: missionNumber, ref: 'mmm' }] });
+        const { stem } = missionShape(missionNumber);
+
+        await accept('offer=mmm', store);
+        const { body, attachment } = accepts[0]!.briefing;
+
+        expect(body.split('\n')).toContain(
+          `Their records hold ${description}. We want all of it gone.`,
+        );
+        for (const { name } of missionRecords(missionNumber).tables) {
+          expect(body).not.toMatch(new RegExp(`\\b${name}\\b`));
+        }
+        expect(body).not.toContain('/srv/');
+        expect(body).not.toContain(DATADIR_PATH);
+        expect(body).not.toContain(`${stem}-`);
+        expect(body.match(/\d+\.\d+\.\d+\.\d+/g)).toEqual([missionAddressForNumber(missionNumber)]);
+        expect(attachment).toBeUndefined();
+      },
+    );
+  });
+
   describe('on a portforward job', () => {
     it.each([
       ['customer database', 3306],

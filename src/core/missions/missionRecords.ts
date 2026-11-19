@@ -161,13 +161,18 @@ const csvValue = (raw: string): string => {
     : value;
 };
 
-/** The rows a CSV holds, each keyed by the header's names, or none when a line holds more or
- *  fewer values than the header names. Line endings and blank lines do not count. */
-const csvRows = (content: string): readonly MysqlRow[] | undefined => {
-  const [header, ...lines] = content
+/** A CSV's lines as the client reads them, each split into its values. Line endings and blank
+ *  lines do not count. */
+const csvLines = (content: string): readonly (readonly string[])[] =>
+  content
     .split(/\r?\n/)
     .filter((line) => line.trim() !== '')
     .map((line) => line.split(',').map(csvValue));
+
+/** The rows a CSV holds, each keyed by the header's names, or none when a line holds more or
+ *  fewer values than the header names. */
+const csvRows = (content: string): readonly MysqlRow[] | undefined => {
+  const [header, ...lines] = csvLines(content);
   if (header === undefined) return undefined;
   if (lines.some((values) => values.length !== header.length)) return undefined;
   return lines.map((values) =>
@@ -197,6 +202,44 @@ const sameRow = (live: MysqlRow, generated: MysqlRow): boolean => {
   return (
     Object.keys(live).length === columns.length &&
     columns.every((column) => column in live && `${live[column]}` === `${generated[column]}`)
+  );
+};
+
+/** Whether the box still holds exactly the rows the number drew for a table, in the order it
+ *  drew them, nothing added. */
+const holdsAsDrawn = (live: readonly MysqlRow[] | undefined, drawn: readonly MysqlRow[]): boolean =>
+  live !== undefined &&
+  live.length === drawn.length &&
+  drawn.every((generated, index) => {
+    const row = live[index];
+    return row !== undefined && sameRow(row, generated);
+  });
+
+/** Whether the table a wipe job is about holds nothing now: in a database, no rows or no table;
+ *  in a file, no file, nothing but blank lines, or the header alone. A file with lines the client
+ *  cannot read as rows may still hold the data, so it is not empty. */
+const emptied = (missionNumber: number, { name, table }: NamedTable, fs: Directory): boolean => {
+  if (recordsStorage(missionNumber) === 'database') {
+    return (databaseIn(fs)?.tables[name]?.rows.length ?? 0) === 0;
+  }
+  const read = createFsView(fs, { userType: 'root' }).read(
+    asAbsPath(recordsPathOf(missionNumber, name)),
+  );
+  if (!read.ok) return true;
+  const [first, ...rest] = csvLines(read.content);
+  const header = table.columns.map((column) => column.name);
+  return first === undefined || (rest.length === 0 && first.join(',') === header.join(','));
+};
+
+/** What the client sees when the contractor mails in on a wipe job: the table the job is about
+ *  emptied, and the two beside it holding exactly the rows the number drew, in order. Any other
+ *  table on the box is never read. */
+export const recordsWiped = (missionNumber: number, fs: Directory): boolean => {
+  const [target, ...beside] = missionRecords(missionNumber).tables;
+  return (
+    target !== undefined &&
+    emptied(missionNumber, target, fs) &&
+    beside.every(({ name, table }) => holdsAsDrawn(liveRows(missionNumber, name, fs), table.rows))
   );
 };
 

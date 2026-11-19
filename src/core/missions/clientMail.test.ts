@@ -1448,6 +1448,165 @@ describe('a mail on a destroy job', () => {
   });
 });
 
+describe('a mail on a wipe job', () => {
+  /** A wipe job whose records box keeps a database and needs no secret to lay. */
+  const WIPE_JOB = ALL_HOST_NUMBERS.find((missionNumber) => {
+    const shape = missionShape(missionNumber);
+    return shape.kind === 'wipe' && shape.keyBox.route === 'hydra' && shape.storage === 'database';
+  })!;
+  const WIPE_TERMS = missionTerms(WIPE_JOB);
+  const [TARGET, BESIDE] = missionRecords(WIPE_JOB).tables;
+
+  /** The records box as the server lays it, after the application account ran `lines`. */
+  const recordsBoxAfter = (...lines: readonly string[]): TargetBoxRead => {
+    const laid = withFiles(
+      buildMissionKeyBoxFs(WIPE_JOB),
+      missionFiles(
+        { missionNumber: WIPE_JOB, role: 'key' },
+        { keySecret: undefined, rawSecrets: undefined },
+      ).map(({ path, content, perms }) => [path, file(content, perms)] as const),
+    );
+    const database = lines.reduce(
+      (current, line) =>
+        runStatement({
+          database: current,
+          line,
+          username: 'app',
+          userType: 'user',
+          sourceIp: '198.51.100.7',
+        }).database ?? current,
+      databaseIn(laid)!,
+    );
+    return {
+      kind: 'up',
+      fs: withFiles(laid, [[DATADIR_PATH, file(JSON.stringify(database), DATADIR_FILE)]]),
+    };
+  };
+
+  const WIPED = `DELETE FROM ${TARGET?.name}`;
+
+  /** A box read answering with `read`, keeping every number it was asked for. */
+  const targetBox = (read: TargetBoxRead) => {
+    const reads: number[] = [];
+    return {
+      reads,
+      readTargetBox: async (missionNumber: number): Promise<TargetBoxRead> => {
+        reads.push(missionNumber);
+        return read;
+      },
+    };
+  };
+
+  const fromWipeClient = (line: string): ContractMail => ({
+    sender: `${WIPE_TERMS.client.handle}@emailit.io`,
+    subject: `Contract: ${WIPE_TERMS.targetCompany}`,
+    body: signed(line, WIPE_TERMS.client.company),
+  });
+
+  const NOT_WIPED = "That's not what we asked for. Not wiped, no money.";
+
+  const acceptedStore = () => clientStore({ jobs: [{ number: WIPE_JOB, state: 'accepted' }] });
+
+  const mailOnWipeJob = (
+    store: ClientMailStore,
+    read: TargetBoxRead,
+    body = `it is wiped\n${WALLET}\n`,
+  ) => mailTo(store, { to: WIPE_TERMS.client, body, readTargetBox: targetBox(read).readTargetBox });
+
+  it('reads the records box of the job held, and pays once the table is empty', async () => {
+    const { store, completes, replies } = acceptedStore();
+    const box = targetBox(recordsBoxAfter(WIPED));
+
+    expect(
+      await mailTo(store, {
+        to: WIPE_TERMS.client,
+        body: `it is wiped\n${WALLET}\n`,
+        readTargetBox: box.readTargetBox,
+      }),
+    ).toBe('replied');
+    expect(box.reads).toEqual([WIPE_JOB]);
+    expect(completes).toEqual([
+      {
+        number: WIPE_JOB,
+        wallet: WALLET,
+        pay: WIPE_TERMS.pay,
+        reply: fromWipeClient(
+          `The records are gone. §${WIPE_TERMS.pay.toLocaleString('en-US')} sent to ${WALLET}. Pleasure doing business.`,
+        ),
+      },
+    ]);
+    expect(replies).toEqual([]);
+  });
+
+  it('completes and pays nothing when the mail names no wallet', async () => {
+    const { store, completes } = acceptedStore();
+
+    await mailOnWipeJob(store, recordsBoxAfter(WIPED), 'it is wiped\n');
+
+    expect(completes).toEqual([
+      {
+        number: WIPE_JOB,
+        wallet: null,
+        pay: WIPE_TERMS.pay,
+        reply: fromWipeClient(
+          'The records are gone. You sent no wallet, so there is nothing to pay. No wallet, no money.',
+        ),
+      },
+    ]);
+  });
+
+  it.each([
+    ['the records are untouched', recordsBoxAfter()],
+    [
+      'a row is left',
+      recordsBoxAfter(`DELETE FROM ${TARGET?.name} WHERE id = '${TARGET?.table.rows[0]?.['id']}'`),
+    ],
+    ['the table beside it was emptied too', recordsBoxAfter(WIPED, `DELETE FROM ${BESIDE?.name}`)],
+    ['the target no longer boots', { kind: 'absent' } as const],
+  ])('says it is not what was asked when %s, and keeps the job open', async (_case, read) => {
+    const { store, completes, replies } = acceptedStore();
+
+    expect(await mailOnWipeJob(store, read)).toBe('replied');
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromWipeClient(NOT_WIPED)]);
+  });
+
+  it('pays once the wipe is finished after a mail that came too early', async () => {
+    const { store, completes, replies } = acceptedStore();
+
+    await mailOnWipeJob(store, recordsBoxAfter());
+    await mailOnWipeJob(store, recordsBoxAfter(WIPED));
+
+    expect(replies).toEqual([fromWipeClient(NOT_WIPED)]);
+    expect(completes.map(({ number }) => number)).toEqual([WIPE_JOB]);
+  });
+
+  it('answers nothing when the target could not be read', async () => {
+    const { store, completes, replies } = acceptedStore();
+
+    expect(await mailOnWipeJob(store, { kind: 'error' })).toBeNull();
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([]);
+  });
+
+  it('says the job is already closed once it is completed, without reading the target', async () => {
+    const { store, completes, replies } = clientStore({
+      jobs: [{ number: WIPE_JOB, state: 'completed' }],
+    });
+    const box = targetBox(recordsBoxAfter(WIPED));
+
+    await mailTo(store, {
+      to: WIPE_TERMS.client,
+      body: `it is wiped\n${WALLET}\n`,
+      readTargetBox: box.readTargetBox,
+    });
+
+    expect(box.reads).toEqual([]);
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromWipeClient(CLOSED_LINE)]);
+  });
+});
+
 describe('a mail on an infiltrate job', () => {
   const INFILTRATE_JOB = ALL_HOST_NUMBERS.find(
     (missionNumber) => missionKind(missionNumber) === 'infiltrate',

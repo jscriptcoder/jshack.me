@@ -74,8 +74,10 @@ import {
  *  rounded up to 1,100; then the msfconsole router route (its vendor draw, and the firmware
  *  hole reader the shape now asks for its release) added 419 B, rounded up to 500; then the
  *  credential kind (its eighth of the draw, the password line the client reads, and the seven
- *  machines' reasons for wanting a root login) added 619 B, rounded up to 700. */
-const BUNDLE_CEILING_BYTES = 304_375;
+ *  machines' reasons for wanting a root login) added 619 B, rounded up to 700; then the wipe
+ *  kind (its tenth of the draw, and the emptied-table reading the client does) added 54 B,
+ *  rounded up to 100. */
+const BUNDLE_CEILING_BYTES = 304_475;
 
 /** About a tenth of that before world content, so a loaded machine's noise cannot fail
  *  the check while a content change that makes boxes ten times dearer still does. */
