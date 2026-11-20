@@ -673,3 +673,15 @@ Also write `chainJob(n).port` (`core/missions/targetRoles.ts`) and the target's 
 | 5 | Root the front box again, `apt install nmap`, `nmap 192.168.<x>.1-254` | Lists `<stem>-gw`, `<stem>-web` and the target by its machine (`<stem>-lic`, `-nvr`, …). `nmap` is not on the front box. The listener survives the `exit` and the second root |
 | 6 | `ssh root@<target>` (no `-p`), its word, then `rm /boot/vmlinuz` | Poll for `password:` before typing the word: the hop's prompt can take seconds. **Never `rm` a boot file on the front box**: a front box that no longer boots reads as no listener, and the job can't be finished |
 | 7 | `exit` twice, waiting for each prompt, then `mail reply <briefing n>` with the wallet | "Both done. §<pay> sent to jsc…. Pleasure doing business." (4,000–7,000); a later mail gets "That job is already closed." |
+
+**The other two endings** (verified 2026-11-20, v0.475.0: a destroy, contract 11795709, paid
+§6,100, and a wipe kept in a database, contract 5112806, paid §5,300). The last step is
+`chainFinal(n)` (`core/missions/missionShape.ts`), a third each; match it in the turnover script
+beside the kind. A destroy or wipe ending names the inside box `<stem>-files`, never the machine.
+The board took 8 rounds for a destroy and 23 for a wipe.
+
+| Ending | Steps on the inside box | Trap |
+| --- | --- | --- |
+| destroy | `ssh root@<target>` from the front box, `find / <name>`, `rm <path>` | The briefing gives the file's name only; `missionFilePath(n)` is where it is. The listener alone gets "We can't confirm that file is gone." |
+| wipe, files | `ssh root@<target>`, then `rm` the CSV or cut it to its header in `nano` | `recordsFilePath(n)`. The target table is `missionRecords(n).tables[0]`; touching either of the other two loses the job |
+| wipe, database | From the front box: `apt install mysql`, `mysql <target> <account>`, its word at `Enter password:`, then `DELETE FROM <table>` | **The account is not in the shape.** Read it offline: `databaseIn(buildMissionKeyBoxFs(n))?.credentials.find((c) => c.userType === 'user')` and `plaintextFor(passwordHash)`. The records tables are laid in by the server, so that offline database shows only the box's filler tables. In game `SHOW TABLES` lists the three records tables beside the filler; `DROP` is denied |

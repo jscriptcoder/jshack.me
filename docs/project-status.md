@@ -1738,7 +1738,35 @@ agreed order:
     shell through a `high` firmware hole, the same sweep and `nano` forward `13306` to
     `brightmoor-db:3306`, `13306/tcp mysql` showed from home, and the mail paid §1,400. No defect.
     Announced on valleynews.io `/dev` (story 23). The plan was retired on close-out.
-    **Pick up here (2026-11-17):** the owner's choice from `backlog.md`.
+53. ✅ **Four black-hat kinds: a root login stolen, a file destroyed, a table wiped, and a two-step
+    chain (v0.471.0–v0.475.0, PRs #785–#789, merged 2026-11-18 to 2026-11-20).** Five stories;
+    as-built: "Four black-hat kinds" in [`missions-architecture.md`](./missions-architecture.md).
+    Each kind took an equal share of the kind draw from the older ones, so every kind is now an
+    eleventh and no number changed between older kinds. A **credential** job pays for root's
+    password on a named machine, read from the first `password:` line and tested against the
+    target's `/etc/passwd` as it stands, so a password set with `passwd` pays too. A **destroy**
+    job names one of the file job's six items and pays once its path no longer holds the laid bytes.
+    A **wipe** job describes one of the eight tamper settings' main tables without naming it and
+    pays once it is empty and the two beside it read exactly as generated; `DROP` is refused and
+    database root stays shut. A **chain** job is always two-hop and pays 4,000–7,000: a listener on
+    the front box on a named port, then a last step on the machine behind it, an even draw between
+    a takedown, a destroy and a wipe, each checked by its own kind's rule (`stepMiss`). The client
+    reads the listener first, so a missing one answers whatever the last step's state. Credential,
+    destroy and wipe are two-hop on one contract in three. Evidence: unit tests (11,188 at
+    v0.475.0), the wire-checks `testMissionCredential` 14/14, `testMissionDestroy` 14/14,
+    `testMissionWipe` 25/25 and `testMissionChain` 17/17, and every other mission and hireme
+    wire-check green; mutation on each story's changed lines, survivors killed or argued
+    equivalent.
+    **Close-out (2026-11-20, v0.475.0):** one browser run on a fresh player on LORIMERS-TEA-ROOM,
+    the board turned over by a script until each new chain ending came up; each earlier kind had
+    its own run when it shipped. A destroy ending (§6,100): the listener reply before anything, the
+    destroy miss with only `nc -l 5555` on the edge, then the photo found and removed on
+    `sternco-files` over the LAN, and paid. A wipe ending kept in a database (§5,300): `DROP`
+    denied to the application account, the listener reply with one row deleted, the wipe miss with
+    the listener left, then `DELETE FROM scores` from the edge box, and paid. A later mail on each
+    was told the job is closed. No defect. Announced on valleynews.io `/dev` (story 24). The plan
+    was retired on close-out.
+    **Pick up here (2026-11-20):** the owner's choice from `backlog.md`.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

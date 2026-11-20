@@ -8,7 +8,11 @@ file job, by mailing them one of the target's files as an attachment, or, on a b
 leaving a listener on one of the target's machines and mailing them while it listens, or, on an
 infiltrate job, by putting the file the client mailed them at a path on one of the target's
 machines and mailing them while it is there, or, on a portforward job, by making the target's
-router send a public port to one of its machines and mailing them while it does. This is
+router send a public port to one of its machines and mailing them while it does, or, on a
+credential job, by mailing them root's password on one of its machines, or, on a destroy job, by
+getting rid of one of its files, or, on a wipe job, by emptying one of its tables, or, on a chain
+job, by leaving a listener on its edge and then doing one of those last three things to the
+machine behind it. This is
 the shipped model of the missions epic, complete at **v0.441.0** (four slices, v0.438.0–v0.441.0,
 PRs #746–#749, 2026-11-01 to 2026-11-03), with the routes that leak a login added by the epic
 that followed (four slices, v0.442.0–v0.445.0, PRs #750–#753, 2026-11-03 to 2026-11-04), and a
@@ -19,15 +23,17 @@ machine taken down ("Sabotage jobs", two slices, v0.458.0–v0.459.0, PRs #770�
 and a fourth, a file brought back ("File jobs", from v0.461.0, on mail that carries a file,
 v0.460.0, PR #772), and a fifth, a listener left on a machine ("Backdoor jobs", v0.464.0), and
 a sixth, the client's own file put in place ("Infiltrate jobs", v0.465.0–v0.466.0), and a
-seventh, a port forwarded into a machine ("Portforward jobs", v0.467.0).
+seventh, a port forwarded into a machine ("Portforward jobs", v0.467.0), and four black-hat
+kinds, a root login stolen, a file destroyed, a table wiped and a two-step chain ("Four black-hat
+kinds", v0.471.0–v0.475.0, PRs #785–#789, 2026-11-18 to 2026-11-20).
 It sits
 on top of the contractor boards
 ([`hireme-architecture.md`](./hireme-architecture.md)), emailit.io
 ([`email-architecture.md`](./email-architecture.md)) and the wallet
 ([`wallet-architecture.md`](./wallet-architecture.md)) without changing their machines,
 addresses or lookups. Legacy's design and scenarios, the input to the grill, are in
-[`mission-ideas/`](./mission-ideas/README.md). The grill record and slice plans were retired on
-close-out. When this doc and the code disagree, the code wins — fix the doc.
+[`mission-ideas/`](./mission-ideas/README.md). The grill records and slice plans were retired on
+close-out; the black-hat kinds' grill decisions are folded into their sections below. When this doc and the code disagree, the code wins — fix the doc.
 
 ## The one idea the design turns on
 
@@ -951,6 +957,8 @@ The seventh kind of contract (v0.467.0): a client wants to reach one of the targ
 from outside, and asks for the target's router to send a public port the briefing names to it.
 Nobody roots the machine. The contractor roots the router and adds the forward to
 `/etc/iptables/rules.v4`, and the client reads the router when the contractor mails in.
+Since v0.474.0 each kind is an eleventh ([Four black-hat kinds](#four-black-hat-kinds)); the
+table below is the split portforward jobs made.
 `mission-kind-<n>` is split in sevenths: each of the six older kinds gave up a forty-second at
 the top of one of its pieces, and portforward jobs fill those six gaps, so a number is the kind
 it was, with its shape, terms and LAN exactly, or has become a portforward job. None turned from
@@ -1074,6 +1082,185 @@ one older kind into another. In 420ths (`KIND_CUTS`, `core/missions/missionShape
   `Router: hydra` or `Router: msfconsole, <vendor> <version>`, calls the slot the target, prints `Route: none (sealed)`, the decoy forwards
   and the services, and no storage, key path or key.
 
+## Four black-hat kinds
+
+Four more kinds shipped one after another, each in its own PR (v0.471.0–v0.475.0, PRs
+#785–#789, 2026-11-18 to 2026-11-20): a root login stolen, a file destroyed, a table wiped, and a
+chain job that leaves a listener on the edge and then does one of three things to the machine
+behind it. Each took its share of `mission-kind-<n>` the way portforward jobs did: every older
+kind gave up an equal slice at the top of one or more of its pieces, so a number is the kind it
+was, with its shape, terms and LAN exactly, or has become the new kind. None turned from one older
+kind into another. Credential jobs made each kind an eighth, destroy jobs a ninth, wipe jobs a
+tenth and chain jobs an eleventh. `KIND_CUTS` (`core/missions/missionShape.ts`) now holds 53
+pieces in 27,720ths, and every kind's pieces add up to 2,520, one eleventh each.
+
+Credential, destroy and wipe jobs are two-hop on the same `mission-template-<n>` draw as the older
+kinds, about one in three. A chain job is always two-hop. On two-hop the target is the inside
+box, and the briefing adds "It is a machine inside their network, not on the edge." or the kind's
+own form of it ("The file is …", "The records are …").
+
+### Credential jobs
+
+The eighth kind (v0.471.0): a client wants root's password on one of the target's machines.
+
+- **The target is the key box's slot, named for one of the seven machines** sabotage and backdoor
+  jobs use (`credentialRole`, on `mission-credential-role-<n>`, `core/missions/targetRoles.ts`),
+  its hostname the machine's suffix (`<stem>-backup`, `-nvr`, …). It has no storage. Each machine
+  brings three credential pitches of its own.
+- **The terms**: `<Client> — steal the root login for a backup server — §<pay>`, `… for an
+  internal backup server` on two-hop, at the key job's pay (500–2,000 single-hop, 2,000–4,000
+  two-hop, to the nearest 50).
+- **The briefing** names the machine and asks for one labelled line:
+
+  ```text
+  Bring us the root login for their backup server.
+  Put the password on a line of its own, like this:
+
+    password: <the password>
+
+  Reply to this address with that line and your wallet address.
+  No login, no money. No wallet, no money.
+  ```
+
+- **The proof is a password that works now.** The client reads the first body line outside the
+  quote that starts with `password:`, whatever the label's case or the spaces before it, and tests
+  what follows, trimmed and case-sensitive: `md5` of it against root's current entry in the
+  target's `/etc/passwd` (`opensRoot`, `core/missions/clientMail.ts`). The subject is never read,
+  because `mail reply` fills it in. So a password found and a password set with `passwd` from a
+  root shell both pay, on every route, and one changed since the job was done does not. One line
+  is one guess: a mail cannot try a list of words, and every proof mail counts toward the hourly
+  send limit.
+- **Every miss gets one reply**: "That login doesn't open their backup server. No login, no
+  money." It covers no line, an empty password, a wrong one, the front box's password on two-hop
+  (unless it happens to open the target too), and a target that no longer boots. A paid job opens
+  "That login works."
+- `hireme.ts show` prints `Kind: credential, <machine>` and calls the slot the target.
+
+### Destroy jobs
+
+The ninth kind (v0.472.0): a client wants one of the target's files gone.
+
+- **The file is one of the file job's six items** (`missionFileItem`), laid root-only at the
+  item's path on the target, which keeps the hostname `<stem>-files` and has no storage. Each item
+  brings four destroy pitches of its own.
+- **The terms**: `<Client> — destroy a signed contract — §<pay>`, `destroy an internal …` on
+  two-hop, at the key job's pay.
+- **The briefing** gives the file's name and never where it sits:
+
+  ```text
+  Their lawyers keep a signed contract. We want it gone. Its name is:
+
+    harbour-bid-signed.pdf
+
+  Write to this address with your wallet address once it is gone.
+  Not gone, no money. No wallet, no money.
+  ```
+
+- **The client reads the target as it stands** and completes the job once the file's path no
+  longer holds exactly the bytes the server laid, whether it was deleted, overwritten or moved,
+  and whoever did it. The same bytes put back count as still there. A paid job opens "It's gone."
+- **Every miss gets one reply**: "We can't confirm that file is gone. Not gone, no money." A
+  target that no longer boots cannot be looked at, so it gets the same words, even if the file
+  went first, and the job is lost.
+- `hireme.ts show` prints `Kind: destroy, <item>` and the file's path and size.
+
+### Wipe jobs
+
+The tenth kind (v0.473.0): a client wants one table of the target's records emptied.
+
+- **The records are a tamper job's** ([Tamper jobs](#tamper-jobs)): one of the eight settings,
+  three tables, kept in a database or in CSV files (`recordsStorage`). The target is always the
+  setting's main table. Each setting brings three wipe pitches of its own, and the target company
+  is `<Stem> <institution>`, as on a tamper job.
+- **The terms**: `<Client> — wipe police records — §<pay>`, `wipe internal police records` on
+  two-hop, at the tamper job's pay (1,000–2,500 single-hop, 2,500–5,000 two-hop).
+- **The briefing describes the data and never names the table** (`WIPE_DESCRIPTIONS`,
+  `core/hireme/contracts.ts`), so working out which of the three fits is part of the job. It never
+  warns the player off the other two:
+
+  | Setting    | Table      | The briefing asks to wipe                |
+  | ---------- | ---------- | ---------------------------------------- |
+  | school     | grades     | what each student scored in each subject |
+  | police     | warrants   | everyone they want arrested              |
+  | payroll    | payroll    | what they pay each of their people       |
+  | dmv        | offences   | the points held against each driver      |
+  | tournament | scores     | what each player has racked up           |
+  | admissions | applicants | everyone waiting on a place              |
+  | club       | members    | everyone who belongs to the club         |
+  | registry   | vehicles   | who owns which car                       |
+
+  ```text
+  Their records hold everyone they want arrested. We want all of it gone.
+
+  Mail this address when it is done, with your wallet address.
+  Not wiped, no money. No wallet, no money.
+  ```
+
+- **The check** (`recordsWiped`, `core/missions/missionRecords.ts`): the target table must be
+  empty and the other two must read exactly as generated, every row and value in order with
+  nothing added. Empty is a table with no rows or no table at all, or a CSV that is deleted, zero
+  bytes, blank lines or only its header. A CSV with uneven lines may still hold the data, so it is
+  not empty; finishing the wipe puts it right. Any other table in the database, such as the mysql
+  route's `settings`, is never read. A paid job opens "The records are gone."
+- **Every miss gets one reply**: "That's not what we asked for. Not wiped, no money." It covers
+  rows left, either table beside it touched, and a target that no longer boots. Wiping the wrong
+  table effectively loses the job, because the game's `mysql` has no `INSERT`.
+- **Database root stays shut.** A player empties the table with `DELETE` as the application
+  account, or edits the files as root. `DROP` is refused to the application account.
+- `hireme.ts show` prints `Kind: wipe, <setting>`, the storage and the target table.
+
+### Chain jobs
+
+The eleventh kind (v0.474.0, with the last step's three endings at v0.475.0): two steps on two
+boxes, the most work in the game and the highest pay.
+
+- **Always two-hop.** The first step is a listener on the front box, on a port drawn from the
+  backdoor job's eight (`chainJob`, on `mission-chain-<n>`, `core/missions/targetRoles.ts`). The
+  last step is on the machine behind it.
+- **The last step is an even draw** (`chainFinal`, on `mission-chain-final-<n>`,
+  `core/missions/missionShape.ts`) between a sabotage job's outage, a destroy job's file gone and a
+  wipe job's table emptied. It is on a stream of its own, so drawing it moved no chain job's port,
+  pay, client or front box. `keyBoxKind(n)` answers the kind the step borrows, and the inside box
+  is built as that kind's target would be: on a takedown it is named for the machine
+  (`chainJob(n).role`, one of the seven); on a destroy or a wipe it is `<stem>-files`, laid with the
+  destroy job's file or the wipe job's three tables, in a database (which gives it a database
+  server) or in CSV files.
+- **The terms**: `<Client> — break in and take down an internal backup server — §<pay>`,
+  `break in and destroy an internal signed contract`, or `break in and wipe internal police
+  records`, at 4,000–7,000 to the nearest 50. A wipe's target company is `<Stem> <institution>`;
+  the others draw a trade, and the trade is drawn on every chain job so a wipe moves no pay. Each
+  ending brings four pitches of its own.
+- **The briefing** names the port and the last step in its own kind's words, and never a host:
+
+  ```text
+  This job has two parts. We pay for both or for neither.
+
+  First, leave a listener on the machine on the edge of their network, on port 5555.
+  Then get rid of a site photo their surveyors keep. Its name is:
+
+    IMG_20260424_071457.jpg
+
+  The file is on a machine inside their network, not on the edge.
+  Write to this address with your wallet address once both are done.
+  Both done or no money. No wallet, no money.
+  ```
+
+  A takedown reads "Then take their backup server offline. It is a machine inside their network,
+  not on the edge."; a wipe reads "Then wipe their records of everyone they want arrested." and
+  "The records are on a machine inside their network, not on the edge."
+- **The client reads both boxes on every mail** and answers with the first unfinished step, so
+  the steps can be done in either order and anyone's counts. It reads the front box first
+  (`readFrontBox`, beside `readTargetBox`); a missing listener answers "Nothing is listening on
+  port 5555 on the edge. No listener, no money." whatever state the last step is in. That covers
+  no listener, one on another port, one on the inside machine, and a bricked front box, which
+  loses the job. With the listener in place, the last step is checked by its kind's own rule
+  (`stepMiss`, `core/missions/clientMail.ts`, which the sabotage, destroy and wipe jobs use too),
+  and an unfinished one gets that kind's miss reply. With both done the job completes and pays
+  once: "Both done. §6,100 sent to jsc…. Pleasure doing business."
+- `hireme.ts show` prints `Kind: chain, <ending>, <what it asks for>` (`chain, sabotage, backup
+  server`, `chain, destroy, site photo`, `chain, wipe, police`) and `Listener: :<port> on the front
+  box`, then the file's path, or the storage and table, under the target box.
+
 ## 7. What a root finds
 
 On the boards' server, beside `/etc/hireme/boards`, **`/etc/hireme/contracts`**: one
@@ -1119,7 +1306,9 @@ pools. The sabotage kind added its draw and its seven roles. The LAN names the t
 each role's noun and pitches ride along with its hostname suffix. The file kind added only its
 share of the draw: its item, the file's name and place, and its bytes are the server's. Each feature raises the main
 chunk's ceiling by its measured growth; at v0.459.0 the chunk is 300,450 B gzipped against a
-ceiling of 300,575 B (a tamper setting's content is not in it).
+ceiling of 300,575 B (a tamper setting's content is not in it). The four black-hat kinds added
+their shares of the draw, the chain job's port and last step, and the credential pitches beside
+each machine's other pitches; at v0.475.0 the chunk is 304,564 B against a ceiling of 304,675 B.
 
 ## 10. Proving it
 
@@ -1175,7 +1364,29 @@ ceiling of 300,575 B (a tamper setting's content is not in it).
   out or the router bricked before the mail a miss, one job per machine, each reached through
   its forward, and on a msfconsole-route router `show` naming the vendor and release, `hydra`
   finding no admin, `msfconsole` at its `:22` landing root and the forward written as that root
-  paid). The
+  paid); `testMissionCredential.ts` (14: `show` naming the machine, a mail with no password line
+  and one with a wrong password refused, `hydra` and `ssh` landing root on the target, root's
+  password paid once then closed, a password set with `passwd` paying and the old one refused, no
+  wallet completing with nothing paid, a bricked target refusing the right password, and the
+  front box's password refused unless it also opens the target); `testMissionDestroy.ts` (14: the
+  briefing naming the file and never its path, `show` naming the item and the path, an untouched
+  target refused, the file deleted, overwritten or moved each paying, the same bytes put back
+  counting as still there and one byte more not, a second player's delete paying the contractor,
+  no wallet, a bricked target refused even with the file gone first, and on two hops the front box
+  alone a miss and the file removed from the inside machine paid); `testMissionWipe.ts` (25: the
+  briefing naming no table or file, `show` naming the setting, storage and table, an untouched
+  table and one with a row left refused, the sweep finding the application account and never
+  database root and its `DROP` refused, every row deleted paid once then closed, a table beside it
+  emptied refused, no wallet, a bricked box refused, the mysql route's `settings` emptied changing
+  nothing, a CSV removed paid, uneven lines refused and the CSV cut to its header then paid, on two
+  hops the table emptied over the LAN from the front box paid, and one job in each of the eight
+  settings); `testMissionChain.ts` (17: on a takedown ending, `show`, a mail before anything and a
+  listener on another port told nothing is listening on the edge, the listener alone told the
+  machine is up, the machine bricked over the LAN paid once then closed, the machine down first
+  with no listener told so and the listener left after it paid, a listener on the inside machine
+  and a bricked front box told nothing is listening; then a destroy ending and a wipe ending kept
+  in files, each with the listener in place and the step unfinished given that kind's miss, and the
+  file or the CSV removed from the inside machine paid once). The
   board and pay checks each post a two-hop offer on a chosen number (21 and 17 checks at
   v0.452.0). The decoys' doors are also proven in `decoyMissionDoors.test.ts`.
 - **Mutation**: every slice's scoped run left no survivor but equivalents.
@@ -1249,6 +1460,26 @@ ceiling of 300,575 B (a tamper setting's content is not in it).
   `draycott-web` and `draycott-nvr`, `ssh root@192.168.177.158` landed on `draycott-nvr`, and
   after `rm /boot/vmlinuz` and two `exit`s the reply paid §3,950, the balance 4,850. Both pays
   matched the terms. No defect. Passwords stayed in a scratch file, never on a read line.
+- **One browser run at the black-hat close-out** (2026-11-20, v0.475.0), one fresh player on
+  LORIMERS-TEA-ROOM, the board turned over by back-dating until each of the chain job's two new
+  endings came up. Each earlier kind had its own run when it shipped. A destroy ending (contract
+  11795709, the web route in front, ftp inside): the board read "Ashgrove Capital — break in and
+  destroy an internal site photo — §6,100", and the briefing gave port 5555, "Then get rid of a
+  site photo their surveyors keep. Its name is:", the file's name and "The file is on a machine
+  inside their network, not on the edge." A mail before anything got the listener reply. Root over
+  `:2222` landed on `sternco-web`, `nc -l 5555` left `nc-5555.pid` in `/var/run`, and the next
+  mail got "We can't confirm that file is gone." A sweep there listed `sternco-files`; `ssh` to it,
+  `find / IMG_20260424_071457.jpg` found it root-only under `/srv/media/photos`, and after `rm` and
+  two `exit`s the mail paid "Both done. §6,100". A wipe ending kept in a database (contract
+  5112806, ftp on both boxes): "Bellwether Group — break in and wipe internal tournament records —
+  §5,300", the target company Pellic Esports League, the briefing asking to wipe "what each player
+  has racked up". From the front box, `mysql 192.168.152.239 data_admin` listed `scores`, `teams`
+  and `matches` beside the box's filler tables; `DROP TABLE scores` was denied to `data_admin`, and
+  one row deleted with no listener got the listener reply. With `nc -l 4444` left on `pellic-web`,
+  the mail got "That's not what we asked for. Not wiped". `DELETE FROM scores` emptied the other
+  35, and the mail paid §5,300, the balance §11,400. On both jobs a later mail got "That job is
+  already closed." and no second mint, and `hireme.ts show` read `chain, destroy, site photo` and
+  `chain, wipe, tournament`. No defect. Announced on valleynews.io `/dev` (story 24).
 
 ## What follows
 
@@ -1257,8 +1488,8 @@ decoys alike; further templates (deep chains, switches, the gpg passphrase on a 
 library route, stealth, deadlines, a harder leak); a lead to the key box on the front box, as a
 seventh inside route; recognition for completed jobs; a second, darknet operator; and for tamper
 jobs, adding a record, a second copy the client also checks, an audit log to keep clean, a
-white-hat fix, and clients and settings of their own; and for sabotage jobs, wiping a table
-(legacy's `db_sabotage`), filed with the tamper twists since it reads rows rather than a boot.
+white-hat fix, and clients and settings of their own. Set aside by the black-hat kinds: a hidden
+second copy of a destroyed file the client also wants gone, and chains longer than two steps.
 
 ## Key files
 
@@ -1271,9 +1502,10 @@ white-hat fix, and clients and settings of their own; and for sabotage jobs, wip
   `leakablePool.ts` (bundle); `missionSecret.ts`, `missionLeak.ts`, `missionTerms.ts`,
   `clientMail.ts`, `contractsList.ts`, `hiremeOrders.ts` (server and scripts); `missionRecords.ts`
   (a tamper job's setting, records and the check) and `recordSettings.ts` (the eight settings'
-  tables); `targetRoles.ts` (the seven machines a sabotage job can ask down or a backdoor job a way
-  into: each target's hostname, noun and both kinds' pitches, and a backdoor job's draw of the
-  machine and the port); `missionFileItem.ts` (a file or infiltrate job's item and its pitches,
+  tables, and `recordsWiped`, a wipe job's check); `targetRoles.ts` (the seven machines a
+  sabotage job can ask down, a backdoor job a way into or a credential job the root login of: each
+  target's hostname, noun and three kinds' pitches, a backdoor or chain job's draw of the machine
+  and the port, and `keyBoxSuffix`); `missionFileItem.ts` (a file or infiltrate job's item and its pitches,
   its file's name and place, and the bytes of the company's file and the client's, server only);
   `portforwardJob.ts` (a portforward job's machine, its public and inside ports, and its
   pitches).

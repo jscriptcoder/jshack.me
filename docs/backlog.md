@@ -89,9 +89,7 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
     or a `.bak`, with the client checking both; **stealth**, a `changes.log` or `audit_log` table
     the client also wants clean (a job that cares about stealth, above); **a white-hat fix**,
     restoring a corrupted value (legacy's `db_fix`); and **direct clients** per setting, and more
-    settings. Set aside in the sabotage grill (2026-11-12): **wiping a table**, legacy's
-    `db_sabotage` (the table dropped or every row deleted), which is tamper machinery rather than
-    the sabotage job's brick check.
+    settings. (Wiping a table, set aside in the sabotage grill, shipped as wipe jobs at v0.473.0.)
   - **Backdoor twists**, set aside in the backdoor grill (2026-11-16): **a client that connects
     from outside**, which needs a breakable gateway and a forward the contractor adds (both exist
     since the portforward jobs, v0.467.0, so this is now a backdoor and a forward in one job); **a listener that must survive** a later check (deadlines,
