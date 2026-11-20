@@ -11,8 +11,9 @@
 //     the client's handle with the mission address in it, and the address starts answering.
 //   - ONE JOB AT A TIME. A second accept is refused busy, a made-up ref is gone, and two accepts
 //     at once take one job and mail one briefing.
-//   - DROPPING. `POST /drop` abandons the job, mails the client's line, leaves the address
-//     answering, and the next read fills the board to three offers again.
+//   - DROPPING. `POST /drop` without `confirm=yes` asks and changes nothing; with it, it
+//     abandons the job, mails the client's line, leaves the address answering, and the next
+//     read fills the board to three offers again.
 //   - A TWO-HOP OFFER SAYS SO. Beside a single-hop offer, a two-hop one reads "retrieve an
 //     internal access key" and quotes a two-hop pay, and its briefing alone says the key is
 //     inside the network.
@@ -421,6 +422,16 @@ const main = async () => {
   );
 
   // === 7. DROPPING. ===
+  const rowsBeforeAsk = JSON.stringify(await contractsOf(neo));
+  const inboxBeforeAsk = (await inboxOf(neo)).length;
+  const asked = await fetchAt(neoBoard, '/drop', '');
+  check(
+    'a drop that does not say yes asks first and changes nothing',
+    contentOf(asked.body).includes('Drop your current contract?') &&
+      JSON.stringify(await contractsOf(neo)) === rowsBeforeAsk &&
+      (await inboxOf(neo)).length === inboxBeforeAsk,
+    `status ${asked.status}`,
+  );
   const inboxBeforeDrop = (await inboxOf(neo)).length;
   const dropped = await fetchAt(neoBoard, '/drop', 'confirm=yes');
   const droppedContent = contentOf(dropped.body);

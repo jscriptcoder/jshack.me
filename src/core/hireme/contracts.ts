@@ -38,7 +38,7 @@ import {
   missionFilePath,
   missionPlantContent,
 } from '../missions/missionFileItem.js';
-import { contractBoardPage, type BoardNotice } from './contractBoard.js';
+import { contractBoardPage, dropContractPage, type BoardNotice } from './contractBoard.js';
 
 export type OfferCandidate = {
   readonly number: number;
@@ -479,11 +479,20 @@ export const answerAccept = async ({
 };
 
 /** The board after dropping the current contract, or null when the store could not say what
- *  happened. */
-export const answerDrop = async (door: BoardDoor): Promise<string | null> => {
+ *  happened. A form that does not say yes drops nothing: it is asked whether to. */
+export const answerDrop = async ({
+  form,
+  ...door
+}: BoardDoor & {
+  /** The request body exactly as sent. */
+  readonly form: string;
+}): Promise<string | null> => {
   const held = await readBoard(door);
   if (held === null) return null;
   if (held.current === null) return pageOf(door, held, { message: NO_CONTRACT, under: 'contract' });
+  if (new URLSearchParams(form).get('confirm') !== 'yes') {
+    return dropContractPage(missionTerms(held.current));
+  }
 
   const reply = await door.store.drop({
     handle: door.handle,

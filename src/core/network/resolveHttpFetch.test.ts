@@ -2217,6 +2217,16 @@ describe('a contractor board takes an accept and a drop', () => {
     );
   });
 
+  // The board's own Drop button sends a form that says nothing: it is asked first.
+  it('asks before dropping when the form posted to /drop does not say yes', async () => {
+    const { deps, contractStore } = makeDeps({ ...onBoards, contractStore: holding });
+
+    const response = await handleResolveHttpFetch(request({ path: '/drop', body: '' }), deps);
+
+    expect(contentOf(response)).toContain('Drop your current contract?');
+    expect(contractStore.drop).not.toHaveBeenCalled();
+  });
+
   // Every board's address lands on the one server, so the line names the board asked.
   it.each(['/accept', '/drop'])(
     'records a form posted to %s as the POST it was, never with the form',

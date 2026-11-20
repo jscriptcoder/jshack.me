@@ -14,6 +14,10 @@
  * What a form just did is said once, under the button it answers. When that button is no
  * longer on the page (the offer turned over, the contract was dropped), it is said at the
  * top instead.
+ *
+ * The board's Drop button only asks: its form says nothing, and the page it gets back puts
+ * keeping the contract first, so the Enter that just accepted a job, landing on Drop, never
+ * throws it away. Only the asking page's own form says yes, as the terminal line does.
  */
 
 import { escapeHtml } from '../findit/page.js';
@@ -53,11 +57,13 @@ const hasItsButton = (board: ContractBoard, notice: BoardNotice): boolean =>
     ? board.current !== null
     : board.offers.some((offer) => isUnderOffer(notice, offer.ref));
 
+const contractLine = (current: MissionTerms): string =>
+  `<p>${escapeHtml(`${current.client.company} — ${current.targetCompany} — ${writeAmount(current.pay)}`)}</p>`;
+
 const currentContract = (board: ContractBoard, current: MissionTerms): readonly string[] => [
   '<h2>Current contract</h2>',
-  `<p>${escapeHtml(`${current.client.company} — ${current.targetCompany} — ${writeAmount(current.pay)}`)}</p>`,
+  contractLine(current),
   '<form action="/drop" method="post">',
-  '<input type="hidden" name="confirm" value="yes">',
   '<p><input type="submit" value="Drop contract"></p>',
   '</form>',
   ...(board.notice?.under === 'contract' ? [alert(board.notice.message)] : []),
@@ -93,3 +99,17 @@ export const contractBoardPage = (board: ContractBoard): string => {
     '</pre>',
   ]);
 };
+
+/** What the board's Drop button gets back: the contract it would drop, then a way back to
+ *  the board ahead of the form that drops it. */
+export const dropContractPage = (current: MissionTerms): string =>
+  hiremePage('hireme.io - drop contract', [
+    '<h1>Drop your current contract?</h1>',
+    contractLine(current),
+    `<p>${escapeHtml(current.client.company)} will not be in touch again.</p>`,
+    '<p><a href="/">Keep it</a></p>',
+    '<form action="/drop" method="post">',
+    '<input type="hidden" name="confirm" value="yes">',
+    '<p><input type="submit" value="Drop contract"></p>',
+    '</form>',
+  ]);

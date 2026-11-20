@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { contractBoardPage, type BoardOffer, type ContractBoard } from './contractBoard.js';
+import {
+  contractBoardPage,
+  dropContractPage,
+  type BoardOffer,
+  type ContractBoard,
+} from './contractBoard.js';
 import type { MissionTerms } from '../missions/missionTerms.js';
 
 /**
@@ -261,11 +266,59 @@ describe('how a board reads, top to bottom', () => {
     ]);
   });
 
-  it('has the Drop form post the same confirmation its terminal line does', () => {
+  it('has the Drop form ask first, posting no confirmation of its own', () => {
     const page = render(getBoard({ current: getTerms() }));
-    const confirm = page.querySelector('form[action="/drop"] input[name="confirm"]');
 
+    expect(page.querySelector('form[action="/drop"]')).not.toBeNull();
+    expect(page.querySelector('form[action="/drop"] input[name="confirm"]')).toBeNull();
+  });
+});
+
+describe('asking before the current contract is dropped', () => {
+  const renderAsk = (terms = getTerms()) =>
+    new DOMParser().parseFromString(dropContractPage(terms), 'text/html');
+
+  it('is titled as dropping a contract', () => {
+    expect(renderAsk().title).toBe('hireme.io - drop contract');
+  });
+
+  it('names the contract, and that its client will not be in touch again', () => {
+    expect(textOf(renderAsk()).replace(/\s+/g, ' ').trim()).toBe(
+      [
+        'Drop your current contract?',
+        'Copper Systems — Halden Logistics — §1,350',
+        'Copper Systems will not be in touch again.',
+        'Keep it',
+      ].join(' '),
+    );
+  });
+
+  it('lands a reader on keeping it, a link back to the board', () => {
+    const first = renderAsk().querySelector('a, input[type="submit"]');
+
+    expect(first?.tagName).toBe('A');
+    expect(first?.getAttribute('href')).toBe('/');
+    expect(first?.textContent).toBe('Keep it');
+  });
+
+  it('drops only from its own form, which says yes', () => {
+    const form = renderAsk().querySelector('form[action="/drop"]');
+    const confirm = form?.querySelector('input[name="confirm"]');
+
+    expect(form?.getAttribute('method')).toBe('post');
     expect(confirm?.getAttribute('type')).toBe('hidden');
     expect(confirm?.getAttribute('value')).toBe('yes');
+    expect(form?.querySelector('input[type="submit"]')?.getAttribute('value')).toBe(
+      'Drop contract',
+    );
+  });
+
+  it('shows the contract as text, never as markup', () => {
+    const page = renderAsk(
+      getTerms({ client: { company: '<b>Copper</b>', handle: 'copper-ops' } }),
+    );
+
+    expect(page.querySelector('b')).toBeNull();
+    expect(page.body.textContent).toContain('<b>Copper</b> will not be in touch again.');
   });
 });

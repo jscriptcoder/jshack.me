@@ -35,7 +35,9 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
      shell, a login to localhost): it has no row, so it stands as long as the leg beneath it does.
   3. **One Enter drops a contract just taken.** After Accept in lynx the highlighted link is
      `[ Drop contract ]`, and its form carries a hidden `confirm=yes`
-     (`src/core/hireme/contractBoard.ts`, ~line 60), so nothing asks.
+     (`src/core/hireme/contractBoard.ts`, ~line 60), so nothing asks. **Fixed in v0.477.3.** The
+     board's Drop form says nothing, and a drop that does not say `confirm=yes` answers a page
+     that asks, its first link keeping the contract; only that page's form drops it.
   4. **Root-only files read as missing to everyone else (owner: bug).** As `backup` on a contract
      box, `ls -la /srv/design` (a `drwxr-xr-x root` directory) showed it EMPTY, though the briefing
      says the company's render is there; a real `ls` lists the names. The msfconsole read hole on
