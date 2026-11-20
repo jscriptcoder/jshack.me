@@ -118,17 +118,29 @@ const answers = async (
   // The box's own address is part of what it reaches — pinging yourself is how you
   // check your own stack before blaming the network.
   if (address === vantage.address) return true;
+  // From here on, whether a box is still up is on its server-side journal: a box someone
+  // bricked is halted, and a halted machine answers nothing. A failed round trip leaves it
+  // up, since our own outage says nothing about the box.
+  //
   // A fellow player outranks the generator on an octet they share, as in `nmap`.
-  if ((await occupantsHere()).some((occupant) => occupant.localIp === address)) return true;
-  // Whether a generated box is still up is on its server-side journal: a box someone
-  // bricked is halted, and a halted machine answers nothing.
+  if ((await occupantsHere()).some((occupant) => occupant.localIp === address)) {
+    const resolution = await env.scan.resolveOccupant(
+      vantage.essid,
+      address,
+      env.session.machineId,
+    );
+    return resolution?.found !== false;
+  }
   const host = generateHomeLan(vantage.essid).hosts.find((candidate) => candidate.ip === address);
   if (host !== undefined) return !(await accessPointBoxIsDown(env, vantage.essid, host));
-  return vantage.reaches.some((segment) => {
+  const onLayer = vantage.reaches.some((segment) => {
     if (segment.fronting === null) return false;
     const layer = resolveDeepScanHosts(vantage.essid, segment.fronting, env.fs.root());
     return layer.hosts.some((entry) => entry.host.ip === address);
   });
+  if (!onLayer) return false;
+  const down = await env.scan.resolveDownHosts(vantage.essid, env.session.machineId);
+  return !down.includes(address);
 };
 
 const execute: Command['execute'] = async (env, args, flags) => {

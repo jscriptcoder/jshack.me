@@ -1038,9 +1038,9 @@ describe('nmap — same-LAN occupant merge', () => {
     expect(text).toContain(`${baseLan.hosts.length} hosts up`);
   });
 
-  it('keeps listing an occupant whose octet holds a bricked NPC — the box there is theirs', async () => {
-    // The server names the NPC the generator rolled at .74 down; the player standing
-    // on that octet is not that box, and is still up.
+  it('leaves out a fellow player whose box can no longer boot', async () => {
+    // Their journal is on the server, which names their address down; a player whose box
+    // is halted answers a sweep no more than a halted NPC does.
     const resolveOccupants = vi.fn(async () => [
       { workstation_machine_id: 'skylab-aaaa', localIp: '192.168.29.74', machineName: 'alice-rig' },
     ]);
@@ -1050,7 +1050,8 @@ describe('nmap — same-LAN occupant merge', () => {
 
     const { text } = await drain(await nmap.execute(env, ['192.168.29.0-254'], new Map()));
 
-    expect(text).toContain('alice-rig');
+    expect(text).not.toContain('alice-rig');
+    expect(text).not.toContain('192.168.29.74');
   });
 
   it('shows an occupant that lands on the inner gateway octet — no occupant is hidden', async () => {
@@ -1602,6 +1603,7 @@ describe('nmap — reachability-pivot from an inner gateway (5b.2)', () => {
     machineId: string,
     opts: {
       readonly record?: ScanApi['record'];
+      readonly resolveDownHosts?: ScanApi['resolveDownHosts'];
       readonly fs?: Directory;
     } = {},
   ) =>
@@ -1609,7 +1611,10 @@ describe('nmap — reachability-pivot from an inner gateway (5b.2)', () => {
       identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
       network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
       session: mockSession({ machineId: asMachineId(machineId), essid: ESSID, kind: 'ssh' }),
-      scan: mockScanApi(opts.record ? { record: opts.record } : {}),
+      scan: mockScanApi({
+        ...(opts.record ? { record: opts.record } : {}),
+        ...(opts.resolveDownHosts ? { resolveDownHosts: opts.resolveDownHosts } : {}),
+      }),
       ...(opts.fs ? { fs: mockFsViewFromTree(opts.fs) } : {}),
     });
 
@@ -1671,6 +1676,39 @@ describe('nmap — reachability-pivot from an inner gateway (5b.2)', () => {
     expect(text).toContain(child.hostname);
     expect(text).toContain('router');
     expect(text).toContain('Nmap done — 2 hosts up');
+  });
+
+  it('leaves a box that can no longer boot out of a range scan of the deep layer', async () => {
+    // Whether a deep box was bricked is on its journal, so the server says which are down,
+    // asked once from the box the shell stands on.
+    const resolveDownHosts = vi.fn(async () => [DEEP.host.ip]);
+
+    const { text } = await drain(
+      await nmap.execute(
+        vantageEnv(idOf(INNER), { resolveDownHosts }),
+        [`${DEEP.subnet}.1-254`],
+        new Map(),
+      ),
+    );
+
+    expect(text).not.toContain(DEEP.host.ip);
+    expect(text).toContain('Nmap done — 1 hosts up');
+    expect(resolveDownHosts).toHaveBeenCalledTimes(1);
+    expect(resolveDownHosts).toHaveBeenCalledWith(ESSID, idOf(INNER));
+  });
+
+  it('calls a deep box that can no longer boot down when it is scanned on its own', async () => {
+    const { text } = await drain(
+      await nmap.execute(
+        vantageEnv(idOf(INNER), { resolveDownHosts: async () => [DEEP.host.ip] }),
+        [DEEP.host.ip],
+        new Map(),
+      ),
+    );
+
+    expect(text).toContain('Host seems down.');
+    expect(text).toContain('Nmap done — 0 hosts up');
+    expect(text).not.toContain('22/tcp');
   });
 
   it('scans the child gateway directly — a reachable router on :22', async () => {

@@ -298,7 +298,9 @@ const lanHostResolver = (
  *  scan display and its kern.log trace can never drift. A switch fronting the layer
  *  drops what its live `acl.conf` denies, read off the shell's own tree: a switch
  *  forwards nothing, so the only box that can scan a switch's layer is the switch. A
- *  router filters nothing and its tree is never read. */
+ *  router filters nothing and its tree is never read. Whether a box on the layer can
+ *  still boot is on its journal, so the server names the ones that cannot, and a halted
+ *  box is down to a range and to a single scan alike. */
 const resolveLayerScan = (
   env: CommandEnv,
   essid: string,
@@ -329,14 +331,18 @@ const resolveLayerScan = (
   // is in the map — it just satisfies the total resolver type (a host-down scan renders
   // without ever reading ports).
   const deepLan = { subnet: resolution.subnet, hosts: resolution.hosts.map((entry) => entry.host) };
-  const hosts = hostsInScanTarget(deepLan, parsed.target);
+  const covered = hostsInScanTarget(deepLan, parsed.target);
   const portsByIp = new Map(resolution.hosts.map((entry) => [entry.host.ip, entry.ports]));
   const resolveHostPorts = (host: LanHost): readonly OpenPort[] => portsByIp.get(host.ip) ?? [];
-  const lines =
-    parsed.target.kind === 'range'
+  const target = parsed.target;
+  async function* lines(): AsyncIterable<TerminalLine> {
+    const down = new Set(await env.scan.resolveDownHosts(essid, env.session.machineId));
+    const hosts = covered.filter((host) => !down.has(host.ip));
+    yield* target.kind === 'range'
       ? scanRange(env, rawTarget, hosts)
       : scanSingle(env, rawTarget, hosts[0], resolveHostPorts, withVersion);
-  return { kind: 'async', lines, exitCode: async () => 0 };
+  }
+  return { kind: 'async', lines: lines(), exitCode: async () => 0 };
 };
 
 const execute: Command['execute'] = async (env, args, flags) => {
@@ -434,15 +440,14 @@ const execute: Command['execute'] = async (env, args, flags) => {
   const lan = mergeLanOccupants(baseLan, occupants);
   const occupantIps = new Set(occupants.map((occupant) => occupant.localIp));
   const covered = hostsInScanTarget(lan, parsed.target);
-  // A range drops the boxes the access point owns that can no longer boot — on their
-  // journals, so the server's to say, once for the whole LAN. A single address is asked
-  // about on its own below. A fellow occupant on a shared octet is not the AP's box, so
-  // the NPC the generator rolled there being down says nothing about them.
+  // A range drops the boxes that can no longer boot, a fellow player's among them — on
+  // their journals, so the server's to say, once for the whole LAN. A single address is
+  // asked about on its own below.
   const down =
     parsed.target.kind === 'range'
       ? new Set(await env.scan.resolveDownHosts(essid, env.session.machineId))
       : new Set<string>();
-  const hosts = covered.filter((host) => !down.has(host.ip) || occupantIps.has(host.ip));
+  const hosts = covered.filter((host) => !down.has(host.ip));
 
   // Leave a trace: record the scan server-side (the server resolves the touched
   // hosts and writes each one's /var/log/kern.log itself). Fire-and-forget so the

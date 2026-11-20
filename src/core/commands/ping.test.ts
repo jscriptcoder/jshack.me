@@ -42,12 +42,13 @@ const onlineConnectivity = (essid: string): ConnectivityState => {
   return { interfaces: new Map(cold.interfaces).set('wlan0', connected) };
 };
 
-/** The server's word on every box the access point owns: up, unless a test says one
- *  was bricked. */
+/** The server's word on every box the shell reaches: up, unless a test says one was
+ *  bricked. */
 const boxesUp = (overrides: Parameters<typeof mockScanApi>[0] = {}) =>
   mockScanApi({
     resolveSameLan: async () => ({ found: true, ports: [] }),
     resolveInnerGateway: async () => ({ found: true, ports: [] }),
+    resolveOccupant: async () => ({ found: true, ports: [] }),
     ...overrides,
   });
 
@@ -515,6 +516,19 @@ describe('ping from a box on a deep layer', () => {
     expect(exitCode).toBe(1);
   });
 
+  it('gets no reply from a box on that layer that can no longer boot', async () => {
+    // Whether a deep box was bricked is on its journal, so the server says which are down.
+    const { gatewayId, deep } = deepMachine();
+    const resolveDownHosts = vi.fn(async () => [deep.host.ip]);
+    const env = standingOn(DEEP_ESSID, gatewayId, { scan: boxesUp({ resolveDownHosts }) });
+
+    const { text, exitCode } = await pingFrom(env, deep.host.ip);
+
+    expect(exitCode).toBe(1);
+    expect(text).toContain('0 received, 100% packet loss');
+    expect(resolveDownHosts).toHaveBeenCalledWith(DEEP_ESSID, gatewayId);
+  });
+
   it('answers one host on a deep layer that carries several — not only when it is the sole box', async () => {
     // A layer with a machine AND a neighbour (a gateway/router) beside it: pinging the
     // one host must still answer, so reachability is "this address is among the layer's
@@ -545,6 +559,38 @@ describe('ping at home', () => {
     const env = {
       ...onlineEnv(),
       scan: boxesUp({ resolveOccupants: async () => [occupant(neighbourIp)] }),
+    };
+
+    const { exitCode } = await pingFrom(env, neighbourIp);
+
+    expect(exitCode).toBe(0);
+  });
+
+  it('gets no reply from a fellow player’s box that can no longer boot', async () => {
+    // Their journal lives on the server, so only the server knows the box was bricked.
+    const neighbourIp = freeAddressOn(ESSID, [ownIp()]);
+    const resolveOccupant = vi.fn(async () => ({ found: false, ports: [] }));
+    const env = {
+      ...onlineEnv(),
+      scan: boxesUp({ resolveOccupants: async () => [occupant(neighbourIp)], resolveOccupant }),
+    };
+
+    const { text, exitCode } = await pingFrom(env, neighbourIp);
+
+    expect(exitCode).toBe(1);
+    expect(text).toContain('0 received, 100% packet loss');
+    expect(resolveOccupant).toHaveBeenCalledWith(ESSID, neighbourIp, mockSession().machineId);
+  });
+
+  it('still hears a fellow player when the server could not be asked about their box', async () => {
+    // Our own round trip failing says nothing about their box, so it is not reported down.
+    const neighbourIp = freeAddressOn(ESSID, [ownIp()]);
+    const env = {
+      ...onlineEnv(),
+      scan: boxesUp({
+        resolveOccupants: async () => [occupant(neighbourIp)],
+        resolveOccupant: async () => null,
+      }),
     };
 
     const { exitCode } = await pingFrom(env, neighbourIp);

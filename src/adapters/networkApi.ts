@@ -720,11 +720,12 @@ export const resolveSameLan = async (
 };
 
 /**
- * The addresses of the boxes on this LAN the access point owns that can no longer boot
- * (backs `env.scan.resolveDownHosts`), so a range sweep stops listing a halted machine.
+ * The addresses the shell reaches whose box can no longer boot: the access point's own,
+ * a fellow player's, or one on a deep layer behind it (backs `env.scan.resolveDownHosts`),
+ * so a sweep stops listing a halted machine.
  *
- * A failure answers no box down: the seeded world has already placed every one of them
- * on the LAN, and our own failed round trip says nothing about any of them.
+ * A failure answers no box down: the world has already placed every one of them, and our
+ * own failed round trip says nothing about any of them.
  */
 export const resolveDownHosts = async (
   deps: NetworkClientDeps,

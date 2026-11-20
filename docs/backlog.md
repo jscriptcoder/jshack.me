@@ -11,7 +11,7 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   sites. Owner's verdicts are marked **(owner: bug)**. Fixed items say which version fixed them.
 
   **Bugs**
-  1. **Fixed in v0.477.1.** **A downed box still answers.** On a chain job, `rm /boot/vmlinuz; reboot` on the inside box
+  1. **Fixed in v0.477.1 and v0.477.8.** **A downed box still answers.** On a chain job, `rm /boot/vmlinuz; reboot` on the inside box
      printed "System halted" and the client paid, but from the edge box `ping -c 2 <ip>` still got
      replies (0% loss), `nmap <x>.1-254` still listed it as up, and `ssh root@<ip>` asked for a
      password before saying "Connection refused". Only `nmap <ip>` said "Host seems down". Cause
@@ -19,9 +19,12 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
      (`canBoot`); the range sweep and the ssh pre-prompt need the same check. Fixed: ping and the
      ssh pre-prompt ask the server about the box (`src/core/scan/accessPointBox.ts`), and a range
      sweep asks once for the whole LAN (`resolveDownHosts`, wire-checked by
-     `scripts/testDownHosts.ts`). Still open: a box on a deep layer resolves client-side
-     (`resolveDeepScanHosts`), so a bricked one there would still answer; a fellow player's
-     bricked box was not checked.
+     `scripts/testDownHosts.ts`). The same held for a box on a deep layer, which resolves
+     client-side (`resolveDeepScanHosts`), and for a fellow player's bricked box. Fixed in
+     v0.477.8: `resolveDownHosts` now also names the boxes on every deep layer the shell's box
+     reaches and every fellow player whose box cannot boot; ping, the sweep, a single deep scan
+     and the ssh pre-prompt read it for a deep box, and ping and the ssh pre-prompt ask the
+     occupant scan about a fellow player's box.
   2. **A `--local` root shell on your own box dies on its next line.** `su kestrel`, then
      `msfconsole --local su` ("Full shell as root@omen"), then any command prints "Connection to
      omen closed by remote host." and drops back to kestrel; reproduced twice. Cause:

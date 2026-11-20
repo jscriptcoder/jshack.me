@@ -899,6 +899,8 @@ type SameLanEnvOver = {
   readonly prompt?: () => Promise<string>;
   readonly onPush?: (session: Session) => void;
   readonly onCwd?: (path: string) => void;
+  /** The server's word on the fellow player's box — up unless a test bricks it. */
+  readonly resolveOccupant?: ScanApi['resolveOccupant'];
 };
 
 const sshSameLanEnv = (over: SameLanEnvOver = {}) =>
@@ -915,6 +917,7 @@ const sshSameLanEnv = (over: SameLanEnvOver = {}) =>
     scan: mockScanApi({
       resolveOccupants: over.resolveOccupants ?? (async () => [occupantAt(OCCUPANT_IP)]),
       resolveSameLan: boxUp,
+      resolveOccupant: over.resolveOccupant ?? boxUp,
     }),
     ssh: mockSshApi({
       // Keep the throwing default for `authenticate` unless a test wires it — the
@@ -929,6 +932,40 @@ const sshSameLanEnv = (over: SameLanEnvOver = {}) =>
   });
 
 describe('ssh to a fellow occupant on the same LAN', () => {
+  it("reports No route to host for a fellow player's box that can no longer boot — without prompting", async () => {
+    // Their journal is on the server. Asking for a password first and only then refusing
+    // told the player the box was up and its door shut.
+    const prompt = vi.fn(async () => 'guestpw');
+    const resolveOccupant = vi.fn(async () => ({ found: false, ports: [] }));
+
+    const result = sync(
+      await ssh.execute(
+        sshSameLanEnv({ prompt, resolveOccupant }),
+        [`guest@${OCCUPANT_IP}`],
+        new Map(),
+      ),
+    );
+
+    expect(result.exitCode).toBe(255);
+    expect(result.lines[0]?.content).toBe(
+      `ssh: connect to host ${OCCUPANT_IP} port 22: No route to host`,
+    );
+    expect(prompt).not.toHaveBeenCalled();
+    expect(resolveOccupant).toHaveBeenCalledWith(ESSID, OCCUPANT_IP, 'bstation-cafef00d');
+  });
+
+  it("still prompts for a fellow player's box when the server could not be asked about it", async () => {
+    const prompt = vi.fn(async () => 'guestpw');
+
+    await ssh.execute(
+      sshSameLanEnv({ prompt, resolveOccupant: async () => null }),
+      [`guest@${OCCUPANT_IP}`],
+      new Map(),
+    );
+
+    expect(prompt).toHaveBeenCalled();
+  });
+
   it('resolves the ESSID occupants, authenticates same-LAN, and pushes a session on the owner real machine id', async () => {
     const resolveOccupants = vi.fn(async () => [occupantAt(OCCUPANT_IP)]);
     const authenticateSameLan = vi.fn<(params: SameLanAuthParams) => Promise<PublicAuthResult>>(
@@ -1437,6 +1474,7 @@ const sshHopEnv = (
       resolveInnerGateway: async () => liveForward,
       resolveOccupants: over.resolveOccupants ?? (async () => []),
       resolveSameLan: over.resolveSameLan ?? boxUp,
+      resolveOccupant: boxUp,
     }),
     ssh: mockSshApi({
       authenticate: over.authenticate ?? (async () => ({ ok: true, userType: 'root' })),
@@ -1808,7 +1846,10 @@ describe('ssh from a box on a deep layer', () => {
   const INNER_LAYER_HOST_ID = hostMachineId(INNER_LAYER.host, ESSID);
   const MIDDLE_LAYER_HOST_ID = hostMachineId(MIDDLE_LAYER.host, ESSID);
 
-  type ShellOver = EnvOver & { readonly fs?: Directory };
+  type ShellOver = EnvOver & {
+    readonly fs?: Directory;
+    readonly resolveDownHosts?: ScanApi['resolveDownHosts'];
+  };
 
   const shellOn = (machineId: string, over: ShellOver = {}) =>
     mockCommandEnv({
@@ -1829,6 +1870,9 @@ describe('ssh from a box on a deep layer', () => {
       pushSession: over.onPush ?? (() => undefined),
       setCwd: over.onCwd ?? (() => undefined),
       ...(over.fs === undefined ? {} : { fs: mockFsViewFromTree(over.fs) }),
+      ...(over.resolveDownHosts === undefined
+        ? {}
+        : { scan: mockScanApi({ resolveDownHosts: over.resolveDownHosts }) }),
     });
 
   const loginFrom = async (
@@ -1837,6 +1881,24 @@ describe('ssh from a box on a deep layer', () => {
     over: ShellOver = {},
     flags: ReadonlyMap<string, string | true> = new Map(),
   ) => sync(await ssh.execute(shellOn(machineId, over), [`root@${target}`], flags));
+
+  it('reports No route to host for a box on the layer that can no longer boot — without prompting', async () => {
+    // Whether a deep box was bricked is on its journal, so the server says which are down.
+    const prompt = vi.fn(async () => 'hunter2');
+    const resolveDownHosts = vi.fn(async () => [INNER_LAYER.host.ip]);
+
+    const result = await loginFrom(inner.machineId, INNER_LAYER.host.ip, {
+      prompt,
+      resolveDownHosts,
+    });
+
+    expect(result.exitCode).toBe(255);
+    expect(result.lines[0]?.content).toBe(
+      `ssh: connect to host ${INNER_LAYER.host.ip} port 22: No route to host`,
+    );
+    expect(prompt).not.toHaveBeenCalled();
+    expect(resolveDownHosts).toHaveBeenCalledWith(ESSID, inner.machineId);
+  });
 
   it('reaches a host on the layer a gateway fronts, landing on that host', async () => {
     const authenticate = vi.fn<(params: RemoteAuthParams) => Promise<RemoteAuthResult>>(

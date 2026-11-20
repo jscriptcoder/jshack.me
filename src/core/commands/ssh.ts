@@ -442,6 +442,12 @@ const execute: Command['execute'] = async (env, args, flags) => {
     const layer = resolveDeepScanHosts(essid, segment.fronting, env.fs.root());
     const onLayer = layer.hosts.find((entry) => entry.host.ip === target.host);
     if (onLayer === undefined) continue;
+    // Whether the box can still boot is on its journal, which only the server reads: a
+    // halted box is no route, and that is known before any password is asked for.
+    const down = await env.scan.resolveDownHosts(essid, env.session.machineId);
+    if (down.includes(target.host)) {
+      return connectError(target.host, port, 'No route to host');
+    }
     if (!onLayer.ports.some((open) => open.port === port && open.service === 'ssh')) {
       return connectError(target.host, port, 'Connection refused');
     }
@@ -453,6 +459,12 @@ const execute: Command['execute'] = async (env, args, flags) => {
   // an octet collision with a generated NPC — the same precedence the nmap merge uses.
   const occupants = await occupantsHere();
   if (occupants.some((occupant) => occupant.localIp === target.host)) {
+    // Their box is rebuilt from their journal, on the server: a halted one is no route,
+    // asked before the password. A failed round trip leaves it up.
+    const box = await env.scan.resolveOccupant(essid, target.host, env.session.machineId);
+    if (box?.found === false) {
+      return connectError(target.host, port, 'No route to host');
+    }
     return executeSameLanLogin(env, target, port, sourceIp, essid);
   }
 
