@@ -81,8 +81,9 @@ import {
  *  (the two commands, their manuals and the operand reader they share) added 1,968 B,
  *  rounded up to 2,000; then a shell opened on the player's own box from that box surviving
  *  its next line (the chain check reading which legs have no row) added 36 B, rounded up to
- *  100. */
-const BUNDLE_CEILING_BYTES = 306_775;
+ *  100; then the HUD under every theme (each plain palette's two frame colours, and the
+ *  effects listing naming which effects need a neon one) added 170 B, rounded up to 200. */
+const BUNDLE_CEILING_BYTES = 306_975;
 
 /** About a tenth of that before world content, so a loaded machine's noise cannot fail
  *  the check while a content change that makes boxes ten times dearer still does. */

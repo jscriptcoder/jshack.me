@@ -1180,7 +1180,7 @@ describe('a sub-shell prompt', () => {
   });
 });
 
-describe('the neon HUD', () => {
+describe('the HUD', () => {
   /** The theme is a module signal that outlives each test, and earlier tests leave
    *  it on whatever palette they switched to, so every HUD test names its own. */
   const renderTerminalIn = (theme: ThemeId) => {
@@ -1309,33 +1309,35 @@ describe('the neon HUD', () => {
   });
 
   it('stops the clock when the frame goes away', () => {
-    // A clock left running behind a plain theme ticks for nothing, and every switch
-    // back to neon and away again would leave one more behind.
+    // A clock left running behind a hidden HUD ticks for nothing, and every switch
+    // back on and off again would leave one more behind.
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     onTestFinished(() => {
       vi.useRealTimers();
     });
     // The game's own check for new mail runs on a timer too, so the clock is counted
     // against whatever else is running.
-    setTheme('amber');
-    renderTerminal();
+    setEffect('hud', false);
+    renderTerminalIn('neon');
     const withoutTheClock = vi.getTimerCount();
-    setTheme('neon');
+    setEffect('hud', true);
     expect(vi.getTimerCount()).toBe(withoutTheClock + 1);
 
-    setTheme('amber');
+    setEffect('hud', false);
 
     expect(vi.getTimerCount()).toBe(withoutTheClock);
   });
 
-  it('takes the frame away when the player switches to a plain theme', async () => {
+  it('keeps the frame when the player switches to a plain theme', async () => {
+    // The bars report live game state, not neon dressing, so a plain palette keeps
+    // them; only `effects hud off` takes them away.
     renderTerminalIn('neon');
 
-    runCommand('theme amber');
-    await screen.findByText('Switched to Amber theme');
+    runCommand('theme light');
+    await screen.findByText('Switched to Light theme');
 
-    expect(screen.queryByRole('banner')).not.toBeInTheDocument();
-    expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument();
+    expect(topBar()).toHaveTextContent('JSHACK.ME');
+    expect(bottomBar()).toHaveTextContent('alice@workstation');
   });
 
   it('takes the frame away when the player switches the HUD off, and keeps the terminal', async () => {
@@ -1360,8 +1362,19 @@ describe('the neon HUD', () => {
     expect(topBar()).toHaveTextContent('JSHACK.ME');
   });
 
-  it('frames nothing under a plain theme', () => {
-    renderTerminalIn('amber');
+  it.each(['amber', 'green', 'cyan', 'light'] as const)(
+    'frames the terminal under a plain theme too: %s',
+    (theme) => {
+      renderTerminalIn(theme);
+
+      expect(topBar()).toHaveTextContent('JSHACK.ME');
+      expect(bottomBar()).toHaveTextContent('alice@workstation');
+    },
+  );
+
+  it('frames nothing under a plain theme with the HUD switched off', () => {
+    setEffect('hud', false);
+    renderTerminalIn('light');
 
     expect(screen.queryByRole('banner')).not.toBeInTheDocument();
     expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument();

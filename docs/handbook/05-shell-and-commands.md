@@ -270,7 +270,7 @@ registered commands; `registry.ts` is the source of truth.
 | `su`       | Switch user (default root), masked password prompt            | S      |
 | `identity` | Show the player's public key and fingerprint                  | S      |
 | `theme`    | List or switch colour themes                                  | S      |
-| `effects`  | List or switch the neon effects (glow, glitch, HUD, cursor)   | S      |
+| `effects`  | List or switch the screen effects (glow, glitch, HUD, cursor) | S      |
 | `author`   | Show the author card                                          | M      |
 | `xterm`    | Open a second terminal (new tab) on your own box              | S      |
 | `new-game` | Wipe progress and restart, after confirmation (`-y`)          | S      |

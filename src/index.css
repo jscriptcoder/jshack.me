@@ -17,6 +17,8 @@
   --theme-scroll-thumb-hover: rgba(252, 238, 10, 0.6);
   --theme-link: #fcee0a;
   --theme-avatar-border: #4ee6ee;
+  --theme-frame-a: #fcee0a;
+  --theme-frame-b: #4ee6ee;
 }
 
 /* The banner is drawn in box-drawing and block glyphs, which the neon font does
@@ -27,8 +29,8 @@
   --font-art:
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
     monospace;
-  /* The HUD's condensed labels. Only a neon theme draws the HUD, so only a neon
-     theme ever asks for it. */
+  /* The HUD's condensed labels, under every theme: the bars are not part of the
+     neon look. */
   --font-hud: 'Rajdhani', 'Arial Narrow', system-ui, sans-serif;
 }
 
@@ -83,9 +85,10 @@ body {
 }
 
 /* The HUD's screen repaints the same backdrop: it has to be opaque to hide the
-   frame's gradient everywhere but the one-pixel edge. */
+   frame's gradient everywhere but the one-pixel edge. Under a plain theme it is
+   the plain background, set with the frame below. */
 [data-look='neon'] body,
-.hud-screen {
+[data-look='neon'] .hud-screen {
   background:
     radial-gradient(120% 80% at 0% 0%, var(--theme-tint-top), transparent 55%),
     radial-gradient(90% 70% at 100% 100%, var(--theme-tint-bottom), transparent 60%),
@@ -241,8 +244,8 @@ body {
 }
 
 /* ------------------------------------------------------------------------
-   The HUD frame. `Hud.tsx` puts these classes on only under a neon theme, and
-   only while the player has left the HUD on.
+   The HUD frame. `Hud.tsx` puts these classes on under every theme, while the
+   player has left the HUD on.
    ------------------------------------------------------------------------ */
 
 /* In the components layer so Tailwind's utilities on the same elements win: the
@@ -262,6 +265,12 @@ body {
       color-mix(in srgb, var(--theme-frame-b) 22%, transparent) 72%,
       var(--theme-frame-b) 100%
     );
+  }
+
+  /* Opaque for the same reason as the neon backdrop above, which outranks it from
+     outside this layer. */
+  .hud-screen {
+    background: var(--theme-bg);
   }
 
   .hud-frame,

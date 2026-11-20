@@ -1,5 +1,5 @@
 /**
- * The HUD — the cut-corner frame a neon theme draws around the terminal, with a
+ * The HUD — the cut-corner frame every theme draws around the terminal, with a
  * status bar above and below it. Everything the bars show is live game state:
  * whether the workstation has a link, the local time, who the player is and on
  * which machine, the wlan0 address and network, and the game's version. Nothing
@@ -7,9 +7,8 @@
  *
  * It wraps the terminal AND its full-screen apps, so nano and lynx open inside
  * the frame rather than tearing it down. The wrapper is always rendered and only
- * its dressing comes and goes with the theme and `effects hud`: rendering the
- * terminal in one branch with a frame and another without would remount it on
- * every switch.
+ * its dressing comes and goes with `effects hud`: rendering the terminal in one
+ * branch with a frame and another without would remount it on every switch.
  */
 
 import { createSignal, onCleanup, Show, type JSX } from 'solid-js';

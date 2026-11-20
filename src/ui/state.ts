@@ -86,7 +86,12 @@ import type {
   CommandEnv,
   WifiRange,
 } from '../core/commands/types.js';
-import { ALL_EFFECTS_ON, type EffectName, type Effects } from '../core/theme/effects.js';
+import {
+  ALL_EFFECTS_ON,
+  needsNeonLook,
+  type EffectName,
+  type Effects,
+} from '../core/theme/effects.js';
 import { DEFAULT_THEME_ID, THEMES, type ThemeId } from '../core/theme/themes.js';
 import { applyTheme } from './theme/applyTheme.js';
 import { FRESH_TAB_FLAG } from './freshTab.js';
@@ -270,10 +275,12 @@ const [currentTheme, setCurrentTheme] = createSignal<ThemeId>(DEFAULT_THEME_ID);
 // the theme, for the same reason.
 const [currentEffects, setCurrentEffects] = createSignal<Effects>(ALL_EFFECTS_ON);
 
-/** Whether an effect is on screen: the theme wears the neon look, and the player
- *  has left that effect on. What the HUD and the block cursor ask before drawing. */
+/** Whether an effect is on screen: the player has left it on, and the theme wears
+ *  the neon look if the effect needs it. What the HUD and the block cursor ask
+ *  before drawing. */
 export const effectShown = (name: EffectName): boolean =>
-  THEMES[currentTheme()].neonColors !== undefined && currentEffects()[name];
+  currentEffects()[name] &&
+  (!needsNeonLook(name) || THEMES[currentTheme()].neonColors !== undefined);
 const [input, setInput] = createSignal('');
 const [cwd, setCwd] = createSignal<AbsPath>(asAbsPath('/'));
 const [patches, setPatches] = createSignal<readonly Patch[]>([]);
