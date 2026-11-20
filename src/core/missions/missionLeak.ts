@@ -33,7 +33,9 @@
  *
  * A file job's target holds the file the client wants brought back, root-only, its bytes drawn
  * from the key's secret, so nobody makes it without taking it. Nothing is laid beside it. A destroy
- * job's target holds the same kind of file, the one the client wants gone.
+ * job's target holds the same kind of file, the one the client wants gone. A chain job's target
+ * holds what the kind of its last step would: a destroy job's file, a wipe job's records, or
+ * nothing when the step takes it down.
  */
 
 import { DATADIR_FILE, FTP_PUBLIC_FILE, ROOT_FILE } from '../generation/baseFs.js';
@@ -58,6 +60,7 @@ import {
   requireMissionSecret,
 } from './missionSecret.js';
 import {
+  keyBoxKind,
   missionKind,
   missionShape,
   recordsStorage,
@@ -331,9 +334,9 @@ const holdsKey = (ref: MissionBoxRef): boolean =>
 
 /** Whether the box is a file, infiltrate or destroy job's target, holding the company's file: the
  *  one a file job's client wants, the one an infiltrate job's client wants theirs put in place of,
- *  or the one a destroy job's client wants gone. */
+ *  or the one a destroy job's client, or a chain job's ending as one, wants gone. */
 const holdsFile = (ref: MissionBoxRef): boolean => {
-  const kind = missionKind(ref.missionNumber);
+  const kind = keyBoxKind(ref.missionNumber);
   return ref.role === 'key' && (kind === 'file' || kind === 'infiltrate' || kind === 'destroy');
 };
 
@@ -349,11 +352,11 @@ const fileJobFile = (missionNumber: number, secret: string): MissionFile => ({
 const keepsKeyInDatabase = (ref: MissionBoxRef): boolean =>
   holdsKey(ref) && missionShape(ref.missionNumber).storage === 'database';
 
-/** Whether the box holds the records a tamper job asks to have changed or a wipe job asks to
- *  have emptied: its records box. */
+/** Whether the box holds the records a tamper job asks to have changed or a wipe job, or a chain
+ *  job ending as one, asks to have emptied: its records box. */
 const holdsRecords = (ref: MissionBoxRef): boolean =>
   ref.role === 'key' &&
-  (missionKind(ref.missionNumber) === 'tamper' || missionKind(ref.missionNumber) === 'wipe');
+  (keyBoxKind(ref.missionNumber) === 'tamper' || keyBoxKind(ref.missionNumber) === 'wipe');
 
 /** Whether the box keeps a tamper or wipe job's records in its database. */
 const holdsRecordsInDatabase = (ref: MissionBoxRef): boolean =>

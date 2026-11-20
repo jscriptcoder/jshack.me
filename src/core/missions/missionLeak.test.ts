@@ -17,8 +17,10 @@ import {
   MissionSecretMissingError,
 } from './missionSecret.js';
 import {
+  chainFinal,
   missionKind,
   missionShape,
+  type ChainFinal,
   type MissionBoxRef,
   type MissionRoute,
   type MissionShape,
@@ -1717,5 +1719,77 @@ describe("a wipe job's records box", () => {
 
     expect(missionFilePaths(frontOf(missionNumber))).toEqual([]);
     expect(missionFilePaths(keyOf(missionNumber))).toEqual(paths);
+  });
+});
+
+describe("a chain job's target", () => {
+  const HOLDING_BOTH = { keySecret: KEY_SECRET, rawSecrets: RAW_SECRETS };
+
+  /** The first chain job in a wide spread whose last step is `final`, with both boxes on the
+   *  hydra route, which lays no leak, and that `wanted` accepts. */
+  const firstChainJob = (
+    final: ChainFinal,
+    wanted: (shape: MissionShape) => boolean = () => true,
+  ): number => {
+    for (let index = 0; index < 20000; index++) {
+      const missionNumber = index * 2741 + 2;
+      if (!isMissionNumber(missionNumber) || missionKind(missionNumber) !== 'chain') continue;
+      if (chainFinal(missionNumber) !== final) continue;
+      const shape = missionShape(missionNumber);
+      if (shape.keyBox.route === 'hydra' && shape.frontBox?.route === 'hydra' && wanted(shape)) {
+        return missionNumber;
+      }
+    }
+    throw new Error(`no hydra chain job ending in ${final} in the spread`);
+  };
+
+  it("lays the company's file on the inside machine when the last step destroys it, never on the front box", () => {
+    const missionNumber = firstChainJob('destroy');
+    const theirs = {
+      path: missionFilePath(missionNumber),
+      content: missionFileContent(missionNumber, KEY_SECRET),
+      perms: ROOT_FILE,
+    };
+
+    expect(missionFiles(keyOf(missionNumber), HOLDING_BOTH)).toEqual([theirs]);
+    expect(missionFilePaths(keyOf(missionNumber))).toEqual([theirs.path]);
+    expect(missionFiles(frontOf(missionNumber), HOLDING_BOTH)).toEqual([]);
+  });
+
+  it("adds the setting's three tables to the inside machine's database when the last step wipes them", () => {
+    const missionNumber = firstChainJob('wipe', ({ storage }) => storage === 'database');
+    const laid = missionFiles(keyOf(missionNumber), HOLDING_BOTH);
+    const database = parseMysqlDatabase(laid[0]?.content ?? '');
+    const generated = databaseIn(buildMissionKeyBoxFs(missionNumber));
+
+    expect(laid.map(({ path }) => path)).toEqual([DATADIR_PATH]);
+    expect(database?.tables).toEqual({
+      ...generated?.tables,
+      ...Object.fromEntries(
+        missionRecords(missionNumber).tables.map(({ name, table }) => [name, table]),
+      ),
+    });
+    expect(missionFiles(frontOf(missionNumber), HOLDING_BOTH)).toEqual([]);
+  });
+
+  it('lays the three tables as root-only CSVs on the inside machine when the last step wipes records kept in files', () => {
+    const missionNumber = firstChainJob('wipe', ({ storage }) => storage === 'file');
+    const files = recordsFiles(missionNumber).map(({ path, content }) => ({
+      path,
+      content,
+      perms: ROOT_FILE,
+    }));
+
+    expect(files).toHaveLength(3);
+    expect(missionFiles(keyOf(missionNumber), HOLDING_BOTH)).toEqual(files);
+    expect(missionFilePaths(keyOf(missionNumber))).toEqual(files.map(({ path }) => path));
+    expect(missionFilePaths(frontOf(missionNumber))).toEqual([]);
+  });
+
+  it('lays nothing on the inside machine when the last step takes it down', () => {
+    const missionNumber = firstChainJob('sabotage');
+
+    expect(missionFiles(keyOf(missionNumber), HOLDING_BOTH)).toEqual([]);
+    expect(missionFilePaths(keyOf(missionNumber))).toEqual([]);
   });
 });

@@ -3,7 +3,7 @@ import { answerClientMail, type ClientMailStore, type TargetBoxRead } from './cl
 import type { ContractMail } from '../hireme/contracts.js';
 import { missionKey } from './missionSecret.js';
 import { missionTerms, type MissionClient } from './missionTerms.js';
-import { missionKind, missionShape } from './missionShape.js';
+import { chainFinal, missionKind, missionShape } from './missionShape.js';
 import { missionFiles } from './missionLeak.js';
 import { missionAction, missionRecords } from './missionRecords.js';
 import {
@@ -1944,8 +1944,10 @@ describe('a mail carrying a file on a key job', () => {
 });
 
 describe('a mail on a chain job', () => {
+  /** A chain job whose last step takes the machine inside down. */
   const CHAIN_JOB = ALL_HOST_NUMBERS.find(
-    (missionNumber) => missionKind(missionNumber) === 'chain',
+    (missionNumber) =>
+      missionKind(missionNumber) === 'chain' && chainFinal(missionNumber) === 'sabotage',
   )!;
   const CHAIN_TERMS = missionTerms(CHAIN_JOB);
   const { port: PORT } = chainJob(CHAIN_JOB);
@@ -2123,5 +2125,201 @@ describe('a mail on a chain job', () => {
     expect(target.reads).toEqual([]);
     expect(completes).toEqual([]);
     expect(replies).toEqual([fromChainClient(CLOSED_LINE)]);
+  });
+
+  describe('ending in a file destroyed', () => {
+    const DESTROYING = ALL_HOST_NUMBERS.find(
+      (missionNumber) =>
+        missionKind(missionNumber) === 'chain' && chainFinal(missionNumber) === 'destroy',
+    )!;
+    const DESTROYING_TERMS = missionTerms(DESTROYING);
+    const { port: DESTROYING_PORT } = chainJob(DESTROYING);
+
+    /** The machine inside up, holding the company's file at its path or with it gone. */
+    const inside = (fileThere: boolean): TargetBoxRead => ({
+      kind: 'up',
+      fs: fileThere
+        ? withFiles(buildMissionKeyBoxFs(DESTROYING), [
+            [missionFilePath(DESTROYING), file(missionFileContent(DESTROYING, SECRET), ROOT_FILE)],
+          ])
+        : buildMissionKeyBoxFs(DESTROYING),
+    });
+
+    const edge = (...ports: readonly number[]): TargetBoxRead =>
+      upListeningOn(buildMissionFrontBoxFs(DESTROYING), ...ports);
+
+    const fromClient = (line: string): ContractMail => ({
+      sender: `${DESTROYING_TERMS.client.handle}@emailit.io`,
+      subject: `Contract: ${DESTROYING_TERMS.targetCompany}`,
+      body: signed(line, DESTROYING_TERMS.client.company),
+    });
+
+    const mail = async (front: TargetBoxRead, target: TargetBoxRead) => {
+      const { store, completes, replies } = clientStore({
+        jobs: [{ number: DESTROYING, state: 'accepted' }],
+      });
+      const answer = await mailTo(store, {
+        to: DESTROYING_TERMS.client,
+        body: `both done\n${WALLET}\n`,
+        readFrontBox: boxRead(front).read,
+        readTargetBox: boxRead(target).read,
+      });
+      return { answer, completes, replies };
+    };
+
+    it('pays once the listener holds the port and the file is gone from its path', async () => {
+      const { answer, completes, replies } = await mail(edge(DESTROYING_PORT), inside(false));
+
+      expect(answer).toBe('replied');
+      expect(completes).toEqual([
+        {
+          number: DESTROYING,
+          wallet: WALLET,
+          pay: DESTROYING_TERMS.pay,
+          reply: fromClient(
+            `Both done. §${DESTROYING_TERMS.pay.toLocaleString('en-US')} sent to ${WALLET}. Pleasure doing business.`,
+          ),
+        },
+      ]);
+      expect(replies).toEqual([]);
+    });
+
+    it.each([
+      ['the file is still at its path', true],
+      ['the machine no longer boots', null],
+    ])(
+      "gives a destroy job's miss when the listener is in place and %s, and keeps the job open",
+      async (_case, fileThere) => {
+        const target: TargetBoxRead = fileThere === null ? { kind: 'absent' } : inside(fileThere);
+        const { completes, replies } = await mail(edge(DESTROYING_PORT), target);
+
+        expect(completes).toEqual([]);
+        expect(replies).toEqual([
+          fromClient("We can't confirm that file is gone. Not gone, no money."),
+        ]);
+      },
+    );
+
+    it('says nothing is listening on the edge when the file is gone but no listener holds the port', async () => {
+      const { completes, replies } = await mail(edge(), inside(false));
+
+      expect(completes).toEqual([]);
+      expect(replies).toEqual([
+        fromClient(
+          `Nothing is listening on port ${DESTROYING_PORT} on the edge. No listener, no money.`,
+        ),
+      ]);
+    });
+  });
+
+  describe('ending in records wiped', () => {
+    /** A chain job wiping records its target keeps in a database, which needs no secret to lay. */
+    const WIPING = ALL_HOST_NUMBERS.find((missionNumber) => {
+      const shape = missionShape(missionNumber);
+      return (
+        shape.kind === 'chain' &&
+        chainFinal(missionNumber) === 'wipe' &&
+        shape.keyBox.route === 'hydra' &&
+        shape.storage === 'database'
+      );
+    })!;
+    const WIPING_TERMS = missionTerms(WIPING);
+    const { port: WIPING_PORT } = chainJob(WIPING);
+    const [WIPE_TARGET, WIPE_BESIDE] = missionRecords(WIPING).tables;
+
+    /** The machine inside as the server lays it, after the application account ran `lines`. */
+    const insideAfter = (...lines: readonly string[]): TargetBoxRead => {
+      const laid = withFiles(
+        buildMissionKeyBoxFs(WIPING),
+        missionFiles(
+          { missionNumber: WIPING, role: 'key' },
+          { keySecret: undefined, rawSecrets: undefined },
+        ).map(({ path, content, perms }) => [path, file(content, perms)] as const),
+      );
+      const database = lines.reduce(
+        (current, line) =>
+          runStatement({
+            database: current,
+            line,
+            username: 'app',
+            userType: 'user',
+            sourceIp: '198.51.100.7',
+          }).database ?? current,
+        databaseIn(laid)!,
+      );
+      return {
+        kind: 'up',
+        fs: withFiles(laid, [[DATADIR_PATH, file(JSON.stringify(database), DATADIR_FILE)]]),
+      };
+    };
+
+    const WIPED = `DELETE FROM ${WIPE_TARGET?.name}`;
+
+    const edge = (...ports: readonly number[]): TargetBoxRead =>
+      upListeningOn(buildMissionFrontBoxFs(WIPING), ...ports);
+
+    const fromClient = (line: string): ContractMail => ({
+      sender: `${WIPING_TERMS.client.handle}@emailit.io`,
+      subject: `Contract: ${WIPING_TERMS.targetCompany}`,
+      body: signed(line, WIPING_TERMS.client.company),
+    });
+
+    const mail = async (front: TargetBoxRead, target: TargetBoxRead) => {
+      const { store, completes, replies } = clientStore({
+        jobs: [{ number: WIPING, state: 'accepted' }],
+      });
+      const answer = await mailTo(store, {
+        to: WIPING_TERMS.client,
+        body: `both done\n${WALLET}\n`,
+        readFrontBox: boxRead(front).read,
+        readTargetBox: boxRead(target).read,
+      });
+      return { answer, completes, replies };
+    };
+
+    const NOT_WIPED = "That's not what we asked for. Not wiped, no money.";
+
+    it('pays once the listener holds the port and the table the briefing describes is empty', async () => {
+      const { answer, completes, replies } = await mail(edge(WIPING_PORT), insideAfter(WIPED));
+
+      expect(answer).toBe('replied');
+      expect(completes).toEqual([
+        {
+          number: WIPING,
+          wallet: WALLET,
+          pay: WIPING_TERMS.pay,
+          reply: fromClient(
+            `Both done. §${WIPING_TERMS.pay.toLocaleString('en-US')} sent to ${WALLET}. Pleasure doing business.`,
+          ),
+        },
+      ]);
+      expect(replies).toEqual([]);
+    });
+
+    it.each([
+      ['the table still holds its rows', []],
+      ['a table beside it was emptied too', [WIPED, `DELETE FROM ${WIPE_BESIDE?.name}`]],
+      ['the machine no longer boots', null],
+    ])(
+      "gives a wipe job's miss when the listener is in place and %s, and keeps the job open",
+      async (_case, lines) => {
+        const target: TargetBoxRead = lines === null ? { kind: 'absent' } : insideAfter(...lines);
+        const { completes, replies } = await mail(edge(WIPING_PORT), target);
+
+        expect(completes).toEqual([]);
+        expect(replies).toEqual([fromClient(NOT_WIPED)]);
+      },
+    );
+
+    it('says nothing is listening on the edge when the table is empty but no listener holds the port', async () => {
+      const { completes, replies } = await mail(edge(), insideAfter(WIPED));
+
+      expect(completes).toEqual([]);
+      expect(replies).toEqual([
+        fromClient(
+          `Nothing is listening on port ${WIPING_PORT} on the edge. No listener, no money.`,
+        ),
+      ]);
+    });
   });
 });

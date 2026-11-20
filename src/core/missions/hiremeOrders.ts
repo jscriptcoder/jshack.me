@@ -15,6 +15,8 @@
  */
 
 import {
+  chainFinal,
+  keyBoxKind,
   missionShape,
   type MissionBox,
   type MissionBoxRef,
@@ -132,8 +134,8 @@ const routerLine = (missionNumber: number): string => {
 
 /** What a tamper, wipe, sabotage, file, backdoor, infiltrate, credential, destroy, portforward or
  *  chain job is, as the report names it: its kind, then a tamper job's setting and action, a wipe
- *  job's setting, the machine a chain job asks taken down and the port its listener holds on the
- *  front box, the machine a sabotage
+ *  job's setting, a chain job's last step with the machine it takes down, the item it destroys or
+ *  the setting it wipes, and the port its listener holds on the front box, the machine a sabotage
  *  job asks taken down, the item a file job asks brought back, the machine a backdoor job wants a
  *  way into, the item an infiltrate job slips in, the machine a credential job wants the root login
  *  of, the item a destroy job wants gone, or the machine a portforward job wants reached and the
@@ -159,7 +161,13 @@ const kindLine = (missionNumber: number, kind: MissionKind): readonly string[] =
   }
   if (kind === 'chain') {
     const { role, port } = chainJob(missionNumber);
-    return [`  Kind:     chain, ${role.noun}`, `  Listener: :${port} on the front box`];
+    const final = chainFinal(missionNumber);
+    const asked = {
+      sabotage: role.noun,
+      destroy: missionFileItem(missionNumber).noun,
+      wipe: missionSetting(missionNumber),
+    }[final];
+    return [`  Kind:     chain, ${final}, ${asked}`, `  Listener: :${port} on the front box`];
   }
   if (kind === 'portforward') {
     const { machine, publicPort } = portforwardJob(missionNumber);
@@ -199,13 +207,16 @@ const recordLines = (missionNumber: number): readonly string[] => {
  *  emptied, a file or destroy job's file and its size
  *  under the secret, the port a backdoor job's listener must hold, the path an infiltrate job's file goes
  *  to with the sizes of the company's file and the client's, and nothing for a sabotage,
- *  credential, portforward or chain job, whose box is the job and keeps nothing. */
-const jobLines = (missionNumber: number, kind: MissionKind, secret: string): readonly string[] => {
+ *  credential or portforward job, whose box is the job and keeps nothing. A chain job's target
+ *  is reported as its last step's kind. */
+const jobLines = (
+  missionNumber: number,
+  kind: Exclude<MissionKind, 'chain'>,
+  secret: string,
+): readonly string[] => {
   if (kind === 'tamper') return recordLines(missionNumber);
   if (kind === 'wipe') return recordsStorageLines(missionNumber);
-  if (kind === 'sabotage' || kind === 'credential' || kind === 'portforward' || kind === 'chain') {
-    return [];
-  }
+  if (kind === 'sabotage' || kind === 'credential' || kind === 'portforward') return [];
   if (kind === 'backdoor') return [`  Port:     ${backdoorJob(missionNumber).port}`];
   if (kind === 'infiltrate') {
     const sizeOf = (content: string): string => content.length.toLocaleString('en-US');
@@ -263,7 +274,8 @@ export const showReport = (
     shape.kind === 'chain';
   const slotName = isTarget ? 'target' : 'key box';
   const reached = frontBox === null ? slotName : 'front box';
-  const keyLines = jobLines(missionNumber, shape.kind, secret);
+  // A chain job's target holds what its last step's kind would, and the report says so alike.
+  const keyLines = jobLines(missionNumber, keyBoxKind(missionNumber), secret);
   const boxes =
     frontBox === null
       ? [

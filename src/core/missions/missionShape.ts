@@ -127,7 +127,8 @@ const TWO_HOP_SHARE = 1 / 3;
  *  client wants changed, the box itself taken down for good, a file on it brought back, a
  *  listener left on it, the client's own file put on it, a port on the gateway forwarded onto
  *  it, the password of its root, a file on it destroyed, a table of its records wiped, or a
- *  listener left on the front box and the box behind it taken down. A tamper, sabotage,
+ *  listener left on the front box and the box behind it taken down, a file on it destroyed or a
+ *  table of its records wiped. A tamper, sabotage,
  *  backdoor, infiltrate, credential, destroy or wipe job is proved by the box itself when the
  *  contractor mails in, a chain job by both its boxes, a portforward job by the gateway, a file
  *  job by the file the mail carries. */
@@ -221,6 +222,25 @@ export const missionKind = (missionNumber: number): MissionKind => {
   return KIND_CUTS.find(([below]) => draw < below)?.[1] ?? 'portforward';
 };
 
+/** What a chain job's last step asks of the machine inside, each equally likely: a sabotage job's
+ *  outage, a destroy job's file gone, or a wipe job's records emptied. Each is the kind whose
+ *  box, briefing and check the step borrows. */
+const CHAIN_FINALS = ['sabotage', 'destroy', 'wipe'] as const satisfies readonly MissionKind[];
+
+export type ChainFinal = (typeof CHAIN_FINALS)[number];
+
+/** The last step a chain job asks for, on a stream of its own, so drawing it moved no chain job's
+ *  port, pay, client or front box. */
+export const chainFinal = (missionNumber: number): ChainFinal =>
+  createPrng(`mission-chain-final-${missionNumber}`).pick(CHAIN_FINALS);
+
+/** What the box in a contract's key-box slot is for: the contract's own kind, or on a chain job
+ *  the kind its last step borrows, whose file or records the box holds as that kind's would. */
+export const keyBoxKind = (missionNumber: number): Exclude<MissionKind, 'chain'> => {
+  const kind = missionKind(missionNumber);
+  return kind === 'chain' ? chainFinal(missionNumber) : kind;
+};
+
 /** Where a contract's key box keeps what its job is about, each kind on a stream of its own. */
 const storageOf = (kind: MissionKind, missionNumber: number): MissionStorage | null => {
   if (
@@ -229,8 +249,7 @@ const storageOf = (kind: MissionKind, missionNumber: number): MissionStorage | n
     kind === 'backdoor' ||
     kind === 'infiltrate' ||
     kind === 'credential' ||
-    kind === 'destroy' ||
-    kind === 'chain'
+    kind === 'destroy'
   ) {
     return null;
   }
@@ -793,7 +812,7 @@ export const missionShape = (missionNumber: number): MissionShape => {
   // job's records in the box's database are then reached as a key kept in one is; in a file, by
   // the route's root.
   const kind = missionKind(missionNumber);
-  const storage = storageOf(kind, missionNumber);
+  const storage = storageOf(keyBoxKind(missionNumber), missionNumber);
 
   // A key in the database is reached as a database user, so off the database route the key
   // box gains one. Drawn after everything above, so a contract's way in reads the same

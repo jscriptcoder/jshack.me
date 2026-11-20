@@ -22,7 +22,7 @@
 import { z } from 'zod';
 import { EMAILIT_DOMAIN } from '../generation/fixedSites.js';
 import { missionAddressForNumber } from '../missions/missionNetwork.js';
-import { missionTopology } from '../missions/missionShape.js';
+import { chainFinal, missionTopology } from '../missions/missionShape.js';
 import {
   missionRecords,
   missionSetting,
@@ -223,13 +223,39 @@ const askedSentence = (setting: RecordSetting, target: RecordTarget): string => 
     : CHANGE_SENTENCES[setting](at, target.from, target.to);
 };
 
+/** A chain job's last step, in the words of the kind it borrows: the machine named, the file by its
+ *  name, or the records by what they hold, each said to be inside and never where. */
+const chainFinalLines = (missionNumber: number): readonly string[] => {
+  const final = chainFinal(missionNumber);
+  if (final === 'destroy') {
+    const { keepers, noun } = missionFileItem(missionNumber);
+    return [
+      `Then get rid of a ${noun} their ${keepers} keep. Its name is:`,
+      '',
+      `  ${missionFileName(missionNumber)}`,
+      '',
+      ...insideLines('The file is'),
+    ];
+  }
+  if (final === 'wipe') {
+    return [
+      `Then wipe their records of ${WIPE_DESCRIPTIONS[missionSetting(missionNumber)]}.`,
+      ...insideLines('The records are'),
+    ];
+  }
+  return [
+    `Then take their ${chainJob(missionNumber).role.noun} offline. It is a machine inside their network, not on the edge.`,
+    '',
+  ];
+};
+
 /** What the job is and how it is paid: a key fetched and mailed back, a record changed or
  *  erased and the client told, a machine taken down and the client told, a file fetched and
  *  mailed back attached, a listener left on a machine and the client told while it listens, a
  *  port on the router sent to a machine and the client told while it is open, a machine's root
  *  password mailed back on a line of its own, a file destroyed and the client told, a table of
  *  records emptied and the client told, or a listener left on the front box and the machine behind
- *  it taken down and the client told. A tamper job
+ *  it taken down, a file on it destroyed or its records emptied, and the client told. A tamper job
  *  names whose record and what it should say, or that it should not exist, never where; a sabotage,
  *  backdoor, credential, portforward or chain job names what the machine is, never which box; a file or
  *  destroy job names the file, never where it sits; a wipe job describes what the records hold,
@@ -334,15 +360,13 @@ const jobLines = (
     ];
   }
   if (terms.job === 'chain') {
-    const { role, port } = chainJob(missionNumber);
     // Every chain job is two-hop, so the machine is always inside, and the edge box is named by
     // where it stands, never by what it is.
     return [
       'This job has two parts. We pay for both or for neither.',
       '',
-      `First, leave a listener on the machine on the edge of their network, on port ${port}.`,
-      `Then take their ${role.noun} offline. It is a machine inside their network, not on the edge.`,
-      '',
+      `First, leave a listener on the machine on the edge of their network, on port ${chainJob(missionNumber).port}.`,
+      ...chainFinalLines(missionNumber),
       'Write to this address with your wallet address once both are done.',
       'Both done or no money. No wallet, no money.',
     ];

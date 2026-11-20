@@ -9,7 +9,7 @@ import { missionLeakPath } from './missionLeak.js';
 import { backdoorJob, chainJob } from './targetRoles.js';
 import { portforwardJob } from './portforwardJob.js';
 import { firmwarePackageOf } from '../packages/packageVersions.js';
-import { missionShape, type MissionShape } from './missionShape.js';
+import { chainFinal, missionShape, type ChainFinal, type MissionShape } from './missionShape.js';
 import { missionKey, missionKeyPath, missionPassphrase } from './missionSecret.js';
 import { missionAddressForNumber, missionEssid } from './missionNetwork.js';
 import { missionTerms } from './missionTerms.js';
@@ -851,22 +851,56 @@ describe('showReport on a backdoor job', () => {
 
 describe('showReport on a chain job', () => {
   const SECRET = 'operator-test-secret';
-  const CHAIN = Array.from({ length: 8000 }, (_unused, index) => index * 256 + 2).find(
-    (candidate) => missionShape(candidate).kind === 'chain',
-  )!;
+  /** The first chain job whose last step is `final`, and that `wanted` accepts. */
+  const chainEndingIn = (
+    final: ChainFinal,
+    wanted: (shape: MissionShape) => boolean = () => true,
+  ): number =>
+    Array.from({ length: 8000 }, (_unused, index) => index * 256 + 2).find((candidate) => {
+      const shape = missionShape(candidate);
+      return shape.kind === 'chain' && chainFinal(candidate) === final && wanted(shape);
+    })!;
+  const TAKING_DOWN = chainEndingIn('sabotage');
+  const DESTROYING = chainEndingIn('destroy');
+  const WIPING = chainEndingIn('wipe', ({ storage }) => storage === 'database');
 
-  it('names the kind and the machine to take down, the port the listener holds on the front box, and no key', () => {
-    const { stem } = missionShape(CHAIN);
-    const { role, port } = chainJob(CHAIN);
-    const report = showReport(CHAIN, SECRET, undefined);
+  it('names the last step and the machine to take down, the port the listener holds on the front box, and no key', () => {
+    const { stem } = missionShape(TAKING_DOWN);
+    const { role, port } = chainJob(TAKING_DOWN);
+    const report = showReport(TAKING_DOWN, SECRET, undefined);
     const lines = report.split('\n');
 
     expect(lines).toContain('  Template: two-hop');
-    expect(lines).toContain(`  Kind:     chain, ${role.noun}`);
+    expect(lines).toContain(`  Kind:     chain, sabotage, ${role.noun}`);
     expect(lines).toContain(`  Listener: :${port} on the front box`);
     expect(lines).toContain(`  Target box: ${stem}-${role.suffix}`);
     expect(report).not.toContain('Key');
     expect(report).not.toContain('Storage:');
+    expect(report).not.toContain('File:');
+  });
+
+  it('names the last step and the item to destroy, with its path and size under the target box', () => {
+    const { stem } = missionShape(DESTROYING);
+    const lines = showReport(DESTROYING, SECRET, undefined).split('\n');
+    const size = missionFileContent(DESTROYING, SECRET).length.toLocaleString('en-US');
+
+    expect(lines).toContain(`  Kind:     chain, destroy, ${missionFileItem(DESTROYING).noun}`);
+    expect(lines).toContain(`  Listener: :${chainJob(DESTROYING).port} on the front box`);
+    expect(lines).toContain(`  Target box: ${stem}-files`);
+    expect(lines.at(-1)).toBe(`  File:     ${missionFilePath(DESTROYING)}, ${size} bytes`);
+  });
+
+  it('names the last step and the setting to wipe, with the table the records are kept in under the target box', () => {
+    const { stem } = missionShape(WIPING);
+    const lines = showReport(WIPING, SECRET, undefined).split('\n');
+
+    expect(lines).toContain(`  Kind:     chain, wipe, ${missionSetting(WIPING)}`);
+    expect(lines).toContain(`  Listener: :${chainJob(WIPING).port} on the front box`);
+    expect(lines).toContain(`  Target box: ${stem}-files`);
+    expect(lines.slice(-2)).toEqual([
+      `  Storage:  database, table ${missionRecords(WIPING).tables[0]?.name}`,
+      '  Records:  /var/lib/mysql/data.json',
+    ]);
   });
 });
 
