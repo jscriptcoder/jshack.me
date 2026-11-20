@@ -84,6 +84,17 @@ describe('binary stubs', () => {
     expect(node?.perms.execute).toEqual(['root', 'user', 'guest']);
   });
 
+  it.each(boxes)('ship /bin/cp and /bin/mv on %s, runnable by anyone', (_label, root) => {
+    // Without a seeded binary the shell answers `command not found` on every box.
+    const bin = new Map(filesIn(child(root, 'bin')));
+
+    ['cp', 'mv'].forEach((name) => {
+      const node = bin.get(name);
+      expect(node?.kind === 'file' ? stubName(node.content) : null, name).toBe(name);
+      expect(node?.perms.execute, name).toEqual(['root', 'user', 'guest']);
+    });
+  });
+
   it.each(boxes)('name each library on %s as the .so it is, never as a tool', (_label, root) => {
     const libraries = filesIn(child(root, 'lib'));
 

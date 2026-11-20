@@ -22,6 +22,7 @@ import { cd } from './cd.js';
 import { chmod } from './chmod.js';
 import { gpg } from './gpg.js';
 import { clear } from './clear.js';
+import { cp } from './cp.js';
 import { curl } from './curl.js';
 import { dig } from './dig.js';
 import { apache2, mysqld, named, nginx, redisServer, snmpd, sshd, vsftpd } from './daemon.js';
@@ -43,6 +44,7 @@ import { ls } from './ls.js';
 import { mail } from './mail.js';
 import { man } from './man.js';
 import { mkdir } from './mkdir.js';
+import { mv } from './mv.js';
 import { nano } from './nano.js';
 import { nc } from './nc.js';
 import { nmap } from './nmap.js';
@@ -92,6 +94,7 @@ const builtins: readonly Command[] = [
   chmod,
   gpg,
   clear,
+  cp,
   curl,
   dig,
   echo,
@@ -112,6 +115,7 @@ const builtins: readonly Command[] = [
   mail,
   man,
   mkdir,
+  mv,
   nano,
   nc,
   nginx,
