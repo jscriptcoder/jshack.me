@@ -1610,11 +1610,12 @@ export type ScanApi = {
     target: string,
     callerMachineId: string,
   ) => Promise<PublicScanResolution | null>;
-  /** The addresses of the boxes the ACCESS POINT owns on this LAN that can no longer
-   *  boot (signed `resolveDownHosts` endpoint), so a range sweep lists only what is up.
-   *  One round trip for the whole LAN. A failure answers none down: the seeded world has
-   *  already placed every box on the LAN, and our failed round trip says nothing about
-   *  any of them. */
+  /** The addresses the shell's box reaches whose box can no longer boot (signed
+   *  `resolveDownHosts` endpoint): the access point's own on the LAN, a fellow player's,
+   *  or one on a deep layer it reaches. A fellow player on an octet answers there, not
+   *  the box the network rolled at it. One round trip for all of them. A failure answers
+   *  none down: the world has already placed every box, and our failed round trip says
+   *  nothing about any of them. */
   readonly resolveDownHosts: (essid: string, callerMachineId: string) => Promise<readonly string[]>;
   /** Fetch the current ESSID's OTHER occupants for a same-LAN scan (signed
    *  `resolveOccupants` endpoint). `nmap` merges the result over its generated LAN so

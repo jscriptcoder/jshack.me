@@ -1070,9 +1070,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (actionOf(req.body) === 'resolveDownHosts') {
-    // A range sweep's one question about the boxes the access point owns: which of them
-    // can no longer boot. Every one of their journals in one read, ordered as the
-    // per-machine read orders a journal, since both replay the same rows.
+    // A range sweep's one question about every box the shell reaches: the access point's
+    // own, the fellow players on the WiFi and the boxes on the deep layers behind it,
+    // which of them can no longer boot. Every one of their journals in one read, ordered
+    // as the per-machine read orders a journal, since both replay the same rows.
     const { status, body } = await handleResolveDownHosts(req.body, {
       nonceStore: noopNonceStore,
       findPatchesForMachines: async (machineIds: readonly string[]) => {
@@ -1088,6 +1089,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findActiveSession: findActiveSessionVia({ supabase, label: 'down-hosts active-session' }),
       findHomeVantage: findHomeVantageVia({ supabase, label: 'down-hosts vantage' }),
       findWorkstationLease: findWorkstationLeaseVia({ supabase, label: 'down-hosts vantage' }),
+      // The identity each player's box is rebuilt from, as the occupant scan reads it.
+      listOccupantsByEssid: async (essid: string) => {
+        const { data, error } = await supabase
+          .from('home_network_occupants')
+          .select('owner_key, workstation_machine_id, workstation_username, workstation_root_hash')
+          .eq('essid', essid);
+        if (error) console.error('[network] down-hosts occupant list error:', error);
+        return { data: data as readonly NatOccupantRow[] | null, error };
+      },
+      listLeasesByEssid: async (essid: string) => {
+        const { data, error } = await supabase
+          .from('network_lan_leases')
+          .select('owner_key, octet')
+          .eq('essid', essid);
+        if (error) console.error('[network] down-hosts lease list error:', error);
+        return { data: data as readonly LanLeaseRow[] | null, error };
+      },
     });
     res.status(status).json(body);
     return;
