@@ -33,6 +33,10 @@ describe('commandRegistry', () => {
     expect(commandRegistry.has('passwd')).toBe(true);
   });
 
+  it.each(['cp', 'mv'])('registers `%s` so a player can copy and move files', (name) => {
+    expect(commandRegistry.has(name)).toBe(true);
+  });
+
   it('assigns every registered command a known category', () => {
     // Drives the `category` field `help` groups by: a command that forgot
     // to declare one (or declared a typo'd value) can never be sectioned,

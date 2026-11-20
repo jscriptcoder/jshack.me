@@ -56,9 +56,10 @@ const WORLD_EXECUTABLE: readonly UserType[] = ['root', 'user', 'guest'];
 
 /**
  * System utilities always present in `/bin` on every machine. Ported from
- * legacy `SYSTEM_UTILITY_NAMES`, plus `touch` (a v2 coreutils command that
- * postdates the legacy list — it belongs in `/bin` alongside `mkdir`/`rm`) and
- * the text readers `head`, `tail` and `wc`, which legacy never had.
+ * legacy `SYSTEM_UTILITY_NAMES`, plus `touch`, `cp` and `mv` (v2 coreutils
+ * commands that postdate the legacy list — they belong in `/bin` alongside
+ * `mkdir`/`rm`) and the text readers `head`, `tail` and `wc`, which legacy never
+ * had.
  */
 export const SYSTEM_UTILITY_NAMES = [
   'ls',
@@ -81,6 +82,8 @@ export const SYSTEM_UTILITY_NAMES = [
   'rm',
   'mkdir',
   'touch',
+  'cp',
+  'mv',
   'chmod',
   'scp',
   'reboot',
