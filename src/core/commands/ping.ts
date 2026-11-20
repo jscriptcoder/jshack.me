@@ -29,6 +29,7 @@ import { vantageOf, type Vantage } from '../network/vantage.js';
 import { LOOPBACK_IPV4, LOOPBACK_NAMES } from '../network/interfaces.js';
 import { addressForTarget } from '../network/resolveName.js';
 import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
+import { accessPointBoxIsDown } from '../scan/accessPointBox.js';
 import type { OccupantProjection } from '../network/resolveOccupants.js';
 
 const error = (message: string): CommandResult => ({
@@ -106,8 +107,8 @@ async function* echoes(
 }
 
 /** Whether anything at `address` answers a box standing at `vantage`: the box itself,
- *  a generated host on the network's LAN, a host on a deep layer it reaches, or a
- *  fellow player's box on its LAN. */
+ *  a fellow player's box on its LAN, a generated host on the network's LAN that can
+ *  still boot, or a host on a deep layer it reaches. */
 const answers = async (
   env: CommandEnv,
   vantage: Vantage,
@@ -117,13 +118,17 @@ const answers = async (
   // The box's own address is part of what it reaches — pinging yourself is how you
   // check your own stack before blaming the network.
   if (address === vantage.address) return true;
-  if (generateHomeLan(vantage.essid).hosts.some((host) => host.ip === address)) return true;
-  for (const segment of vantage.reaches) {
-    if (segment.fronting === null) continue;
+  // A fellow player outranks the generator on an octet they share, as in `nmap`.
+  if ((await occupantsHere()).some((occupant) => occupant.localIp === address)) return true;
+  // Whether a generated box is still up is on its server-side journal: a box someone
+  // bricked is halted, and a halted machine answers nothing.
+  const host = generateHomeLan(vantage.essid).hosts.find((candidate) => candidate.ip === address);
+  if (host !== undefined) return !(await accessPointBoxIsDown(env, vantage.essid, host));
+  return vantage.reaches.some((segment) => {
+    if (segment.fronting === null) return false;
     const layer = resolveDeepScanHosts(vantage.essid, segment.fronting, env.fs.root());
-    if (layer.hosts.some((entry) => entry.host.ip === address)) return true;
-  }
-  return (await occupantsHere()).some((occupant) => occupant.localIp === address);
+    return layer.hosts.some((entry) => entry.host.ip === address);
+  });
 };
 
 const execute: Command['execute'] = async (env, args, flags) => {

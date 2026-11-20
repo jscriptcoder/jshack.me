@@ -34,7 +34,7 @@ import { readOpenPorts, type OpenPort } from '../services/pidfile.js';
 import { gameDayAt } from '../cve/worldClock.js';
 import { serviceByName } from '../services/serviceCatalog.js';
 import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
-import { isInnerGateway } from '../generation/lanHostIdentity.js';
+import { resolveAccessPointBox } from '../scan/accessPointBox.js';
 import type { ChainLink } from '../generation/lanTopology.js';
 import { vantageOf } from '../network/vantage.js';
 import { addressForTarget } from '../network/resolveName.js';
@@ -268,19 +268,14 @@ const scanLanHost = (
  * - a fellow OCCUPANT is rebuilt from THEIR identity and THEIR journal, and outranks the
  *   generator: `buildRemoteHostFs` keys on the host IP alone, so a local read would
  *   report the NPC this viewer's seed rolled at that octet as the neighbour's own;
- * - an INNER GATEWAY is scanned from its upstream side, where a NAT forward into the
- *   layer behind it is visible — and that forward lives on its journal;
- * - EVERY OTHER host is a box the ACCESS POINT owns — an NPC sibling, or the edge `.1`
- *   gateway every occupant of the ESSID shares. Its seeded tree is the box the world
- *   SHIPPED, and everything anyone has since done to it is on that machine's journal.
+ * - EVERY OTHER host is a box the ACCESS POINT owns — an NPC sibling, the edge `.1`
+ *   gateway every occupant of the ESSID shares, or an inner gateway — whose journal
+ *   `resolveAccessPointBox` reads.
  *
  * Only the player's own box is left for the client to read, which is what makes "the
  * own-box path never leaves the machine" true by construction rather than by a rule. On
  * a hop there is no such box (`selfIp` is null): the hop itself is a box on its network
  * like any other, read the way the server reads it.
- *
- * Every request names the box the shell stands on, so the server answers only for the
- * network that box is on.
  */
 const lanHostResolver = (
   env: CommandEnv,
@@ -289,11 +284,11 @@ const lanHostResolver = (
   selfIp: string | null,
   occupantIps: ReadonlySet<string>,
 ): (() => Promise<PublicScanResolution | null>) | null => {
-  const caller = env.session.machineId;
   if (host.ip === selfIp) return null;
-  if (occupantIps.has(host.ip)) return () => env.scan.resolveOccupant(essid, host.ip, caller);
-  if (isInnerGateway(host)) return () => env.scan.resolveInnerGateway(essid, host.ip, caller);
-  return () => env.scan.resolveSameLan(essid, host.ip, caller);
+  if (occupantIps.has(host.ip)) {
+    return () => env.scan.resolveOccupant(essid, host.ip, env.session.machineId);
+  }
+  return () => resolveAccessPointBox(env, essid, host);
 };
 
 /** Scan a deep layer the shell reaches: the layer it stands on, the one it fronts when it
@@ -438,7 +433,16 @@ const execute: Command['execute'] = async (env, args, flags) => {
   const occupants = await occupantsHere(essid);
   const lan = mergeLanOccupants(baseLan, occupants);
   const occupantIps = new Set(occupants.map((occupant) => occupant.localIp));
-  const hosts = hostsInScanTarget(lan, parsed.target);
+  const covered = hostsInScanTarget(lan, parsed.target);
+  // A range drops the boxes the access point owns that can no longer boot — on their
+  // journals, so the server's to say, once for the whole LAN. A single address is asked
+  // about on its own below. A fellow occupant on a shared octet is not the AP's box, so
+  // the NPC the generator rolled there being down says nothing about them.
+  const down =
+    parsed.target.kind === 'range'
+      ? new Set(await env.scan.resolveDownHosts(essid, env.session.machineId))
+      : new Set<string>();
+  const hosts = covered.filter((host) => !down.has(host.ip) || occupantIps.has(host.ip));
 
   // Leave a trace: record the scan server-side (the server resolves the touched
   // hosts and writes each one's /var/log/kern.log itself). Fire-and-forget so the
@@ -452,11 +456,10 @@ const execute: Command['execute'] = async (env, args, flags) => {
     // best-effort: logging must not surface to the scan.
   }
 
-  // Only a SINGLE address is ever resolved server-side. A range still just lists the
-  // hosts and builds no port table for any of them, so there is nothing for a range to
-  // want a journal for — which is also why this is the ONLY place a host's ports are
-  // decided, and why the port resolver below carries no second rule for a box that
-  // answers here. `lanHostResolver` holds the precedence and the reason for each step.
+  // Only a SINGLE address has its ports resolved server-side. A range lists the hosts
+  // and builds no port table for any of them — which is also why this is the ONLY place
+  // a host's ports are decided, and why the port resolver below carries no second rule
+  // for a box that answers here. `lanHostResolver` holds the precedence and the reason for each step.
   const single = parsed.target.kind === 'single' ? hosts[0] : undefined;
   const resolveSingle =
     single === undefined

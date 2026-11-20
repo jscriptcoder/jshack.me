@@ -42,10 +42,20 @@ const onlineConnectivity = (essid: string): ConnectivityState => {
   return { interfaces: new Map(cold.interfaces).set('wlan0', connected) };
 };
 
-const onlineEnv = () =>
+/** The server's word on every box the access point owns: up, unless a test says one
+ *  was bricked. */
+const boxesUp = (overrides: Parameters<typeof mockScanApi>[0] = {}) =>
+  mockScanApi({
+    resolveSameLan: async () => ({ found: true, ports: [] }),
+    resolveInnerGateway: async () => ({ found: true, ports: [] }),
+    ...overrides,
+  });
+
+const onlineEnv = (scan = boxesUp()) =>
   mockCommandEnv({
     identity: mockIdentity({ publicKeyHex: asPlayerKeyHex(PUBKEY) }),
     network: mockNetworkViewFromConnectivity(onlineConnectivity(ESSID)),
+    scan,
   });
 
 const drain = async (result: CommandResult): Promise<{ text: string; exitCode: number }> => {
@@ -111,6 +121,27 @@ describe('ping', () => {
     expect(exitCode).toBe(1);
     expect(text).toContain('4 packets transmitted, 0 received, 100% packet loss');
     expect(text).not.toContain('64 bytes from');
+  });
+
+  it('gets no reply from a box that can no longer boot', async () => {
+    // The box's journal lives on the server, so only the server knows it was bricked:
+    // a halted machine answers nothing, the way the single-host nmap already says.
+    const host = hostOnLan();
+    const env = onlineEnv(boxesUp({ resolveSameLan: async () => ({ found: false, ports: [] }) }));
+
+    const { text, exitCode } = await drain(await ping.execute(env, [host.ip], new Map()));
+
+    expect(exitCode).toBe(1);
+    expect(text).toContain('4 packets transmitted, 0 received, 100% packet loss');
+  });
+
+  it('still hears a box when the server could not be asked about it', async () => {
+    // Our own round trip failing says nothing about the box, so it is not reported down.
+    const env = onlineEnv(boxesUp({ resolveSameLan: async () => null }));
+
+    const { exitCode } = await drain(await ping.execute(env, [hostOnLan().ip], new Map()));
+
+    expect(exitCode).toBe(0);
   });
 
   it('always sends four packets, ignoring a surplus argument', async () => {
@@ -355,6 +386,7 @@ const standingOn = (
       userType: 'root',
       essid,
     }),
+    scan: boxesUp(),
     ...overrides,
   });
 
@@ -421,7 +453,7 @@ describe('ping from a hop', () => {
     const hop = machineOn(HOP_ESSID);
     const neighbourIp = freeAddressOn(HOP_ESSID);
     const resolveOccupants = vi.fn(async () => [occupant(neighbourIp)]);
-    const env = hopEnv(hop, { scan: mockScanApi({ resolveOccupants }) });
+    const env = hopEnv(hop, { scan: boxesUp({ resolveOccupants }) });
 
     const { exitCode } = await pingFrom(env, neighbourIp);
 
@@ -439,7 +471,7 @@ describe('ping from a hop', () => {
     const present = freeAddressOn(HOP_ESSID);
     const unheld = freeAddressOn(HOP_ESSID, [present]);
     const env = hopEnv(hop, {
-      scan: mockScanApi({ resolveOccupants: async () => [occupant(present)] }),
+      scan: boxesUp({ resolveOccupants: async () => [occupant(present)] }),
     });
 
     const { text, exitCode } = await pingFrom(env, unheld);
@@ -512,7 +544,7 @@ describe('ping at home', () => {
     const neighbourIp = freeAddressOn(ESSID, [ownIp()]);
     const env = {
       ...onlineEnv(),
-      scan: mockScanApi({ resolveOccupants: async () => [occupant(neighbourIp)] }),
+      scan: boxesUp({ resolveOccupants: async () => [occupant(neighbourIp)] }),
     };
 
     const { exitCode } = await pingFrom(env, neighbourIp);

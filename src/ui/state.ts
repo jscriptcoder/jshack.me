@@ -195,6 +195,7 @@ import {
   resolveOccupants,
   resolveOccupant,
   resolveSameLan,
+  resolveDownHosts,
   resolveOccupiedEssids,
   resolvePublic,
   resolveInnerGateway,
@@ -1187,6 +1188,13 @@ const resolveSameLanFn: ScanApi['resolveSameLan'] = (essid, target, callerMachin
     ? Promise.resolve(null)
     : resolveSameLan(networkClientDeps, essid, target, callerMachineId);
 
+/** Which boxes on this LAN can no longer boot (backs `env.scan.resolveDownHosts`). None
+ *  before the network client is wired: we failed to ask rather than learned an answer. */
+const resolveDownHostsFn: ScanApi['resolveDownHosts'] = (essid, callerMachineId) =>
+  networkClientDeps === undefined
+    ? Promise.resolve([])
+    : resolveDownHosts(networkClientDeps, essid, callerMachineId);
+
 /** Resolve one fellow occupant's real open ports (backs `env.scan.resolveOccupant`).
  *  `null` before the network client is wired: the occupant is listed with no port table
  *  rather than reported down, because we failed to ask rather than learned an answer. */
@@ -2123,6 +2131,7 @@ const shellEnv = (session: Session, patches: PatchApi, signal: AbortSignal): Com
     onScanResolveInnerGateway: resolveInnerGatewayFn,
     onScanResolveOccupants: resolveOccupantsFn,
     onScanResolveSameLan: resolveSameLanFn,
+    onScanResolveDownHosts: resolveDownHostsFn,
     onScanResolveOccupant: resolveOccupantFn,
     onScanResolveOccupiedEssids: resolveOccupiedEssidsFn,
     onHttpFetchPublic: fetchPublicPageFn,

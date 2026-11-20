@@ -337,6 +337,9 @@ export const mockScanApi = (overrides: Partial<ScanApi> = {}): ScanApi => ({
   // Load-bearing like `resolvePublic`: a sibling's ports drive its own scan output, so
   // it throws unless a test stubs the resolution.
   resolveSameLan: NOT_IMPLEMENTED('scan.resolveSameLan'),
+  // Additive like `resolveOccupants`: defaults to no box down, so a range sweep lists the
+  // LAN as seeded; a test of a bricked box overrides it.
+  resolveDownHosts: async () => [],
   // Additive read: defaults to no fellow occupants so own-LAN nmap tests are unaffected;
   // occupant-merge tests override it to merge a real occupant.
   resolveOccupants: async () => [],
