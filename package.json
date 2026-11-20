@@ -1,13 +1,14 @@
 {
   "name": "jshack-me",
   "private": true,
-  "version": "0.475.0",
+  "version": "0.476.0",
   "type": "module",
   "scripts": {
     "encode": "tsx scripts/encode.ts",
-    "predev": "npm run encode",
+    "llms": "tsx scripts/llms.ts",
+    "predev": "npm run encode && npm run llms",
     "dev": "vite",
-    "prebuild": "npm run encode",
+    "prebuild": "npm run encode && npm run llms",
     "build": "tsc -b && vite build",
     "postbuild": "tsx scripts/checkSecrets.ts && tsx scripts/checkBudgets.ts",
     "pretypecheck": "npm run encode",

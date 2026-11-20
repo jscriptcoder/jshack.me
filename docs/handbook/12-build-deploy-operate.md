@@ -44,10 +44,14 @@ injection is `__APP_VERSION__`.
 
 `npm run build` runs, in order:
 
-1. **`prebuild` → `npm run encode`**: writes the git-ignored `src/core/secrets/__encoded.ts` (the
-   uncrackable pool as md5s only) and the test-only `__plaintext.ts` from the `JSHACK_SECRETS`
-   environment variable (chapter 6). The functions import `__encoded.ts` too. A missing or malformed
-   value fails the build, naming every broken rule.
+1. **`prebuild` → `npm run encode`, then `npm run llms`**: `encode` writes the git-ignored
+   `src/core/secrets/__encoded.ts` (the uncrackable pool as md5s only) and the test-only
+   `__plaintext.ts` from the `JSHACK_SECRETS` environment variable (chapter 6). The functions import
+   `__encoded.ts` too. A missing or malformed value fails the build, naming every broken rule.
+   `llms` then renders the command registry into the git-ignored `public/llms/commands.md` (the
+   `help` listing and every `man` page) and `public/llms-full.txt` (the hand-written
+   `public/llms.txt` followed by that page), so the pages LLM agents read rebuild on every deploy.
+   It runs second because the registry imports `__encoded.ts`. `predev` runs the same pair.
 2. **`tsc -b`**: type-checks both project references: `tsconfig.app.json` (`src/`) and
    `tsconfig.node.json` (`vite.config.ts`, `api/`, `scripts/`). Both are strict with
    `exactOptionalPropertyTypes`, `noUnusedLocals/Parameters` and `noImplicitReturns`. A plain
