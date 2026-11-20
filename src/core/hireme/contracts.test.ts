@@ -406,8 +406,9 @@ const acceptWithoutSecret = (form: string, store: BoardStore) =>
     ...drawsFrom([FOURTH]),
   });
 
-const drop = (store: BoardStore, draws = drawsFrom([FOURTH])) =>
-  answerDrop({ handle: HANDLE, address: BOARD_ADDRESS, store, ...draws });
+/** Dropping as the board's own confirmation does: the form says yes. */
+const drop = (store: BoardStore, form = 'confirm=yes') =>
+  answerDrop({ handle: HANDLE, address: BOARD_ADDRESS, form, store, ...drawsFrom([FOURTH]) });
 
 describe('reading a board', () => {
   it('posts three drawn offers to an empty board and shows them', async () => {
@@ -1795,6 +1796,29 @@ describe('dropping the current contract', () => {
         '\n',
       ),
     );
+  });
+
+  it.each([
+    ['the form says nothing', ''],
+    ['the form says something other than yes', 'confirm=no'],
+  ])('asks first, dropping nothing, when %s', async (_why, form) => {
+    const { store, drops } = boardStore({ current: FOURTH });
+    const company = missionTerms(FOURTH).client.company;
+
+    const page = await drop(store, form);
+
+    expect(drops).toEqual([]);
+    expect(textOf(page)).toContain(`${company} will not be in touch again.`);
+    expect(textOf(page)).not.toContain('Contract dropped.');
+  });
+
+  it('says there is nothing to drop, asking nothing, when no contract is held', async () => {
+    const { store, drops } = boardStore();
+
+    const page = await drop(store, '');
+
+    expect(drops).toEqual([]);
+    expect(alertOf(page)).toBe('You have no current contract.');
   });
 
   it('says there is nothing to drop, asking the store nothing, when no contract is held', async () => {

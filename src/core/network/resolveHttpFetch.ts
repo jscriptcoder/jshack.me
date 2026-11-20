@@ -838,7 +838,7 @@ export const handleResolveHttpFetch = async (
             missionSecret: deps.missionSecret,
           })
         : contractDoor === 'drop'
-          ? await answerDrop(door)
+          ? await answerDrop({ ...door, form: payload.body ?? '' })
           : await answerContractBoard(door);
     if (page === null) return { status: 500, body: { error: 'board_failed' } };
     await logFetch(deps, target, publicKey, standing.standingEssid, {
