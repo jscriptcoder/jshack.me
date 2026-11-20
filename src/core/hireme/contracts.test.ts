@@ -16,7 +16,12 @@ import {
   missionFilePath,
   missionPlantContent,
 } from '../missions/missionFileItem.js';
-import { missionShape } from '../missions/missionShape.js';
+import {
+  chainFinal,
+  missionKind,
+  missionShape,
+  type ChainFinal,
+} from '../missions/missionShape.js';
 import { backdoorJob, chainJob } from '../missions/targetRoles.js';
 import { portforwardJob } from '../missions/portforwardJob.js';
 import {
@@ -1628,14 +1633,97 @@ describe('accepting an offer', () => {
   });
 
   describe('on a chain job', () => {
-    /** The first chain contract from 70,000 up. */
-    const CHAIN = (() => {
+    /** The first chain contract from 70,000 up whose last step is `final`, and that `wanted`
+     *  accepts. */
+    const chainNumber = (
+      final: ChainFinal,
+      wanted: (missionNumber: number) => boolean = () => true,
+    ): number => {
       for (let candidate = 70_000; candidate < 2_000_000; candidate++) {
-        if (isMissionNumber(candidate) && missionShape(candidate).kind === 'chain')
+        if (
+          isMissionNumber(candidate) &&
+          missionKind(candidate) === 'chain' &&
+          chainFinal(candidate) === final &&
+          wanted(candidate)
+        ) {
           return candidate;
+        }
       }
-      throw new Error('no chain contract');
-    })();
+      throw new Error(`no chain contract ending in ${final}`);
+    };
+    const CHAIN = chainNumber('sabotage');
+
+    /** The briefing's body as the client writes it around `jobLines`. */
+    const briefingOf = (missionNumber: number, jobLines: readonly string[]): string => {
+      const terms = missionTerms(missionNumber);
+      return [
+        terms.pitch,
+        '',
+        `The target is ${terms.targetCompany}. Their network is at ${missionAddressForNumber(missionNumber)}.`,
+        '',
+        ...jobLines,
+        '',
+        `-- ${terms.client.company}`,
+        '',
+      ].join('\n');
+    };
+
+    it('writes a briefing asking for a listener on the edge and a file inside gone, by its name, when that is the last step', async () => {
+      const missionNumber = chainNumber(
+        'destroy',
+        (candidate) => missionFileItem(candidate).noun === 'signed contract',
+      );
+      const { store, accepts } = boardStore({ offers: [{ number: missionNumber, ref: 'ddd' }] });
+      const { port } = chainJob(missionNumber);
+
+      await accept('offer=ddd', store);
+
+      expect(accepts[0]!.briefing.body).toBe(
+        briefingOf(missionNumber, [
+          'This job has two parts. We pay for both or for neither.',
+          '',
+          `First, leave a listener on the machine on the edge of their network, on port ${port}.`,
+          'Then get rid of a signed contract their lawyers keep. Its name is:',
+          '',
+          `  ${missionFileName(missionNumber)}`,
+          '',
+          'The file is on a machine inside their network, not on the edge.',
+          '',
+          'Write to this address with your wallet address once both are done.',
+          'Both done or no money. No wallet, no money.',
+        ]),
+      );
+      expect(accepts[0]!.briefing.body).not.toContain(missionFilePath(missionNumber));
+      expect(accepts[0]!.briefing.attachment).toBeUndefined();
+    });
+
+    it('writes a briefing asking for a listener on the edge and the records inside wiped, by what they hold, when that is the last step', async () => {
+      const missionNumber = chainNumber(
+        'wipe',
+        (candidate) => missionSetting(candidate) === 'police',
+      );
+      const { store, accepts } = boardStore({ offers: [{ number: missionNumber, ref: 'ddd' }] });
+      const { port } = chainJob(missionNumber);
+
+      await accept('offer=ddd', store);
+      const { body } = accepts[0]!.briefing;
+
+      expect(body).toBe(
+        briefingOf(missionNumber, [
+          'This job has two parts. We pay for both or for neither.',
+          '',
+          `First, leave a listener on the machine on the edge of their network, on port ${port}.`,
+          'Then wipe their records of everyone they want arrested.',
+          'The records are on a machine inside their network, not on the edge.',
+          '',
+          'Write to this address with your wallet address once both are done.',
+          'Both done or no money. No wallet, no money.',
+        ]),
+      );
+      for (const { name } of missionRecords(missionNumber).tables) {
+        expect(body).not.toMatch(new RegExp(`\\b${name}\\b`));
+      }
+    });
 
     it('writes a briefing asking for a listener on the edge and the machine inside taken down', async () => {
       const { store, accepts } = boardStore({ offers: [{ number: CHAIN, ref: 'ddd' }] });

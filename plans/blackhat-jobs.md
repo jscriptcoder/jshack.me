@@ -1,8 +1,8 @@
 # Plan: four more black-hat contracts
 
 **Status:** Grilled, gap-checked and split into stories 2026-11-18. Story 1 shipped at v0.471.0,
-Story 2 at v0.472.0 and Story 3 at v0.473.0.
-Story 4 is built at v0.474.0, on `feat/chain-jobs`. Story 5 is next.
+Story 2 at v0.472.0, Story 3 at v0.473.0 and Story 4 at v0.474.0.
+Story 5 is built at v0.475.0, on `feat/chain-finals`. The close-out is next.
 
 Four new kinds of contract, built in this order: credential theft, destroy a file, wipe a table,
 and a chain job that combines them. As-built context:

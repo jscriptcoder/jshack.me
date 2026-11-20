@@ -10,7 +10,7 @@
  */
 
 import { createPrng } from '../generation/prng.js';
-import { missionKind } from './missionShape.js';
+import { chainFinal, missionKind } from './missionShape.js';
 import { portforwardJob } from './portforwardJob.js';
 import { KEY_BOX_SUFFIX } from './pools.js';
 
@@ -196,31 +196,36 @@ export const backdoorJob = (missionNumber: number): BackdoorJob => {
   return { role, port: prng.pick(BACKDOOR_PORTS) };
 };
 
-/** What a chain job asks for: a listener left on the front box, on one port, and the machine
- *  behind it taken down. */
+/** What a chain job asks for: a listener left on the front box, on one port, and, when its last
+ *  step takes it down, the machine behind it. */
 export type ChainJob = {
   readonly role: TargetRole;
   readonly port: number;
 };
 
-/** The machine a chain job wants taken down and the port its listener on the front box must hold,
- *  drawn on a stream of their own, the machine first, so nothing the contract drew before them
- *  moves. */
+/** The machine a chain job wants taken down, when its last step does, and the port its listener on
+ *  the front box must hold, drawn on a stream of their own, the machine first, so nothing the
+ *  contract drew before them moves. */
 export const chainJob = (missionNumber: number): ChainJob => {
   const prng = createPrng(`mission-chain-${missionNumber}`);
   const role = prng.pick(TARGET_ROLES);
   return { role, port: prng.pick(BACKDOOR_PORTS) };
 };
 
-/** The suffix on the hostname of the box in a contract's key-box slot: the box holding the key
- *  or the records, or on a sabotage, backdoor, credential, portforward or chain job the machine the
- *  job is about, named for what it is. */
+/** The suffix on the hostname of the box in a contract's key-box slot: the box holding the key,
+ *  the file or the records, or on a sabotage, backdoor, credential or portforward job, or a chain
+ *  job whose last step takes it down, the machine the job is about, named for what it is. */
 export const keyBoxSuffix = (missionNumber: number): string => {
   const kind = missionKind(missionNumber);
   if (kind === 'sabotage') return sabotageRole(missionNumber).suffix;
   if (kind === 'backdoor') return backdoorJob(missionNumber).role.suffix;
   if (kind === 'credential') return credentialRole(missionNumber).suffix;
-  if (kind === 'chain') return chainJob(missionNumber).role.suffix;
+  if (kind === 'chain') {
+    // A chain job's file or records sit where a destroy or wipe job's do.
+    return chainFinal(missionNumber) === 'sabotage'
+      ? chainJob(missionNumber).role.suffix
+      : KEY_BOX_SUFFIX;
+  }
   if (kind === 'portforward') return portforwardJob(missionNumber).machine.suffix;
   return KEY_BOX_SUFFIX;
 };

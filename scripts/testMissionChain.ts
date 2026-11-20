@@ -1,6 +1,7 @@
 // Wire-check for A CHAIN JOB: a two-hop contract whose client wants a listener left on the front
-// box, on a port the briefing names, and the machine behind it taken down, and reads both boxes
-// when the contractor mails in. Driven end to end against a running `vercel dev` + supabase,
+// box, on a port the briefing names, and a last step done on the machine behind it: the machine
+// taken down, a file on it destroyed, or a table of its records wiped. The client reads both
+// boxes when the contractor mails in. Driven end to end against a running `vercel dev` + supabase,
 // staging each job through the REAL `scripts/hireme.ts` and working it through the REAL /api
 // endpoints.
 //
@@ -16,7 +17,10 @@
 //     the front box gets the listener's miss.
 //   - A BRICKED FRONT BOX LOSES THE JOB: listener left and machine down, then the front box
 //     bricked, and the reply is the listener's miss.
-//   - `show` names the kind, the machine and the port.
+//   - A FILE DESTROYED OR RECORDS WIPED CAN BE THE LAST STEP: with the listener in place, the file
+//     still at its path gets a destroy job's miss and the records still holding rows a wipe job's;
+//     the file removed, or the records' CSV, then pays. The server lays each on the inside machine.
+//   - `show` names the kind, the last step, what it asks for, and the port.
 //
 // Usage (with v2 supabase + vercel dev running on 3100):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/testMissionChain.ts
@@ -40,7 +44,14 @@ import {
   WORDLIST_PATH,
   formatWordlist,
 } from '../src/core/wordlist/defaultWordlist.js';
-import { missionShape, type MissionShape } from '../src/core/missions/missionShape.js';
+import {
+  chainFinal,
+  missionShape,
+  type ChainFinal,
+  type MissionShape,
+} from '../src/core/missions/missionShape.js';
+import { missionFileItem, missionFilePath } from '../src/core/missions/missionFileItem.js';
+import { missionSetting, recordsFilePath } from '../src/core/missions/missionRecords.js';
 import { missionTerms } from '../src/core/missions/missionTerms.js';
 import { chainJob } from '../src/core/missions/targetRoles.js';
 import {
@@ -104,28 +115,46 @@ const runHireme = (args: readonly string[]): string =>
 const SSH_PORT = 2222;
 const RUN = Date.now().toString(36).slice(-6);
 
-/** The first chain jobs from `from` whose front box and target both fall to hydra, so a sweep
- *  over :2222 roots the front box and the target's root is a word on the default list. */
-const chainNumbers = (from: number, count: number): readonly number[] => {
+/** The first chain jobs from `from` ending in `final` whose front box and target both fall to
+ *  hydra, so a sweep over :2222 roots the front box and the target's root is a word on the
+ *  default list, and that `wanted` accepts. */
+const chainNumbers = (
+  from: number,
+  count: number,
+  final: ChainFinal,
+  wanted: (shape: MissionShape) => boolean = () => true,
+): readonly number[] => {
   const bothHydra = ({ frontBox, keyBox }: MissionShape): boolean =>
     frontBox?.route === 'hydra' && keyBox.route === 'hydra';
   const found: number[] = [];
-  for (let candidate = from; candidate < from + 80000 && found.length < count; candidate += 1) {
+  for (let candidate = from; candidate < from + 240000 && found.length < count; candidate += 1) {
     if (!isMissionNumber(candidate)) continue;
     const shape = missionShape(candidate);
-    if (shape.kind === 'chain' && bothHydra(shape)) found.push(candidate);
+    if (shape.kind !== 'chain' || chainFinal(candidate) !== final) continue;
+    if (bothHydra(shape) && wanted(shape)) found.push(candidate);
   }
   if (found.length < count) throw new Error(`only ${found.length} chain jobs from ${from}`);
   return found;
 };
 
-const [STEPS_JOB, REVERSED_JOB, INSIDE_JOB, FRONT_BRICK_JOB] = chainNumbers(400000, 4) as [
-  number,
-  number,
-  number,
+const [STEPS_JOB, REVERSED_JOB, INSIDE_JOB, FRONT_BRICK_JOB] = chainNumbers(
+  400000,
+  4,
+  'sabotage',
+) as [number, number, number, number];
+const [DESTROYING_JOB] = chainNumbers(400000, 1, 'destroy') as [number];
+// Records kept in a CSV, so a root's `rm` of it wipes them without a database door to drive.
+const [WIPING_JOB] = chainNumbers(400000, 1, 'wipe', ({ storage }) => storage === 'file') as [
   number,
 ];
-const JOBS = [STEPS_JOB, REVERSED_JOB, INSIDE_JOB, FRONT_BRICK_JOB] as const;
+const JOBS = [
+  STEPS_JOB,
+  REVERSED_JOB,
+  INSIDE_JOB,
+  FRONT_BRICK_JOB,
+  DESTROYING_JOB,
+  WIPING_JOB,
+] as const;
 
 type Job = {
   readonly missionNumber: number;
@@ -178,11 +207,15 @@ const STEPS = jobOf(STEPS_JOB, 'the steps in order', 0);
 const REVERSED = jobOf(REVERSED_JOB, 'the machine down first', 1);
 const INSIDE = jobOf(INSIDE_JOB, 'listener on the inside machine', 2);
 const FRONT_BRICK = jobOf(FRONT_BRICK_JOB, 'front box bricked', 3);
-const ALL_JOBS = [STEPS, REVERSED, INSIDE, FRONT_BRICK] as const;
+const DESTROYING = jobOf(DESTROYING_JOB, 'a file destroyed last', 4);
+const WIPING = jobOf(WIPING_JOB, 'records wiped last', 5);
+const ALL_JOBS = [STEPS, REVERSED, INSIDE, FRONT_BRICK, DESTROYING, WIPING] as const;
 
 const nothingOnTheEdge = (job: Job): string =>
   `Nothing is listening on port ${job.port} on the edge. No listener, no money.`;
 const STILL_UP = 'Their machine is still up. No outage, no money.';
+const NOT_GONE = "We can't confirm that file is gone. Not gone, no money.";
+const NOT_WIPED = "That's not what we asked for. Not wiped, no money.";
 const CLOSED = 'That job is already closed.';
 
 /** A classic port the client did not name. */
@@ -296,16 +329,15 @@ const listenAsRoot = (machineId: string, port: number) =>
     }),
   );
 
-/** A root's `rm /boot/vmlinuz` on `machineId`: the box never boots again. */
-const brick = (machineId: string) =>
+/** A root's `rm` of one file on `machineId`. */
+const removeAsRoot = (machineId: string, path: string) =>
   post(
     PATCHES,
-    signRequest(contractor, 'removePatch', {
-      machine_id: machineId,
-      path: '/boot/vmlinuz',
-      owner: 'root',
-    }),
+    signRequest(contractor, 'removePatch', { machine_id: machineId, path, owner: 'root' }),
   );
+
+/** A root's `rm /boot/vmlinuz` on `machineId`: the box never boots again. */
+const brick = (machineId: string) => removeAsRoot(machineId, '/boot/vmlinuz');
 
 /** The contractor's mail to the job's client. */
 const mailClient = (job: Job, body = `both done\n${job.wallet}\n`) =>
@@ -409,8 +441,8 @@ const workTheStepsJob = async () => {
   const shown = runHireme(['show', job.address]);
   const noun = chainJob(job.missionNumber).role.noun;
   check(
-    `show names the kind, the machine, a ${noun}, and the port, ${job.port}`,
-    shown.includes(`Kind:     chain, ${noun}`) &&
+    `show names the kind, the last step, the machine, a ${noun}, and the port, ${job.port}`,
+    shown.includes(`Kind:     chain, sabotage, ${noun}`) &&
       shown.includes(`Listener: :${job.port} on the front box`),
     shown
       .split('\n')
@@ -542,6 +574,78 @@ const workTheFrontBrickJob = async () => {
   );
 };
 
+/** Whether `show` names the kind, the last step and what it asks for, and the listener's port. */
+const showsTheJob = (job: Job, kindLine: string) => {
+  const shown = runHireme(['show', job.address]);
+  check(
+    `show names ${kindLine} and the port, ${job.port}`,
+    shown.includes(`Kind:     ${kindLine}`) &&
+      shown.includes(`Listener: :${job.port} on the front box`),
+    shown
+      .split('\n')
+      .filter((line) => line.includes('Kind:') || line.includes('Listener:'))
+      .join(' | '),
+  );
+};
+
+/** The listener left with the file still in place, a destroy job's miss; then the file removed
+ *  from the inside machine, paid. */
+const workTheDestroyingJob = async () => {
+  const job = DESTROYING;
+  await stage(job);
+  showsTheJob(job, `chain, destroy, ${missionFileItem(job.missionNumber).noun}`);
+
+  const front = await rootTheFront(job, 'destroying');
+  const listening = await listenAsRoot(job.front, job.port);
+  const stillThere = await mailClient(job);
+  check(
+    "with the listener in place and the file still at its path, the client gives a destroy job's miss",
+    front.rooted &&
+      listening.status === 200 &&
+      stillThere.status === 200 &&
+      (await missedWith(job, NOT_GONE)),
+    `${front.detail}, listen ${listening.status}, mail ${stillThere.status}`,
+  );
+
+  const target = await rootTheTarget(job, front.shell, 'destroying');
+  const removed = await removeAsRoot(job.target, missionFilePath(job.missionNumber));
+  const paid = await mailClient(job);
+  check(
+    'the file removed from the inside machine completes the job and pays once',
+    target.rooted && removed.status === 200 && paid.status === 200 && (await paidInFull(job)),
+    `${target.detail}, rm ${removed.status}, mail ${paid.status}, state ${await stateOf(job)}`,
+  );
+};
+
+/** The listener left with the records still holding rows, a wipe job's miss; then the records'
+ *  CSV removed from the inside machine, paid. */
+const workTheWipingJob = async () => {
+  const job = WIPING;
+  await stage(job);
+  showsTheJob(job, `chain, wipe, ${missionSetting(job.missionNumber)}`);
+
+  const front = await rootTheFront(job, 'wiping');
+  const listening = await listenAsRoot(job.front, job.port);
+  const rowsLeft = await mailClient(job);
+  check(
+    "with the listener in place and the records still holding rows, the client gives a wipe job's miss",
+    front.rooted &&
+      listening.status === 200 &&
+      rowsLeft.status === 200 &&
+      (await missedWith(job, NOT_WIPED)),
+    `${front.detail}, listen ${listening.status}, mail ${rowsLeft.status}`,
+  );
+
+  const target = await rootTheTarget(job, front.shell, 'wiping');
+  const removed = await removeAsRoot(job.target, recordsFilePath(job.missionNumber));
+  const paid = await mailClient(job);
+  check(
+    "the records' CSV removed from the inside machine completes the job and pays once",
+    target.rooted && removed.status === 200 && paid.status === 200 && (await paidInFull(job)),
+    `${target.detail}, rm ${removed.status}, mail ${paid.status}, state ${await stateOf(job)}`,
+  );
+};
+
 const main = async () => {
   if (homeEssid === undefined || ALL_JOBS.some((job) => job.address === '')) {
     console.error('the world does not hold what this check assumes');
@@ -560,6 +664,8 @@ const main = async () => {
   await workTheReversedJob();
   await workTheInsideJob();
   await workTheFrontBrickJob();
+  await workTheDestroyingJob();
+  await workTheWipingJob();
 
   await cleanup();
 

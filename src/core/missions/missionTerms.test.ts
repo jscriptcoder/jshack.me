@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { CLIENT_HANDLES, clientByHandle, missionTerms, type MissionTerms } from './missionTerms.js';
 import {
+  chainFinal,
   missionKind,
   missionShape,
   missionTopology,
+  type ChainFinal,
   type MissionKind,
 } from './missionShape.js';
 import { missionAction, missionSetting, type RecordSetting } from './missionRecords.js';
@@ -1030,18 +1032,45 @@ describe('missionTerms', () => {
 
   describe('a chain job', () => {
     const CHAIN_NUMBERS = widerJobsOf('chain');
+    const endingIn = (final: ChainFinal): readonly number[] =>
+      CHAIN_NUMBERS.filter((missionNumber) => chainFinal(missionNumber) === final);
 
-    /** The machine a chain job is offered as taking down, read off the board's line. */
-    const machineOf = (missionNumber: number): string =>
-      missionTerms(missionNumber).kind.replace(/^break in and take down an internal /, '');
+    it('is offered as breaking in and taking down the internal machine it names, when that is its last step', () => {
+      const takingDown = endingIn('sabotage');
+      const machineOf = (missionNumber: number): string =>
+        missionTerms(missionNumber).kind.replace(/^break in and take down an internal /, '');
 
-    it('is offered as breaking in and taking down the internal machine it names', () => {
-      for (const missionNumber of CHAIN_NUMBERS) {
+      for (const missionNumber of takingDown) {
         expect(missionTerms(missionNumber).kind, `contract ${missionNumber}`).toBe(
           `break in and take down an internal ${chainJob(missionNumber).role.noun}`,
         );
       }
-      expect(new Set(CHAIN_NUMBERS.map(machineOf))).toEqual(new Set(SABOTAGE_MACHINES));
+      expect(new Set(takingDown.map(machineOf))).toEqual(new Set(SABOTAGE_MACHINES));
+    });
+
+    it('is offered as breaking in and destroying the internal item it names, when that is its last step', () => {
+      const destroying = endingIn('destroy');
+
+      for (const missionNumber of destroying) {
+        expect(missionTerms(missionNumber).kind, `contract ${missionNumber}`).toBe(
+          `break in and destroy an internal ${missionFileItem(missionNumber).noun}`,
+        );
+      }
+      expect(
+        new Set(destroying.map((missionNumber) => missionFileItem(missionNumber).noun)).size,
+      ).toBe(6);
+    });
+
+    it("is offered as breaking in and wiping its setting's internal records, when that is its last step", () => {
+      const wiping = endingIn('wipe');
+
+      for (const missionNumber of wiping) {
+        const { noun } = SETTING_NAMES[missionSetting(missionNumber)];
+        expect(missionTerms(missionNumber).kind, `contract ${missionNumber}`).toBe(
+          `break in and wipe internal ${noun} records`,
+        );
+      }
+      expect(new Set(wiping.map(missionSetting))).toEqual(new Set(Object.keys(SETTING_NAMES)));
     });
 
     // Two boxes rooted and two steps done on them: the most work any contract asks.
@@ -1052,12 +1081,12 @@ describe('missionTerms', () => {
       expect([Math.min(...pays), Math.max(...pays)]).toEqual([4000, 7000]);
     });
 
-    it('names the target after its stem and a trade a key job is drawn from', () => {
+    it('names the target after its stem and a trade a key job is drawn from, unless its last step wipes records', () => {
       const keyJobTrades = new Set(
         KEY_NUMBERS.map((missionNumber) => missionTerms(missionNumber).targetCompany.split(' ')[1]),
       );
 
-      for (const missionNumber of CHAIN_NUMBERS) {
+      for (const missionNumber of CHAIN_NUMBERS.filter((number) => chainFinal(number) !== 'wipe')) {
         const { stem } = missionShape(missionNumber);
         const [company, trade, ...rest] = missionTerms(missionNumber).targetCompany.split(' ');
         expect(company).toBe(capitalised(stem));
@@ -1066,20 +1095,38 @@ describe('missionTerms', () => {
       }
     });
 
-    // One reason that wants both a way in and a machine down reads on any machine, so the pitches
-    // belong to the job, not to its machine.
-    it('draws every client, and pitches from four reasons of its own', () => {
-      const terms = CHAIN_NUMBERS.map(missionTerms);
+    it('names the target after its stem and what its setting is when its last step wipes records', () => {
+      for (const missionNumber of endingIn('wipe')) {
+        const { stem } = missionShape(missionNumber);
+        const { institution } = SETTING_NAMES[missionSetting(missionNumber)];
+        expect(missionTerms(missionNumber).targetCompany, `contract ${missionNumber}`).toBe(
+          `${capitalised(stem)} ${institution}`,
+        );
+      }
+    });
+
+    // One reason that wants both a way in and a file or records gone reads on any item or setting,
+    // so each last step's pitches belong to the step, not to what it is done to.
+    it('draws every client, and pitches each last step from four reasons of its own', () => {
       const otherPitches = new Set(
         SAMPLE_NUMBERS.filter((missionNumber) => missionKind(missionNumber) !== 'chain').map(
           (missionNumber) => missionTerms(missionNumber).pitch,
         ),
       );
-      const pitches = new Set(terms.map(({ pitch }) => pitch));
+      const pitchesOf = (final: ChainFinal): ReadonlySet<string> =>
+        new Set(endingIn(final).map((missionNumber) => missionTerms(missionNumber).pitch));
+      const every = (['sabotage', 'destroy', 'wipe'] as const).flatMap((final) => [
+        ...pitchesOf(final),
+      ]);
 
-      expect(new Set(terms.map(({ client }) => client.handle))).toEqual(new Set(CLIENT_HANDLES));
-      expect(pitches.size).toBe(4);
-      for (const pitch of pitches) {
+      expect(
+        new Set(CHAIN_NUMBERS.map((missionNumber) => missionTerms(missionNumber).client.handle)),
+      ).toEqual(new Set(CLIENT_HANDLES));
+      for (const final of ['sabotage', 'destroy', 'wipe'] as const) {
+        expect(pitchesOf(final).size, final).toBe(4);
+      }
+      expect(new Set(every).size).toBe(12);
+      for (const pitch of every) {
         expect(pitch).toMatch(/^[A-Z].{20,}\.$/);
         expect(otherPitches.has(pitch), pitch).toBe(false);
       }

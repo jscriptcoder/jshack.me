@@ -18,7 +18,7 @@
  */
 
 import { createPrng } from '../generation/prng.js';
-import { missionKind, missionTopology } from './missionShape.js';
+import { chainFinal, missionKind, missionTopology, type ChainFinal } from './missionShape.js';
 import { backdoorJob, chainJob, credentialRole, sabotageRole } from './targetRoles.js';
 import { missionFileItem } from './missionFileItem.js';
 import { portforwardJob } from './portforwardJob.js';
@@ -317,14 +317,29 @@ const SETTING_TERMS: Readonly<Record<RecordSetting, SettingTerms>> = {
   },
 };
 
-/** Why a client wants a way into a network left open and one of its machines taken down. Any
- *  machine can be the one, so the reasons are the job's, not the machine's. */
-const CHAIN_PITCHES: readonly string[] = [
-  'Our client wants a door into their network that stays open, and one of their machines dark while they use it.',
-  'Two things, one job: a way back in for later, and an outage they will put down to bad luck.',
-  'They will spend a week fixing the machine that went down, and never look at the edge.',
-  'Our client wants to come and go on their network as it likes, and wants them busy while it does.',
-];
+/** Why a client wants a way into a network left open and, behind it, its last step done: a machine
+ *  taken down, a file destroyed or records wiped. Any machine, item or setting can be the one, so
+ *  the reasons are the step's, not what it is done to. */
+const CHAIN_PITCHES: Readonly<Record<ChainFinal, readonly string[]>> = {
+  sabotage: [
+    'Our client wants a door into their network that stays open, and one of their machines dark while they use it.',
+    'Two things, one job: a way back in for later, and an outage they will put down to bad luck.',
+    'They will spend a week fixing the machine that went down, and never look at the edge.',
+    'Our client wants to come and go on their network as it likes, and wants them busy while it does.',
+  ],
+  destroy: [
+    'Our client wants a way back into their network, and one of their files gone before anyone thinks to copy it.',
+    'Leave us a door on the edge and take one file off the inside. They will only ever notice one of those.',
+    'Something of theirs has to stop existing, and our client wants to come back and check it stays that way.',
+    'One file goes missing, and the way in stays open for whatever our client needs next.',
+  ],
+  wipe: [
+    'Our client wants their records gone, and a way back in for when they try to rebuild them.',
+    'Empty their records and leave a door open behind you. Our client means to check they stay empty.',
+    'They will blame a bad update for the empty tables, and nobody will think to look at the edge.',
+    'Our client wants their books blank, and a quiet way in to keep them that way.',
+  ],
+};
 
 /** What a chain job pays, in JSC: two boxes rooted and a step done on each, the most work any
  *  contract asks. */
@@ -333,6 +348,18 @@ const CHAIN_PAY = { minPay: 4000, maxPay: 7000 } as const;
 /** The board line for a wipe job: the setting's records, `internal` ones behind a second box. */
 const wipeKind = (noun: string, singleHop: boolean): string =>
   `wipe ${singleHop ? '' : 'internal '}${noun} records`;
+
+/** The board line for a chain job: breaking in, then its last step done to what is inside. Always
+ *  two-hop: the listener goes on the front box and the machine is behind it. */
+const chainKind = (missionNumber: number, final: ChainFinal): string => {
+  if (final === 'destroy') {
+    return `break in and destroy an internal ${missionFileItem(missionNumber).noun}`;
+  }
+  if (final === 'wipe') {
+    return `break in and ${wipeKind(SETTING_TERMS[missionSetting(missionNumber)].noun, false)}`;
+  }
+  return `break in and take down an internal ${chainJob(missionNumber).role.noun}`;
+};
 
 /** The board line for a tamper job: what it does to which setting's records, and `internal`
  *  for one behind a second box. */
@@ -381,13 +408,17 @@ export const missionTerms = (missionNumber: number): MissionTerms => {
     };
   }
   if (missionKind(missionNumber) === 'chain') {
+    const final = chainFinal(missionNumber);
+    const client = prng.pick(CLIENTS);
+    // Drawn on every chain job, so a wipe's institution in its place moves no chain job's pay.
+    const trade = prng.pick(TARGET_TRADES);
+    const { institution } = SETTING_TERMS[missionSetting(missionNumber)];
     return {
       job: 'chain',
-      client: prng.pick(CLIENTS),
-      targetCompany: `${capitalised(stem)} ${prng.pick(TARGET_TRADES)}`,
-      // Always two-hop: the listener goes on the front box and the machine is behind it.
-      kind: `break in and take down an internal ${chainJob(missionNumber).role.noun}`,
-      pitch: prng.pick(CHAIN_PITCHES),
+      client,
+      targetCompany: `${capitalised(stem)} ${final === 'wipe' ? institution : trade}`,
+      kind: chainKind(missionNumber, final),
+      pitch: prng.pick(CHAIN_PITCHES[final]),
       pay: payFrom(prng, CHAIN_PAY),
     };
   }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { generateHomeLan, type LanHost } from './generateHomeLan.js';
-import { missionShape } from '../missions/missionShape.js';
+import { chainFinal, missionShape } from '../missions/missionShape.js';
 import { missionTerms } from '../missions/missionTerms.js';
 import { assignHomeNetwork } from '../network/homeNetwork.js';
 import { seedApGatewayHostname, seedInnerGatewayHostname } from './gatewayHostname.js';
@@ -773,7 +773,7 @@ describe('generateHomeLan for a contract network', () => {
     }
   });
 
-  it('names a chain target for the machine the client wants down, behind the front box the listener goes on', () => {
+  it('names a chain target for the machine the client wants down, or the file server a file or records sit on, behind the front box the listener goes on', () => {
     const chain = CONTRACT_NUMBERS.filter(
       (missionNumber) => missionShape(missionNumber).kind === 'chain',
     );
@@ -785,9 +785,10 @@ describe('generateHomeLan for a contract network', () => {
       const hostnameAt = (octet: number | undefined) =>
         lan.hosts.find(({ ip }) => ip === `${lan.subnet}.${octet}`)?.hostname;
 
-      expect(hostnameAt(keyBox.octet), `contract ${missionNumber}`).toBe(
-        `${stem}-${chainJob(missionNumber).role.suffix}`,
-      );
+      const suffix =
+        chainFinal(missionNumber) === 'sabotage' ? chainJob(missionNumber).role.suffix : 'files';
+
+      expect(hostnameAt(keyBox.octet), `contract ${missionNumber}`).toBe(`${stem}-${suffix}`);
       expect(hostnameAt(frontBox?.octet), `contract ${missionNumber}`).toBe(`${stem}-web`);
     }
   });

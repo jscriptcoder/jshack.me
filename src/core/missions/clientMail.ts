@@ -62,10 +62,12 @@
  *
  * A chain job asks for two steps and pays for both or neither: the client reads the front box and
  * then the target as they stand, and completes the job once a listener holds the port the briefing
- * named on the front box and the target no longer boots, whoever did either and in whichever order.
- * The first step unfinished answers: no listener on the front box, one on another port, one on the
- * target instead, and a front box that no longer boots get the listener's words, and with the
- * listener in place a target still up gets a sabotage job's. Either miss keeps the job open.
+ * named on the front box and the target shows the last step done, as a sabotage, destroy or wipe
+ * job's target would: no longer booting, its file gone, or its records emptied, whoever did either
+ * and in whichever order. The first step unfinished answers: no listener on the front box, one on
+ * another port, one on the target instead, and a front box that no longer boots get the
+ * listener's words, and with the listener in place an unfinished last step gets that kind's. Either
+ * miss keeps the job open.
  *
  * Completing is one step in the store under the handle's lock: a second right mail racing
  * the first finds the job completed and is told it is closed, so a job pays once. A store
@@ -80,7 +82,7 @@ import type { Directory } from '../filesystem/types.js';
 import { writeAmount } from '../wallet/amount.js';
 import { missionKey } from './missionSecret.js';
 import { missionFileContent, missionFilePath, missionPlantContent } from './missionFileItem.js';
-import { missionKind, missionTopology } from './missionShape.js';
+import { chainFinal, missionKind, missionTopology, type ChainFinal } from './missionShape.js';
 import { recordsLookRight, recordsWiped } from './missionRecords.js';
 import { backdoorJob, chainJob, credentialRole } from './targetRoles.js';
 import { portforwardJob } from './portforwardJob.js';
@@ -340,6 +342,34 @@ const holdsAtFilePath = (fs: Directory, missionNumber: number, content: string):
   return read.ok && read.content === content;
 };
 
+/** The step each job read off its target asks, as a chain job's last step names it. */
+const STEP_CHECKED = {
+  checkDown: 'sabotage',
+  checkGone: 'destroy',
+  checkWiped: 'wipe',
+} as const satisfies Partial<Record<Decision['kind'], ChainFinal>>;
+
+/** What the client says of a target that does not yet show the step `kind` asks of it, a sabotage,
+ *  destroy or wipe job's or a chain job's last: still up, its file still there, or its records
+ *  not emptied. Null once the step is done, and anyone's doing counts. The target always stands at
+ *  its address, so a box that is not up is one that no longer boots: down, and a box nobody can
+ *  look into for a file or records. */
+const stepMiss = (
+  kind: ChainFinal,
+  missionNumber: number,
+  box: Exclude<TargetBoxRead, { readonly kind: 'error' }>,
+  secret: string,
+): string | null => {
+  if (kind === 'sabotage') return box.kind === 'up' ? STILL_UP : null;
+  if (kind === 'destroy') {
+    const theirs = missionFileContent(missionNumber, secret);
+    return box.kind === 'absent' || holdsAtFilePath(box.fs, missionNumber, theirs)
+      ? NOT_GONE
+      : null;
+  }
+  return box.kind === 'absent' || !recordsWiped(missionNumber, box.fs) ? NOT_WIPED : null;
+};
+
 const sendReply = async (
   store: ClientMailStore,
   handle: string,
@@ -402,12 +432,15 @@ export const answerClientMail = async ({
       return sendReply(store, login.handle, replyAbout(terms, RECORDS_WRONG));
     }
   }
-  if (decision.kind === 'checkDown') {
+  if (
+    decision.kind === 'checkDown' ||
+    decision.kind === 'checkGone' ||
+    decision.kind === 'checkWiped'
+  ) {
     const box = await readTargetBox(decision.number);
     if (box.kind === 'error') return null;
-    // The target always stands at its address, so a box that is not up is one that no longer
-    // boots: the job done, whoever did it.
-    if (box.kind === 'up') return sendReply(store, login.handle, replyAbout(terms, STILL_UP));
+    const miss = stepMiss(STEP_CHECKED[decision.kind], decision.number, box, secret);
+    if (miss !== null) return sendReply(store, login.handle, replyAbout(terms, miss));
   }
   if (decision.kind === 'checkListening') {
     const box = await readTargetBox(decision.number);
@@ -448,24 +481,6 @@ export const answerClientMail = async ({
       return sendReply(store, login.handle, replyAbout(terms, loginRefused(noun)));
     }
   }
-  if (decision.kind === 'checkGone') {
-    const box = await readTargetBox(decision.number);
-    if (box.kind === 'error') return null;
-    const theirs = missionFileContent(decision.number, secret);
-    // Anyone's deleting counts, as anyone's brick does on a sabotage job. A target that no longer
-    // boots cannot be looked at, so the client cannot confirm anything about it.
-    if (box.kind === 'absent' || holdsAtFilePath(box.fs, decision.number, theirs)) {
-      return sendReply(store, login.handle, replyAbout(terms, NOT_GONE));
-    }
-  }
-  if (decision.kind === 'checkWiped') {
-    const box = await readTargetBox(decision.number);
-    if (box.kind === 'error') return null;
-    // Anyone's wiping counts, as anyone's deleting does on a destroy job.
-    if (box.kind === 'absent' || !recordsWiped(decision.number, box.fs)) {
-      return sendReply(store, login.handle, replyAbout(terms, NOT_WIPED));
-    }
-  }
   if (decision.kind === 'checkChain') {
     // The first unfinished step answers, the listener before the outage. Both are read as they
     // stand on every mail, so the steps can be done in either order, and anyone's counts.
@@ -478,7 +493,8 @@ export const answerClientMail = async ({
     }
     const box = await readTargetBox(decision.number);
     if (box.kind === 'error') return null;
-    if (box.kind === 'up') return sendReply(store, login.handle, replyAbout(terms, STILL_UP));
+    const miss = stepMiss(chainFinal(decision.number), decision.number, box, secret);
+    if (miss !== null) return sendReply(store, login.handle, replyAbout(terms, miss));
   }
   const received = RECEIVED[decision.kind];
   const wallet = firstMatch(text, WALLET_SHAPE)?.toLowerCase() ?? null;

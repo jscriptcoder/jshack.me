@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   MISSION_ROUTE_DAY,
+  chainFinal,
   missionKind,
   missionShape,
   missionTopology,
@@ -324,13 +325,31 @@ describe('missionShape', () => {
     }
   });
 
-  it('keeps nothing in storage on a chain job, and always puts a front box before its target', () => {
+  it('always puts a front box before a chain job target, keeping nothing in storage unless its last step wipes a table', () => {
     const chainJobs = ALL_SAMPLE_SHAPES.filter(({ kind }) => kind === 'chain');
 
     expect(chainJobs.length).toBeGreaterThan(0);
     for (const { missionNumber, storage, frontBox } of chainJobs) {
-      expect(storage, `contract ${missionNumber}`).toBeNull();
-      expect(frontBox, `contract ${missionNumber}`).not.toBeNull();
+      const label = `contract ${missionNumber}, ${chainFinal(missionNumber)}`;
+
+      expect(frontBox, label).not.toBeNull();
+      expect(storage, label).toBe(
+        chainFinal(missionNumber) === 'wipe' ? recordsStorage(missionNumber) : null,
+      );
+    }
+  });
+
+  it('gives a chain job wiping records kept in a database a database server on its target', () => {
+    const databaseJobs = ALL_SAMPLE_SHAPES.filter(
+      ({ kind, storage }) => kind === 'chain' && storage === 'database',
+    );
+
+    expect(databaseJobs.length).toBeGreaterThan(0);
+    for (const { missionNumber, keyBox } of databaseJobs) {
+      expect(
+        realServices(keyBox).map(({ program }) => program),
+        `contract ${missionNumber}`,
+      ).toContain('mysqld');
     }
   });
 
