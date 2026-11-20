@@ -77,8 +77,10 @@ import {
  *  machines' reasons for wanting a root login) added 619 B, rounded up to 700; then the wipe
  *  kind (its tenth of the draw, and the emptied-table reading the client does) added 54 B,
  *  rounded up to 100; then the chain kind (its eleventh of the draw, its machine and port, and
- *  the front box it always stands behind) added 119 B, rounded up to 200. */
-const BUNDLE_CEILING_BYTES = 304_675;
+ *  the front box it always stands behind) added 119 B, rounded up to 200; then `cp` and `mv`
+ *  (the two commands, their manuals and the operand reader they share) added 1,968 B,
+ *  rounded up to 2,000. */
+const BUNDLE_CEILING_BYTES = 306_675;
 
 /** About a tenth of that before world content, so a loaded machine's noise cannot fail
  *  the check while a content change that makes boxes ten times dearer still does. */
