@@ -1,12 +1,12 @@
 /**
- * effects — list the neon effects, or switch one on or off.
+ * effects — list the effects, or switch one on or off.
  *
  * A GAME command, like `theme`: there is no `/bin/effects` to remove, so it is
  * always available. It exists so a player who likes a neon palette but not one of
  * its effects can keep the palette; before it, the only way out was a plain theme.
  */
 
-import { EFFECT_NAMES, isEffectName } from '../theme/effects.js';
+import { EFFECT_NAMES, isEffectName, NEON_ONLY_EFFECTS } from '../theme/effects.js';
 import type { EffectName } from '../theme/effects.js';
 import { THEME_IDS, THEMES } from '../theme/themes.js';
 import type { Command, CommandResult, TerminalLine } from './types.js';
@@ -19,6 +19,9 @@ const BOTH_STATES = [true, false] as const;
 const USAGE = 'effects: usage: effects [<effect> <on|off>]';
 
 const NEON_THEME_IDS = THEME_IDS.filter((id) => THEMES[id].neonColors !== undefined);
+
+/** `glow, glitch and cursor`: British English, so no comma before the "and". */
+const NEON_ONLY_LIST = new Intl.ListFormat('en-GB').format(NEON_ONLY_EFFECTS);
 
 /** `  glow     on` — padded like `theme`'s ids, so the states read down a column. */
 const listingLine = (name: EffectName, on: boolean): TerminalLine => ({
@@ -38,7 +41,8 @@ const execute: Command['execute'] = async (env, args) => {
     const current = env.currentEffects();
     const listing = EFFECT_NAMES.map((name) => listingLine(name, current[name]));
     // The settings stand under a plain theme, so they are still listed; this line
-    // is what stops a player wondering why switching one changed nothing.
+    // is what stops a player wondering why switching one changed nothing. The HUD
+    // is not named in it, because every theme draws that.
     const plain = THEMES[env.currentTheme()].neonColors === undefined;
     return {
       kind: 'sync',
@@ -47,7 +51,7 @@ const execute: Command['execute'] = async (env, args) => {
             ...listing,
             {
               kind: 'dim',
-              content: `Effects show only under the neon themes: ${NEON_THEME_IDS.join(', ')}.`,
+              content: `${NEON_ONLY_LIST} show only under the neon themes: ${NEON_THEME_IDS.join(', ')}.`,
             },
           ]
         : listing,
@@ -71,17 +75,17 @@ const execute: Command['execute'] = async (env, args) => {
 
 export const effects: Command = {
   name: 'effects',
-  description: 'List or switch the neon effects',
+  description: 'List or switch the screen effects',
   category: 'general',
   tier: 'guest',
   availability: { kind: 'any-machine' },
   manual: {
     synopsis: 'effects [effect on|off]',
     description:
-      'Without arguments, lists the neon effects and whether each is on. With an ' +
-      'effect and on or off, switches that one alone. The effects show only under ' +
-      'the neon themes, and the choice is remembered, so it still stands after a ' +
-      'switch to a plain theme and back.',
+      'Without arguments, lists the effects and whether each is on. With an ' +
+      'effect and on or off, switches that one alone. The HUD shows under every ' +
+      'theme; glow, glitch and cursor show only under the neon themes. The choice ' +
+      'is remembered, so it still stands after a switch to a plain theme and back.',
     arguments: [
       {
         name: 'effect',

@@ -15,8 +15,8 @@ import stylesheet from '../../index.css?raw';
  *
  * The list grows only when something starts painting a token — a colour nothing
  * reads is a value free to drift from the design forever without a test noticing.
- * The last two arrived with the author card, which is the only thing that shows a
- * link or an avatar.
+ * The link and avatar tokens arrived with the author card, which is the only thing
+ * that shows a link or an avatar.
  */
 const PAINTED_TOKENS = [
   '--theme-bg',
@@ -29,18 +29,18 @@ const PAINTED_TOKENS = [
   '--theme-scroll-thumb-hover',
   '--theme-link',
   '--theme-avatar-border',
+  // The HUD frame fades between these two, and every theme draws the HUD.
+  '--theme-frame-a',
+  '--theme-frame-b',
 ] as const;
 
-/** What only a neon theme paints: the banner glitch's two split colours, the
- *  background's two corner tints, and the two colours the HUD frame fades between.
- *  Listed by hand for the same reason as above. */
+/** What only a neon theme paints: the banner glitch's two split colours and the
+ *  background's two corner tints. Listed by hand for the same reason as above. */
 const NEON_PAINTED_TOKENS = [
   '--theme-glitch-a',
   '--theme-glitch-b',
   '--theme-tint-top',
   '--theme-tint-bottom',
-  '--theme-frame-a',
-  '--theme-frame-b',
 ] as const;
 
 const resetDocument = () => {

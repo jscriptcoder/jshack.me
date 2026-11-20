@@ -5,7 +5,7 @@
  * Pure data, no DOM: `core/` stays framework-agnostic, so the `theme` command
  * can list what exists while the UI alone knows how to paint it.
  *
- * TEN tokens, which is exactly what the app paints today. Legacy carried
+ * TWELVE tokens, which is exactly what the app paints today. Legacy carried
  * fourteen; the rest describe chrome this rewrite has not built, and a token
  * nothing reads is a value free to drift from the design forever without a
  * single test noticing. They arrive with the screens that need them — `link` and
@@ -28,19 +28,20 @@ export type ThemeColors = {
   readonly scrollThumbHover: string;
   readonly link: string;
   readonly avatarBorder: string;
+  /** The two colours the HUD frame fades between, from its top-left corner to its
+   *  bottom-right. Every theme draws the HUD, so every theme has them. */
+  readonly frameA: string;
+  readonly frameB: string;
 };
 
-/** What the neon look paints with beyond the ten shared tokens: the two colours
- *  the banner's glitch splits into, the two faint tints lit into the top and
- *  bottom corners of the background, and the two colours the HUD frame fades
- *  between, from its top-left corner to its bottom-right. */
+/** What the neon look paints with beyond the shared tokens: the two colours the
+ *  banner's glitch splits into, and the two faint tints lit into the top and
+ *  bottom corners of the background. */
 export type NeonColors = {
   readonly glitchA: string;
   readonly glitchB: string;
   readonly tintTop: string;
   readonly tintBottom: string;
-  readonly frameA: string;
-  readonly frameB: string;
 };
 
 /** No `id` field: the record key IS the id, and `THEME_IDS` is the order. A
@@ -76,14 +77,14 @@ export const THEMES: Readonly<Record<ThemeId, ThemeDefinition>> = {
       scrollThumbHover: 'rgba(252, 238, 10, 0.6)',
       link: '#fcee0a',
       avatarBorder: '#4ee6ee',
+      frameA: '#fcee0a',
+      frameB: '#4ee6ee',
     },
     neonColors: {
       glitchA: '#ff1f4b',
       glitchB: '#4ee6ee',
       tintTop: 'rgba(78, 230, 238, 0.08)',
       tintBottom: 'rgba(252, 238, 10, 0.05)',
-      frameA: '#fcee0a',
-      frameB: '#4ee6ee',
     },
   },
   redline: {
@@ -100,14 +101,14 @@ export const THEMES: Readonly<Record<ThemeId, ThemeDefinition>> = {
       scrollThumbHover: 'rgba(255, 94, 87, 0.6)',
       link: '#5ef6ff',
       avatarBorder: '#ff5e57',
+      frameA: '#ff5e57',
+      frameB: '#5ef6ff',
     },
     neonColors: {
       glitchA: '#5ef6ff',
       glitchB: '#fcee0a',
       tintTop: 'rgba(255, 94, 87, 0.09)',
       tintBottom: 'rgba(94, 246, 255, 0.05)',
-      frameA: '#ff5e57',
-      frameB: '#5ef6ff',
     },
   },
   synth: {
@@ -123,14 +124,14 @@ export const THEMES: Readonly<Record<ThemeId, ThemeDefinition>> = {
       scrollThumbHover: 'rgba(255, 42, 109, 0.6)',
       link: '#05d9e8',
       avatarBorder: '#b9f3ff',
+      frameA: '#ff2a6d',
+      frameB: '#05d9e8',
     },
     neonColors: {
       glitchA: '#05d9e8',
       glitchB: '#ff2a6d',
       tintTop: 'rgba(255, 42, 109, 0.1)',
       tintBottom: 'rgba(5, 217, 232, 0.08)',
-      frameA: '#ff2a6d',
-      frameB: '#05d9e8',
     },
   },
   amber: {
@@ -146,6 +147,8 @@ export const THEMES: Readonly<Record<ThemeId, ThemeDefinition>> = {
       scrollThumbHover: 'rgba(146, 64, 14, 0.7)',
       link: '#fbbf24',
       avatarBorder: '#f59e0b',
+      frameA: '#fcd34d',
+      frameB: '#f59e0b',
     },
   },
   green: {
@@ -161,6 +164,8 @@ export const THEMES: Readonly<Record<ThemeId, ThemeDefinition>> = {
       scrollThumbHover: 'rgba(22, 101, 52, 0.7)',
       link: '#4ade80',
       avatarBorder: '#22c55e',
+      frameA: '#86efac',
+      frameB: '#22c55e',
     },
   },
   cyan: {
@@ -176,6 +181,8 @@ export const THEMES: Readonly<Record<ThemeId, ThemeDefinition>> = {
       scrollThumbHover: 'rgba(14, 116, 144, 0.7)',
       link: '#22d3ee',
       avatarBorder: '#06b6d4',
+      frameA: '#67e8f9',
+      frameB: '#06b6d4',
     },
   },
   light: {
@@ -191,6 +198,8 @@ export const THEMES: Readonly<Record<ThemeId, ThemeDefinition>> = {
       scrollThumbHover: 'rgba(120, 113, 108, 0.7)',
       link: '#2563eb',
       avatarBorder: '#57534e',
+      frameA: '#0c0a09',
+      frameB: '#292524',
     },
   },
 };

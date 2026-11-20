@@ -58,7 +58,9 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
      another machine). **Fixed in v0.477.5:** the refusal is followed by `nc: a port on your
      own box answers only from another machine`.
   6. **The light theme hides the HUD (owner: bug).** `theme light` drops the top bar and the
-     status bar while `effects` still says `hud on`; every other theme keeps them.
+     status bar while `effects` still says `hud on`; every other theme keeps them. **Fixed in
+     v0.477.6:** the HUD was neon-only by design, so amber, green and cyan hid it too. It now
+     shows under every theme while `effects hud` is on; glow, glitch and cursor stay neon-only.
   7. **A local read hole reads the box without what the server lays on it (found fixing 4; not
      yet seen in play).** `msfconsole --local` on another box is answered from the box as
      generated plus its journal (`resolveStoodOnBox`, `src/core/sessions/stoodOnBox.ts`). A

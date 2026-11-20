@@ -29,9 +29,10 @@ describe('effects command', () => {
     ]);
   });
 
-  it('says under a plain theme that the effects show only under a neon one', async () => {
+  it('says under a plain theme which effects show only under a neon one', async () => {
     // The settings still stand under Amber, so the listing still shows them; the
     // closing line is what stops a player wondering why switching one did nothing.
+    // The HUD is not in it: every theme draws that.
     const env = mockCommandEnv({
       currentTheme: () => 'amber',
       currentEffects: () => ({ ...ALL_EFFECTS_ON, cursor: false }),
@@ -45,7 +46,10 @@ describe('effects command', () => {
       { kind: 'text', content: '  glitch   on' },
       { kind: 'text', content: '  hud      on' },
       { kind: 'text', content: '  cursor   off' },
-      { kind: 'dim', content: 'Effects show only under the neon themes: neon, redline, synth.' },
+      {
+        kind: 'dim',
+        content: 'glow, glitch and cursor show only under the neon themes: neon, redline, synth.',
+      },
     ]);
   });
 
