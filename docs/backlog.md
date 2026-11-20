@@ -189,6 +189,15 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   prize, since a player who takes your box can read your saved logins and use them onward, which
   fits players learning the hard way.
 
+- **A way for LLM agents to play without a browser — not yet grilled (2026-11-20).** Since
+  v0.476.0 an agent can read `/llms.txt`, `/llms/commands.md` and `/llms-full.txt` before it plays,
+  but it still has to drive the browser terminal, and most agents cannot. An MCP server or a public
+  text API would let any agent play. Left out of the llms.txt work as an epic of its own. It runs
+  against two things `llms.txt` states today: the HTTP API is an internal, signed interface, and a
+  player is an Ed25519 key kept in the browser's `localStorage`, with the world generated on the
+  client. To grill: where the shell would run for such a player, how it holds its key, and whether
+  agents and humans stay indistinguishable in the world.
+
 - **RESOLVED 2026-10-30 (v0.437.1) — two system log lines landing together could lose one.**
   System lines now land through the `append_machine_log` database function, which locks the log's
   path and appends in one transaction, and the journal stamps `updated_at` with

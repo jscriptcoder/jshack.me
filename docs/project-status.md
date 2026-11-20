@@ -1766,6 +1766,18 @@ agreed order:
     the listener left, then `DELETE FROM scores` from the edge box, and paid. A later mail on each
     was told the job is closed. No defect. Announced on valleynews.io `/dev` (story 24). The plan
     was retired on close-out.
+54. ✅ **llms.txt keeps up with the game (v0.476.0, PR #790, merged 2026-11-20).** One slice.
+    `public/llms.txt` stays hand-written; it no longer says there are no missions, hints that some
+    people pay JSC for work without naming a site, says `help` lists every command installed or
+    not, and describes interactive prompts. Two pages beside it are generated on every dev and
+    build run by `scripts/llms.ts` from the command registry (`core/commands/commandReference.ts`,
+    reusing `help`'s and `man`'s formatters) and are git-ignored: `/llms/commands.md`, the `help`
+    listing and every `man` page, and `/llms-full.txt`, llms.txt followed by that page. Every
+    registry command is published, since in-game `help` already lists them all. Evidence: unit
+    tests (11,195), `npm run build` with `checkSecrets` over the new pages, mutation 21 killed / 1
+    survivor (the intro sentence's wording), and both pages served 200 from the Vercel preview. A
+    way to play without a browser was left for a grill of its own (`backlog.md`). The plan was
+    retired on close-out.
     **Pick up here (2026-11-20):** the owner's choice from `backlog.md`.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
