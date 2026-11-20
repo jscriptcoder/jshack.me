@@ -138,19 +138,25 @@ const hostOf = (session: Session): string =>
  *  Asked two hops deep or more, and at any depth on a box that is not the player's
  *  own. A leg goes when either end of it leaves the network — another player's box
  *  under the shell, or the player's own box beneath it, which takes every shell it
- *  opened with it — and neither leaves a marker on the box the shell stands on. Only a
- *  shell on the player's own box, one hop deep, stands on nothing that can leave. */
+ *  opened with it — and neither leaves a marker on the box the shell stands on.
+ *
+ *  A leg opened on the player's own box FROM their own box — `su`, a `--local` shell, a
+ *  login to localhost — was answered by the client, so the server holds no row for it:
+ *  it stands exactly as long as the leg beneath it does. The bottom leg stands on the
+ *  player's own login. A chain made only of such legs stands on nothing that can leave,
+ *  and costs no request. */
 const lostLegs = async (env: CommandEnv): Promise<readonly Session[]> => {
-  if (
-    env.hopChain.length < 2 &&
-    isOwnWorkstation(env.session.machineId, env.identity.publicKeyHex)
-  ) {
-    return [];
-  }
+  const onOwnBox = (session: Session): boolean =>
+    isOwnWorkstation(session.machineId, env.identity.publicKeyHex);
+  const pushed = [...env.hopChain.slice(1), env.session];
+  const rowless = pushed.map((session, index) => {
+    const beneath = pushed[index - 1];
+    return onOwnBox(session) && (beneath === undefined || onOwnBox(beneath));
+  });
+  if (rowless.every(Boolean)) return [];
   const open = await env.chain.openSessionIds();
   if (open === null) return [];
-  const pushed = [...env.hopChain.slice(1), env.session];
-  const lowestLost = pushed.findIndex((session) => !open.has(session.id));
+  const lowestLost = pushed.findIndex((session, index) => !rowless[index] && !open.has(session.id));
   return lowestLost === -1 ? [] : pushed.slice(lowestLost).reverse();
 };
 
