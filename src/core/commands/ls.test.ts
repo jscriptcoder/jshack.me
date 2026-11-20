@@ -4,6 +4,9 @@ import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
 import { mockCommandEnv, mockFsViewFromTree } from '../../test/factories/commandEnv.js';
 import { asAbsPath } from '../types.js';
 import type { TerminalLine } from './types.js';
+import { dir, file, ROOT_DIR, ROOT_FILE, TRAVERSABLE_DIR } from '../generation/baseFs.js';
+import { filterTreeForSession } from '../patches/readFilter.js';
+import { deserializeTree, serializeTree } from '../filesystem/treeCodec.js';
 
 const NO_FLAGS = new Map<string, string | true>();
 
@@ -509,5 +512,52 @@ describe('ls -la (stacked, parsed end-to-end)', () => {
       lines: [{ kind: 'error', content: 'cat: unrecognized option: -na' }],
       exitCode: 2,
     });
+  });
+});
+
+/**
+ * On another box the shell holds the tree the server served its session, not the box. A
+ * real `ls` lists a file it may not open, so these walk the served tree over the wire
+ * rather than one built by hand.
+ */
+describe('ls on another box', () => {
+  const companyBox = () =>
+    dir(
+      {
+        root: dir({ 'notes.txt': file('ROOT_NOTES', ROOT_FILE) }, ROOT_DIR),
+        srv: dir(
+          { design: dir({ 'ab3-render-final.jpg': file('JFIF', ROOT_FILE) }, TRAVERSABLE_DIR) },
+          TRAVERSABLE_DIR,
+        ),
+      },
+      TRAVERSABLE_DIR,
+    );
+
+  const servedTo = (userType: 'user' | 'guest') =>
+    mockFsViewFromTree(
+      deserializeTree(
+        JSON.parse(JSON.stringify(serializeTree(filterTreeForSession(companyBox(), userType)))),
+      ),
+      { userType, cwd: asAbsPath('/') },
+    );
+
+  it('lists a file only root may read', async () => {
+    const env = mockCommandEnv({ fs: servedTo('user') });
+
+    const result = await ls.execute(env, ['/srv/design'], NO_FLAGS);
+
+    expect(result.kind === 'sync' ? textLines(result) : null).toEqual(['ab3-render-final.jpg']);
+  });
+
+  it('lists a directory only root may open, and refuses to open it', async () => {
+    const env = mockCommandEnv({ fs: servedTo('guest') });
+
+    const top = await ls.execute(env, ['/'], NO_FLAGS);
+    const inside = await ls.execute(env, ['/root'], NO_FLAGS);
+
+    expect(top.kind === 'sync' ? textLines(top) : null).toEqual(['root', 'srv']);
+    expect(inside.kind === 'sync' ? errorLines(inside) : null).toEqual([
+      "ls: cannot open directory '/root': Permission denied",
+    ]);
   });
 });

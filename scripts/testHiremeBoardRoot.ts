@@ -269,11 +269,12 @@ const main = async () => {
   const peon = newPlayer();
   await seedSession(peon, 'user');
   const asUser = await readBox(peon);
+  const userHireme = asUser.tree === null ? undefined : nodeAt(asUser.tree, 'etc', 'hireme');
   check(
-    'a user session is served no /etc/hireme and no address',
+    'a user session is served /etc/hireme shut and empty, and no address',
     asUser.status === 200 &&
-      asUser.tree !== null &&
-      nodeAt(asUser.tree, 'etc', 'hireme') === undefined &&
+      userHireme?.kind === 'directory' &&
+      userHireme.entries.size === 0 &&
       !JSON.stringify(asUser.body).includes(neoAddress),
     `status ${asUser.status}`,
   );

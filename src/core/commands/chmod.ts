@@ -155,8 +155,8 @@ const execute = async (
   // `u` is answered out of `/etc/passwd`, so it is asked through the session's own
   // reader, which is the one `cat` would use. A tier that cannot open the file has
   // nothing to tell one owner from another with, and on a box the server serves the
-  // file is not in the tree at all: resolving `u` there turned it into `o` on every
-  // node. The other letters name a tier outright and never get this far.
+  // file arrives by name alone: resolving `u` there turned it into `o` on every node.
+  // The other letters name a tier outright and never get this far.
   if (mode.whoChars.includes('u')) {
     const passwd = fs.read(PASSWD_PATH);
     if (!passwd.ok) {

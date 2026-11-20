@@ -216,11 +216,14 @@ describe("the room emailit.io's box keeps for its mail", () => {
     });
   });
 
-  it.each(['user', 'guest'] as const)('is not there for a %s session', (tier) => {
+  it.each(['user', 'guest'] as const)('is listed to a %s session, and shut', (tier) => {
     const pruned = filterTreeForSession(siteBox(EMAILIT_NETWORK), tier);
 
-    expect(nodeAt(pruned, '/var/mail')).toBeUndefined();
-    expect(nodeAt(pruned, '/etc/emailit')).toBeUndefined();
+    expect(nodeAt(pruned, '/var/mail')).toMatchObject({
+      perms: MAIL_SPOOL_DIR,
+      entries: new Map(),
+    });
+    expect(nodeAt(pruned, '/etc/emailit')).toMatchObject({ perms: ROOT_DIR, entries: new Map() });
   });
 
   it.each(['findit.io', 'hackademy.io', 'mapit.io'])('is kept on %s by nobody', (key) => {
@@ -239,10 +242,10 @@ describe("the room the contractor boards' box keeps for its list of boards", () 
     });
   });
 
-  it.each(['user', 'guest'] as const)('is not there for a %s session', (tier) => {
+  it.each(['user', 'guest'] as const)('is listed to a %s session, and shut', (tier) => {
     const pruned = filterTreeForSession(siteBox('boards.hireme.io'), tier);
 
-    expect(nodeAt(pruned, '/etc/hireme')).toBeUndefined();
+    expect(nodeAt(pruned, '/etc/hireme')).toMatchObject({ perms: ROOT_DIR, entries: new Map() });
   });
 
   it.each(['hireme.io', 'emailit.io', 'findit.io'])('is kept on %s by nobody', (key) => {

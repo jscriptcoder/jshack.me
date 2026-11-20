@@ -8,10 +8,13 @@
  * in the body is visible to DevTools/curl regardless of how the UI renders it.
  *
  * Pruning reuses the shared permission walker (`canRead`, the same allow/deny the
- * write path enforces) so client and server can't drift: a node survives iff every
- * ancestor directory is traversable for the tier AND the node itself is readable.
- * A dropped directory takes its whole subtree with it. `root` reads everything
- * (the walker short-circuits), so a root caller gets the tree back unchanged.
+ * write path enforces) so client and server can't drift. It serves what a real `ls`
+ * shows: a node's NAME survives iff the tier can list the directory it sits in (every
+ * ancestor traversable, the directory itself readable). Its bytes, or its entries,
+ * survive only if the tier can read the node too; otherwise it is withheld, served
+ * with its owner and permissions and nothing inside, so the shell refuses it as a
+ * file that is there rather than one that is not. `root` reads everything (the
+ * walker short-circuits), so a root caller gets the tree back unchanged.
  *
  * Tier 1 (owner → unfiltered) bypasses this module entirely (the handler returns
  * the materialized tree as-is). Tier 2 (active session) is `filterTreeForSession`: the
@@ -24,6 +27,11 @@ import { canRead } from '../filesystem/walker.js';
 import type { Directory, FileNode, FilePermissions } from '../filesystem/types.js';
 import type { UserType } from '../types.js';
 
+/** A node the tier may see listed but not read: everything but its bytes, or its
+ *  entries. */
+const withheld = (node: FileNode): FileNode =>
+  node.kind === 'file' ? { ...node, content: '' } : { ...node, entries: new Map() };
+
 /** Filter one directory's entries for `userType`, recursing into surviving
  *  subdirectories. `parentChain` is every ancestor's perms from root down to this
  *  directory's parent — the chain the walker checks for traversability. */
@@ -34,12 +42,13 @@ const filterDir = (
 ): Directory => {
   const chain = [...parentChain, directory.perms];
   const entries = new Map<string, FileNode>(
-    [...directory.entries]
-      .filter(([, node]) => canRead(userType, node.perms, chain).allowed)
-      .map(([name, node]) => [
-        name,
-        node.kind === 'directory' ? filterDir(node, userType, chain) : node,
-      ]),
+    [...directory.entries].flatMap(([name, node]): [string, FileNode][] => {
+      const verdict = canRead(userType, node.perms, chain);
+      if (verdict.allowed) {
+        return [[name, node.kind === 'directory' ? filterDir(node, userType, chain) : node]];
+      }
+      return verdict.reason === 'target_unreadable' ? [[name, withheld(node)]] : [];
+    }),
   );
   return { ...directory, entries };
 };
@@ -144,24 +153,39 @@ const subdirectoryOf = (view: Directory | undefined, name: string): Directory | 
   return node?.kind === 'directory' ? node : undefined;
 };
 
+/** A file as either pruned view served it: whole when the list serves it, else as the
+ *  tier's view has it, which may be by name alone. */
+const servedFile = (
+  name: string,
+  node: FileNode,
+  tierView: Directory | undefined,
+  observable: Directory | undefined,
+): FileNode | undefined =>
+  observable?.entries.has(name) === true ? node : tierView?.entries.get(name);
+
 /** `whole` cut down to the entries either pruned view of it kept, in the order the box
- *  holds them and each with its own permissions. */
+ *  holds them and each with its own permissions. A file's bytes come back only where
+ *  one of the views served them. */
 const keptByEither = (
   whole: Directory,
   tierView: Directory | undefined,
   observable: Directory | undefined,
 ): Directory => {
   const entries = new Map<string, FileNode>(
-    [...whole.entries]
-      .filter(
-        ([name]) => tierView?.entries.has(name) === true || observable?.entries.has(name) === true,
-      )
-      .map(([name, node]) => [
-        name,
-        node.kind === 'directory'
-          ? keptByEither(node, subdirectoryOf(tierView, name), subdirectoryOf(observable, name))
-          : node,
-      ]),
+    [...whole.entries].flatMap(([name, node]): [string, FileNode][] => {
+      if (node.kind === 'directory') {
+        const kept = tierView?.entries.has(name) === true || observable?.entries.has(name) === true;
+        if (!kept) return [];
+        const subtree = keptByEither(
+          node,
+          subdirectoryOf(tierView, name),
+          subdirectoryOf(observable, name),
+        );
+        return [[name, subtree]];
+      }
+      const served = servedFile(name, node, tierView, observable);
+      return served === undefined ? [] : [[name, served]];
+    }),
   );
   return { ...whole, entries };
 };

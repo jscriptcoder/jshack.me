@@ -400,15 +400,18 @@ describe('chmod — u needs a session that can read /etc/passwd', () => {
     const tree = servedTo('guest');
     const { env, writeFn } = chmodEnv({ tree, userType: 'guest', username: 'guest' });
 
-    // The served tree does not carry the file at all, which is why no owner on
-    // it can be told from any other.
-    expect(readAs(tree, 'guest', '/etc/passwd')).toEqual({ ok: false, error: 'not_found' });
+    // The served tree carries the file by name alone, which is why no owner on it
+    // can be told from any other.
+    expect(readAs(tree, 'guest', '/etc/passwd')).toEqual({
+      ok: false,
+      error: 'permission_denied',
+    });
 
     const result = await chmod.execute(env, ['u-w', '/tmp/shared.txt'], NO_FLAGS);
 
     expect(result).toEqual(
       refusedWith(
-        "chmod: cannot resolve 'u' for '/tmp/shared.txt': /etc/passwd: No such file or directory",
+        "chmod: cannot resolve 'u' for '/tmp/shared.txt': /etc/passwd: Permission denied",
       ),
     );
     expect(writeFn).not.toHaveBeenCalled();
@@ -456,7 +459,7 @@ describe('chmod — u needs a session that can read /etc/passwd', () => {
 
       expect(result).toEqual(
         refusedWith(
-          "chmod: cannot resolve 'u' for '/tmp/shared.txt': /etc/passwd: No such file or directory",
+          "chmod: cannot resolve 'u' for '/tmp/shared.txt': /etc/passwd: Permission denied",
         ),
       );
       expect(writeFn).not.toHaveBeenCalled();
@@ -473,9 +476,7 @@ describe('chmod — u needs a session that can read /etc/passwd', () => {
     const result = await chmod.execute(env, ['u-w', '/tmp/drop'], NO_FLAGS);
 
     expect(result).toEqual(
-      refusedWith(
-        "chmod: cannot resolve 'u' for '/tmp/drop': /etc/passwd: No such file or directory",
-      ),
+      refusedWith("chmod: cannot resolve 'u' for '/tmp/drop': /etc/passwd: Permission denied"),
     );
     expect(setDirPermsFn).not.toHaveBeenCalled();
     expect(writeFn).not.toHaveBeenCalled();
@@ -492,9 +493,7 @@ describe('chmod — u needs a session that can read /etc/passwd', () => {
     const result = await chmod.execute(env, ['u+x', 'shared.txt'], NO_FLAGS);
 
     expect(result).toEqual(
-      refusedWith(
-        "chmod: cannot resolve 'u' for 'shared.txt': /etc/passwd: No such file or directory",
-      ),
+      refusedWith("chmod: cannot resolve 'u' for 'shared.txt': /etc/passwd: Permission denied"),
     );
   });
 

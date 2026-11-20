@@ -67,6 +67,13 @@ const get = (tree: Directory, ...segments: readonly string[]): FileNode | undefi
   return node;
 };
 
+/** Whether a node is served by name alone: a file without its bytes, a directory with
+ *  nothing in it. */
+const isWithheld = (node: FileNode | undefined): boolean =>
+  node?.kind === 'file'
+    ? node.content === ''
+    : node?.kind === 'directory' && node.entries.size === 0;
+
 // --- Identities: A (owner), B (has a guest session on A), C (no session). ---
 const alice = generateIdentityIn(RIDGEMONT);
 const bob = generateIdentityIn(RIDGEMONT);
@@ -165,19 +172,21 @@ check(
   `status=${r1.status} loot=${loot?.kind === 'file' ? loot.content : 'absent'}`,
 );
 
-// 2. The wire body never leaks a forbidden path/content (the threat surface).
+// 2. The wire body never leaks forbidden content (the threat surface). What the tier may
+// list but not read travels by name, as a real `ls` shows it: a file without its bytes,
+// a directory with nothing in it.
 const wire1 = JSON.stringify(r1.body);
 check(
-  'wire omits the user-only secret, the root hash, /etc/passwd, and /root',
+  'wire withholds the user-only secret, the root hash, /etc/passwd, and what /root holds',
   !wire1.includes('TOP_SECRET') &&
     !wire1.includes('ROOT_KEYS') &&
     !wire1.includes(ROOT_HASH) &&
     tree1 !== null &&
-    get(tree1, 'srv', 'secret.txt') === undefined &&
-    get(tree1, 'srv', 'keys.txt') === undefined &&
-    get(tree1, 'etc', 'passwd') === undefined &&
-    get(tree1, 'root') === undefined,
-  `secret=${wire1.includes('TOP_SECRET')} hash=${wire1.includes(ROOT_HASH)} passwd=${tree1 ? get(tree1, 'etc', 'passwd') !== undefined : 'n/a'}`,
+    isWithheld(get(tree1, 'srv', 'secret.txt')) &&
+    isWithheld(get(tree1, 'srv', 'keys.txt')) &&
+    isWithheld(get(tree1, 'etc', 'passwd')) &&
+    isWithheld(get(tree1, 'root')),
+  `secret=${wire1.includes('TOP_SECRET')} hash=${wire1.includes(ROOT_HASH)} passwd withheld=${tree1 ? isWithheld(get(tree1, 'etc', 'passwd')) : 'n/a'}`,
 );
 
 // 2b. A page somebody narrowed to root still reaches the guest session: the web server
@@ -305,7 +314,7 @@ for (const userType of ['guest', 'user'] as const) {
       rules?.kind === 'file' &&
       JSON.stringify(rules.perms.read) === '["root"]' &&
       gatewayTree !== null &&
-      get(gatewayTree, 'root') === undefined,
+      isWithheld(get(gatewayTree, 'root')),
     `status=${served.status} rules=${rules?.kind ?? 'absent'} read=${JSON.stringify(rules?.perms.read)}`,
   );
 }
