@@ -4,6 +4,99 @@ Forward-looking direction not yet built (preserved as pointers; design when actu
 the project stands is in [`project-status.md`](./project-status.md); the working rules and
 invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
 
+- **Prod playthrough findings (2026-11-20, v0.477.0).** One long run on prod as the player
+  `kestrel@omen`: every hireme job kind worked and paid (backdoor, destroy a file, alter a record,
+  wipe records, infiltrate, retrieve a file, steal a root login, retrieve an access key, open a
+  port, the two-part chain), plus most commands, travel to Stonebury and back, and the public
+  sites. Nothing below is fixed yet. Owner's verdicts are marked **(owner: bug)**.
+
+  **Bugs**
+  1. **A downed box still answers.** On a chain job, `rm /boot/vmlinuz; reboot` on the inside box
+     printed "System halted" and the client paid, but from the edge box `ping -c 2 <ip>` still got
+     replies (0% loss), `nmap <x>.1-254` still listed it as up, and `ssh root@<ip>` asked for a
+     password before saying "Connection refused". Only `nmap <ip>` said "Host seems down". Cause
+     for ping: `answers()` in `src/core/commands/ping.ts` never asks whether the box can boot
+     (`canBoot`); the range sweep and the ssh pre-prompt need the same check.
+  2. **A `--local` root shell on your own box dies on its next line.** `su kestrel`, then
+     `msfconsole --local su` ("Full shell as root@omen"), then any command prints "Connection to
+     omen closed by remote host." and drops back to kestrel; reproduced twice. Cause:
+     `fireLocalShell` (`src/core/commands/msfconsole.ts`, ~line 657) pushes a client-only session
+     (`exploit-local-<cmd>-<now>`) with no server row; once the chain is 2+ deep, `lostLegs`
+     (`src/core/shell/runLine.ts`, ~line 143) asks the server which sessions are open, doesn't
+     find it, and pops it. A remote box is fine (verified on a generated box: msfconsole root →
+     `su guest` → `--local su` survives), because that path goes server-side
+     (`exploitElevateLocal`) and gets a row.
+  3. **One Enter drops a contract just taken.** After Accept in lynx the highlighted link is
+     `[ Drop contract ]`, and its form carries a hidden `confirm=yes`
+     (`src/core/hireme/contractBoard.ts`, ~line 60), so nothing asks.
+  4. **Root-only files read as missing to everyone else (owner: bug).** As `backup` on a contract
+     box, `ls -la /srv/design` (a `drwxr-xr-x root` directory) showed it EMPTY, though the briefing
+     says the company's render is there; a real `ls` lists the names. The msfconsole read hole on
+     the board server answered `/etc/hireme/contracts` with "No such file (as user)" instead of a
+     permission refusal. Check whether the infiltrate job's company copy exists at all, then make
+     both say the file is there but refused.
+  5. **`nc` to your own box refuses with no reason (owner: needs a message).** At home, `nc
+     localhost 22` (with `sshd` in `ps`), `nc <own ip> 22` and `nc localhost <port>` right after
+     `nc -l <port>` all print `nc: connect to localhost: Connection refused`. The refusal is
+     deliberate (`src/core/commands/nc.ts` header: planting is local, connecting is not), but a
+     player reads it as a broken sshd. Keep the refusal, add a line saying why (e.g. connect from
+     another machine).
+  6. **The light theme hides the HUD (owner: bug).** `theme light` drops the top bar and the
+     status bar while `effects` still says `hud on`; every other theme keeps them.
+
+  **Friction**
+  - **Getting home after travel.** Back in Ridgemont, `nmcli connect QUEEN-STREET-HARDWARE <key>`
+    said "not found" until an `airodump-ng` roll showed it: 21 rescans (the first join took 22;
+    Ridgemont has 102 places, about 7 per scan). A network you hold a lease on could always be in
+    range.
+  - **No way to see your current town.** rideit.io's `/ticket` marks every town with `*`, and
+    nothing else says where you are; I found mine by searching findit for my home network's
+    business.
+  - **The gpg key box's vault program.** Root's history shows `<stem>-vault --seal …`, but
+    `<stem>-vault` answers "command not found" and `/usr/local/bin/<stem>-vault --open …`
+    answers "No such file or directory", while `strings` reads that very file. The error is
+    wrong; say it cannot run, or let `--open` work with the passphrase.
+  - **mysql takes only quoted values.** `WHERE id=21`, `SET score=2940` and `WHERE score > 2500`
+    are all "error in your SQL syntax"; only `id='21'` works, and the error gives no hint.
+  - **Board rerolls are free.** Accept-then-drop refills the board at once, so a player can fish
+    for the best pay (§600 to §5,900 seen). Each accept also mails a briefing, so rerolling left
+    80 mails, and `mail delete` takes one number.
+  - **The current contract forgets the job.** Once accepted, the board shows client — target —
+    pay but no longer what the job is (the address stays hidden on purpose; the job line need not).
+  - **Coins have nothing to buy.** The run earned §25,400; the only spend is the §25 fare (see the
+    wallet item below).
+  - **findit misses hireme for "job"/"jobs".** Only "work", "hire" and "contract" find it.
+  - **`msfconsole --local <cmd>` with a read/list hole and no path** prints the remote usage line
+    (`msfconsole <host> <port> <path>`) instead of `msfconsole --local <cmd> <path>`.
+  - **`chmod 644`** (and `u+x,g+r`) answers a bare `invalid mode`; a one-line hint that modes are
+    symbolic would save a `man`.
+  - **lynx link numbers do nothing.** Every link shows `[N]`, but typing the number does not jump
+    to it (Enter then follows the highlighted one). Support it or drop the numbers.
+
+  **Small inconsistencies**
+  - ftp banner `vsFTPd 3.0.3` where `nmap -sV` on the same port said `vsftpd 3.0.7`.
+  - `nmap` lists ports unsorted (22, 161, 2222, 80, 3306).
+  - `hydra <host> snmp` says "attacking the store's own password" (the redis wording; it is a
+    community string).
+  - ftp `help` says "Commands may be abbreviated" but `ge` is rejected (and `dir` is unknown).
+  - "You have new mail." printed on leaving mysql after the only new mail had been read.
+  - Mail dates are UTC while the top-bar clock is local; a long sender
+    (`pinecrest-it@emailit.io`) pushes the date column out of line.
+  - `mail save` prints nothing; saved attachments, ftp `get` files and `echo > file` all land
+    with the execute bit (`-rwx------`).
+  - A contract gateway's prompt says `root@ap-gw`, while a scan from inside names it
+    `<stem>-gw`.
+  - Two clients' targets named "Draycott …" both had a `draycott-files` box.
+  - Corporate contract databases use home or shop templates (`Tables_in_home` with recipes and
+    chores beside an esports league's scores; a telecom's `Tables_in_shop`).
+  - LAN host names ignore the kind: `switch-core` listed as a router, `dist-rtr` as a switch.
+  - ESSID `NORCROSSS-TEA-ROOM`: the possessive of a name ending in s gained a third s.
+  - `dig` names the gateway as `SERVER: <gw>#53`, but `dig @<gw> axfr` says it has no DNS
+    service.
+  - mysql `DELETE` prints "Rows matched / Changed", which real MySQL prints only for `UPDATE`.
+  - `help`'s description column starts near column 130, pushed out by the long `mail` synopsis;
+    `msfconsole`'s two-line synopsis breaks the alignment.
+
 - **A scheduled guardian.** The guardian's rounds (`scripts/guardian.ts`, run by the
   `/guardian` skill) happen only when the owner invokes them, so players have no day to time an
   exploit to. Once the owner knows which rhythm feels right, a round could run on a timer. It
