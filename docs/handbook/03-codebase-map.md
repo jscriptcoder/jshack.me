@@ -120,6 +120,7 @@ builders), `lanDatabase.ts` and `lanStore.ts` (find real generated database and 
 | Script                     | Purpose                                                                                                                          |
 | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | `encode.ts`                | Writes `src/core/secrets/__encoded.ts` (uncrackable pool as md5s) and the test-only `__plaintext.ts`.                            |
+| `llms.ts`                  | Writes the git-ignored `public/llms/commands.md` and `public/llms-full.txt` from the command registry, for LLM agents.           |
 | `checkSecrets.ts`          | Post-build: fails if any uncrackable password appears in `dist/`.                                                                |
 | `checkBudgets.ts`          | Post-build bundle-size and per-box timing budget.                                                                                |
 | `test*.ts` (129 files)     | Wire-checks: drive the real `api/` endpoints against `vercel dev` and local Supabase.                                            |
