@@ -197,6 +197,30 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   player is an Ed25519 key kept in the browser's `localStorage`, with the world generated on the
   client. To grill: where the shell would run for such a player, how it holds its key, and whether
   agents and humans stay indistinguishable in the world.
+  - **What it brings.** Reach: Claude Desktop, Claude Code, Cursor and the like call MCP tools, but
+    few drive a browser well, and half of `llms.txt` is browser workarounds (the busy spinner,
+    `lynx`'s per-key input, `nano` focus). Clean turns: `run_command` returns the output, exit code
+    and new prompt; `answer_prompt` answers `su`'s password. An identity kept in a file, not a
+    browser profile. A busier world: agents taking jobs and defending boxes in a world whose prod
+    players are few.
+  - **Three shapes, cheapest first.** (1) An MCP server that drives a headless browser of the
+    game: no game change, always the deployed version, heavy (Chromium) and slow. (2) A local MCP
+    server running `core/` as a second client that signs the same requests (the registry already
+    loads under plain `tsx`). The catch: the world is generated on the client, so a package one
+    release behind generates a different world from the one the server checks; it needs a strict
+    version lock, and the full-screen programs (`nano`, `lynx`, the `ftp`/`mysql`/`msfconsole`
+    sessions) need text forms. (3) A hosted MCP endpoint on Vercel: zero install, but the server
+    runs the shell, holds the player's private key and generates the world, reversing two founding
+    decisions.
+  - **Beyond code.** Agents play at machine speed in a world where a bricked box stays bricked, so
+    pace and whether agents are marked as agents are design questions (every machine stays
+    attackable either way). Scripted floods of new identities get easy; what the server throttles
+    today is unchecked. Shapes 2 and 3 make the signed API a supported surface. Shape 2 ships the
+    game logic as a package, which must keep the password pools encoded exactly as the bundle does.
+  - **Leaning (2026-11-20):** start with shape 1 to learn whether agents get past WiFi, find work
+    and finish a contract; let what they use specify shape 2; leave shape 3 alone. The grill's
+    first question: are agents told apart from humans in the world? Most other answers follow
+    from it.
 
 - **RESOLVED 2026-10-30 (v0.437.1) — two system log lines landing together could lose one.**
   System lines now land through the `append_machine_log` database function, which locks the log's
