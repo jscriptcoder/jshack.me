@@ -62,6 +62,10 @@ const PORT_RANGE = 'nc: port must be between 1 and 65535';
  *  loopback before it ever opens a socket. */
 const OWN_BOX = 'nc: connect to localhost: Connection refused';
 
+/** The refusal alone reads as a broken daemon. The port is fine; it is the knock that
+ *  has to come from somewhere else, so the second line says where. */
+const OWN_BOX_WHY = 'nc: a port on your own box answers only from another machine';
+
 /** Planting is forced root, not chosen: `/var/run` is root-writable, so a
  *  user-tier plant would be refused by the walker anyway. Refusing up front says
  *  WHY, in the words every other door on the box already uses. Legacy also
@@ -83,6 +87,12 @@ const BANNER_DELAY_MS = 300;
 const error = (message: string): CommandResult => ({
   kind: 'sync',
   lines: [errorLine(message)],
+  exitCode: 1,
+});
+
+const ownBoxRefused = (): CommandResult => ({
+  kind: 'sync',
+  lines: [errorLine(OWN_BOX), errorLine(OWN_BOX_WHY)],
   exitCode: 1,
 });
 
@@ -391,7 +401,7 @@ const execute: Command['execute'] = async (env, args, flags) => {
     LOOPBACK_NAMES.includes(requested) ||
     (vantage.address !== null && requested === vantage.address);
   if (ownBox) {
-    return vantage.kind === 'home' ? error(OWN_BOX) : knockOwnBox(env, essid, port);
+    return vantage.kind === 'home' ? ownBoxRefused() : knockOwnBox(env, essid, port);
   }
 
   // Who else is on this LAN, read at most once from the box the shell stands on so a hop

@@ -165,9 +165,13 @@ describe('nc against a port on someone else’s box', () => {
     const byAddress = sync(await nc.execute(onlineEnv(), [SELF_IP, '22'], NO_FLAGS));
     const byLoopback = sync(await nc.execute(onlineEnv(), ['127.0.0.1', '22'], NO_FLAGS));
 
-    expect(byName.text).toBe('nc: connect to localhost: Connection refused');
-    expect(byAddress.text).toBe('nc: connect to localhost: Connection refused');
-    expect(byLoopback.text).toBe('nc: connect to localhost: Connection refused');
+    // The refusal alone reads as a broken sshd, so it says why on the next line.
+    const refused =
+      'nc: connect to localhost: Connection refused\n' +
+      'nc: a port on your own box answers only from another machine';
+    expect(byName).toEqual({ text: refused, exitCode: 1 });
+    expect(byAddress).toEqual({ text: refused, exitCode: 1 });
+    expect(byLoopback).toEqual({ text: refused, exitCode: 1 });
   });
 
   it('never answers for a neighbour — a real occupant’s box is not the world’s to describe', async () => {

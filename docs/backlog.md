@@ -55,7 +55,8 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
      `nc -l <port>` all print `nc: connect to localhost: Connection refused`. The refusal is
      deliberate (`src/core/commands/nc.ts` header: planting is local, connecting is not), but a
      player reads it as a broken sshd. Keep the refusal, add a line saying why (e.g. connect from
-     another machine).
+     another machine). **Fixed in v0.477.5:** the refusal is followed by `nc: a port on your
+     own box answers only from another machine`.
   6. **The light theme hides the HUD (owner: bug).** `theme light` drops the top bar and the
      status bar while `effects` still says `hud on`; every other theme keeps them.
   7. **A local read hole reads the box without what the server lays on it (found fixing 4; not
