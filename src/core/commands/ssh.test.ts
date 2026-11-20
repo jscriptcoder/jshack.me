@@ -36,6 +36,7 @@ import type {
   RemoteAuthParams,
   RemoteAuthResult,
   SameLanAuthParams,
+  ScanApi,
   Session,
 } from './types.js';
 import type { OccupantProjection } from '../network/resolveOccupants.js';
@@ -97,7 +98,11 @@ type EnvOver = {
   readonly prompt?: () => Promise<string>;
   readonly onPush?: (session: Session) => void;
   readonly onCwd?: (path: string) => void;
+  /** The server's word on a box the access point owns — up unless a test bricks it. */
+  readonly resolveSameLan?: ScanApi['resolveSameLan'];
 };
+
+const boxUp = async (): Promise<PublicScanResolution> => ({ found: true, ports: [] });
 
 const sshEnv = (over: EnvOver = {}) =>
   mockCommandEnv({
@@ -113,6 +118,7 @@ const sshEnv = (over: EnvOver = {}) =>
     ssh: mockSshApi({
       authenticate: over.authenticate ?? (async () => ({ ok: true, userType: 'root' })),
     }),
+    scan: mockScanApi({ resolveSameLan: over.resolveSameLan ?? boxUp, resolveInnerGateway: boxUp }),
     pushSession: over.onPush ?? (() => undefined),
     setCwd: over.onCwd ?? (() => undefined),
   });
@@ -187,6 +193,34 @@ describe('ssh', () => {
     expect(result.exitCode).toBe(255);
     expect(result.lines[0]?.content).toContain('No route to host');
     expect(prompt).not.toHaveBeenCalled();
+  });
+
+  it('reports No route to host for a LAN box that can no longer boot — without prompting', async () => {
+    // Whether the box was bricked is on its server-side journal. Asking for a password
+    // first and only then refusing told the player the box was up and its door shut.
+    const { sshHost } = pickHosts();
+    const prompt = vi.fn(async () => 'hunter2');
+    const env = sshEnv({ prompt, resolveSameLan: async () => ({ found: false, ports: [] }) });
+
+    const result = sync(await ssh.execute(env, [`root@${sshHost.ip}`], new Map()));
+
+    expect(result.exitCode).toBe(255);
+    expect(result.lines[0]?.content).toBe(
+      `ssh: connect to host ${sshHost.ip} port 22: No route to host`,
+    );
+    expect(prompt).not.toHaveBeenCalled();
+  });
+
+  it('still prompts for a LAN box when the server could not be asked about it', async () => {
+    // Our own round trip failing says nothing about the box, so it is not reported down.
+    const { sshHost } = pickHosts();
+    const prompt = vi.fn(async () => 'hunter2');
+    const env = sshEnv({ prompt, resolveSameLan: async () => null });
+
+    const result = sync(await ssh.execute(env, [`root@${sshHost.ip}`], new Map()));
+
+    expect(result.exitCode).toBe(0);
+    expect(prompt).toHaveBeenCalled();
   });
 
   it('reports Connection refused for a LAN host not running ssh — without prompting', async () => {
@@ -880,6 +914,7 @@ const sshSameLanEnv = (over: SameLanEnvOver = {}) =>
     prompt: over.prompt ?? (async () => 'guestpw'),
     scan: mockScanApi({
       resolveOccupants: over.resolveOccupants ?? (async () => [occupantAt(OCCUPANT_IP)]),
+      resolveSameLan: boxUp,
     }),
     ssh: mockSshApi({
       // Keep the throwing default for `authenticate` unless a test wires it — the
@@ -1401,6 +1436,7 @@ const sshHopEnv = (
       resolvePublic: async () => ({ found: true, ports: [{ port: 22, service: 'ssh' }] }),
       resolveInnerGateway: async () => liveForward,
       resolveOccupants: over.resolveOccupants ?? (async () => []),
+      resolveSameLan: over.resolveSameLan ?? boxUp,
     }),
     ssh: mockSshApi({
       authenticate: over.authenticate ?? (async () => ({ ok: true, userType: 'root' })),

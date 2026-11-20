@@ -719,6 +719,32 @@ export const resolveSameLan = async (
   }
 };
 
+/**
+ * The addresses of the boxes on this LAN the access point owns that can no longer boot
+ * (backs `env.scan.resolveDownHosts`), so a range sweep stops listing a halted machine.
+ *
+ * A failure answers no box down: the seeded world has already placed every one of them
+ * on the LAN, and our own failed round trip says nothing about any of them.
+ */
+export const resolveDownHosts = async (
+  deps: NetworkClientDeps,
+  essid: string,
+  callerMachineId: string,
+): Promise<readonly string[]> => {
+  try {
+    const response = await post(deps, 'resolveDownHosts', {
+      essid,
+      caller_machine_id: callerMachineId,
+    });
+    // A refusal carries no `down`, and a body that is not JSON throws below — either way
+    // no box is named.
+    const body = (await response.json()) as { readonly down?: readonly string[] };
+    return body.down ?? [];
+  } catch {
+    return [];
+  }
+};
+
 export const resolveOccupant = async (
   deps: NetworkClientDeps,
   essid: string,

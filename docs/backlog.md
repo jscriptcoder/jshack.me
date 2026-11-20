@@ -8,15 +8,20 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   `kestrel@omen`: every hireme job kind worked and paid (backdoor, destroy a file, alter a record,
   wipe records, infiltrate, retrieve a file, steal a root login, retrieve an access key, open a
   port, the two-part chain), plus most commands, travel to Stonebury and back, and the public
-  sites. Nothing below is fixed yet. Owner's verdicts are marked **(owner: bug)**.
+  sites. Owner's verdicts are marked **(owner: bug)**. Fixed items say which version fixed them.
 
   **Bugs**
-  1. **A downed box still answers.** On a chain job, `rm /boot/vmlinuz; reboot` on the inside box
+  1. **Fixed in v0.477.1.** **A downed box still answers.** On a chain job, `rm /boot/vmlinuz; reboot` on the inside box
      printed "System halted" and the client paid, but from the edge box `ping -c 2 <ip>` still got
      replies (0% loss), `nmap <x>.1-254` still listed it as up, and `ssh root@<ip>` asked for a
      password before saying "Connection refused". Only `nmap <ip>` said "Host seems down". Cause
      for ping: `answers()` in `src/core/commands/ping.ts` never asks whether the box can boot
-     (`canBoot`); the range sweep and the ssh pre-prompt need the same check.
+     (`canBoot`); the range sweep and the ssh pre-prompt need the same check. Fixed: ping and the
+     ssh pre-prompt ask the server about the box (`src/core/scan/accessPointBox.ts`), and a range
+     sweep asks once for the whole LAN (`resolveDownHosts`, wire-checked by
+     `scripts/testDownHosts.ts`). Still open: a box on a deep layer resolves client-side
+     (`resolveDeepScanHosts`), so a bricked one there would still answer; a fellow player's
+     bricked box was not checked.
   2. **A `--local` root shell on your own box dies on its next line.** `su kestrel`, then
      `msfconsole --local su` ("Full shell as root@omen"), then any command prints "Connection to
      omen closed by remote host." and drops back to kestrel; reproduced twice. Cause:

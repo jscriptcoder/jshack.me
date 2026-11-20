@@ -213,6 +213,37 @@ describe('nmap', () => {
     expect(text).toContain(`${lan.hosts.length + 1} hosts up`);
   });
 
+  it('leaves out a box that can no longer boot, asking the server once for the LAN', async () => {
+    // Whether a box was bricked is on its server-side journal; a sweep that listed it
+    // up would contradict the single-host scan, which already calls it down.
+    const resolveDownHosts = vi.fn(async () => ['192.168.29.28']);
+    const env = { ...onlineEnv(), scan: mockScanApi({ resolveDownHosts }) };
+
+    const { text } = await drain(await nmap.execute(env, ['192.168.29.20-90'], new Map()));
+
+    expect(text).not.toContain('192.168.29.28');
+    expect(text).toContain('192.168.29.74');
+    expect(text).toContain('3 hosts up');
+    expect(resolveDownHosts).toHaveBeenCalledTimes(1);
+    expect(resolveDownHosts).toHaveBeenCalledWith('BEAN-THERE-WIFI', mockSession().machineId);
+  });
+
+  it('asks nothing about the whole LAN when one address is scanned', async () => {
+    // A single host is asked about on its own; the LAN-wide question is the sweep's.
+    const resolveDownHosts = vi.fn(async () => []);
+    const env = {
+      ...onlineEnv(),
+      scan: mockScanApi({
+        resolveDownHosts,
+        resolveSameLan: async (scanned, target) => seededHostScan(scanned, target),
+      }),
+    };
+
+    await drain(await nmap.execute(env, ['192.168.29.28'], new Map()));
+
+    expect(resolveDownHosts).not.toHaveBeenCalled();
+  });
+
   it('a range lists only the hosts whose last octet falls inside it', async () => {
     const { text } = await drain(await nmap.execute(onlineEnv(), ['192.168.29.20-90'], new Map()));
 
@@ -1005,6 +1036,21 @@ describe('nmap — same-LAN occupant merge', () => {
     expect(text).not.toContain('laptop-74');
     // No net host added — the NPC was replaced, not appended.
     expect(text).toContain(`${baseLan.hosts.length} hosts up`);
+  });
+
+  it('keeps listing an occupant whose octet holds a bricked NPC — the box there is theirs', async () => {
+    // The server names the NPC the generator rolled at .74 down; the player standing
+    // on that octet is not that box, and is still up.
+    const resolveOccupants = vi.fn(async () => [
+      { workstation_machine_id: 'skylab-aaaa', localIp: '192.168.29.74', machineName: 'alice-rig' },
+    ]);
+    const env = envWithOccupants(resolveOccupants, {
+      resolveDownHosts: async () => ['192.168.29.74'],
+    });
+
+    const { text } = await drain(await nmap.execute(env, ['192.168.29.0-254'], new Map()));
+
+    expect(text).toContain('alice-rig');
   });
 
   it('shows an occupant that lands on the inner gateway octet — no occupant is hidden', async () => {

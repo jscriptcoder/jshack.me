@@ -16,6 +16,7 @@ import {
   resolveOccupants,
   resolveInnerGateway,
   resolveSameLan,
+  resolveDownHosts,
   resolveOccupiedEssids,
   resolvePublic,
   type NetworkClientDeps,
@@ -432,6 +433,44 @@ describe('resolveOccupant', () => {
     );
 
     expect(await resolveOccupant(deps, ESSID, '192.168.1.37', HOP_BOX)).toBeNull();
+  });
+});
+
+describe('resolveDownHosts', () => {
+  it('signs a resolveDownHosts request for the essid and returns the addresses that are down', async () => {
+    const fetchSpy = vi.fn(async () => jsonResponse(200, { ok: true, down: ['192.168.1.37'] }));
+    const deps = makeDeps(fetchSpy as unknown as typeof fetch);
+
+    const result = await resolveDownHosts(deps, ESSID, HOP_BOX);
+
+    expect(result).toEqual(['192.168.1.37']);
+    const verified = await verifyPayload(sentEnvelope(fetchSpy));
+    if (!verified.ok) throw new Error('expected verified envelope');
+    expect(verified.payload).toMatchObject({
+      action: 'resolveDownHosts',
+      essid: ESSID,
+      caller_machine_id: HOP_BOX,
+    });
+  });
+
+  it('calls no box down when the server cannot be asked', async () => {
+    const deps = makeDeps(
+      vi.fn(async () => jsonResponse(500, { error: 'patches_lookup_failed' })) as unknown as typeof fetch,
+    );
+
+    // Our own failed round trip says nothing about the boxes, which the seeded world has
+    // already placed on the LAN — so the sweep lists them all, as it always did.
+    expect(await resolveDownHosts(deps, ESSID, HOP_BOX)).toEqual([]);
+  });
+
+  it('calls no box down when the request never reaches the server', async () => {
+    const deps = makeDeps(
+      vi.fn(async () => {
+        throw new TypeError('fetch failed');
+      }) as unknown as typeof fetch,
+    );
+
+    expect(await resolveDownHosts(deps, ESSID, HOP_BOX)).toEqual([]);
   });
 });
 

@@ -44,6 +44,7 @@ import type {
 import { handleResolveInnerGatewayScan } from '../src/core/scan/resolveInnerGatewayScan.js';
 import { handleResolveOccupantScan } from '../src/core/scan/resolveOccupantScan.js';
 import { handleResolveSameLanScan } from '../src/core/scan/resolveSameLanScan.js';
+import { handleResolveDownHosts } from '../src/core/scan/resolveDownHosts.js';
 import type { OwnerPatchRow as MachinePatchRow } from '../src/core/network/materializeMachineFs.js';
 import {
   handleResolveCrossPlayerFs,
@@ -1063,6 +1064,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findActiveSession: findActiveSessionVia({ supabase, label: 'same-lan scan active-session' }),
       findHomeVantage: findHomeVantageVia({ supabase, label: 'same-lan scan vantage' }),
       findWorkstationLease: findWorkstationLeaseVia({ supabase, label: 'same-lan scan vantage' }),
+    });
+    res.status(status).json(body);
+    return;
+  }
+
+  if (actionOf(req.body) === 'resolveDownHosts') {
+    // A range sweep's one question about the boxes the access point owns: which of them
+    // can no longer boot. Every one of their journals in one read, ordered as the
+    // per-machine read orders a journal, since both replay the same rows.
+    const { status, body } = await handleResolveDownHosts(req.body, {
+      nonceStore: noopNonceStore,
+      findPatchesForMachines: async (machineIds: readonly string[]) => {
+        const { data, error } = await supabase
+          .from('patches')
+          .select('machine_id, path, content, owner, permissions, node_type, updated_at, writer_key')
+          .in('machine_id', machineIds)
+          .order('updated_at', { ascending: true })
+          .order('writer_key', { ascending: true });
+        if (error) console.error('[network] down-hosts lookup error:', error);
+        return { data: data as readonly WebIndexPatchRow[] | null, error };
+      },
+      findActiveSession: findActiveSessionVia({ supabase, label: 'down-hosts active-session' }),
+      findHomeVantage: findHomeVantageVia({ supabase, label: 'down-hosts vantage' }),
+      findWorkstationLease: findWorkstationLeaseVia({ supabase, label: 'down-hosts vantage' }),
     });
     res.status(status).json(body);
     return;

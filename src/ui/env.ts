@@ -303,6 +303,7 @@ export type BuildCommandEnvArgs = {
    *  unwired it answers `null`, which the scan renders as a neighbour listed with no
    *  port table rather than as a neighbour who is down. */
   readonly onScanResolveSameLan?: ScanApi['resolveSameLan'];
+  readonly onScanResolveDownHosts?: ScanApi['resolveDownHosts'];
   readonly onScanResolveOccupant?: ScanApi['resolveOccupant'];
   /** The organic-discovery occupied-ESSID-names seam — backs
    *  `env.scan.resolveOccupiedEssids`. The UI wires it to the `resolveOccupiedEssids`
@@ -597,6 +598,8 @@ export const buildCommandEnv = (args: BuildCommandEnvArgs): CommandEnv => ({
     // Unwired, a sibling is listed with no port table rather than reported down — we
     // failed to ask rather than learned an answer, and the seeded fallback is the lie.
     resolveSameLan: args.onScanResolveSameLan ?? (() => Promise.resolve(null)),
+    // Unwired, no box is reported down — the sweep lists the LAN as the world seeded it.
+    resolveDownHosts: args.onScanResolveDownHosts ?? (() => Promise.resolve([])),
     resolveOccupant: args.onScanResolveOccupant ?? (() => Promise.resolve(null)),
     // Absent the seam, the scan stands in the town the key draws and discovers no
     // occupied networks: all the client knows by itself.

@@ -23,6 +23,7 @@ import { LOOPBACK_IPV4, LOOPBACK_NAMES } from '../network/interfaces.js';
 import { addressForTarget } from '../network/resolveName.js';
 import { vantageOf } from '../network/vantage.js';
 import { resolveDeepScanHosts } from '../scan/deepScanHosts.js';
+import { accessPointBoxIsDown } from '../scan/accessPointBox.js';
 import { parsePidfilePort } from '../services/pidfile.js';
 import { admitOwnBoxLogin, ownBoxVisitFrom } from './ownBoxLogin.js';
 import type { Command, CommandEnv, CommandResult, Session } from './types.js';
@@ -478,6 +479,13 @@ const execute: Command['execute'] = async (env, args, flags) => {
   // through to the own-LAN path below (5b.1a: `ssh root@<inner>` lands on the gateway).
   if (isInnerGateway(host) && port !== runningPort) {
     return executeForwardLogin(env, target, port, sourceIp, essid);
+  }
+
+  // Whether the box can still boot is on its journal, which only the server reads. A
+  // halted machine answers nothing, so it is no route — and asked before the password,
+  // since prompting would say the box is up.
+  if (await accessPointBoxIsDown(env, essid, host)) {
+    return connectError(target.host, port, 'No route to host');
   }
 
   if (runningPort !== port) {
