@@ -61,14 +61,16 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
      status bar while `effects` still says `hud on`; every other theme keeps them. **Fixed in
      v0.477.6:** the HUD was neon-only by design, so amber, green and cyan hid it too. It now
      shows under every theme while `effects hud` is on; glow, glitch and cursor stay neon-only.
-  7. **A local read hole reads the box without what the server lays on it (found fixing 4; not
-     yet seen in play).** `msfconsole --local` on another box is answered from the box as
-     generated plus its journal (`resolveStoodOnBox`, `src/core/sessions/stoodOnBox.ts`). A
-     shell's own view of the same box also carries the files the server holds in its tables: a
-     contract box's company file and key (`withMissionFiles`), the boards' server's
-     `/etc/hireme` lists, emailit's spool. So a read, list, write or script hole that runs at root
-     there should answer "No such file" for exactly the file a contract sends the player for.
-     Confirm with a root read roll on a contract box first.
+  7. **A local read hole reads the box without what the server lays on it (found fixing 4).**
+     `msfconsole --local` on another box is answered from the box as generated plus its journal
+     (`resolveStoodOnBox`, `src/core/sessions/stoodOnBox.ts`). A shell's own view of the same box
+     also carries the files the server holds in its tables: a contract box's company file and
+     key (`withMissionFiles`), the boards' server's `/etc/hireme` lists, emailit's spool. Seen on
+     prod: on northgate-web, `--local cat /var/www/html/config.php` (the contract's root-only
+     leak) said "No such file", and `--local ls /var/www/html` left it out. **Fixed in
+     v0.477.7:** the fire lays a contract box's files before the journal replays, and a hole
+     that lands root on emailit.io or the boards' server finds what the tables keep there, the
+     same view a root shell gets (`src/core/network/rootTableViews.ts`).
 
   **Friction**
   - **Getting home after travel.** Back in Ridgemont, `nmcli connect QUEEN-STREET-HARDWARE <key>`

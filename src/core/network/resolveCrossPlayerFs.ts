@@ -23,13 +23,9 @@
  *     this takes a row the caller once held there, which is what tells a shell whose
  *     session a reboot closed that the box went down under it.
  *
- * emailit.io keeps everybody's mail in the server's tables, not in its files, and a root
- * session there is shown it at the real paths (`core/emailit/spool.ts`). The view is laid
- * into the box before the journal is replayed, so what a root wrote or removed there is
- * what the next root sees. Below root it is never built, so no table is read and nothing
- * of it reaches the wire. The boards' server shows its root the list of contractor boards
- * the same way (`core/hireme/boards.ts`), and beside it every active contract
- * (`core/missions/contractsList.ts`).
+ * A root session on emailit.io or the boards' server is shown what the server keeps of them
+ * in its tables (`rootTableViews.ts`). Below root no table is read, so nothing of it reaches
+ * the wire.
  *
  * The journal is replayed whole, every writer's rows in the order the server stamped them.
  */
@@ -43,11 +39,7 @@ import {
   type FindOccupantWorkstationByMachineId,
 } from '../patches/remoteWritePermission.js';
 import { networkBaseFsForMachineId } from '../generation/lanHostIdentity.js';
-import { computeApGatewayId } from '../identity/router.js';
-import { BOARD_SERVER_NETWORK, EMAILIT_NETWORK } from '../generation/fixedSites.js';
-import { withMailSpool, type SpoolAccount } from '../emailit/spool.js';
-import { withBoardsList, type Board } from '../hireme/boards.js';
-import { withContractsList, type ActiveContract } from '../missions/contractsList.js';
+import { withRootTableViews, type RootTables } from './rootTableViews.js';
 import { withMissionFiles, type FindMissionFiles } from './missionBoxFiles.js';
 import { filterTreeForSession, filterTreeToAllowlist } from '../patches/readFilter.js';
 import { serializeTree } from '../filesystem/treeCodec.js';
@@ -67,7 +59,8 @@ type SessionQuery = { readonly player_key: string; readonly machine_id: string }
 
 type Lookup<Value> = { readonly data: Value | null; readonly error: unknown };
 
-export type ResolveCrossPlayerFsDeps = {
+/** The tables are asked only for a root session, on the box each one is shown on. */
+export type ResolveCrossPlayerFsDeps = RootTables & {
   readonly nonceStore: NonceStore;
   /** Whose workstation this is, from `home_network_occupants` (PK `(essid, owner_key)`).
    *  Occupancy means "this machine is on that WiFi", which is exactly what makes a box
@@ -87,15 +80,6 @@ export type ResolveCrossPlayerFsDeps = {
   readonly findPatches: (query: {
     readonly machine_id: string;
   }) => Promise<Lookup<readonly OwnerPatchRow[]>>;
-  /** Every emailit.io account with everything in its inbox. Asked only for a root
-   *  session on emailit.io's box. */
-  readonly findMailSpool: () => Promise<Lookup<readonly SpoolAccount[]>>;
-  /** Every contractor board, with the handle holding it. Asked only for a root session on
-   *  the boards' server. */
-  readonly findBoards: () => Promise<Lookup<readonly Board[]>>;
-  /** Every accepted job, with the handle working it. Asked only for a root session on the
-   *  boards' server. */
-  readonly findContracts: () => Promise<Lookup<readonly ActiveContract[]>>;
   /** The files the server lays onto a contract's key box, and none for any other box. A
    *  contract box with a deployment secret unset returns `error: 'mission_secret_missing'`,
    *  which the handler answers 500: there is no default key or word. Asked of any box the
@@ -103,9 +87,6 @@ export type ResolveCrossPlayerFsDeps = {
    *  filter's job, not this lookup's. */
   readonly findMissionFiles: FindMissionFiles;
 };
-
-const EMAILIT_MACHINE = computeApGatewayId(EMAILIT_NETWORK);
-const BOARD_SERVER_MACHINE = computeApGatewayId(BOARD_SERVER_NETWORK);
 
 export type HandlerResponse = {
   readonly status: number;
@@ -195,25 +176,14 @@ export const handleResolveCrossPlayerFs = async (
     return { status: 404, body: { error: 'host_unreachable' } };
   }
 
-  // A failed read is an error, never an empty view: a root would take that for the truth.
-  const isRoot = activeSession?.userType === 'root';
-  const spool =
-    isRoot && payload.machine_id === EMAILIT_MACHINE ? await deps.findMailSpool() : null;
-  if (spool !== null && spool.error) {
-    return { status: 500, body: { error: 'mail_spool_lookup_failed' } };
+  const viewed =
+    activeSession?.userType === 'root'
+      ? await withRootTableViews(deps, payload.machine_id, base.data)
+      : { ok: true as const, box: base.data };
+  if (!viewed.ok) {
+    return { status: 500, body: { error: viewed.error } };
   }
-  const onBoardServer = isRoot && payload.machine_id === BOARD_SERVER_MACHINE;
-  const boards = onBoardServer ? await deps.findBoards() : null;
-  if (boards !== null && boards.error) {
-    return { status: 500, body: { error: 'boards_lookup_failed' } };
-  }
-  const contracts = onBoardServer ? await deps.findContracts() : null;
-  if (contracts !== null && contracts.error) {
-    return { status: 500, body: { error: 'contracts_lookup_failed' } };
-  }
-  const withMail = spool === null ? base.data : withMailSpool(base.data, spool.data ?? []);
-  const withBoards = boards === null ? withMail : withBoardsList(withMail, boards.data ?? []);
-  const box = contracts === null ? withBoards : withContractsList(withBoards, contracts.data ?? []);
+  const box = viewed.box;
 
   const patches = await deps.findPatches({
     machine_id: payload.machine_id,

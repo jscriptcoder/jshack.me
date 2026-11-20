@@ -19,6 +19,7 @@ import {
 import type { NatOccupantRow } from '../src/core/network/resolvePublicTarget.js';
 import {
   networkByPublicIp,
+  type Board,
   type FindBoardHandle,
   type FindMissionState,
 } from '../src/core/hireme/boards.js';
@@ -33,6 +34,9 @@ import { handleHydraCrack } from '../src/core/sessions/hydraCrack.js';
 import { handleMysqlConnect } from '../src/core/sessions/mysqlConnect.js';
 import { handleMysqlStatement } from '../src/core/sessions/mysqlStatement.js';
 import { missionFilesForBox } from '../src/core/missions/missionLeak.js';
+import type { RootTables } from '../src/core/network/rootTableViews.js';
+import type { SpoolAccount } from '../src/core/emailit/spool.js';
+import type { ActiveContract } from '../src/core/missions/contractsList.js';
 import { handleRedisConnect } from '../src/core/sessions/redisConnect.js';
 import { handleRedisStatement } from '../src/core/sessions/redisStatement.js';
 import { handleSnmpSet } from '../src/core/sessions/snmpSet.js';
@@ -160,14 +164,46 @@ const findMissionStateVia =
  *  contract's 195 address read from the missions table, every other address derived from
  *  the world. Every door to a public address finds its network through this, so none can
  *  reach a board or a mission another cannot. */
-// The files only the server can write onto a contract's key box, for the two doors that read
-// the table one of them holds. With a secret that box needs unset, the database is unavailable
+// The files only the server can write onto a contract's box, for the doors that read the
+// table one of them holds and for a hole fired on the box. With a secret that box needs unset, the database is unavailable
 // rather than a copy with the table missing.
 const findMissionFiles = (query: { readonly essid: string; readonly machine_id: string }) =>
   missionFilesForBox(query, {
     keySecret: process.env.MISSION_KEY_SECRET,
     rawSecrets: process.env.JSHACK_SECRETS,
   });
+
+/** What the server keeps in its tables of emailit.io's box and the boards' server, which a
+ *  hole that lands root there finds as files. Each read is the whole table, as a root shell's
+ *  view of the box reads it; the order is the core's. */
+const rootTablesVia = ({ supabase, label }: QuerySpec): RootTables => ({
+  // Every account with its inbox, in one request so the two tables are read as one moment:
+  // a message never comes back without its account.
+  findMailSpool: async () => {
+    const { data, error } = await supabase
+      .from('email_accounts')
+      .select(
+        'handle, password_md5, signed_up_at, messages:email_messages(number, sender, subject, body, delivered_at, read, attachment_name, attachment_content)',
+      );
+    logFailure(`${label} mail spool`, error);
+    return { data: data as readonly SpoolAccount[] | null, error };
+  },
+  findBoards: async () => {
+    const { data, error } = await supabase
+      .from('hireme_boards')
+      .select('handle, address, applied_at');
+    logFailure(`${label} boards`, error);
+    return { data: data as readonly Board[] | null, error };
+  },
+  findContracts: async () => {
+    const { data, error } = await supabase
+      .from('hireme_missions')
+      .select('handle, number, accepted_at')
+      .eq('state', 'accepted');
+    logFailure(`${label} contracts`, error);
+    return { data: data as readonly ActiveContract[] | null, error };
+  },
+});
 
 const networkByPublicIpVia = (spec: QuerySpec) =>
   networkByPublicIp({
@@ -700,6 +736,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       insertSession: insertSessionVia({ supabase, label: 'local-exploit insert' }),
       appendLog: appendLogVia({ supabase, label: 'local-exploit trace append' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'local-exploit effect upsert' }),
+      findMissionFiles,
+      ...rootTablesVia({ supabase, label: 'local-exploit' }),
     });
     res.status(status).json(body);
     return;
