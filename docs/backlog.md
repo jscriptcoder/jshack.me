@@ -30,7 +30,9 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
      (`src/core/shell/runLine.ts`, ~line 143) asks the server which sessions are open, doesn't
      find it, and pops it. A remote box is fine (verified on a generated box: msfconsole root →
      `su guest` → `--local su` survives), because that path goes server-side
-     (`exploitElevateLocal`) and gets a row.
+     (`exploitElevateLocal`) and gets a row. **Fixed in v0.477.2.** `lostLegs` no longer asks the
+     server about a leg opened on the player's own box from their own box (`su`, a `--local`
+     shell, a login to localhost): it has no row, so it stands as long as the leg beneath it does.
   3. **One Enter drops a contract just taken.** After Accept in lynx the highlighted link is
      `[ Drop contract ]`, and its form carries a hidden `confirm=yes`
      (`src/core/hireme/contractBoard.ts`, ~line 60), so nothing asks.

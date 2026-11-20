@@ -79,8 +79,10 @@ import {
  *  rounded up to 100; then the chain kind (its eleventh of the draw, its machine and port, and
  *  the front box it always stands behind) added 119 B, rounded up to 200; then `cp` and `mv`
  *  (the two commands, their manuals and the operand reader they share) added 1,968 B,
- *  rounded up to 2,000. */
-const BUNDLE_CEILING_BYTES = 306_675;
+ *  rounded up to 2,000; then a shell opened on the player's own box from that box surviving
+ *  its next line (the chain check reading which legs have no row) added 36 B, rounded up to
+ *  100. */
+const BUNDLE_CEILING_BYTES = 306_775;
 
 /** About a tenth of that before world content, so a loaded machine's noise cannot fail
  *  the check while a content change that makes boxes ten times dearer still does. */

@@ -1850,4 +1850,75 @@ describe('a chain broken beneath the box the player is standing on', () => {
       expect(askServer).not.toHaveBeenCalled();
     });
   });
+
+  /**
+   * A shell the player opens on their own box from their own box — `su`, a `--local`
+   * root shell, a login to localhost — is one the client answered itself, so the server
+   * holds no row for it. It stands exactly as long as the leg beneath it does.
+   */
+  describe("a shell opened on the player's own box from the same box", () => {
+    const ESSID = 'BEAN-THERE-WIFI';
+    const OWN_KEY = asPlayerKeyHex('a'.repeat(64));
+    const OWN_BOX = asMachineId(computeWorkstationId('rig', OWN_KEY));
+    const THEIR_BOX = asMachineId(computeWorkstationId('skylab', 'b'.repeat(64)));
+    const login = mockSession({ id: 'login', kind: 'su', essid: null, machineId: OWN_BOX });
+    const atHome = (id: string, kind: 'su' | 'exploit' | 'ssh') =>
+      mockSession({ id, kind, essid: null, machineId: OWN_BOX });
+
+    const standingOn = (
+      chain: readonly ReturnType<typeof mockSession>[],
+      openSessionIds: () => Promise<ReadonlySet<string> | null>,
+    ) => {
+      const popSession = vi.fn();
+      const askServer = vi.fn(openSessionIds);
+      const env = mockCommandEnv({
+        identity: mockIdentity({ publicKeyHex: OWN_KEY }),
+        session: chain.at(-1)!,
+        hopChain: [login, ...chain.slice(0, -1)],
+        popSession,
+        chain: { openSessionIds: askServer },
+        fs: mockFsViewFromTree(NOTES, { userType: 'root', cwd: asAbsPath('/home/alice') }),
+      });
+      return { env, popSession, askServer };
+    };
+
+    it('keeps a --local root shell opened over su, and asks nothing', async () => {
+      const chain = [atHome('su-kestrel', 'su'), atHome('exploit-local-su', 'exploit')];
+      const { env, popSession, askServer } = standingOn(chain, async () => new Set());
+
+      const result = expectSync(await runCommandLine(env, 'cat notes.txt', commands));
+
+      expect(contentOf(result.lines)).toContain('hello world');
+      expect(popSession).not.toHaveBeenCalled();
+      expect(askServer).not.toHaveBeenCalled();
+    });
+
+    it('keeps a su opened at home after coming back the long way round', async () => {
+      const chain = [
+        mockSession({ id: 'hop-a', kind: 'ssh', essid: ESSID, machineId: THEIR_BOX }),
+        atHome('back-home', 'ssh'),
+        atHome('su-root', 'su'),
+      ];
+      const { env, popSession } = standingOn(chain, async () => new Set(['hop-a', 'back-home']));
+
+      const result = expectSync(await runCommandLine(env, 'cat notes.txt', commands));
+
+      expect(contentOf(result.lines)).toContain('hello world');
+      expect(popSession).not.toHaveBeenCalled();
+    });
+
+    it('goes with the leg beneath it when that leg is lost', async () => {
+      const chain = [
+        mockSession({ id: 'hop-a', kind: 'ssh', essid: ESSID, machineId: THEIR_BOX }),
+        atHome('back-home', 'ssh'),
+        atHome('su-root', 'su'),
+      ];
+      const { env, popSession } = standingOn(chain, async () => new Set(['hop-a']));
+
+      const result = expectSync(await runCommandLine(env, 'cat notes.txt', commands));
+
+      expect(result.lines).toEqual([errorLine('Connection to rig closed by remote host.')]);
+      expect(popSession).toHaveBeenCalledTimes(2);
+    });
+  });
 });
