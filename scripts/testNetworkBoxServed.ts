@@ -224,10 +224,10 @@ for (const [name, machineId] of BOXES) {
   // 1. A guest reads the box, and nothing of the root-only file leaves.
   const asGuest = await servedTree(guest, machineId);
   check(
-    `a guest session on ${name} is served the box without the root-only file`,
+    `a guest session on ${name} is served the box with the root-only file by name alone`,
     asGuest.tree !== null &&
       contentOf(get(asGuest.tree, 'srv', 'loot.txt')) === LOOT &&
-      get(asGuest.tree, 'srv', 'secret.txt') === undefined &&
+      contentOf(get(asGuest.tree, 'srv', 'secret.txt')) === '' &&
       !asGuest.raw.includes(SECRET),
     `status=${asGuest.status} error=${errorOf(asGuest.body) ?? '-'} canary=${
       asGuest.raw.includes(SECRET) ? 'LEAKED' : 'absent'

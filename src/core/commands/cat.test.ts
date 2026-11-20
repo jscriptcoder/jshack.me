@@ -4,6 +4,9 @@ import { buildDirectory, buildFile } from '../../test/factories/filesystem.js';
 import { mockCommandEnv, mockFsViewFromTree, mockSession } from '../../test/factories/commandEnv.js';
 import { asAbsPath } from '../types.js';
 import type { TerminalLine } from './types.js';
+import { dir, file, ROOT_FILE, TRAVERSABLE_DIR } from '../generation/baseFs.js';
+import { filterTreeForSession } from '../patches/readFilter.js';
+import { deserializeTree, serializeTree } from '../filesystem/treeCodec.js';
 
 const NO_FLAGS = new Map<string, string | true>();
 
@@ -292,5 +295,35 @@ describe('cat', () => {
     if (result.kind !== 'sync') return;
     expect(result.exitCode).toBe(1);
     expect(errorLines(result)).toEqual(['cat: missing file operand']);
+  });
+});
+
+/**
+ * On another box the shell holds the tree the server served its session. A file only root
+ * may read is served by name, so `cat` refuses it rather than saying it is not there.
+ */
+describe('cat on another box', () => {
+  it('refuses a file only root may read, as a file that is there', async () => {
+    const companyBox = dir(
+      {
+        srv: dir(
+          { design: dir({ 'ab3-render-final.jpg': file('JFIF', ROOT_FILE) }, TRAVERSABLE_DIR) },
+          TRAVERSABLE_DIR,
+        ),
+      },
+      TRAVERSABLE_DIR,
+    );
+    const served = deserializeTree(
+      JSON.parse(JSON.stringify(serializeTree(filterTreeForSession(companyBox, 'user')))),
+    );
+    const env = mockCommandEnv({
+      fs: mockFsViewFromTree(served, { userType: 'user', cwd: asAbsPath('/') }),
+    });
+
+    const result = await cat.execute(env, ['/srv/design/ab3-render-final.jpg'], NO_FLAGS);
+
+    expect(result.kind === 'sync' ? errorLines(result) : null).toEqual([
+      'cat: /srv/design/ab3-render-final.jpg: Permission denied',
+    ]);
   });
 });

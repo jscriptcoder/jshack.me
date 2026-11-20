@@ -324,11 +324,12 @@ const main = async () => {
   // === 2. A USER SESSION SEES NONE OF IT. ===
   const asUser = await readBox('user');
   const wire = JSON.stringify(asUser.body);
+  const userHireme = asUser.tree === null ? undefined : nodeAt(asUser.tree, 'etc', 'hireme');
   check(
-    'a user session is served no /etc/hireme, no client handle and no mission address',
+    'a user session is served /etc/hireme shut and empty, no client handle and no mission address',
     asUser.status === 200 &&
-      asUser.tree !== null &&
-      nodeAt(asUser.tree, 'etc', 'hireme') === undefined &&
+      userHireme?.kind === 'directory' &&
+      userHireme.entries.size === 0 &&
       !wire.includes(neoAddress) &&
       !wire.includes(` ${missionTerms(neoJob).client.handle} `),
     `status ${asUser.status}`,

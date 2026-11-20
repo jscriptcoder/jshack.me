@@ -20,7 +20,9 @@ type Resolved = {
    *  non-directory was traversed. */
   readonly node: FileNode | null;
   /** Perms of each ancestor directory (excluding the target) — the parent
-   *  chain the walker checks for traversability. */
+   *  chain the walker checks for traversability. When `node` is null it runs
+   *  through the directory the walk last stood in, which a real lookup had to
+   *  enter to find nothing there. */
   readonly parents: readonly FilePermissions[];
   /** When `node` is null because the FINAL segment is absent, the directory the
    *  entry would be created IN (its container) — so a create can be gated by the
@@ -48,7 +50,11 @@ const walk = (
   if (next === undefined) {
     // The walk stops here. If `head` was the FINAL segment, `node` is the
     // directory a create would target; a deeper miss has no direct container.
-    return { node: null, parents, container: rest.length === 0 ? node.perms : null };
+    return {
+      node: null,
+      parents: [...parents, node.perms],
+      container: rest.length === 0 ? node.perms : null,
+    };
   }
   return walk(next, rest, [...parents, node.perms]);
 };
@@ -78,9 +84,14 @@ export const createFsView = (
 
   const resolve = (path: AbsPath): Resolved => walk(tree, segmentsOf(path), []);
 
+  /** A path that is not there, as the tier may know it: missing only past every
+   *  directory the tier may enter. Beyond one it may not, nothing is said either way. */
+  const missing = (parents: readonly FilePermissions[]): 'not_found' | 'permission_denied' =>
+    canRead(userType, null, parents).allowed ? 'not_found' : 'permission_denied';
+
   const read = (path: AbsPath): FsReadResult => {
     const { node, parents } = resolve(path);
-    if (node === null) return { ok: false, error: 'not_found' };
+    if (node === null) return { ok: false, error: missing(parents) };
     if (node.kind === 'directory') return { ok: false, error: 'is_directory' };
     if (!canRead(userType, node.perms, parents).allowed) {
       return { ok: false, error: 'permission_denied' };
@@ -90,7 +101,7 @@ export const createFsView = (
 
   const list = (path: AbsPath): FsListResult => {
     const { node, parents } = resolve(path);
-    if (node === null) return { ok: false, error: 'not_found' };
+    if (node === null) return { ok: false, error: missing(parents) };
     if (node.kind !== 'directory') return { ok: false, error: 'not_a_directory' };
     if (!canRead(userType, node.perms, parents).allowed) {
       return { ok: false, error: 'permission_denied' };
@@ -104,11 +115,11 @@ export const createFsView = (
     // ancestors (Unix: modifying a file needs write on the FILE).
     if (node !== null) return canWrite(userType, node.perms, parents);
     // Creating a new entry: write + execute on the CONTAINING dir (Unix: adding
-    // an entry needs write on the DIR). Pass the container as both the target
-    // (its write bit) and the deepest parent (its execute bit). A deeper-missing
-    // path has no container → there is nowhere to create it.
+    // an entry needs write on the DIR). The container is both the target (its
+    // write bit) and the deepest parent, already closing the chain (its execute
+    // bit). A deeper-missing path has no container → there is nowhere to create it.
     if (container === null) return { allowed: false, reason: 'parent_not_traversable' };
-    return canWrite(userType, container, [...parents, container]);
+    return canWrite(userType, container, parents);
   };
 
   return {

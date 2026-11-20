@@ -43,7 +43,13 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
      says the company's render is there; a real `ls` lists the names. The msfconsole read hole on
      the board server answered `/etc/hireme/contracts` with "No such file (as user)" instead of a
      permission refusal. Check whether the infiltrate job's company copy exists at all, then make
-     both say the file is there but refused.
+     both say the file is there but refused. **Fixed in v0.477.4.** The company's copy was there,
+     laid root-only; the server's read filter dropped every node the session's tier could not
+     read, names and all. It now serves what a real `ls` shows: the name of anything in a
+     directory the tier can list, with its owner and permissions, and no bytes (or entries) the
+     tier cannot read, so `cat` says "Permission denied". A path under a directory the tier may
+     not enter is refused whether or not anything is there, which is what the read hole now says
+     of `/etc/hireme/contracts` as user. `ls -l` shows a withheld file's size as 0.
   5. **`nc` to your own box refuses with no reason (owner: needs a message).** At home, `nc
      localhost 22` (with `sshd` in `ps`), `nc <own ip> 22` and `nc localhost <port>` right after
      `nc -l <port>` all print `nc: connect to localhost: Connection refused`. The refusal is
@@ -52,6 +58,14 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
      another machine).
   6. **The light theme hides the HUD (owner: bug).** `theme light` drops the top bar and the
      status bar while `effects` still says `hud on`; every other theme keeps them.
+  7. **A local read hole reads the box without what the server lays on it (found fixing 4; not
+     yet seen in play).** `msfconsole --local` on another box is answered from the box as
+     generated plus its journal (`resolveStoodOnBox`, `src/core/sessions/stoodOnBox.ts`). A
+     shell's own view of the same box also carries the files the server holds in its tables: a
+     contract box's company file and key (`withMissionFiles`), the boards' server's
+     `/etc/hireme` lists, emailit's spool. So a read, list, write or script hole that runs at root
+     there should answer "No such file" for exactly the file a contract sends the player for.
+     Confirm with a root read roll on a contract box first.
 
   **Friction**
   - **Getting home after travel.** Back in Ridgemont, `nmcli connect QUEEN-STREET-HARDWARE <key>`

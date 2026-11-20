@@ -213,6 +213,17 @@ const get = (tree: Directory, ...segments: readonly string[]): FileNode | undefi
   return node;
 };
 
+const contentOf = (tree: Directory, ...segments: readonly string[]): string | null => {
+  const node = get(tree, ...segments);
+  return node?.kind === 'file' ? node.content : null;
+};
+
+/** How many entries a served directory holds, or null when it is not served as one. */
+const entryCountOf = (tree: Directory, ...segments: readonly string[]): number | null => {
+  const node = get(tree, ...segments);
+  return node?.kind === 'directory' ? node.entries.size : null;
+};
+
 describe('handleResolveCrossPlayerFs', () => {
   it('returns A’s real file to a guest session, with content from A’s patch', async () => {
     const id = generateIdentity();
@@ -311,23 +322,24 @@ describe('handleResolveCrossPlayerFs', () => {
     expect(page?.perms.read).toEqual(['root']);
     // What the tier reads is still there beside it...
     expect(get(tree, 'srv', 'loot.txt')?.kind).toBe('file');
-    // ...and a root-only file nobody outside could see stays on the server.
-    expect(get(tree, 'srv', 'keys.txt')).toBeUndefined();
-    expect(get(tree, 'srv', 'secret.txt')).toBeUndefined();
-    expect(get(tree, 'etc', 'passwd')).toBeUndefined();
+    // ...and a root-only file nobody outside could see is served by name, its bytes
+    // left on the server.
+    expect(contentOf(tree, 'srv', 'keys.txt')).toBe('');
+    expect(contentOf(tree, 'srv', 'secret.txt')).toBe('');
+    expect(contentOf(tree, 'etc', 'passwd')).toBe('');
     expect(JSON.stringify(result.body)).not.toContain('ROOT_KEYS');
   });
 
-  it('prunes paths the guest tier cannot read — no passwd hashes, no /root, no user-only files', async () => {
+  it('serves the guest tier only the names of what it cannot read — no passwd hashes, nothing in /root, no user-only bytes', async () => {
     const id = generateIdentity();
     const { deps } = makeDeps();
 
     const result = await handleResolveCrossPlayerFs(envelope(id), deps);
     const tree = treeOf(result);
 
-    expect(get(tree, 'etc', 'passwd')).toBeUndefined();
-    expect(get(tree, 'root')).toBeUndefined();
-    expect(get(tree, 'srv', 'secret.txt')).toBeUndefined();
+    expect(contentOf(tree, 'etc', 'passwd')).toBe('');
+    expect(entryCountOf(tree, 'root')).toBe(0);
+    expect(contentOf(tree, 'srv', 'secret.txt')).toBe('');
     // Belt-and-braces: the secret must not appear ANYWHERE in the wire body.
     expect(JSON.stringify(result.body)).not.toContain('TOP_SECRET');
     expect(JSON.stringify(result.body)).not.toContain(REGISTERED.workstation_root_hash);
@@ -553,8 +565,9 @@ describe('handleResolveCrossPlayerFs', () => {
 
     expect(result.status).toBe(200);
     expect(get(tree, 'bin', 'ls')?.kind).toBe('file');
-    // The guest tier filter still applies to the occupant-resolved tree — passwd hides.
-    expect(get(tree, 'etc', 'passwd')).toBeUndefined();
+    // The guest tier filter still applies to the occupant-resolved tree — passwd's bytes
+    // stay behind.
+    expect(contentOf(tree, 'etc', 'passwd')).toBe('');
     expect(findOccupantWorkstationByMachineId).toHaveBeenCalledWith(MACHINE_ID);
   });
 
@@ -731,7 +744,7 @@ const passwdOf = (tree: Directory): string | null => {
 
 describe('handleResolveCrossPlayerFs on a machine the network generates', () => {
   it.each(GENERATED)(
-    'serves a guest session on %s what it may read there, without a root-only file',
+    'serves a guest session on %s what it may read there, without a root-only file’s bytes',
     async (_kind, machineId) => {
       const id = generateIdentity();
       const { deps, findPatches } = onNetworkBox();
@@ -742,8 +755,8 @@ describe('handleResolveCrossPlayerFs on a machine the network generates', () => 
 
       expect(result.status).toBe(200);
       expect(loot?.kind === 'file' ? loot.content : null).toBe('LEFT_IN_THE_OPEN');
-      expect(get(tree, 'srv', 'keys.txt')).toBeUndefined();
-      expect(get(tree, 'etc', 'passwd')).toBeUndefined();
+      expect(contentOf(tree, 'srv', 'keys.txt')).toBe('');
+      expect(contentOf(tree, 'etc', 'passwd')).toBe('');
       expect(JSON.stringify(result.body)).not.toContain('ROOT_KEYS');
       expect(findPatches).toHaveBeenCalledWith({ machine_id: machineId });
     },
@@ -887,11 +900,6 @@ const onEmailit = (over: Parameters<typeof makeDeps>[0] = {}) =>
     ...over,
   });
 
-const contentOf = (tree: Directory, ...segments: readonly string[]): string | null => {
-  const node = get(tree, ...segments);
-  return node?.kind === 'file' ? node.content : null;
-};
-
 describe("handleResolveCrossPlayerFs on emailit.io, whose mail lives in the server's tables", () => {
   it('lays every account into the box for a root session', async () => {
     const id = generateIdentity();
@@ -931,8 +939,8 @@ describe("handleResolveCrossPlayerFs on emailit.io, whose mail lives in the serv
       const tree = treeOf(result);
 
       expect(result.status).toBe(200);
-      expect(get(tree, 'var', 'mail')).toBeUndefined();
-      expect(get(tree, 'etc', 'emailit')).toBeUndefined();
+      expect(entryCountOf(tree, 'var', 'mail')).toBe(0);
+      expect(entryCountOf(tree, 'etc', 'emailit')).toBe(0);
       expect(findMailSpool).not.toHaveBeenCalled();
     },
   );
@@ -1059,7 +1067,7 @@ describe("handleResolveCrossPlayerFs on the boards' server, whose list is the bo
       const result = await handleResolveCrossPlayerFs(envelope(id, BOARD_SERVER_MACHINE), deps);
 
       expect(result.status).toBe(200);
-      expect(get(treeOf(result), 'etc', 'hireme')).toBeUndefined();
+      expect(entryCountOf(treeOf(result), 'etc', 'hireme')).toBe(0);
       expect(JSON.stringify(result.body)).not.toContain(NEO_BOARD);
       expect(findBoards).not.toHaveBeenCalled();
     },
@@ -1171,7 +1179,7 @@ describe("handleResolveCrossPlayerFs on the boards' server, whose contracts are 
       const result = await handleResolveCrossPlayerFs(envelope(id, BOARD_SERVER_MACHINE), deps);
 
       expect(result.status).toBe(200);
-      expect(get(treeOf(result), 'etc', 'hireme')).toBeUndefined();
+      expect(entryCountOf(treeOf(result), 'etc', 'hireme')).toBe(0);
       expect(JSON.stringify(result.body)).not.toContain(NEO_MISSION);
       expect(JSON.stringify(result.body)).not.toContain('bellwether-desk');
       expect(findContracts).not.toHaveBeenCalled();

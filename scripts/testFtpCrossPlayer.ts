@@ -504,10 +504,16 @@ check(
   served.status === 200 && onABox?.kind === 'file' && onABox.content === 'BELONGS_TO_A',
   `status=${served.status} file=${onABox?.kind === 'file' ? onABox.content : 'absent'}`,
 );
+const aboveTheDoor =
+  servedTree === null ? undefined : entryAt(servedTree, 'srv', 'above-the-door.txt');
 check(
   '18. and the tree is filtered to the tier the credential bought, not the box owner’s',
-  servedTree !== null && entryAt(servedTree, 'srv', 'above-the-door.txt') === undefined,
-  servedTree === null ? 'no tree' : `above-the-door=${String(entryAt(servedTree, 'srv', 'above-the-door.txt') !== undefined)}`,
+  servedTree !== null &&
+    (aboveTheDoor === undefined || (aboveTheDoor.kind === 'file' && aboveTheDoor.content === '')) &&
+    !JSON.stringify(served.body).includes('NOT_FOR_GUESTS'),
+  servedTree === null
+    ? 'no tree'
+    : `above-the-door leaked=${String(JSON.stringify(served.body).includes('NOT_FOR_GUESTS'))}`,
 );
 
 await clean();

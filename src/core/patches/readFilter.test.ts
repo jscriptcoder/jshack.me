@@ -19,6 +19,7 @@ import {
 import { serializeTree } from '../filesystem/treeCodec.js';
 import { buildApGatewayBaseFs } from '../generation/routerFs.js';
 import { readRwCommunityHash } from '../snmp/rwCommunity.js';
+import { asEpochMs } from '../types.js';
 
 /**
  * The cross-player READ filter (Story 2, slice 2c — tier 2). Given a fully
@@ -27,9 +28,10 @@ import { readRwCommunityHash } from '../snmp/rwCommunity.js';
  * otherwise leak over the wire (the wire IS the threat surface), so these tests
  * assert the pruned tree's shape, not any UI rendering.
  *
- * Pruning is the shared permission walker (`canRead`) applied per node: a node
- * survives iff every ancestor is traversable for the tier AND the node itself is
- * readable. A dropped directory takes its whole subtree with it.
+ * Pruning is the shared permission walker (`canRead`) applied per node, as a real
+ * `ls` sees a box: a name is served iff the tier can list the directory it sits in.
+ * The bytes of a file, or the entries of a directory, are served iff the tier can
+ * read that node too; otherwise it travels by name, owner and permissions alone.
  */
 
 /** A world-readable file (every tier may read) — content distinct so tests can
@@ -47,7 +49,7 @@ const get = (tree: Directory, ...segments: readonly string[]): FileNode | undefi
 };
 
 describe('filterTreeForRead', () => {
-  it('keeps a file the tier may read and drops one it may not', () => {
+  it('keeps a file the tier may read whole, and of one it may not only the name', () => {
     const tree = dir(
       {
         public: worldFile('open secret'),
@@ -60,10 +62,15 @@ describe('filterTreeForRead', () => {
 
     const kept = get(filtered, 'public');
     expect(kept?.kind === 'file' ? kept.content : null).toBe('open secret');
-    expect(get(filtered, 'private')).toBeUndefined();
+    // A real `ls` lists a file it cannot open. The shell refuses to print it off the
+    // permissions the node keeps, and the bytes never leave the server.
+    const withheld = get(filtered, 'private');
+    expect(withheld?.kind === 'file' ? withheld.content : null).toBe('');
+    expect(withheld?.perms).toEqual(PASSWD_FILE);
+    expect(JSON.stringify(serializeTree(filtered))).not.toContain('hash:roots');
   });
 
-  it('drops a non-traversable directory and everything beneath it', () => {
+  it('keeps the name of a directory the tier may not enter, and nothing beneath it', () => {
     const tree = dir(
       {
         home: dir({ alice: dir({ notes: worldFile('diary') }, HOME_DIR) }, TRAVERSABLE_DIR),
@@ -73,20 +80,39 @@ describe('filterTreeForRead', () => {
 
     const filtered = filterTreeForRead(tree, 'guest');
 
-    // /home survives (world-traversable) but its user subdir (root+user only) is
-    // pruned whole — even the world-readable file inside it must not leak.
-    expect(get(filtered, 'home')?.kind).toBe('directory');
-    expect(get(filtered, 'home', 'alice')).toBeUndefined();
+    // /home survives (world-traversable). Its user subdir (root+user only) is listed
+    // but served empty — even the world-readable file inside it must not leak.
+    const alice = get(filtered, 'home', 'alice');
+    expect(alice?.kind === 'directory' ? alice.entries.size : null).toBe(0);
+    expect(alice?.perms).toEqual(HOME_DIR);
+    expect(JSON.stringify(serializeTree(filtered))).not.toContain('diary');
   });
 
-  it('drops /etc/passwd for guest but keeps it for user (read = root+user)', () => {
+  it('withholds /etc/passwd from guest but hands it to user (read = root+user)', () => {
     const etc = () => dir({ passwd: file('root:x:0', PASSWD_FILE) }, TRAVERSABLE_DIR);
     const guestView = filterTreeForRead(dir({ etc: etc() }, TRAVERSABLE_DIR), 'guest');
     const userView = filterTreeForRead(dir({ etc: etc() }, TRAVERSABLE_DIR), 'user');
 
-    expect(get(guestView, 'etc')?.kind).toBe('directory');
-    expect(get(guestView, 'etc', 'passwd')).toBeUndefined();
-    expect(get(userView, 'etc', 'passwd')?.kind).toBe('file');
+    const guestPasswd = get(guestView, 'etc', 'passwd');
+    expect(guestPasswd?.kind === 'file' ? guestPasswd.content : null).toBe('');
+    const userPasswd = get(userView, 'etc', 'passwd');
+    expect(userPasswd?.kind === 'file' ? userPasswd.content : null).toBe('root:x:0');
+  });
+
+  it('keeps what a withheld file is besides its bytes: its owner and metadata', () => {
+    const render: FileNode = {
+      ...file('JFIF render', ROOT_FILE, 'designer'),
+      metadata: { mtime: asEpochMs(1234), isExecutable: false },
+    };
+    const tree = dir({ design: render }, TRAVERSABLE_DIR);
+
+    const design = get(filterTreeForRead(tree, 'user'), 'design');
+
+    expect(design?.owner).toBe('designer');
+    expect(design?.kind === 'file' ? design.metadata : null).toEqual({
+      mtime: asEpochMs(1234),
+      isExecutable: false,
+    });
   });
 
   it('keeps a deeply nested readable file through traversable parents', () => {
@@ -118,7 +144,24 @@ describe('filterTreeForRead', () => {
 
     const filtered = filterTreeForRead(tree, 'guest');
 
-    expect(get(filtered, 'priv')).toBeUndefined();
+    expect(get(filtered, 'priv', 'leak')).toBeUndefined();
+  });
+
+  it('drops the name of a file deeper than a directory the tier may not enter', () => {
+    // Inside a shut directory the tier may not even learn what sits there: a real
+    // `ls` of it is refused, so neither file nor subdirectory names may leave.
+    const tree = dir(
+      {
+        root: dir({ vault: dir({ 'keys.txt': file('KEYS', ROOT_FILE) }, ROOT_DIR) }, ROOT_DIR),
+      },
+      TRAVERSABLE_DIR,
+    );
+
+    const filtered = filterTreeForRead(tree, 'user');
+
+    expect(get(filtered, 'root', 'vault')).toBeUndefined();
+    expect(JSON.stringify(serializeTree(filtered))).not.toContain('vault');
+    expect(JSON.stringify(serializeTree(filtered))).not.toContain('keys.txt');
   });
 
   it('drops a child when an ancestor is readable but not traversable for the tier', () => {
@@ -553,11 +596,13 @@ describe('filterTreeForSession', () => {
     expect(get(served, 'etc', 'iptables')?.perms).toEqual(ROOT_DIR);
   });
 
-  it('adds nothing that is neither readable by the tier nor on the list', () => {
+  it('serves no bytes that are neither readable by the tier nor on the list', () => {
     const served = filterTreeForSession(box(), 'guest');
 
-    expect(get(served, 'etc', 'passwd')).toBeUndefined();
-    expect(get(served, 'root')).toBeUndefined();
+    const passwd = get(served, 'etc', 'passwd');
+    expect(passwd?.kind === 'file' ? passwd.content : null).toBe('');
+    const root = get(served, 'root');
+    expect(root?.kind === 'directory' ? root.entries.size : null).toBe(0);
     expect(JSON.stringify(serializeTree(served))).not.toContain('ROOT_NOTES');
     expect(JSON.stringify(serializeTree(served))).not.toContain('root:hash');
   });
@@ -583,7 +628,9 @@ describe('filterTreeForSession', () => {
 
     expect(get(served, 'var', 'www', 'html', 'index.html')?.kind).toBe('file');
     expect(get(served, 'var', 'www')?.perms).toEqual(ROOT_DIR);
-    expect(get(served, 'var', 'backups')).toBeUndefined();
+    const backups = get(served, 'var', 'backups');
+    expect(backups?.kind === 'directory' ? backups.entries.size : null).toBe(0);
+    expect(JSON.stringify(serializeTree(served))).not.toContain('site.tar');
   });
 
   it('does not open a directory the tier may pass through but not list', () => {
@@ -604,9 +651,52 @@ describe('filterTreeForSession', () => {
 
     const served = filterTreeForSession(tree, 'guest');
 
-    expect(get(served, 'srv')).toBeUndefined();
+    const srv = get(served, 'srv');
+    expect(srv?.kind === 'directory' ? srv.entries.size : null).toBe(0);
     // The same kind of directory holding a listed file is served for that file.
     expect(get(served, 'var', 'run', 'sshd.pid')?.kind).toBe('file');
+  });
+
+  it('serves nothing beneath a shut directory by name, not even an empty directory', () => {
+    const tree = dir(
+      { root: dir({ vault: dir({ deeper: dir({}, ROOT_DIR) }, ROOT_DIR) }, ROOT_DIR) },
+      TRAVERSABLE_DIR,
+    );
+
+    const served = filterTreeForSession(tree, 'user');
+
+    expect(get(served, 'root', 'vault')).toBeUndefined();
+    expect(JSON.stringify(serializeTree(served))).not.toContain('vault');
+  });
+
+  it('serves only the listed files of a directory the tier cannot even see', () => {
+    // `/var` is shut, so the tier's view stops at its name. The list alone reaches
+    // `/var/run`, and of what sits there it serves the pidfiles and nothing else.
+    const tree = dir(
+      {
+        var: dir(
+          {
+            run: dir(
+              {
+                'sshd.pid': worldFile('4131'),
+                utmp: worldFile('WHO_IS_ON'),
+                lock: dir({ 'subsys.lock': worldFile('LOCKED') }, TRAVERSABLE_DIR),
+              },
+              TRAVERSABLE_DIR,
+            ),
+          },
+          ROOT_DIR,
+        ),
+      },
+      TRAVERSABLE_DIR,
+    );
+
+    const served = filterTreeForSession(tree, 'guest');
+
+    expect(get(served, 'var', 'run', 'sshd.pid')?.kind).toBe('file');
+    expect(get(served, 'var', 'run', 'utmp')).toBeUndefined();
+    expect(get(served, 'var', 'run', 'lock')).toBeUndefined();
+    expect(JSON.stringify(serializeTree(served))).not.toContain('WHO_IS_ON');
   });
 
   it('keeps an empty directory the tier can read', () => {
@@ -621,20 +711,53 @@ describe('filterTreeForSession', () => {
     // seen whole.
     const served = filterTreeForSession(box(), 'guest');
 
-    expect([...served.entries.keys()]).toEqual(['etc', 'var']);
+    expect([...served.entries.keys()]).toEqual(['etc', 'root', 'var']);
     const etc = get(served, 'etc');
     expect(etc?.kind === 'directory' ? [...etc.entries.keys()] : null).toEqual([
       'hostname',
       'iptables',
+      'passwd',
     ]);
   });
 
   it('serves a user session what a user reads, plus the list', () => {
     const served = filterTreeForSession(box(), 'user');
 
-    expect(get(served, 'etc', 'passwd')?.kind).toBe('file');
+    const passwd = get(served, 'etc', 'passwd');
+    expect(passwd?.kind === 'file' ? passwd.content : null).toBe('root:hash');
     expect(get(served, 'etc', 'iptables', 'rules.v4')?.kind).toBe('file');
-    expect(get(served, 'root')).toBeUndefined();
+    const root = get(served, 'root');
+    expect(root?.kind === 'directory' ? root.entries.size : null).toBe(0);
+  });
+
+  it('withholds a file the tier cannot read from a directory the list also reaches', () => {
+    // The list serves a router's NAT table whole. A root-only file beside it is on no
+    // list, so it is served by name alone, however the directory came to be served.
+    const tree = dir(
+      {
+        etc: dir(
+          {
+            iptables: dir(
+              {
+                'rules.v4': file('forward 80 to 10.0.0.5:80', ROOT_FILE),
+                'rules.v4.bak': file('OLD FORWARDS', ROOT_FILE),
+              },
+              TRAVERSABLE_DIR,
+            ),
+          },
+          TRAVERSABLE_DIR,
+        ),
+      },
+      TRAVERSABLE_DIR,
+    );
+
+    const served = filterTreeForSession(tree, 'guest');
+
+    const rules = get(served, 'etc', 'iptables', 'rules.v4');
+    expect(rules?.kind === 'file' ? rules.content : null).toBe('forward 80 to 10.0.0.5:80');
+    const backup = get(served, 'etc', 'iptables', 'rules.v4.bak');
+    expect(backup?.kind === 'file' ? backup.content : null).toBe('');
+    expect(JSON.stringify(serializeTree(served))).not.toContain('OLD FORWARDS');
   });
 
   it('hands root the whole tree back', () => {

@@ -496,15 +496,17 @@ const main = async () => {
     }),
   );
   const occTree = servedTree(occStep1.body);
+  const occRoot = occTree === undefined ? undefined : nodeAt(occTree, 'root');
   check(
-    'a user hole on a fellow occupant’s box serves their user-readable wallet key and NOT /root',
+    'a user hole on a fellow occupant’s box serves their user-readable wallet key and /root shut',
     occStep1.status === 200 &&
       field(occStep1.body, 'tier') === 'user' &&
       occTree !== undefined &&
       fileContent(occTree, 'home', OCCUPANT_USER, '.wallet', 'wallet.dat') === WALLET_CONTENT &&
-      nodeAt(occTree, 'root') === undefined,
+      occRoot?.kind === 'directory' &&
+      occRoot.entries.size === 0,
     `status ${occStep1.status}, wallet ${JSON.stringify(occTree && fileContent(occTree, 'home', OCCUPANT_USER, '.wallet', 'wallet.dat'))}, ` +
-      `/root ${occTree && nodeAt(occTree, 'root') === undefined ? 'pruned' : 'present'}`,
+      `/root entries ${occRoot?.kind === 'directory' ? occRoot.entries.size : 'absent'}`,
   );
 
   // === 3. `--local` SERVES AT THE GRANTED TIER, NOT THE CALLER'S (root hole, guest shell). ===

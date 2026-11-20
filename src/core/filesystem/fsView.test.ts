@@ -75,6 +75,48 @@ describe('createFsView', () => {
     });
   });
 
+  /** A box whose `/etc/hireme` only root may enter, holding nothing a lower tier was served. */
+  const shutView = (userType: 'user' | 'root') =>
+    createFsView(
+      buildDirectory({
+        etc: buildDirectory({
+          hireme: buildDirectory(
+            {},
+            { owner: 'root', perms: { read: ['root'], write: ['root'], execute: ['root'] } },
+          ),
+        }),
+      }),
+      { userType, cwd: asAbsPath('/') },
+    );
+
+  it.each(['/etc/hireme/contracts', '/etc/hireme/archive/contracts'])(
+    'refuses %s under a directory the tier may not pass through, as it would a file there',
+    (path) => {
+      // A real system stops at the first directory it may not enter. Whether anything
+      // sits past it is the very thing the tier may not learn, and a box served to a
+      // lower tier holds that directory empty.
+      expect(shutView('user').read(asAbsPath(path))).toEqual({
+        ok: false,
+        error: 'permission_denied',
+      });
+      expect(shutView('user').list(asAbsPath(path))).toEqual({
+        ok: false,
+        error: 'permission_denied',
+      });
+    },
+  );
+
+  it('reports a missing path under a shut directory as missing to a tier that may enter it', () => {
+    expect(shutView('root').read(asAbsPath('/etc/hireme/contracts'))).toEqual({
+      ok: false,
+      error: 'not_found',
+    });
+    expect(shutView('root').list(asAbsPath('/etc/hireme/archive'))).toEqual({
+      ok: false,
+      error: 'not_found',
+    });
+  });
+
   it('reports is_directory when reading a directory', () => {
     expect(userView().read(asAbsPath('/home/alice'))).toEqual({
       ok: false,

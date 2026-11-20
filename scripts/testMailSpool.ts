@@ -201,12 +201,14 @@ const main = async () => {
   const peon = newPlayer();
   await seedSession(peon, 'guest');
   const asGuest = await readBox(peon);
+  const isShut = (node: FileNode | undefined): boolean =>
+    node?.kind === 'directory' && node.entries.size === 0;
   check(
-    'a guest session is served neither /var/mail nor /etc/emailit',
+    'a guest session is served /var/mail and /etc/emailit shut and empty',
     asGuest.status === 200 &&
       asGuest.tree !== null &&
-      nodeAt(asGuest.tree, 'var', 'mail') === undefined &&
-      nodeAt(asGuest.tree, 'etc', 'emailit') === undefined,
+      isShut(nodeAt(asGuest.tree, 'var', 'mail')) &&
+      isShut(nodeAt(asGuest.tree, 'etc', 'emailit')),
     `status ${asGuest.status}`,
   );
 

@@ -387,15 +387,16 @@ check(
 //     this was stored, replayed, and ignored by every reader.
 //
 //     The observable is B's own view of the box. A cross-player read shows only
-//     what the viewing session may see, so taking guest READ off /tmp takes the
-//     whole directory out of B's tree — B locked itself out with its own chmod.
+//     what the viewing session may see, so taking guest READ off /tmp leaves B the
+//     directory's name and nothing in it — B locked itself out with its own chmod.
 const r14 = await post(NETWORK, signRequest(bob, 'resolveCrossPlayerFs', { machine_id: A_MACHINE }));
 const tree14 =
   r14.status === 200 ? deserializeTree((r14.body as { tree: SerializedDirectory }).tree) : null;
+const tmp14 = tree14 === null ? undefined : get(tree14, 'tmp');
 check(
-  'after B narrows /tmp, /tmp is gone from B’s own materialized view',
-  r14.status === 200 && tree14 !== null && get(tree14, 'tmp') === undefined,
-  `status=${r14.status} tmp=${tree14 && get(tree14, 'tmp') ? 'visible' : 'absent'}`,
+  'after B narrows /tmp, B’s own materialized view holds /tmp shut and empty',
+  r14.status === 200 && tmp14?.kind === 'directory' && tmp14.entries.size === 0,
+  `status=${r14.status} tmp entries=${tmp14?.kind === 'directory' ? tmp14.entries.size : 'absent'}`,
 );
 
 // 15. Restore guest read and the directory comes back WITH its contents — a
