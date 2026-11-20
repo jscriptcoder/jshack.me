@@ -1778,6 +1778,21 @@ agreed order:
     survivor (the intro sentence's wording), and both pages served 200 from the Vercel preview. A
     way to play without a browser was left for a grill of its own (`backlog.md`). The plan was
     retired on close-out.
+55. ✅ **`cp` and `mv` (v0.477.0, PR #791, merged 2026-11-20).** One slice. `cp [-r|-R]` and `mv`
+    act on the box the shell stands on, through the existing `PatchApi` (no `api/` change). A copy
+    is a new file the copier made, on the tier defaults (decided over carrying the source's
+    permissions, which in the tier model would leave a guest unable to edit their own copy of a
+    root-writable file); an overwrite keeps the file's owner and permissions. `mv` is a rename:
+    write on both parents, no read on the moved files, the tree written parents first and the
+    source removed last. `cp -r` refuses a directory the shell cannot list, since `stat` ignores
+    tier and the walk would print every name inside it. Shared operand handling is
+    `core/commands/fileOperands.ts`; both ship as `/bin/cp` and `/bin/mv`, which moved every
+    landmark fingerprint by exactly those two files. Tests run through the real `createPatchApi`
+    and `applyPatches` (`src/test/factories/patchedBox.ts`). Evidence: unit tests (11,258), mutation
+    338 killed / 59 survived (`man` prose, registry metadata and equivalents), a browser run whose
+    copies and moves held across two reloads, and a Vercel preview that first failed
+    `checkBudgets` (+1,968 B) and passed once the bundle ceiling was raised. The `mv` owner label
+    is in `backlog.md`. The plan was retired on close-out.
     **Pick up here (2026-11-20):** the owner's choice from `backlog.md`.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block

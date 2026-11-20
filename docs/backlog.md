@@ -222,6 +222,13 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
     first question: are agents told apart from humans in the world? Most other answers follow
     from it.
 
+- **`mv` onto an existing file keeps the old owner label — left as it is (2026-11-20).** After
+  `mv a b` over a standing `b`, `ls -l` shows `b`'s previous owner beside `a`'s content and
+  permissions, because `applyPatches` never relabels a file that already stands (a patch's owner
+  applies only to a node it creates). The label grants nothing, since tiers and not owners decide
+  access. Fixing it means letting a write relabel a standing file, which every write in the game
+  goes through, so it was not done inside the `cp`/`mv` slice.
+
 - **RESOLVED 2026-10-30 (v0.437.1) — two system log lines landing together could lose one.**
   System lines now land through the `append_machine_log` database function, which locks the log's
   path and appends in one transaction, and the journal stamps `updated_at` with
