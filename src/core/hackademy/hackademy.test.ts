@@ -212,7 +212,17 @@ const CHAPTERS = [
     title: 'Scripting with node',
     tools: ['curl', 'node'],
   },
+  {
+    url: `${SITE}/getting-paid.html`,
+    title: 'Getting paid',
+    tools: ['apt', 'mail', 'wallet', 'man'],
+  },
 ];
+
+/** The chapter that tells a reader the world pays for this work, and how the pay reaches
+ *  them: the one pointer a newcomer gets to the job board, the mail it needs and the coin it
+ *  pays in. */
+const PAID_CHAPTER = `${SITE}/getting-paid.html`;
 
 /** The example scripts the site keeps for a reader to download and run. */
 const SCRIPTS = ['hello.js', 'failed.js'];
@@ -295,6 +305,10 @@ describe('every page of hackademy.io', () => {
     expect(naming?.textContent).toContain('findit');
   });
 
+  it('names findit by the address a reader types to reach it', () => {
+    expect(parsed(served(WEB_CHAPTER) ?? '').body.textContent).toContain('findit.io');
+  });
+
   it("points every example at the reader's own box, never at somebody else's", () => {
     const elsewhere = /\b\d{1,3}(\.\d{1,3}){3}\b|\b[a-z0-9-]+\.(io|com|gov|edu|org|net)\b/;
     for (const page of everyPage()) {
@@ -303,6 +317,25 @@ describe('every page of hackademy.io', () => {
         expect(named?.[0], `${page}: ${line}`).toBeUndefined();
       }
     }
+  });
+});
+
+describe('the chapter on getting paid', () => {
+  const prose = (): string => parsed(served(PAID_CHAPTER) ?? '').body.textContent ?? '';
+
+  it('sends the reader to the board where work is posted, and to the mail it asks for', () => {
+    expect(prose()).toContain('hireme.io');
+    expect(prose()).toContain('emailit.io');
+  });
+
+  it('says the pay is JSC, goes to the wallet address the proof of work names, and can be looked up', () => {
+    expect(prose()).toContain('JSC');
+    expect(prose()).toContain('wallet address');
+    expect(prose()).toContain('chainit.io');
+  });
+
+  it('shows the reader how to make a wallet of their own', () => {
+    expect(examplesOn(served(PAID_CHAPTER) ?? '')).toContain('wallet init');
   });
 });
 

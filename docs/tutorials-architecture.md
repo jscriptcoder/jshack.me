@@ -2,7 +2,7 @@
 
 A new player learns the world from inside it. A short `README` in their home folder walks them
 from the first prompt onto a network and into `lynx`, and `lynx` takes them to `hackademy.io`,
-an in-world site that teaches the world's concepts and tools in ten chapters. The site is an
+an in-world site that teaches the world's concepts and tools in eleven chapters. The site is an
 ordinary machine: it can be found, scanned, rooted and defaced like any other, and the operator
 restores it the way findit is restored.
 
@@ -45,7 +45,7 @@ breaks one is a design change, not an edit.
 | Piece                                                                                                                                                              | Where                                                         |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------- |
 | The `README` (`WELCOME_README`), planted in `/home/<username>/README` of the player's own box only, owned by the player                                            | `src/core/hackademy/readme.ts`, `generation/workstationFs.ts` |
-| Every file the site serves (`HACKADEMY_PAGES`): the front page, ten chapters, `robots.txt`, `scripts/hello.js`, `scripts/failed.js`                                | `src/core/hackademy/pages.ts`                                 |
+| Every file the site serves (`HACKADEMY_PAGES`): the front page, eleven chapters, `robots.txt`, `scripts/hello.js`, `scripts/failed.js`                             | `src/core/hackademy/pages.ts`                                 |
 | The fixed-site table: hackademy.io, findit.io, mapit.io and emailit.io, names only (a leaf, to dodge an init cycle through `publisher`)                            | `generation/fixedSites.ts`                                    |
 | The box: one machine that is its own gateway, the files of `HACKADEMY_PAGES` under `/var/www/html` (a key with a path, `scripts/hello.js`, lands in its directory) | `generation/fixedSiteFs.ts`                                   |
 | findit's listing of a fixed site, under its domain                                                                                                                 | `findit/webIndex.ts` (see `discovery-architecture.md`)        |
@@ -80,13 +80,20 @@ words because the shell cannot parse `<bssid>`.
 6. **Services, versions and CVEs** — `ps`, `systemctl status`/`start`/`stop`, `apt update`/
    `list --upgradable`/`upgrade`; the CVE model without an attack; `msfconsole` described.
 7. **The web** — `curl` and `lynx` on hackademy.io and its `robots.txt`, your own nginx on
-   `localhost`, `gobuster http://localhost`; findit and mapit.io named.
+   `localhost`, `gobuster http://localhost`; findit.io and mapit.io named.
 8. **Traces** — `auth.log`, `kern.log` (every port scan, restart and crash) and `access.log`,
    read with `cat`/`tail`/`grep`. That a root can rewrite a log is said plainly.
 9. **Databases and other services** — your own `mysql` and `redis` (both opened by your own
    root password) on `localhost`; `snmp` installed, `snmpwalk` described.
 10. **Scripting with node** — `curl http://hackademy.io/scripts/hello.js > hello.js`, then
     `node`; `failed.js` tallies the failed logins in your own `auth.log` by address.
+11. **Getting paid** (added at v0.478.0) — the one pointer a newcomer gets to paid work: hireme.io
+    posts it, it wants an emailit.io address, and clients pay JSC to the wallet address the proof
+    of work names, which chainit.io can look up. Its examples are `mailutils` and `mail login`/`mail`,
+    `wallet` and `wallet init`/`balance`, all on your own box; signing up and applying are prose,
+    since rule 3 keeps every example off other hosts. It teaches the tools, not a contract from
+    applying to being paid. Before it, nothing a new player read said the world pays for work
+    or where a wallet comes from, and the briefing's "No wallet, no money" was the first mention.
 
 The two scripts are not linked from any page; the chapter's `curl` examples are the way to
 them. `robots.txt` asks search engines to leave `/scripts/` alone (findit reads front pages
@@ -103,9 +110,11 @@ browser gets it, through `resolveWebPath` and the box's own tree, and checks the
   link the next one (none for the last).
 - **The getting-in chapter** knocks on hackademy.io with `ssh` and aims `ssh`, `scp` and `ftp`
   at `localhost`.
-- **Every page**: reachable from the front page; findit named only in the web chapter, and
-  mapit.io once there, beside it; no example names another host (an IPv4 address or a domain
-  other than hackademy.io).
+- **Every page**: reachable from the front page; findit named only in the web chapter, by its
+  full address, and mapit.io once there, beside it; no example names another host (an IPv4
+  address or a domain other than hackademy.io).
+- **The getting-paid chapter** names hireme.io, emailit.io, JSC, the wallet address and
+  chainit.io, and shows `wallet init`.
 - **Every example** — a `<pre>` line starting at a `$ ` or `# ` prompt, on the site and in the
   README:
   - runs only registered commands (rule 5);

@@ -84,8 +84,10 @@ import {
  *  100; then the HUD under every theme (each plain palette's two frame colours, and the
  *  effects listing naming which effects need a neon one) added 170 B, rounded up to 200; then
  *  a downed box on a deep layer or a fellow player's going quiet to ping, nmap and ssh (each
- *  asking the server before it answers) added 93 B, rounded up to 100. */
-const BUNDLE_CEILING_BYTES = 307_075;
+ *  asking the server before it answers) added 93 B, rounded up to 100; then hackademy.io's
+ *  chapter on getting paid and hireme.io saying how it pays (the prose rides in the bundle
+ *  with the sites' generated trees) added 972 B, rounded up to 1,000. */
+const BUNDLE_CEILING_BYTES = 308_075;
 
 /** About a tenth of that before world content, so a loaded machine's noise cannot fail
  *  the check while a content change that makes boxes ten times dearer still does. */
