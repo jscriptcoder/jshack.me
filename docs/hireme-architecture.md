@@ -33,8 +33,12 @@ server** answers at every board's address.
   agency.
 - **The front page** (`core/hireme/pages.ts`, `HIREME_FRONT_PAGE`) is planted at `index.html` and
   at `apply`, so a browser going back after a submit fetches the form again and never resends it.
-  It carries the form (one `email` field, `[ Apply ]`) and the recipe
-  `curl -d "email=neo@emailit.io" http://hireme.io/apply`. A root can deface it like any file.
+  It carries the form (one `email` field, `[ Apply ]`), the recipe
+  `curl -d "email=neo@emailit.io" http://hireme.io/apply`, and the line "Contracts pay in JSC, to
+  the wallet address you send with your proof of work.", the one thing the agency says about pay
+  before a briefing does. Its findit description says "jobs", "work" and "pays", so a newcomer's
+  one-word search for `job`, `jobs` or `work` ranks it first and `pay` lists it
+  (`findit/webIndex.test.ts`). A root can deface it like any file.
 - **`POST /apply` is answered by a function** (`answerApply`, `core/hireme/apply.ts`), matched by
   network and path in `network/resolveHttpFetch.ts` before any file is read. The address is read
   as `mail` reads a recipient (`typedAddress`, `emailit/mailrc.ts`): trimmed, lowercased, and a

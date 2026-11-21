@@ -54,6 +54,7 @@ export const hiremeFrontPage = ({
       '<h1>hireme.io</h1>',
       '<p>Freelance contracts for independent IT and security people. Apply with your',
       'emailit.io address and we will send you your contractor board.</p>',
+      '<p>Contracts pay in JSC, to the wallet address you send with your proof of work.</p>',
       '<form action="/apply" method="post">',
       `<p>Email <input name="email" value="${escapeHtml(email)}"></p>`,
       ...saidUnder('email'),
@@ -65,7 +66,7 @@ export const hiremeFrontPage = ({
       '$ curl -d "email=neo@emailit.io" http://hireme.io/apply',
       '</pre>',
     ],
-    'Freelance contract work for independent IT and security people. Apply with your emailit.io address.',
+    'Freelance jobs for independent IT and security people: contract work that pays in JSC. Apply with your emailit.io address.',
   );
 };
 

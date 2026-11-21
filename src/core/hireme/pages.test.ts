@@ -14,7 +14,13 @@ describe("hireme.io's front page", () => {
 
     expect(page.title).toBe('hireme.io - contract work');
     expect(page.querySelector('meta[name="description"]')?.getAttribute('content')).toBe(
-      'Freelance contract work for independent IT and security people. Apply with your emailit.io address.',
+      'Freelance jobs for independent IT and security people: contract work that pays in JSC. Apply with your emailit.io address.',
+    );
+  });
+
+  it('says how a contract pays: in JSC, to the wallet address sent with the proof of work', () => {
+    expect(document().body.textContent?.replace(/\s+/g, ' ')).toContain(
+      'Contracts pay in JSC, to the wallet address you send with your proof of work.',
     );
   });
 

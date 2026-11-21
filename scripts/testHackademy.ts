@@ -173,6 +173,7 @@ const main = async () => {
       'traces',
       'other-services',
       'scripting',
+      'getting-paid',
     ].every((chapter) => contentOf(front.body).includes(`href="/${chapter}.html"`)),
     'front-page chapter links',
   );

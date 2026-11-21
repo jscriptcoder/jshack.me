@@ -1042,9 +1042,19 @@ describe('hireme.io, on the web findit searches', () => {
     );
   });
 
-  it('is listed by what it says of itself: contract work, and how to apply', async () => {
+  it.each(['job', 'jobs', 'work'])('comes first for anybody who searches for %s', async (query) => {
+    expect(rankPages(await indexWith(), query)[0]?.address).toBe('hireme.io');
+  });
+
+  it('is listed for anybody who searches for pay', async () => {
+    expect(rankPages(await indexWith(), 'pay').map((page) => page.address)).toContain(
+      'hireme.io',
+    );
+  });
+
+  it('is listed by what it says of itself: contract work, how it pays, and how to apply', async () => {
     expect((await found('hireme.io'))?.description).toBe(
-      'Freelance contract work for independent IT and security people. Apply with your emailit.io address.',
+      'Freelance jobs for independent IT and security people: contract work that pays in JSC. Apply with your emailit.io address.',
     );
   });
 });
