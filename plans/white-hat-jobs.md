@@ -1,6 +1,6 @@
 # Plan: White-hat jobs
 
-**Status:** Grilled 2026-11-22 (the shared rules and cleanup). Cleanup slice planned, all questions answered; acceptance criteria to confirm before RED.
+**Status:** Grilled 2026-11-22 (the shared rules and cleanup). Cleanup slice planned and gap-checked; acceptance criteria to confirm before RED.
 
 Every contract kind v2 ships is black-hat: the contractor breaks into the target's network and
 does something to it. Legacy also had defender contracts (`malware`, `forensics`, `db_fix`,
@@ -79,15 +79,17 @@ brings defender work back on top of the shipped missions system
    access when the job is paid or dropped, closer to practice but a contract-state check at the
    login door.
 
-   Settled from the code, proposed (revised while planning, 2026-11-22): the handed-over root
-   passwords follow the leak routes' pattern rather than a new HMAC. Root's hash is drawn in the
-   bundle from the leakable slice of the uncrackable pool (`LEAKABLE_HASHES`,
-   `core/missions/leakablePool.ts`), and the server turns it back into the word for the briefing
-   with `leakedWord` from `JSHACK_SECRETS` (`core/missions/missionLeak.ts`). The bundle holds
-   only hashes, so holding the address without the briefing gives no root, and `/etc/passwd`
-   stays the bundle's, with nothing new for the server to lay. The first draft proposed an HMAC
-   under `MISSION_KEY_SECRET`, which would have needed the server to lay root's `/etc/passwd`
-   line.
+   **Where the words come from (confirmed in find-gaps, 2026-11-22): a white-hat slice of the
+   uncrackable pool.** The leak routes' mechanism, on a slice of its own: root's hash is drawn in
+   the bundle from a fixed white-hat slice of the uncrackable pool that no other door holds,
+   beside `LEAKABLE_HASHES` (`core/missions/leakablePool.ts`), and the server turns it back into
+   the word for the briefing from `JSHACK_SECRETS`, as `leakedWord` does
+   (`core/missions/missionLeak.ts`). The bundle holds only hashes, so the address without the
+   briefing gives no root, and `/etc/passwd` stays the bundle's. A handed-over word opens white-hat
+   boxes only. Rejected: the leakable slice, which would let a player accept and drop cleanup jobs
+   for free to collect words that open black-hat leak-route roots with no break-in; and an HMAC
+   under `MISSION_KEY_SECRET` (the first draft), which needs the server to lay root's
+   `/etc/passwd` line.
 
 8. **Cleanup: the briefing gives a symptom, never the file (2026-11-22).** It says what the
    client noticed, such as something answering on a port. `ps` shows the listener (`nc`, its
@@ -177,6 +179,8 @@ brings defender work back on top of the shipped missions system
   `nc:port=<n>,user=<name>,userType=<tier>` (`core/services/pidfile.ts`). `ps` lists it as `nc`
   with its user and port at any tier; `kill <pid>` removes it as root, its pid derived from the
   box and the port. Nothing restarts a killed listener, and `reboot` checks only `/boot`.
+- **The hunt's tools ship on every mission box**: `grep`, `strings`, `ps` and `kill` are in
+  `/bin` (`SYSTEM_UTILITY_NAMES`, `core/generation/binaries.ts`), so no `apt install` is needed.
 - **`grep -r` skips binary files** and anything the shell may not read (`core/commands/grep.ts`),
   so a binary implant is found by listing the directories and reading it with `strings`, not by
   grepping. `ls -a` shows dot-files.
@@ -212,8 +216,8 @@ pay minted.
 - **The kind.** `cleanup` joins `MissionKind` and takes a twelfth of `mission-kind-<n>`, each older
   kind giving up 210 at the top of one piece. No number turns from one older kind into another.
 - **The white-hat login, in the shape.** A cleanup number still makes the route draw on the shape
-  stream, so no stream moves, and is then given the login instead: root's hash from
-  `LEAKABLE_HASHES`, the gateway forwarding `:2222` to the box's `:22`, decoys filling the
+  stream, so no stream moves, and is then given the login instead: root's hash from the white-hat
+  slice of the uncrackable pool (decision 7), the gateway forwarding `:2222` to the box's `:22`, decoys filling the
   forwards as on every contract, every package on safe releases. On two-hop (the existing
   one-in-three `mission-template-<n>` draw) the front box gets the same login and forward, and
   the inside box its own root hash, reached on `:22` at its LAN address. `ROUTES` is unchanged.
@@ -221,10 +225,23 @@ pay minted.
   (`mission-cleanup-role-<n>`), with no storage. On two-hop it is the inside box.
 - **What the server lays on the target**, drawn under `MISSION_KEY_SECRET` from the number so
   nobody makes it from the bundle: the implant, one of the 24 templates assigned to that machine,
-  root-owned, at a path in the boot and schedule directories; its listener's pidfile
+  root-owned, in one of legacy's seven locations under `/etc` and nowhere else (confirmed in
+  find-gaps, 2026-11-22): `/etc/cron.d`, `/etc/cron.daily`, `/etc/cron.hourly`, `/etc/init.d`,
+  `/etc/network/if-up.d`, `/etc/systemd/system`, or `/etc` itself beside `rc.local` (legacy's
+  "manual" deep paths in `/tmp`, `/var/tmp`, `/opt` and the like are dropped, so one tree holds
+  the hunt, and its two "manual" templates, `php-fpm-worker` and `smbd-helper`, take a location
+  from the seven); its listener's pidfile
   `/var/run/nc-<port>.pid`, the port one of the backdoor job's eight; and two to four ordinary
-  decoy scripts from the same directories' pool that never name the port. All of them are
+  decoy scripts from the same directories' pool that never name the port; and Debian's stock
+  `.placeholder` in each cron directory (settled item 2). All of them are
   listed by `missionFilePaths` for the write gate.
+- **The outside host an implant names** (confirmed in find-gaps, 2026-11-22) is a public address
+  in the game's own world that no machine holds, drawn per contract with the implant: outside
+  the 195 contract block (any 195 address can become an accepted contract) and outside every
+  address the procedural world assigns. It answers nothing to `ssh`, `nmap` or `ping`, and never
+  points outside the game. Rejected for now: a real in-game machine as the intruder's staging
+  host, a lead for forensics later but a target no grill has designed; and a made-up hostname,
+  which the world's DNS cannot resolve and which could match a real domain.
 - **The terms:** `<Client> — clean up a build server — §<pay>`, `clean up an internal build
   server` on two-hop; pay 300–1,200 single-hop and 1,200–2,400 two-hop, rounded to 50, as the
   last draw on `mission-terms-<n>`. Three white-hat pitches per machine, in the client's voice as
@@ -248,7 +265,9 @@ pay minted.
   ```
 
   On two-hop the login is the front box's, followed by "The build server is inside their
-  network, at 10.40.7.23. From the edge machine: `ssh root@10.40.7.23`, password: <word>".
+  network, at 192.168.211.23. From the edge machine: `ssh root@192.168.211.23`, password:
+  <word>". The address is the inside box's on the contract's own LAN, whose `/24` comes from its
+  ESSID as every network's does (`lanSubnetPrefix`), so the briefing reads it from the shape.
 - **The client's check**, first row that fits:
 
   | The mail | The reply | What changes |
@@ -262,6 +281,18 @@ pay minted.
   | Both gone, no wallet | "It's gone. You sent no wallet, so there is nothing to pay. …" | completed, nothing minted |
 
   Anyone's `kill` and `rm` count, as anyone's brick does.
+
+  **"Gone" is the destroy job's rule** (confirmed in find-gaps, 2026-11-22): the implant's path no
+  longer holds exactly the bytes laid there, so deleting, overwriting and `mv` all count, and the
+  same bytes put back count as still there. A moved copy is inert story, since nothing runs it
+  outside its location. Rejected: scanning the whole tree for the laid bytes, truer to "get it
+  off the machine" but a whole-tree read on every mail and a second rule beside destroy's.
+
+  **Any listener on the briefed port is a miss** (confirmed in find-gaps, 2026-11-22), the backdoor
+  job's `listenerOn` check: the client only knows the port answers, so a fresh `nc -l` there after
+  the implant's listener is killed, the contractor's own or a griefer's through the leaked login,
+  keeps the job unpaid until a root kills it. Rejected: counting only the laid listener, kinder
+  but a distinction the client could not see, and a pidfile-content comparison.
 - **`hireme.ts show`** prints `Kind: cleanup, <machine>`, the port, the implant's path and family,
   the decoys' paths, and the login word(s).
 
@@ -273,11 +304,22 @@ pay minted.
       two-hop), pays in the white-hat bands, and carries a white-hat pitch.
 - [ ] The briefing's login opens root on the target (and on both boxes on two-hop), and nothing in
       the bundle yields the word or the implant's path.
+- [ ] No hash in the white-hat slice is held by any door outside white-hat boxes: no fixed site,
+      world box, black-hat contract or leak route (a test over the pool, as the leakable slice
+      has).
+- [ ] Every implant's outside host is an address no machine holds: not in the 195 block and not
+      one the world assigns, and `ping`, `ssh` and `nmap` to it reach nothing.
 - [ ] On the target, `ps` shows the listener on the briefed port, `grep -r <port> /etc` finds a
       script implant and no decoy, and `strings` on a binary implant shows the port.
 - [ ] The client answers each row of the table above, and pays only once both the listener and
       the implant are gone, whoever removed them.
 - [ ] A root's `kill` and `rm` on the target hold for the next reader and the next mail.
+- [ ] An `nmap` of the target from a hop on its LAN shows the briefed port open while the laid
+      listener runs and closed once it is killed, so the box tells one story to `ps` and to a
+      scan (the pidfile rule); the gateway forwards nothing to that port.
+- [ ] With `JSHACK_SECRETS` or `MISSION_KEY_SECRET` unset, accepting a cleanup offer fails whole,
+      as an infiltrate accept does: no briefing without its password is mailed, and the doors that
+      lay the implant answer 500 `mission_secret_missing`.
 - [ ] `show` prints the report above.
 
 **RED:** unit tests through the public surfaces: the kind sweep and the cleanup share of
@@ -324,6 +366,15 @@ These came out of planning, not the grill, and each changes what gets built.
    hardens the binary implants, which `grep -r` skips; whether `grep -r` walks dot-files is to be
    confirmed in RED. Rejected: never, which leaves the disguise as the only cover; and always,
    which makes any dot-file in those directories a tell.
+
+   **Narrowed in find-gaps (2026-11-22) so a dot-file is never a tell.** Every cron directory on
+   a cleanup target (`/etc/cron.d`, `/etc/cron.daily`, `/etc/cron.hourly`) always holds the stock
+   `.placeholder` Debian ships there, whatever the implant, so `ls -a` always shows dot-files and
+   a dot-named implant sits among them. The coin flip applies only when the implant's location is
+   one of those three; in `/etc/init.d`, `/etc/systemd/system`, `/etc/network/if-up.d` and `/etc`
+   itself it is always plainly named and hides among the decoys. Rejected: dot-named decoy
+   scripts, which are odd in themselves and widen the pool; accepting the tell; and dot-names in
+   every location, a lone dot-file where Debian ships none.
 3. ✅ **`ps` shows the listener under a service account (2026-11-22).** It is the machine's own
    service account, drawn per contract, written into the pidfile as
    `user=<account>,userType=user`. An account like that running `nc` is out of place, a second
@@ -332,3 +383,16 @@ These came out of planning, not the grill, and each changes what gets built.
    there too (adding it, or falling back to the NPC user), and that `kill` stays root-only
    whatever the listener's user. Rejected: `root`, which blends in and leaves the briefed port
    as the only lead.
+
+### Gaps closed (find-gaps, 2026-11-22)
+
+- [Blocker → decision 7, AC] The handed-over words come from a white-hat slice no other door holds.
+- [Blocker → What it builds, AC] An implant's outside host is an in-game address no machine holds.
+- [Blocker → What it builds] Implants sit in legacy's seven `/etc` locations only.
+- [Should → reply table] "Gone" is the destroy job's path rule; a moved implant counts.
+- [Should → reply table] Any listener on the briefed port is a miss.
+- [Should → settled item 2] Cron directories always hold `.placeholder`; dot-names only there.
+- [Should → AC] An inside `nmap` agrees with `ps` about the briefed port.
+- [Should → AC] Accepting with a secret unset fails whole.
+- [Nice → briefing draft] The two-hop inside address is on the contract's own `/24`.
+- Checked clean: the hunt's tools are on every mission box.
