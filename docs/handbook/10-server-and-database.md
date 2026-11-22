@@ -302,8 +302,7 @@ repository root when v2 became the whole repo.
 ## Deeper reading
 
 - [`cross-player-architecture.md`](../cross-player-architecture.md) §1, §4, §5: storage, authorization
-  and the read filter (note the stale registry references listed in
-  [known issues](./13-known-issues.md)).
+  and the read filter.
 - The as-built docs named under "The other tables", for the wallet, email, talkit, valleynews,
   hireme and missions.
 - [Chapter 12](./12-build-deploy-operate.md): environments, deployment and operations.

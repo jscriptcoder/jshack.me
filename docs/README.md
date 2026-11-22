@@ -40,8 +40,8 @@ disagree, the code wins; fix the doc.
 - [backlog.md](./backlog.md) — deliberately deferred work and future content ideas.
 - [cross-player-architecture.md](./cross-player-architecture.md) — how one player scans,
   enters, reads, and modifies another player's machine: the shared patch journal, the
-  public-IP registry, L1/L2 authorization, and the server-side read filter (Stories 1–3
-  of the multiplayer/cross-player epic, shipped).
+  shared ESSID-keyed gateway and its NAT, L1/L2 authorization, the server-side read filter,
+  bricking, and the traces each visit leaves (the multiplayer/cross-player epic, shipped).
 - [world-content-architecture.md](./world-content-architecture.md) — what every generated
   machine holds and the standing rules for adding to it: personas, true references, frozen
   history in `.1` rotations, one stream per concern, version-free content, and the budgets

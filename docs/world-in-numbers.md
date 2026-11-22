@@ -3,7 +3,7 @@
 A census of the game as shipped: the world's towns and networks, the public web, every
 generated machine and what it runs, the command surface, and the ways into a box. Every
 number here was measured by running the generators over the whole declared world, not
-copied from another doc. **Measured at v0.424.0 (2026-10-22).**
+copied from another doc. **Measured at v0.478.0 (2026-11-22).**
 
 The world is a pure function of its declaration, so these numbers move only when a change
 moves them: a new town, a new kind of place, a retuned placement rate, a new command. Such a
@@ -15,45 +15,50 @@ each number is in [`procedural-world-architecture.md`](./procedural-world-archit
 
 ## The world
 
-One region, **Harrow Valley**, holds **11 towns** and **612 declared networks**, plus 9 boxes
+One region, **Harrow Valley**, holds **11 towns** and **655 declared networks**, plus 10 boxes
 that live on the internet alone (below).
 
-| Town                                 | Size    | Networks | NPC machines |
-| ------------------------------------ | ------- | -------- | ------------ |
-| Ridgemont (57 landmarks + 121 drawn) | city    | 178      | 900          |
-| Kingsford                            | city    | 166      | 561          |
-| Stonebury                            | town    | 51       | 162          |
-| Oakhurst                             | town    | 47       | 171          |
-| Wexcombe                             | town    | 38       | 156          |
-| Thornbury                            | village | 20       | 103          |
-| Millbrook                            | village | 18       | 69           |
-| Ashby                                | village | 18       | 90           |
-| Hollowmere                           | village | 17       | 89           |
-| Ely                                  | village | 16       | 69           |
-| Fenwick                              | village | 15       | 55           |
-| Corporation head offices (no town)   | —       | 28       | 180          |
+| Town                               | Size    | Networks | Landmarks | NPC machines |
+| ---------------------------------- | ------- | -------- | --------- | ------------ |
+| Ridgemont                          | city    | 178      | 57        | 900          |
+| Kingsford                          | city    | 176      | 10        | 649          |
+| Stonebury                          | town    | 56       | 5         | 205          |
+| Oakhurst                           | town    | 52       | 5         | 212          |
+| Wexcombe                           | town    | 43       | 5         | 206          |
+| Thornbury                          | village | 23       | 3         | 123          |
+| Millbrook                          | village | 21       | 3         | 93           |
+| Ashby                              | village | 21       | 3         | 119          |
+| Hollowmere                         | village | 20       | 3         | 113          |
+| Ely                                | village | 19       | 3         | 100          |
+| Fenwick                            | village | 18       | 3         | 77           |
+| Corporation head offices (no town) | —       | 28       | —         | 180          |
 
-- **Joinable over WiFi:** Ridgemont's 178 only. Every other network is reached from the
-  internet.
-- **Corporate branches:** 22, each reached only from its head office.
+- **Landmarks:** 100 hand-written networks, Ridgemont's 57 (`pools/essidCatalog.ts`) and 43
+  across the other towns (`pools/townLandmarks.ts`). Every other network a town holds is drawn.
+- **Joinable over WiFi:** every town's networks, 627 in all, each only from inside its own
+  town. A player starts in the town their key draws and moves with rideit.io. The 28 head
+  offices stand in no town and are reached from the internet.
+- **Corporate branches:** 22, each standing in a town; a head office leads to its branches.
 - **Seeded gateway forwards** beyond a network's site: 386.
+- **Contract networks** are not counted here: each is generated on demand from its contract
+  number, at a `195` address ([`missions-architecture.md`](./missions-architecture.md)).
 
 **By category**
 
 | Category    | Networks |
 | ----------- | -------- |
-| residential | 221      |
-| corporate   | 135      |
-| retail      | 97       |
-| cafe        | 68       |
+| residential | 227      |
+| corporate   | 143      |
+| retail      | 106      |
+| cafe        | 79       |
 | healthcare  | 36       |
 | government  | 27       |
 | public      | 15       |
+| hacker      | 9        |
+| iot         | 8        |
 | university  | 5        |
-| iot         | 4        |
-| hacker      | 4        |
 
-**By profile** (how much stands behind the gateway): flat 281, lone 157, deep 117, and the 57
+**By profile** (how much stands behind the gateway): flat 281, lone 157, deep 117, and the 100
 landmarks, which are always deep.
 
 **By kind** (businesses, practices and hospitals a town draws)
@@ -73,7 +78,7 @@ landmarks, which are always deep.
 
 ## The public web
 
-- **Network websites:** 357, of which 45 are unlisted (no search shows them; a lead on
+- **Network websites:** 385, of which 45 are unlisted (no search shows them; a lead on
   another network's machines is the way there).
 - **Fixed sites**, each a single box owning its public address with no WiFi and no LAN
   (`generation/fixedSites.ts`):
@@ -81,13 +86,14 @@ landmarks, which are always deep.
 | Site          | What it is                             |
 | ------------- | -------------------------------------- |
 | findit.io     | the search engine                      |
-| hackademy.io  | the tutorials (ten chapters)           |
+| hackademy.io  | the tutorials (eleven chapters)        |
 | mapit.io      | the map of Harrow Valley and its towns |
 | emailit.io    | mail                                   |
 | chainit.io    | the JSC block explorer                 |
 | talkit.io     | the forum                              |
 | hireme.io     | the contractor-board front door        |
 | valleynews.io | the valley's paper                     |
+| rideit.io     | coach and rail tickets to every town   |
 
 - **One hidden fixed box**, `boards.hireme.io`, which answers at every board address hireme.io
   mails out and is listed nowhere.
@@ -97,63 +103,63 @@ landmarks, which are always deep.
 
 ## Machines
 
-**3,736 boxes**: 3,727 generated across the declared networks, plus the 9 fixed boxes.
+**4,274 boxes**: 4,264 generated across the declared networks, plus the 10 fixed boxes.
 
 | Kind                                                        | Count |
 | ----------------------------------------------------------- | ----- |
-| Machines on a network's LAN                                 | 2,095 |
-| Machines on deep layers                                     | 510   |
-| LAN routers (612 access-point gateways + 174 inner routers) | 786   |
-| LAN switches                                                | 174   |
-| Deep routers                                                | 109   |
-| Deep switches                                               | 53    |
-| Fixed boxes                                                 | 9     |
+| Machines on a network's LAN                                 | 2,345 |
+| Machines on deep layers                                     | 632   |
+| LAN routers (655 access-point gateways + 217 inner routers) | 872   |
+| LAN switches                                                | 217   |
+| Deep routers                                                | 138   |
+| Deep switches                                               | 60    |
+| Fixed boxes                                                 | 10    |
 
-174 networks (the 117 drawn deep ones and the 57 landmarks) hide a deep chain, 1–3 layers
+217 networks (the 117 drawn deep ones and the 100 landmarks) hide a deep chain, 1–3 layers
 behind the inner router.
 
-**Roles of the 2,605 NPC machines**
+**Roles of the 2,977 NPC machines**
 
 | Role        | Machines |
 | ----------- | -------- |
-| workstation | 738      |
-| webserver   | 632      |
-| iot         | 563      |
-| fileserver  | 359      |
-| database    | 168      |
-| mailserver  | 83       |
-| dns         | 62       |
+| workstation | 875      |
+| webserver   | 693      |
+| iot         | 652      |
+| fileserver  | 396      |
+| database    | 195      |
+| mailserver  | 92       |
+| dns         | 74       |
 
 IoT boxes come in seven kinds over eleven hostname prefixes: printer, camera (`cam`,
 `doorbell`, `babycam`), recorder (`nvr`), climate (`sensor`, `thermostat`), media (`tv`,
 `speaker`), plug and lock.
 
-**Services.** 2,087 machines run at least one service, 3,816 services in all:
+**Services.** 2,388 machines run at least one service, 4,333 services in all:
 
 | Service | Machines | Programs               |
 | ------- | -------- | ---------------------- |
-| http    | 1,202    | nginx 659, apache2 543 |
-| ftp     | 1,013    | vsftpd                 |
-| ssh     | 860      | sshd                   |
-| redis   | 365      | redis-server           |
-| mysql   | 320      | mysqld                 |
-| dns     | 56       | named                  |
+| http    | 1,369    | nginx 758, apache2 611 |
+| ftp     | 1,162    | vsftpd                 |
+| ssh     | 976      | sshd                   |
+| redis   | 398      | redis-server           |
+| mysql   | 361      | mysqld                 |
+| dns     | 67       | named                  |
 
 SNMP is not counted here: it runs on gateway firmware, not on machines.
 
 ## Commands
 
-**70 builtins** (`commands/registry.ts`):
+**73 builtins** (`commands/registry.ts`):
 
-| Group        | Commands                                                                                                                                                                                               |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| WiFi         | `airmon-ng`, `airodump-ng`, `aircrack-ng`, `nmcli`                                                                                                                                                     |
-| Recon        | `nmap`, `ping`, `ifconfig`, `dig`, `nslookup`, `whois`, `gobuster`                                                                                                                                     |
-| Web and mail | `curl`, `lynx`, `mail`                                                                                                                                                                                 |
-| Getting in   | `ssh`, `scp`, `ftp`, `mysql`, `redis-cli`, `snmpwalk`, `snmpset`, `nc`, `hydra`, `john`, `msfconsole`, `su`                                                                                            |
-| On a box     | `ls`, `cd`, `pwd`, `cat`, `head`, `tail`, `grep`, `find`, `wc`, `strings`, `touch`, `mkdir`, `rm`, `chmod`, `nano`, `node`, `gpg`, `ldd`, `ps`, `kill`, `systemctl`, `reboot`, `apt`, `whoami`, `exit` |
-| Daemons      | `sshd`, `nginx`, `apache2`, `vsftpd`, `mysqld`, `redis-server`, `named`, `snmpd`                                                                                                                       |
-| Game         | `help`, `man`, `clear`, `theme`, `effects`, `identity`, `wallet`, `author`, `xterm`, `new-game`                                                                                                        |
+| Group        | Commands                                                                                                                                                                                                                   |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| WiFi         | `airmon-ng`, `airodump-ng`, `aircrack-ng`, `nmcli`                                                                                                                                                                         |
+| Recon        | `nmap`, `ping`, `ifconfig`, `dig`, `nslookup`, `whois`, `gobuster`                                                                                                                                                         |
+| Web and mail | `curl`, `lynx`, `mail`                                                                                                                                                                                                     |
+| Getting in   | `ssh`, `scp`, `ftp`, `mysql`, `redis-cli`, `snmpwalk`, `snmpset`, `nc`, `hydra`, `john`, `msfconsole`, `su`, `passwd`                                                                                                      |
+| On a box     | `ls`, `cd`, `pwd`, `cat`, `echo`, `head`, `tail`, `grep`, `find`, `wc`, `strings`, `touch`, `mkdir`, `cp`, `mv`, `rm`, `chmod`, `nano`, `node`, `gpg`, `ldd`, `ps`, `kill`, `systemctl`, `reboot`, `apt`, `whoami`, `exit` |
+| Daemons      | `sshd`, `nginx`, `apache2`, `vsftpd`, `mysqld`, `redis-server`, `named`, `snmpd`                                                                                                                                           |
+| Game         | `help`, `man`, `clear`, `theme`, `effects`, `identity`, `wallet`, `author`, `xterm`, `new-game`                                                                                                                            |
 
 ## Doors
 
@@ -182,7 +188,8 @@ package, version and game day on one world clock, never stored.
 ## Refreshing the census
 
 Run `npx tsx scripts/worldCensus.ts`. It walks `DECLARED_NETWORKS` (`generation/world.ts`)
-offline in about two seconds and prints every number above:
+offline in a few seconds and prints every number above except the per-town landmark counts
+(filter `DECLARED_NETWORKS` by `town` and `isLandmark`):
 
 - **Networks:** each entry's `town`, `category`, `profile`, `subtype`, `site`, `unlisted` and
   `parent`; `isLandmark(key)` for the landmarks; `seededForwards(key)` for the forwards.

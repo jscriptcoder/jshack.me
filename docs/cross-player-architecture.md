@@ -15,8 +15,9 @@ turns three things shared and server-authoritative:
 
 1. A **shared machine record** — a machine's filesystem patches key on `machine_id`, with
    the writing player demoted from _identity_ to _provenance_.
-2. **Server-side network lookup** — `public IP → ESSID → gateway + occupants`, persisted and
-   queryable, so a _different_ identity's scan resolves to real machines server-side.
+2. **Server-side network lookup** — `public IP → ESSID → gateway + occupants`: the address and
+   the gateway are derived from the world, the occupants are stored, so a _different_ identity's
+   scan resolves to real machines server-side.
 3. A **server-side read filter** — the wire is pruned to the caller's tier before it leaves.
 
 **Trust boundary:** the Vercel function + Supabase RLS (service-role only), never the client.
@@ -26,8 +27,9 @@ hostile — the wire is the threat surface.
 
 ## 1. Storage: the shared patch journal
 
-A machine's filesystem is a **base FS** (deterministically generated from the owner's
-identity) plus a **journal** of patch rows replayed over it.
+A machine's filesystem is a **base FS** (deterministically generated: a player's workstation
+from the owner's identity, every other box from its network's ESSID) plus a **journal** of
+patch rows replayed over it.
 
 - **Table `patches`**, PK **`(machine_id, path, writer_key)`** (migration
   `20260614130000_patches_shared_journal.sql`). One row per _(file, writer)_, so multiple
@@ -46,8 +48,9 @@ identity) plus a **journal** of patch rows replayed over it.
   not `NOW()`, the transaction's start: a log append that waited on another's lock must rank
   above the row it built on. `applyPatches` (`core/filesystem/applyPatches.ts`) folds the
   ordered list left-to-right — **last write per path wins**.
-- **`applyPatches` semantics:** `nodeType:'directory'` → create empty dir, **no-op if the
-  path already exists** (so a `mkdir` never clobbers files added under it later);
+- **`applyPatches` semantics:** `nodeType:'directory'` → create empty dir; on a directory that
+  already exists, a patch **naming permissions is a `chmod`** and one without is a no-op (a `mkdir`
+  that lost its race), so a `mkdir` never clobbers files added under it later;
   `content:null` → `removeNode`, which **drops the whole subtree** for a directory path (so a
   single tombstone hides a recursively-removed dir); `content:string` → create/overwrite a
   file.
@@ -89,11 +92,12 @@ RLS denies anon/authenticated entirely; only the service-role function touches t
   every cross-player resolver reads it (`core/network/registerNetwork.ts`, migrations
   `20260621120000_home_network_occupants.sql`).
   The AP's gateway is not stored at all: `computeApGatewayId(essid)` derives it.
-- **NAT (Story 5.1):** the router is a real, journal-backed machine
-  (`router_machine_id = computeRouterId(owner_key)`, `core/identity/router.ts`) that bears the
-  public IP and runs its own seeded `sshd:22`. Forwards are NOT a registry column — they parse
-  from the router's `/etc/iptables/rules.v4` (`core/network/iptablesRules.ts`), the single
-  source of truth. `scanResult({ vantage, … })` (`core/scan/scanResult.ts`) is the one total
+- **NAT:** the access point's gateway is a real, journal-backed machine that bears the public
+  IP and runs its own seeded `sshd:22`. There is **one gateway per ESSID**, shared by every
+  occupant and owned by none: its id is `computeApGatewayId(essid)` (`core/identity/router.ts`)
+  and its base FS is `buildApGatewayBaseFs(essid)` (`core/generation/routerFs.ts`), both from the
+  ESSID alone. Forwards are not stored in any table — they parse from the gateway's
+  `/etc/iptables/rules.v4` (`core/network/iptablesRules.ts`), the single source of truth. `scanResult({ vantage, … })` (`core/scan/scanResult.ts`) is the one total
   function feeding both scan paths (external = own ports ∪ live forwards; sameLAN = own only —
   never a merged view). The old degenerate `forward_table` column is dropped.
   `machineServing({ routerFs, port })` (`core/network/machineServing.ts`, Story 5.1.2) is the
@@ -101,14 +105,15 @@ RLS denies anon/authenticated entirely; only the service-role function touches t
   served machine: a router own port → `router`; a parsed forward → `forward{internalIp,
 internalPort}`; else `none` (router-own wins a same-port tie). It shares `readRulesV4` with
   `scanResult` (both lifted into `iptablesRules.ts`).
-- **The owner's own router is a distinct machine category (Story 5.1.3a):** neither the own
-  workstation (suffix-match, L1-bypass), a regenerated LAN sibling (`hostForMachineId`), nor a
-  cross-player foreign box. `isOwnRouter(machineId, pubkey) = machineId === computeRouterId(pubkey)`
-  (`core/identity/router.ts`) is the identity-derived recognizer, and `buildRouterBaseFs(ownerKey)`
-  (`core/generation/routerFs.ts`) is the single owner-key → router base FS composer that the client
-  view, the server materialize (`materializeRouterFs`), the L2 walker, and the own-LAN auth handler
-  all share (so the router tree never drifts between them). Holding the router id grants **no L1
-  bypass** — the router is always session-gated (you must `ssh root@.1` to configure it).
+- **The gateway is the `.1` of its LAN, resolved like any other host there.**
+  `resolveLanHostIdentity` (`core/generation/lanHostIdentity.ts`) gives the `.1` its
+  ESSID-keyed identity (`computeApGatewayId` / `buildApGatewayBaseFs`), an inner gateway its own
+  (`computeInnerGatewayId`), and a generic sibling its coordinate id. Every path that needs the
+  gateway's tree goes through `buildApGatewayBaseFs` with the journal replayed over it
+  (`materializeApGatewayFs`, `core/network/materializeRouterFs.ts`): the public scan and login,
+  each occupant's LAN view, the L2 walker and the own-LAN login, so the tree never drifts between
+  them. Holding the gateway's id grants **no L1 bypass**: it is always session-gated, and
+  configuring it takes a root login on it.
 
 ## 3. Reachability & cross-player login
 
@@ -188,23 +193,19 @@ internalPort}`; else `none` (router-own wins a same-port tie). It shares `readRu
   so every door that reaches one of them writes one log. It is a system key, not a player's: the
   `ap:` prefix can never read as a 64-hex pubkey, and who acted lives in the line. A
   forwarded-port login logs on the box it reached, under that occupant's own key.
-- **Own-LAN router login (Story 5.1.3a):** A's own `ssh root@<subnet>.1` (the `.1` gateway,
-  `kind:'router'`) takes the own-LAN branch of `ssh.ts`, but reachability and the hop's machine id
-  come from the router (`buildRouterBaseFs` / `computeRouterId`), not a regenerated sibling.
-  `authCreateSession` (`core/sessions/authCreateSession.ts`) branches on `host.kind === 'router'`:
-  it builds the router FS from the caller's own (verified) key, validates the seeded admin password
-  against its root-only `/etc/passwd`, and lands the session on **`router_machine_id`**. A then
-  `nano`-edits `/etc/iptables/rules.v4`, persisting to the shared router journal (§4). B **seeing**
-  the forward is shipped (5.1.3b — `resolveTargetPorts`, above); B **using** it (`-p 2222` →
-  workstation auth) is shipped too (5.1.3c — forwarded-port login, above).
-- **Own-LAN router scan (Story 5.1.4):** A's own `nmap <subnet>.1` (the `.1` gateway, `kind:'router'`)
-  resolves the player's REAL router rather than a cosmetic NPC host: `nmap.ts` builds the router FS from
-  the own key (`buildRouterBaseFs`) and reads its ports through the single `scanResult({ vantage:'sameLAN' })`
-  — the SAME total function the public-IP scan uses at `external`. `sameLAN` returns the router's own ports
-  only (its seeded `sshd:22`) and never consults `rules.v4`, so a forward configured for the public side can
-  never leak into the LAN-side `.1` view — the dual-homed invariant: one function, two vantages, never a
-  merged view (`project_dual_homed_router_scan_discrepancy` closed). Client-only (no api/DB); self and
-  sibling hosts still read their own FS via `readOpenPorts`.
+- **Own-LAN gateway login:** an occupant's `ssh root@<subnet>.1` takes the own-LAN branch of
+  `ssh.ts`. `authCreateSession` (`core/sessions/authCreateSession.ts`) finds the host on the
+  ESSID's LAN and resolves it through `resolveLanHostIdentity`, so the `.1` is rebuilt from
+  `buildApGatewayBaseFs(essid)` with its journal replayed, the ESSID-seeded admin password is
+  validated against its root-only `/etc/passwd`, and the session lands on the gateway's id. An
+  `nano` edit of `/etc/iptables/rules.v4` then persists to the gateway's shared journal (§4),
+  which every occupant of the access point reads. Another player seeing the forward
+  (`resolveTargetPorts`, above) and using it (forwarded-port login, above) follow from that file.
+- **Own-LAN gateway scan:** `nmap <subnet>.1` reads the gateway's ports through the single
+  `scanResult({ vantage:'sameLAN' })`, the same total function the public-IP scan uses at
+  `external`. `sameLAN` returns the gateway's own ports only (its seeded `sshd:22`) and never
+  consults `rules.v4`, so a forward configured for the public side never leaks into the LAN-side
+  `.1` view: one function, two vantages, never a merged view.
 - **Guest password:** `workstationGuestHash(ownerKeyHex)` — the md5 of a deterministic pick from
   the crackable pool, seeded from the owner's pubkey alone (`core/generation/workstationFs.ts`),
   so the server can rebuild it for cross-player auth and a cracker can match it. The
@@ -219,19 +220,16 @@ Two layers gate every write/remove (`upsertPatch.ts`, `removePatch.ts`):
   exist (B's ssh hop), else `403 no_session`.
 - **L2 — permission walker** (`core/patches/enforceRemoteWriteL2` in
   `remoteWritePermission.ts`): own-box bypasses (session is null). For a remote target it
-  resolves the tree as (0) the caller's **own router** (`isOwnRouter` → `buildRouterBaseFs`,
-  Story 5.1.3a — so A's root-tier `/etc/iptables/rules.v4` write walks the real router perms,
-  not a workstation tree), else (1) an NPC host on the caller's LAN (`hostForMachineId`), else
-  (2) a **registered foreign machine** via `findRegistryByMachineId`, which now returns a
-  **discriminated** row (`RegistryMachine = workstation | router`, matching BOTH the
-  `workstation_machine_id` and `router_machine_id` columns): a foreign **router** (Story 5.2 —
-  B `ssh root`'d into A's router) → `buildRouterBaseFs(owner_key)`, a foreign **workstation** →
-  `buildRegisteredWorkstationFs` — both rebuilt from the **owner's** identity (the same builders
-  the read path uses, so A's tree can't drift between what A sees and what an attacker is checked
-  against), else (3) **fail closed** → `permission_denied`. It then runs the shared walker
-  `createFsView(tree, { userType }).canWrite` at the **server session's** tier — so B, holding a
-  **root** session on A's router (the appliance is root-only), can rewrite A's `rules.v4`, while a
-  non-root / no-session caller is denied.
+  resolves the tree one of two ways: (1) a box the session's own network makes, its gateway
+  included (`networkBaseFsForMachineId`, pure from the ESSID), or (2) a **foreign player
+  workstation**, found by reverse lookup in `home_network_occupants` and rebuilt from the
+  **owner's** identity (the same builder the read path uses, so a workstation's tree can't drift
+  between what its owner sees and what a visitor is checked against). Occupancy doubles as the
+  reachability test: a workstation taken off the WiFi resolves to nothing. A target that
+  resolves as neither **fails closed** → `permission_denied`. It then runs the shared walker
+  `createFsView(tree, { userType }).canWrite` at the **server session's** tier — so a player
+  holding a **root** session on the gateway (the appliance is root-only) can rewrite its
+  `rules.v4`, while a non-root / no-session caller is denied.
 - **The shared walker** (`core/filesystem/fsView.ts`) is the single FS-permission authority
   for client AND server, so there's no drift. Overwriting a node needs write on the node;
   **creating** a new entry needs write **+ execute on the containing directory** (Unix:
@@ -339,8 +337,9 @@ escalate on A's box and permanently brick it.
   (`sessions/rebootSequence.ts`), so flashing a gateway whose `/boot/vmlinuz` is gone bricks it.
 - **A bricked box goes dark to others:** the two public-IP server gates materialize the target and
   ask `canBoot` BEFORE doing their work (same lookup-then-rebuild + journal replay the read path uses).
-  Post-5.1.1b/5.1.2 both gates key on the **router** (`core/network/materializeRouterFs.ts`) — it
-  is the public face — so bricking the router alone takes the whole public IP dark: `resolvePublicScan`
+  Both gates key on the access point's **gateway** (`materializeApGatewayFs`,
+  `core/network/materializeRouterFs.ts`) — it is the public face — so bricking the gateway alone
+  takes the whole public IP dark: `resolvePublicScan`
   → host-down / no ports (even with lingering `/var/run` pidfiles); `authCreateSessionPublic` →
   `404 host_unreachable` before the password is checked, no session inserted. (Cross-player `su`,
   `authElevateSession`, rebuilds whichever box the caller's own session row stands on, a
@@ -353,8 +352,8 @@ escalate on A's box and permanently brick it.
   box behind a forward through) returns `null` when the materialized workstation can't boot, so
   a bricked workstation **behind a NAT forward** drops its forwarded port from `resolvePublicScan`
   and `404`s an `authCreateSessionPublic` to that port — even with a lingering `sshd` pidfile. Because
-  the router is gated upstream by its own `canBoot`, **bricking the workstation only removes its
-  forwarded ports; the router keeps answering its own.** (One gate site → scan and ssh can't disagree.)
+  the gateway is gated upstream by its own `canBoot`, **bricking the workstation only removes its
+  forwarded ports; the gateway keeps answering its own.** (One gate site → scan and ssh can't disagree.)
 
 su / brick auth.log traces on the foreign box are a cross-player WRITE — shipped in Story 6 (§8).
 
@@ -365,7 +364,8 @@ TARGET's shared record, which the owner (or a 3rd player with a session) reads b
 shipped attack loop into an attacker/defender loop.
 
 - **The keystone (decision 1): a log line is written under `writer_key = owner_key` of the TARGET,
-  not the attacker.** `applyPatches` folds **last-write-wins per (machine_id, path, writer_key)**, so
+  not the attacker** — or, on a box nobody owns (a gateway, a generated machine), under the
+  network's own `ap:<essid>` key. `applyPatches` folds **last-write-wins per (machine_id, path, writer_key)**, so
   if each attacker wrote a log under their OWN key the rows would collapse to the last writer's
   content. Writing every line under the target owner's key makes them **accrete into ONE row**; the
   attacker's identity lives in the line **content** (source IP / `by <from>` user), never in
@@ -407,23 +407,23 @@ shipped attack loop into an attacker/defender loop.
   session — an act on the box itself, with no wire of its own — names the address its login came from.
 - **The three cross-player handlers + the own-LAN fix:**
   - **Scan** (`resolvePublicScan`, 6.1): after a host-up resolve, one `formatNmapScanAggregate`
-    `kern.log` line on the **router** record (`router_machine_id`), hostname =
-    `seedRouterHostname(owner_key)`, source = the attacker's home IP. `found:false` (unknown / dark /
-    bricked) writes nothing.
+    `kern.log` line on the access point's **gateway** record (`computeApGatewayId(essid)`, under
+    `ap:<essid>`), hostname = `seedApGatewayHostname(essid)`, source = the address of the box the
+    caller's shell stands on. `found:false` (unknown / dark / bricked) writes nothing.
   - **Connection** (`authCreateSessionPublic`, 6.2): one `formatSshdAuthLine` `auth.log` line on
-    **both** outcomes (`Accepted` / `Failed password …`), on the resolved target — **router** for `:22`,
-    **workstation** for a forwarded `:2222` (hostname = seeded router name / `workstation_machine_name`).
+    **both** outcomes (`Accepted` / `Failed password …`), on the resolved target — **gateway** for
+    `:22`, the **workstation** behind a forwarded port (hostname = the gateway's seeded name /
+    `workstation_machine_name`).
     A `404 host_unreachable` (unforwarded / dark / bricked, before any password) writes nothing.
   - **su** (`authElevateSession`, 6.3): one `formatSuAuthLine` `auth.log` line on **both** outcomes
     (`Successful` / `FAILED su for root by <from>`) on the **workstation** record; `from_user` is carried
     in the payload (B's current ws user, e.g. `guest`) so the line reads truthfully; no source IP.
-  - **Own-LAN `.1`** (`handleNmapScan` `logHostScan`, 6.4): the `.1` gateway's `kern.log` line — its
-    **machine id AND its port list** — routes through the router (`computeRouterId(caller)` +
-    `buildRouterBaseFs(caller)`), not the dead-end coordinate path (`hostMachineId` +
-    `buildRemoteHostFs`). So a player scanning their own router reads the trace via `ssh root@.1` with
-    the router's **real** ports (was a dead-end record nobody read, listing "ports none"). NPC siblings
-    keep the coordinate path; self is skipped; writer stays the caller (= owner on this own-LAN path,
-    still owner-keyed). Mirrors `ssh.ts`'s own-router branch.
+  - **Own-LAN hosts** (`handleNmapScan` `logHostScan`, 6.4): each scanned host's `kern.log` line —
+    its **machine id AND its port list** — comes from `resolveLanHostIdentity`, the same resolver
+    `ssh` uses, so the trace lands where `ssh root@<host>` lands: the `.1` and an inner gateway on
+    their real records with their **real** ports, a generic sibling on its coordinate record. The
+    writer is the ESSID's `ap:<essid>`, resolved once per sweep, because nobody owns a generated box
+    and every occupant of the WiFi scans the identical one. Self is skipped.
 - **Decision 8 — log ALL port probes, not just `nmap`.** A cross-player `ssh` reuses
   `resolvePublicScan` for its reachability check, so it ALSO writes a `kern.log` scan line: a
   cross-player ssh attempt leaves **both** a `kern.log` scan line and the `auth.log` line — the server
@@ -452,11 +452,21 @@ shipped attack loop into an attacker/defender loop.
 - `canBoot` over the replayed tree is the single brick authority, shared client + server.
 - A bricked box (a `/boot` tombstone) is unreachable: scan host-down + public ssh `404`, gated
   before any port read or password check — independent of credentials or lingering pidfiles.
-- Cross-player log lines are written under the **target owner's** `writer_key` (the system owns its
-  logs, so attackers' lines accrete into one row); the attacker's identity lives in the line content
+- Cross-player log lines are written under the **target owner's** `writer_key`, or `ap:<essid>` on
+  an ownerless box (the system owns its logs, so attackers' lines accrete into one row); the
+  attacker's identity lives in the line content
   (source IP / `by <from>` user), never in `writer_key`. Server-derived source IP only.
 
 ## Status & roadmap
+
+This is the history of how the system was built. Stories 5.1–5.3 built a **per-player router**
+keyed by the owner (`computeRouterId`, `isOwnRouter`, `buildRouterBaseFs`) and found other
+players' boxes through a `network_registry` table. Shared-network reconciliation (from v0.88.0)
+replaced the router with the one ownerless, ESSID-keyed gateway per access point described above
+and then dropped the registry; the stored public IPs went later, when every address came to be
+derived from the world. The router-era names below (`computeRouterId`, `isOwnRouter`,
+`buildRouterBaseFs`, `RegistryMachine`) no longer exist in the code; the sections above describe
+what replaced them.
 
 Shipped: **Story 1** (public-IP discovery), **Story 2** (cross-player read + 3-tier filter),
 **Story 3** (cross-player write: shared-journal PK flip, L2 owner-materialized branch, write
@@ -529,7 +539,7 @@ mitigation is a server-side game-logic re-run.
 | Read filter (3-tier)   | `core/patches/readFilter.ts`                                                       |
 | Cross-player read      | `core/network/resolveCrossPlayerFs.ts`                                             |
 | Shared materialize     | `core/network/materializeWorkstationFs.ts`                                         |
-| Registry write         | `core/network/registerNetwork.ts`                                                  |
+| Join (lease + occupancy) | `core/network/registerNetwork.ts`                                                |
 | Public scan resolve    | `core/scan/resolvePublicScan.ts`                                                   |
 | Forward→occupant resolve | `core/network/natHosts.ts` (`bootableOccupantFs` + `natPortResolver`)            |
 | Ownerless-box log key  | `core/logging/apGatewayLogWriter.ts` (`apGatewayLogWriterKey(essid)`)               |
@@ -548,11 +558,12 @@ mitigation is a server-side game-logic re-run.
 | Wire codec             | `core/filesystem/treeCodec.ts`                                                     |
 | Owner FS generator     | `core/generation/workstationFs.ts`                                                 |
 | Machine id derivation  | `core/identity/workstation.ts`                                                     |
-| Router id + own-router | `core/identity/router.ts` (`computeRouterId`, `isOwnRouter`)                       |
-| Router FS composer     | `core/generation/routerFs.ts` (`buildRouterBaseFs`)                                |
-| Router materialize     | `core/network/materializeRouterFs.ts`                                              |
-| Own-LAN ssh auth       | `core/sessions/authCreateSession.ts` (router branch)                               |
+| Gateway ids            | `core/identity/router.ts` (`computeApGatewayId`, `computeInnerGatewayId`, `computeDeepGatewayId`) |
+| Gateway FS composer    | `core/generation/routerFs.ts` (`buildApGatewayBaseFs`)                             |
+| Gateway materialize    | `core/network/materializeRouterFs.ts` (`materializeApGatewayFs`)                   |
+| LAN host identity      | `core/generation/lanHostIdentity.ts` (`resolveLanHostIdentity`)                    |
+| Own-LAN ssh auth       | `core/sessions/authCreateSession.ts`                                               |
 | ssh (cross + own LAN)  | `core/commands/ssh.ts`                                                             |
-| Client active root     | `ui/activeRoot.ts` (own / own-router / remote base + replay)                       |
+| Client fresh-tree rule | `ui/activeRoot.ts` (`needsFreshTree`)                                              |
 | Client served tree     | `ui/state.ts` (`servedRoot`, `refreshServedRoot`, `commandChain`)                  |
 | API surface            | `api/patches.ts`, `api/network.ts`, `api/sessions.ts`                              |
