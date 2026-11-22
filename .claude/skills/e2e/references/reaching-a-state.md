@@ -685,3 +685,24 @@ The board took 8 rounds for a destroy and 23 for a wipe.
 | destroy | `ssh root@<target>` from the front box, `find / <name>`, `rm <path>` | The briefing gives the file's name only; `missionFilePath(n)` is where it is. The listener alone gets "We can't confirm that file is gone." |
 | wipe, files | `ssh root@<target>`, then `rm` the CSV or cut it to its header in `nano` | `recordsFilePath(n)`. The target table is `missionRecords(n).tables[0]`; touching either of the other two loses the job |
 | wipe, database | From the front box: `apt install mysql`, `mysql <target> <account>`, its word at `Enter password:`, then `DELETE FROM <table>` | **The account is not in the shape.** Read it offline: `databaseIn(buildMissionKeyBoxFs(n))?.credentials.find((c) => c.userType === 'user')` and `plaintextFor(passwordHash)`. The records tables are laid in by the server, so that offline database shows only the box's filler tables. In game `SHOW TABLES` lists the three records tables beside the filler; `DROP` is denied |
+
+### Then: a cleanup job, an intruder's listener and implant removed, to a payout
+
+Verified 2026-11-22 (v0.479.0), the cleanup close-out: a single-hop build server (contract
+5587253, port 1337) paid §300 and a two-hop billing server (16209784, port 7777) paid §1,350. A
+twelfth of the contracts are cleanup jobs, the first white-hat kind; the board names one
+`clean up a <machine>`. No route to crack: the briefing hands over root. Turn the board over with
+a script, as for a file job, matching `missionShape(n).kind === 'cleanup'` and `frontBox` (null on
+single-hop). It can write `cleanupJob(n)` (`port`, `role.serviceAccount`) and
+`cleanupPlant(n, process.env.MISSION_KEY_SECRET).implant.path` to a scratch file, to check the
+hunt against afterwards. The run matched on rounds 1 and 4.
+
+| # | Command | Trap |
+| --- | --- | --- |
+| 1 | `curl -d "offer=<ref>" http://<board>/accept`, then `mail read <n>` | **The briefing prints its login words**, from `WHITE_HAT_PASSWORDS` in `JSHACK_SECRETS`. Copy them to a scratch file on the first read and mask them on EVERY later read of the screen: a tail read long enough to reach back to the briefing prints them, and the run leaked one that way |
+| 2 | `mail reply <briefing n>` with the wallet, before anything | "Something still answers on port N. Still there, no money." |
+| 3 | `ssh root@<address> -p 2222` and the word; two-hop: then `ssh root@<inside ip>` and the second word | The briefing names the inside address, so no `nmap` is needed. The prompt names the box for its machine (`<stem>-ci`, `<stem>-billing`, …) |
+| 4 | `ps`, then `kill <pid>` | The listener is `nc` on the port under the machine's own service account (`jenkins`, `billing`, …), with a real PID |
+| 5 | `grep -r <port> /etc` | Finds the implant by its `--listen <port>`. The binary it names (`/usr/local/lib/...`) doesn't exist: the implant is the unit or cron file itself, beside two to four decoys. **A dot-named implant is missed by a plain `ls`**; `ls -la` shows it beside the stock `.placeholder` |
+| 6 | Optional: `exit`, mail | "It has stopped, but it is still on the machine. Still there, no money." The killed listener stays down over the logout |
+| 7 | `rm <implant>`, `exit` (twice on two-hop), then `mail reply <briefing n>` with the wallet | "It's gone. §<pay> sent to jsc…. Thank you for the help."; a later mail gets "That job is already closed." and no second mint |

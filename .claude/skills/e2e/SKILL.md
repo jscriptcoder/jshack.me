@@ -82,6 +82,14 @@ The traps that bite on every run (detail in
 
 - **`--headed` is silently ignored if a daemon is already running** — `close --all` first.
 - **`open` often never returns**, but the page IS loaded. Confirm with `eval "location.href"`.
+- **If `open` answers `Chrome exited early (exit code: 0) without writing DevToolsActivePort`,
+  stop: every retry, and every `eval`/`snapshot` against a session with no browser, launches
+  another window** (2026-11-22, agent-browser 0.27.0, Chrome 149: one `open` left three, a
+  polling loop 29). Chrome comes up but its first process exits, so agent-browser loses it.
+  Start ONE Chrome yourself and attach: `chrome.exe --remote-debugging-port=9333
+  --user-data-dir=<fresh dir> --no-first-run http://localhost:3100` (the binary is under
+  `~/.agent-browser/browsers/`), then pass `--cdp 9333` on every call. A shim named
+  `agent-browser` on `PATH` that adds the flag lets the helper scripts below use it too.
 - **`close --all` is GLOBAL and destroys the identity** (the owner key lives in that profile's
   `localStorage`). Mid-run close one session (`--session bob close`), and name every player.
 - **Snapshot refs go stale after any DOM change** — re-`snapshot -i` after every click.
