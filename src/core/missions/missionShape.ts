@@ -60,7 +60,12 @@
 import { createPrng, type Prng } from '../generation/prng.js';
 import { packageTimeline } from '../cve/packageTimeline.js';
 import { SYSTEM_LIBRARIES } from '../generation/libraries.js';
-import { drawPasswordHash, CRACK_CHANCE, UNCRACKABLE_HASHES } from '../generation/passwordPools.js';
+import {
+  drawPasswordHash,
+  CRACK_CHANCE,
+  UNCRACKABLE_HASHES,
+  WHITE_HAT_HASHES,
+} from '../generation/passwordPools.js';
 import {
   FIRMWARE_VENDORS,
   firmwarePackageOf,
@@ -143,9 +148,10 @@ export type MissionKind =
   | 'credential'
   | 'destroy'
   | 'wipe'
-  | 'chain';
+  | 'chain'
+  | 'cleanup';
 
-/** Where the one draw on a contract's kind changes, in 27720ths. Each kind takes an eleventh. Every
+/** Where the one draw on a contract's kind changes, in 27720ths. Each kind takes a twelfth. Every
  *  newer kind was carved from the edges of the ones before it, so a contract is the kind it was
  *  or has become the newer one, and none turned from one older kind into another: file jobs fill
  *  the gaps tamper, sabotage and key left as they shrank from thirds to quarters, backdoor jobs
@@ -155,15 +161,20 @@ export type MissionKind =
  *  jobs the fifty-sixth each of the seven gave up the same way as they shrank to eighths, destroy
  *  jobs the seventy-second each of the eight gave up the same way as they shrank to ninths, wipe
  *  jobs the ninetieth each of the nine gave up the same way as they shrank to tenths, and chain
- *  jobs the hundred-and-tenth each of the ten gave up the same way as they shrank to elevenths. A
- *  draw past the last cut, the top forty-second, is a portforward job. */
+ *  jobs the hundred-and-tenth each of the ten gave up the same way as they shrank to elevenths, and
+ *  cleanup jobs the hundred-and-thirty-second each of the eleven gave up at the top of its largest
+ *  piece, the lowest on a tie (so the top of the draw stays portforward), as they shrank to twelfths.
+ *  A draw past the last cut, the top forty-second, is a portforward job. */
 const KIND_CUTS: readonly (readonly [below: number, kind: MissionKind])[] = [
-  [2520, 'tamper'],
-  [2772, 'chain'],
+  [2310, 'tamper'],
+  [2520, 'cleanup'],
+  [2562, 'chain'],
+  [2772, 'cleanup'],
   [2828, 'wipe'],
   [3080, 'chain'],
   [3157, 'destroy'],
-  [3465, 'wipe'],
+  [3255, 'wipe'],
+  [3465, 'cleanup'],
   [3652, 'credential'],
   [3960, 'wipe'],
   [3983, 'portforward'],
@@ -175,15 +186,18 @@ const KIND_CUTS: readonly (readonly [below: number, kind: MissionKind])[] = [
   [5292, 'credential'],
   [5544, 'chain'],
   [5775, 'backdoor'],
-  [6270, 'credential'],
+  [6060, 'credential'],
+  [6270, 'cleanup'],
   [6435, 'portforward'],
   [6930, 'credential'],
   [7800, 'file'],
   [8052, 'chain'],
   [8360, 'wipe'],
-  [8745, 'destroy'],
+  [8535, 'destroy'],
+  [8745, 'cleanup'],
   [9240, 'credential'],
-  [11760, 'sabotage'],
+  [11550, 'sabotage'],
+  [11760, 'cleanup'],
   [12012, 'chain'],
   [12320, 'wipe'],
   [12705, 'destroy'],
@@ -195,20 +209,25 @@ const KIND_CUTS: readonly (readonly [below: number, kind: MissionKind])[] = [
   [15533, 'backdoor'],
   [15785, 'chain'],
   [16170, 'destroy'],
-  [17820, 'file'],
-  [18480, 'portforward'],
+  [17610, 'file'],
+  [17820, 'cleanup'],
+  [18270, 'portforward'],
+  [18480, 'cleanup'],
   [19096, 'infiltrate'],
   [19404, 'wipe'],
-  [20482, 'backdoor'],
+  [20272, 'backdoor'],
+  [20482, 'cleanup'],
   [20790, 'wipe'],
-  [23310, 'key'],
+  [23100, 'key'],
+  [23310, 'cleanup'],
   [23562, 'chain'],
   [23870, 'wipe'],
   [24255, 'destroy'],
   [24365, 'credential'],
   [24750, 'destroy'],
   [25410, 'portforward'],
-  [26334, 'infiltrate'],
+  [26124, 'infiltrate'],
+  [26334, 'cleanup'],
   [26796, 'backdoor'],
   [27060, 'infiltrate'],
 ];
@@ -286,11 +305,13 @@ export type MissionDatabase = {
 export type MissionBox = {
   /** Its last octet on the contract's subnet. */
   readonly octet: number;
-  /** The one guaranteed way to root it, or null on a portforward job's target, which nobody
-   *  roots: the job is the router's forward onto it. */
+  /** The one guaranteed way to root it, or null on a box nobody breaks into: a portforward job's
+   *  target, which nobody roots, the job being the router's forward onto it, and a cleanup job's
+   *  boxes, whose root the client hands over. */
   readonly route: MissionRoute | null;
   /** Its `root` password hash: crackable on the hydra route, one a file can leak on a leak
-   *  route, and one that stays shut on the msfconsole route. */
+   *  route, one that stays shut on the msfconsole route, and on a cleanup job's boxes one of the
+   *  white-hat words its briefing hands over. */
   readonly rootHash: string;
   /** The hashes guarding its database, on the database route, on every contract that keeps
    *  its key in one, and behind a database decoy. */
@@ -788,6 +809,68 @@ const portforwardShape = ({
   };
 };
 
+/** A cleanup job's network: the client lets the contractor in, so no box is broken into. Every
+ *  box's root is one of the white-hat words the briefing hands over, which no other door holds,
+ *  and every box runs nothing but sshd, on safe releases, besides its decoys. The gateway forwards
+ *  the public `:2222` onto the sshd of the box the first login is for: the target, or on two hops
+ *  the front box, from which the target is reached on its own `:22`. The logins are drawn on a
+ *  stream of their own, and the front box's base on its own as every two-hop contract's is. */
+const cleanupShape = ({
+  missionNumber,
+  stem,
+  keyBoxOctet,
+  keyBoxBase,
+  gatewayVersions,
+  frontDraw,
+}: {
+  readonly missionNumber: number;
+  readonly stem: string;
+  readonly keyBoxOctet: number;
+  readonly keyBoxBase: Readonly<Record<string, string>>;
+  readonly gatewayVersions: Readonly<Record<string, string>>;
+  readonly frontDraw: { readonly prng: Prng; readonly octet: number } | null;
+}): MissionShape => {
+  const loginPrng = createPrng(`mission-cleanup-login-${missionNumber}`);
+  const handedOver = (octet: number, versions: Readonly<Record<string, string>>): BareBox => ({
+    octet,
+    route: null,
+    rootHash: loginPrng.pick(WHITE_HAT_HASHES),
+    database: null,
+    communityHash: null,
+    storeHash: null,
+    services: [],
+    versions,
+  });
+  const target = handedOver(keyBoxOctet, keyBoxBase);
+  const common = {
+    missionNumber,
+    kind: 'cleanup',
+    stem,
+    storage: null,
+    gatewayAdminHash: loginPrng.pick(SHUT_HASHES),
+    routerRoute: null,
+    routerVendor: null,
+    gatewayVersions,
+  } as const;
+  if (frontDraw === null) {
+    const entry = withDecoys(target, [SSH_FORWARD], missionNumber);
+    return {
+      ...common,
+      keyBox: entry.box,
+      frontBox: null,
+      forwards: pointedAt(entry.forwards, keyBoxOctet),
+    };
+  }
+  const front = handedOver(frontDraw.octet, safeBaseVersions(frontDraw.prng));
+  const entry = withDecoys(front, [SSH_FORWARD], missionNumber);
+  return {
+    ...common,
+    keyBox: withInsideDecoys(target, missionNumber),
+    frontBox: entry.box,
+    forwards: pointedAt(entry.forwards, entry.box.octet),
+  };
+};
+
 export const missionShape = (missionNumber: number): MissionShape => {
   const { stem, keyBoxOctet, shapePrng, front: frontDraw } = drawTopology(missionNumber);
   const route = shapePrng.pick(ROUTES);
@@ -803,6 +886,16 @@ export const missionShape = (missionNumber: number): MissionShape => {
 
   if (missionKind(missionNumber) === 'portforward') {
     return portforwardShape({ missionNumber, stem, keyBoxOctet, keyBoxBase, gatewayVersions });
+  }
+  if (missionKind(missionNumber) === 'cleanup') {
+    return cleanupShape({
+      missionNumber,
+      stem,
+      keyBoxOctet,
+      keyBoxBase,
+      gatewayVersions,
+      frontDraw,
+    });
   }
 
   const drawn = drawRoute(route, versionPrng);

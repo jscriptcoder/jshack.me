@@ -86,8 +86,10 @@ import {
  *  a downed box on a deep layer or a fellow player's going quiet to ping, nmap and ssh (each
  *  asking the server before it answers) added 93 B, rounded up to 100; then hackademy.io's
  *  chapter on getting paid and hireme.io saying how it pays (the prose rides in the bundle
- *  with the sites' generated trees) added 972 B, rounded up to 1,000. */
-const BUNDLE_CEILING_BYTES = 308_075;
+ *  with the sites' generated trees) added 972 B, rounded up to 1,000; then cleanup jobs (the
+ *  new kind's shape, terms and replies, and the white-hat password hashes) added 1,493 B,
+ *  rounded up to 1,500. */
+const BUNDLE_CEILING_BYTES = 309_575;
 
 /** About a tenth of that before world content, so a loaded machine's noise cannot fail
  *  the check while a content change that makes boxes ten times dearer still does. */

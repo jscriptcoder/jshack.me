@@ -13,10 +13,17 @@ import {
   COMMON_PASSWORDS,
   CRACKABLE_PASSWORDS,
   UNCRACKABLE_PASSWORDS,
+  WHITE_HAT_PASSWORDS,
   WIFI_PASSWORDS,
 } from '../core/secrets/__plaintext.js';
 
-export { COMMON_PASSWORDS, CRACKABLE_PASSWORDS, UNCRACKABLE_PASSWORDS, WIFI_PASSWORDS };
+export {
+  COMMON_PASSWORDS,
+  CRACKABLE_PASSWORDS,
+  UNCRACKABLE_PASSWORDS,
+  WHITE_HAT_PASSWORDS,
+  WIFI_PASSWORDS,
+};
 
 /**
  * Every password a generated door can hold. A door draws from either pool, so
@@ -26,7 +33,21 @@ export { COMMON_PASSWORDS, CRACKABLE_PASSWORDS, UNCRACKABLE_PASSWORDS, WIFI_PASS
 export const ALL_GENERATED_PASSWORDS: readonly string[] = [
   ...CRACKABLE_PASSWORDS,
   ...UNCRACKABLE_PASSWORDS,
+  ...WHITE_HAT_PASSWORDS,
 ];
+
+/** Every pool as the server reads them from `JSHACK_SECRETS`, for a test standing in for the
+ *  deployment's environment. */
+export const DEPLOYMENT_POOLS = {
+  UNCRACKABLE_PASSWORDS,
+  CRACKABLE_PASSWORDS,
+  COMMON_PASSWORDS,
+  WIFI_PASSWORDS,
+  WHITE_HAT_PASSWORDS,
+} as const;
+
+/** The deployment's `JSHACK_SECRETS`, as the server reads it. */
+export const DEPLOYMENT_SECRETS = JSON.stringify(DEPLOYMENT_POOLS);
 
 /** The word a generated hash was drawn from. Throws for a hash from no pool: a
  *  caller asking this always expects a generated door, and an `undefined` password

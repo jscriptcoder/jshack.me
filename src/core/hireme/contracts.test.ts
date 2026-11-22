@@ -8,7 +8,14 @@ import {
   type OfferCandidate,
 } from './contracts.js';
 import { missionTerms, type MissionTerms } from '../missions/missionTerms.js';
-import { missionAddressForNumber } from '../missions/missionNetwork.js';
+import { missionAddressForNumber, missionEssid } from '../missions/missionNetwork.js';
+import { lanSubnetPrefix } from '../network/lanAddress.js';
+import {
+  DEPLOYMENT_POOLS,
+  DEPLOYMENT_SECRETS,
+  plaintextFor,
+  WHITE_HAT_PASSWORDS,
+} from '../../test/passwords.js';
 import { missionKeyPath } from '../missions/missionSecret.js';
 import {
   missionFileItem,
@@ -22,7 +29,7 @@ import {
   missionShape,
   type ChainFinal,
 } from '../missions/missionShape.js';
-import { backdoorJob, chainJob } from '../missions/targetRoles.js';
+import { backdoorJob, chainJob, cleanupJob } from '../missions/targetRoles.js';
 import { portforwardJob } from '../missions/portforwardJob.js';
 import {
   RECORD_SETTINGS,
@@ -118,6 +125,18 @@ const INFILTRATE_TWO_HOP = infiltrateNumber(true);
 
 /** The deployment's mission secret, which the client's file on an infiltrate job is drawn from. */
 const MISSION_SECRET = 'test-mission-secret';
+
+/** The first cleanup contract from 70,000 up, on one hop or on two. */
+const cleanupNumber = (twoHop: boolean): number => {
+  for (let candidate = 70_000; candidate < 2_000_000; candidate++) {
+    if (!isMissionNumber(candidate) || missionKind(candidate) !== 'cleanup') continue;
+    if ((missionShape(candidate).frontBox !== null) === twoHop) return candidate;
+  }
+  throw new Error('no cleanup contract');
+};
+
+const CLEANUP_SINGLE_HOP = cleanupNumber(false);
+const CLEANUP_TWO_HOP = cleanupNumber(true);
 
 /** The machine a backdoor contract wants a way into, read off the board's line. */
 const backdoorMachineOf = (missionNumber: number): string =>
@@ -392,6 +411,7 @@ const accept = (form: string, store: BoardStore, draws = drawsFrom([FOURTH])) =>
     form,
     store,
     missionSecret: MISSION_SECRET,
+    rawSecrets: DEPLOYMENT_SECRETS,
     ...draws,
   });
 
@@ -403,6 +423,19 @@ const acceptWithoutSecret = (form: string, store: BoardStore) =>
     form,
     store,
     missionSecret: undefined,
+    rawSecrets: DEPLOYMENT_SECRETS,
+    ...drawsFrom([FOURTH]),
+  });
+
+/** Accepting on a deployment that holds no password pools. */
+const acceptWithoutPools = (form: string, store: BoardStore) =>
+  answerAccept({
+    handle: HANDLE,
+    address: BOARD_ADDRESS,
+    form,
+    store,
+    missionSecret: MISSION_SECRET,
+    rawSecrets: undefined,
     ...drawsFrom([FOURTH]),
   });
 
@@ -1177,6 +1210,158 @@ describe('accepting an offer', () => {
       expect(body).not.toContain(`${stem}-`);
       expect(body).not.toMatch(/rules\.v4|iptables|\/etc|nano|\bkey\b/i);
       expect(body.match(/\d+\.\d+\.\d+\.\d+/g)).toEqual([missionAddressForNumber(missionNumber)]);
+    });
+  });
+
+  describe('on a cleanup job', () => {
+    const offeredCleanup = () =>
+      boardStore({
+        offers: [
+          { number: CLEANUP_SINGLE_HOP, ref: 'uuu' },
+          { number: CLEANUP_TWO_HOP, ref: 'vvv' },
+        ],
+      });
+
+    it('writes a single-hop briefing naming the machine and the port, and handing over root', async () => {
+      const { store, accepts } = offeredCleanup();
+      const terms = missionTerms(CLEANUP_SINGLE_HOP);
+      const { role, port } = cleanupJob(CLEANUP_SINGLE_HOP);
+      const address = missionAddressForNumber(CLEANUP_SINGLE_HOP);
+      const word = plaintextFor(missionShape(CLEANUP_SINGLE_HOP).keyBox.rootHash);
+
+      await accept('offer=uuu', store);
+
+      expect(accepts[0]!.briefing).toEqual({
+        sender: `${terms.client.handle}@emailit.io`,
+        subject: `Contract: ${terms.targetCompany}`,
+        body: [
+          terms.pitch,
+          '',
+          `Our customer is ${terms.targetCompany}. Their network is at ${address}.`,
+          '',
+          `Something on their ${role.noun} answers on port ${port}, and nobody there put it there.`,
+          'Find what runs it, stop it, and get it off the machine.',
+          '',
+          'They have given you root:',
+          '',
+          `  ssh root@${address} -p 2222`,
+          `  password: ${word}`,
+          '',
+          'Leave the machine running. If it no longer boots, there is no money.',
+          'Write to this address with your wallet address once it is gone.',
+          'Still there, no money. No wallet, no money.',
+          '',
+          `-- ${terms.client.company}`,
+          '',
+        ].join('\n'),
+      });
+    });
+
+    it('hands a two-hop contractor the edge machine, then the machine inside at its own address', async () => {
+      const { store, accepts } = offeredCleanup();
+      const terms = missionTerms(CLEANUP_TWO_HOP);
+      const { role, port } = cleanupJob(CLEANUP_TWO_HOP);
+      const { keyBox, frontBox } = missionShape(CLEANUP_TWO_HOP);
+      const address = missionAddressForNumber(CLEANUP_TWO_HOP);
+      const inside = `${lanSubnetPrefix(missionEssid(CLEANUP_TWO_HOP))}.${keyBox.octet}`;
+
+      await accept('offer=vvv', store);
+
+      expect(accepts[0]!.briefing.body).toBe(
+        [
+          terms.pitch,
+          '',
+          `Our customer is ${terms.targetCompany}. Their network is at ${address}.`,
+          '',
+          `Something on their ${role.noun} answers on port ${port}, and nobody there put it there.`,
+          'Find what runs it, stop it, and get it off the machine.',
+          '',
+          'They have given you root on the machine on the edge of their network:',
+          '',
+          `  ssh root@${address} -p 2222`,
+          `  password: ${plaintextFor(frontBox!.rootHash)}`,
+          '',
+          `The ${role.noun} is inside their network, at ${inside}. From the edge machine:`,
+          '',
+          `  ssh root@${inside}`,
+          `  password: ${plaintextFor(keyBox.rootHash)}`,
+          '',
+          'Leave both machines running. If either no longer boots, there is no money.',
+          'Write to this address with your wallet address once it is gone.',
+          'Still there, no money. No wallet, no money.',
+          '',
+          `-- ${terms.client.company}`,
+          '',
+        ].join('\n'),
+      );
+    });
+
+    // A symptom, never the answer: the hunt is the work, so the briefing names no path, no
+    // tool and nothing about what the intruder left.
+    it('names no box, no path, no tool and nothing of what was left', async () => {
+      for (const [missionNumber, ref] of [
+        [CLEANUP_SINGLE_HOP, 'uuu'],
+        [CLEANUP_TWO_HOP, 'vvv'],
+      ] as const) {
+        const { store, accepts } = offeredCleanup();
+        const { stem } = missionShape(missionNumber);
+
+        await accept(`offer=${ref}`, store);
+        const { body } = accepts[0]!.briefing;
+
+        expect(body).not.toContain(`${stem}-`);
+        expect(body).not.toMatch(
+          /\/etc|\/var|\bnc\b|netcat|\bps\b|\bkill\b|cron|implant|backdoor/i,
+        );
+      }
+    });
+
+    // The words are the server's, so a briefing that cannot carry them is no briefing, and the
+    // job's files are laid from the mission secret, so the job cannot be worked without it.
+    it('answers nothing, asking the store nothing, when the password pools are unset', async () => {
+      const { store, accepts } = offeredCleanup();
+
+      expect(await acceptWithoutPools('offer=uuu', store)).toBeNull();
+      expect(accepts).toEqual([]);
+    });
+
+    // A briefing handing over the edge login alone would strand the contractor at the second hop.
+    it('answers nothing when the pools have lost the inside machine’s word', async () => {
+      const { store, accepts } = offeredCleanup();
+      const insideWord = plaintextFor(missionShape(CLEANUP_TWO_HOP).keyBox.rootHash);
+      const rawSecrets = JSON.stringify({
+        ...DEPLOYMENT_POOLS,
+        WHITE_HAT_PASSWORDS: WHITE_HAT_PASSWORDS.filter((word) => word !== insideWord),
+      });
+
+      const answer = await answerAccept({
+        handle: HANDLE,
+        address: BOARD_ADDRESS,
+        form: 'offer=vvv',
+        store,
+        missionSecret: MISSION_SECRET,
+        rawSecrets,
+        ...drawsFrom([FOURTH]),
+      });
+
+      expect(answer).toBeNull();
+      expect(accepts).toEqual([]);
+    });
+
+    it('answers nothing, asking the store nothing, when the mission secret is unset', async () => {
+      const { store, accepts } = offeredCleanup();
+
+      expect(await acceptWithoutSecret('offer=vvv', store)).toBeNull();
+      expect(accepts).toEqual([]);
+    });
+
+    it('takes a black-hat job without the pools: only a cleanup briefing hands over a word', async () => {
+      const { store, accepts } = boardStore({
+        offers: [{ number: BACKDOOR_SINGLE_HOP, ref: 'bbb' }],
+      });
+
+      expect(alertOf(await acceptWithoutPools('offer=bbb', store))).toMatch(/^Contract accepted\./);
+      expect(accepts).toHaveLength(1);
     });
   });
 

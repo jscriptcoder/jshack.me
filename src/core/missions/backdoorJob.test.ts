@@ -4,7 +4,7 @@ import { missionKind } from './missionShape.js';
 import { SERVICE_CATALOG } from '../services/serviceCatalog.js';
 
 /** A spread of contract numbers whose last octet is a host octet (2–254). */
-const BACKDOOR_NUMBERS = Array.from({ length: 4000 }, (_unused, index) => index * 8381 + 2)
+const BACKDOOR_NUMBERS = Array.from({ length: 5000 }, (_unused, index) => index * 8381 + 2)
   .filter((missionNumber) => missionNumber % 256 >= 2 && missionNumber % 256 <= 254)
   .filter((missionNumber) => missionKind(missionNumber) === 'backdoor');
 

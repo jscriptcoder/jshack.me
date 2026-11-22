@@ -60,6 +60,16 @@
  * either table beside it changed in any way, and a target that no longer boots get the same words,
  * and the job stays open, so finishing the wipe then pays.
  *
+ * A cleanup job is white-hat work, done for the client's customer, and asks for the intruder's
+ * listener and implant both gone from the target: the client reads it as it stands and completes
+ * the job once no listener holds the port the briefing named and the implant's path no longer
+ * holds exactly the bytes the server laid, the destroy job's rule, whoever did either. Before
+ * that it reads whether every machine it let the contractor into still boots, the target and on
+ * two hops the edge machine too: one that no longer boots means the help broke what it was meant
+ * to mend, and the job can never pay, though it stays open as every miss does. Any listener on the
+ * port is a miss, since the client only knows the port answers, and the listener is read before
+ * the implant.
+ *
  * A chain job asks for two steps and pays for both or neither: the client reads the front box and
  * then the target as they stand, and completes the job once a listener holds the port the briefing
  * named on the front box and the target shows the last step done, as a sabotage, destroy or wipe
@@ -84,7 +94,8 @@ import { missionKey } from './missionSecret.js';
 import { missionFileContent, missionFilePath, missionPlantContent } from './missionFileItem.js';
 import { chainFinal, missionKind, missionTopology, type ChainFinal } from './missionShape.js';
 import { recordsLookRight, recordsWiped } from './missionRecords.js';
-import { backdoorJob, chainJob, credentialRole } from './targetRoles.js';
+import { backdoorJob, chainJob, cleanupJob, credentialRole } from './targetRoles.js';
+import { cleanupPlant } from './cleanupPlant.js';
 import { portforwardJob } from './portforwardJob.js';
 import { md5 } from '../generation/md5.js';
 import { accountIn } from '../sessions/passwdAccount.js';
@@ -122,9 +133,9 @@ export type ClientMailStore = {
   }) => StoreReply;
 };
 
-/** The box a tamper, sabotage, backdoor, infiltrate, credential, destroy, wipe or chain job is
- *  about, a chain job's front box, or a portforward job's router, as it stands: up with its tree,
- *  not up, or not readable. */
+/** The box a tamper, sabotage, backdoor, infiltrate, credential, destroy, wipe, chain or cleanup
+ *  job is about, a chain or two-hop cleanup job's front box, or a portforward job's router, as it
+ *  stands: up with its tree, not up, or not readable. */
 export type TargetBoxRead =
   | { readonly kind: 'up'; readonly fs: Directory }
   | { readonly kind: 'absent' }
@@ -161,6 +172,12 @@ const LOGIN_WORKS = 'That login works.';
 const FILE_GONE = "It's gone.";
 const RECORDS_GONE = 'The records are gone.';
 const BOTH_DONE = 'Both done.';
+/** A white-hat client closes with thanks, not with the black-hat clients' sign-off. */
+const THANKS = 'Thank you for the help.';
+const PLEASURE = 'Pleasure doing business.';
+const TOOK_IT_DOWN = 'You took our machine down. No money.';
+const STILL_ON_THE_MACHINE =
+  'It has stopped, but it is still on the machine. Still there, no money.';
 const NO_WALLET = 'You sent no wallet, so there is nothing to pay. No wallet, no money.';
 const RECORDS_WRONG = "Our records don't look right. No change, no money.";
 const STILL_UP = 'Their machine is still up. No outage, no money.';
@@ -171,6 +188,9 @@ const nothingListening = (port: number): string =>
  *  another port, one on the machine inside, or a front box that no longer boots. */
 const nothingOnTheEdge = (port: number): string =>
   `Nothing is listening on port ${port} on the edge. No listener, no money.`;
+/** Any listener on the port the briefing named, the intruder's or anyone's since. */
+const stillAnswers = (port: number): string =>
+  `Something still answers on port ${port}. Still there, no money.`;
 const notInPlace = (path: string): string =>
   `Our file is not at ${path}. No file in place, no money.`;
 /** One reply for every miss: no forward, one to another machine or port, or a router that no
@@ -242,12 +262,13 @@ type Decision =
   | { readonly kind: 'checkGone'; readonly number: number }
   | { readonly kind: 'checkWiped'; readonly number: number }
   | { readonly kind: 'checkChain'; readonly number: number }
+  | { readonly kind: 'checkCleanup'; readonly number: number }
   | { readonly kind: 'reply'; readonly reply: ContractMail };
 
 /** How the client opens its reply to a job done: the key or the file it was sent, the records it
  *  read, the machine it found down, the listener it found, its own file found in place, the way
  *  in it found open, the login it found working, the company's file it found gone, the records
- *  it found emptied, or both steps of a chain job found done. */
+ *  it found emptied, both steps of a chain job found done, or the intruder's implant found gone. */
 const RECEIVED: Readonly<Record<Exclude<Decision['kind'], 'reply'>, string>> = {
   complete: KEY_RECEIVED,
   completeFile: FILE_RECEIVED,
@@ -260,6 +281,7 @@ const RECEIVED: Readonly<Record<Exclude<Decision['kind'], 'reply'>, string>> = {
   checkGone: FILE_GONE,
   checkWiped: RECORDS_GONE,
   checkChain: BOTH_DONE,
+  checkCleanup: FILE_GONE,
 };
 
 /** What the client says on a job the mail itself proves: when the mail carries no proof, when it
@@ -313,6 +335,7 @@ const decide = ({
   if (acceptedKind === 'destroy') return { kind: 'checkGone', number: accepted.number };
   if (acceptedKind === 'wipe') return { kind: 'checkWiped', number: accepted.number };
   if (acceptedKind === 'chain') return { kind: 'checkChain', number: accepted.number };
+  if (acceptedKind === 'cleanup') return { kind: 'checkCleanup', number: accepted.number };
   const said = MAILED_PROOF[acceptedKind];
   if ((acceptedKind === 'file' ? file : key) === null) return reply(accepted.number, said.none);
   if (proves(accepted.number)) return { kind: said.done, number: accepted.number };
@@ -370,6 +393,16 @@ const stepMiss = (
   return box.kind === 'absent' || !recordsWiped(missionNumber, box.fs) ? NOT_WIPED : null;
 };
 
+/** What the client says of a cleanup target that is not yet clean: something still answers on the
+ *  port, or the implant is still where it was laid. Null once both are gone, whoever did it. */
+const cleanupMiss = (missionNumber: number, fs: Directory, secret: string): string | null => {
+  const { port } = cleanupJob(missionNumber);
+  if (listenerOn(fs, port) !== null) return stillAnswers(port);
+  const { implant } = cleanupPlant(missionNumber, secret);
+  const read = createFsView(fs, { userType: 'root' }).read(asAbsPath(implant.path));
+  return read.ok && read.content === implant.content ? STILL_ON_THE_MACHINE : null;
+};
+
 const sendReply = async (
   store: ClientMailStore,
   handle: string,
@@ -406,12 +439,12 @@ export const answerClientMail = async ({
   /** The deployment's mission secret, already checked present. */
   readonly secret: string;
   readonly store: ClientMailStore;
-  /** The box the tamper, sabotage, backdoor, infiltrate, credential, destroy, wipe or chain job
-   *  numbered so is about, as it stands now. */
+  /** The box the tamper, sabotage, backdoor, infiltrate, credential, destroy, wipe, chain or
+   *  cleanup job numbered so is about, as it stands now. */
   readonly readTargetBox: (missionNumber: number) => Promise<TargetBoxRead>;
   /** The router of the portforward job numbered so, as it stands now. */
   readonly readRouter: (missionNumber: number) => Promise<TargetBoxRead>;
-  /** The front box of the chain job numbered so, as it stands now. */
+  /** The front box of the chain or two-hop cleanup job numbered so, as it stands now. */
   readonly readFrontBox: (missionNumber: number) => Promise<TargetBoxRead>;
 }): Promise<ClientMailAnswer | null> => {
   const opened = await store.open(login);
@@ -496,7 +529,22 @@ export const answerClientMail = async ({
     const miss = stepMiss(chainFinal(decision.number), decision.number, box, secret);
     if (miss !== null) return sendReply(store, login.handle, replyAbout(terms, miss));
   }
+  if (decision.kind === 'checkCleanup') {
+    const box = await readTargetBox(decision.number);
+    if (box.kind === 'error') return null;
+    const front =
+      missionTopology(decision.number).frontBoxOctet === null
+        ? null
+        : await readFrontBox(decision.number);
+    if (front?.kind === 'error') return null;
+    if (box.kind === 'absent' || front?.kind === 'absent') {
+      return sendReply(store, login.handle, replyAbout(terms, TOOK_IT_DOWN));
+    }
+    const miss = cleanupMiss(decision.number, box.fs, secret);
+    if (miss !== null) return sendReply(store, login.handle, replyAbout(terms, miss));
+  }
   const received = RECEIVED[decision.kind];
+  const signOff = terms.job === 'cleanup' ? THANKS : PLEASURE;
   const wallet = firstMatch(text, WALLET_SHAPE)?.toLowerCase() ?? null;
   const completed = await store.complete({
     handle: login.handle,
@@ -507,7 +555,7 @@ export const answerClientMail = async ({
       terms,
       wallet === null
         ? `${received} ${NO_WALLET}`
-        : `${received} ${writeAmount(terms.pay)} sent to ${wallet}. Pleasure doing business.`,
+        : `${received} ${writeAmount(terms.pay)} sent to ${wallet}. ${signOff}`,
     ),
   });
   const outcome = completeOutcomeSchema.safeParse(completed.data);

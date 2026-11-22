@@ -632,6 +632,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // Read here, at the boundary: an infiltrate job's briefing draws the client's file from
       // it, and the door refuses that accept without it.
       missionSecret: process.env.MISSION_KEY_SECRET,
+      // Read here too: a cleanup job's briefing hands over the white-hat words it holds, and the
+      // door refuses that accept without them.
+      rawSecrets: process.env.JSHACK_SECRETS,
       // A board's address: 194.<0-255>.<0-255>.<2-254>, the block no network in the world
       // answers from. Drawn from the OS's randomness, since nobody may guess the next one.
       drawBoardAddress: () =>

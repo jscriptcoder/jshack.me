@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { CRACKABLE_PASSWORDS, drawPasswordHash, UNCRACKABLE_HASHES } from './passwordPools.js';
+import {
+  CRACKABLE_PASSWORDS,
+  drawPasswordHash,
+  UNCRACKABLE_HASHES,
+  WHITE_HAT_HASHES,
+} from './passwordPools.js';
 import { md5 } from './md5.js';
 import { createPrng, type Prng } from './prng.js';
-import { UNCRACKABLE_PASSWORDS } from '../../test/passwords.js';
+import { UNCRACKABLE_PASSWORDS, WHITE_HAT_PASSWORDS } from '../../test/passwords.js';
 
 /**
  * The two pools every generated door draws from. The pools' own invariants (disjoint,
@@ -23,6 +28,14 @@ describe('the uncrackable pool', () => {
     // A seed lands on an index, so a reordered or re-hashed list would move every
     // uncrackable door in the world while each still looked like a valid hash.
     expect(UNCRACKABLE_HASHES).toEqual(UNCRACKABLE_PASSWORDS.map(md5));
+  });
+});
+
+describe('the white-hat words', () => {
+  it('are carried as the md5 of each word, in the order a seed picks by', () => {
+    // A client hands the word over in a briefing, so the bundle must never hold it, only the
+    // hash a white-hat box's root is drawn from.
+    expect(WHITE_HAT_HASHES).toEqual(WHITE_HAT_PASSWORDS.map(md5));
   });
 });
 

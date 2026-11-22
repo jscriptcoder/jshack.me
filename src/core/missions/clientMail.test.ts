@@ -19,7 +19,8 @@ import { DATADIR_FILE, PASSWD_FILE, ROOT_FILE, file, withFiles } from '../genera
 import { md5 } from '../generation/md5.js';
 import { PASSWD_PATH, withAccountHash } from '../sessions/passwdAccount.js';
 import type { Directory } from '../filesystem/types.js';
-import { backdoorJob, chainJob, credentialRole } from './targetRoles.js';
+import { backdoorJob, chainJob, cleanupJob, credentialRole } from './targetRoles.js';
+import { cleanupFiles, cleanupPlant } from './cleanupPlant.js';
 import { portforwardJob } from './portforwardJob.js';
 import { missionEssid } from './missionNetwork.js';
 import { buildApGatewayBaseFs } from '../generation/routerFs.js';
@@ -133,7 +134,7 @@ const NO_ROUTER = async (): Promise<TargetBoxRead> => {
   throw new Error('a job read a router');
 };
 
-/** A front box nobody should be asked for: only a chain job's mail reads one. */
+/** A front box nobody should be asked for: only a chain or two-hop cleanup job's mail reads one. */
 const NO_FRONT_BOX = async (): Promise<TargetBoxRead> => {
   throw new Error('a job read a front box');
 };
@@ -1452,6 +1453,262 @@ describe('a mail on a destroy job', () => {
     expect(box.reads).toEqual([]);
     expect(completes).toEqual([]);
     expect(replies).toEqual([fromDestroyClient(CLOSED_LINE)]);
+  });
+});
+
+describe('a mail on a cleanup job', () => {
+  const cleanupNumber = (twoHop: boolean): number =>
+    ALL_HOST_NUMBERS.find(
+      (missionNumber) =>
+        missionKind(missionNumber) === 'cleanup' &&
+        (missionShape(missionNumber).frontBox !== null) === twoHop,
+    )!;
+  const CLEANUP_JOB = cleanupNumber(false);
+  const TWO_HOP_JOB = cleanupNumber(true);
+  const CLEANUP_TERMS = missionTerms(CLEANUP_JOB);
+  const { port: PORT } = cleanupJob(CLEANUP_JOB);
+  const { implant: IMPLANT } = cleanupPlant(CLEANUP_JOB, SECRET);
+  const PIDFILE = listenerPidfilePath(PORT);
+
+  /** The target as the server lays it, less the paths `removed`, plus `extra`. */
+  const laid = (
+    missionNumber: number,
+    {
+      removed = [],
+      extra = [],
+    }: {
+      readonly removed?: readonly string[];
+      readonly extra?: readonly (readonly [string, string])[];
+    } = {},
+  ): TargetBoxRead => ({
+    kind: 'up',
+    fs: withFiles(buildMissionKeyBoxFs(missionNumber), [
+      ...cleanupFiles(missionNumber, SECRET)
+        .filter(({ path }) => !removed.includes(path))
+        .map(({ path, content, perms }) => [path, file(content, perms)] as const),
+      ...extra.map(([path, content]) => [path, file(content, ROOT_FILE)] as const),
+    ]),
+  });
+
+  /** The job done: the listener killed and the implant removed. */
+  const cleaned = (missionNumber: number): TargetBoxRead => {
+    const { implant } = cleanupPlant(missionNumber, SECRET);
+    const pidfile = listenerPidfilePath(cleanupJob(missionNumber).port);
+    return laid(missionNumber, { removed: [implant.path, pidfile] });
+  };
+
+  /** A box read answering with `read`, keeping every number it was asked for. */
+  const boxReader = (read: TargetBoxRead) => {
+    const reads: number[] = [];
+    return {
+      reads,
+      read: async (missionNumber: number): Promise<TargetBoxRead> => {
+        reads.push(missionNumber);
+        return read;
+      },
+    };
+  };
+
+  const fromCleanupClient = (line: string, terms = CLEANUP_TERMS): ContractMail => ({
+    sender: `${terms.client.handle}@emailit.io`,
+    subject: `Contract: ${terms.targetCompany}`,
+    body: signed(line, terms.client.company),
+  });
+
+  const STILL_ANSWERS = `Something still answers on port ${PORT}. Still there, no money.`;
+  const STILL_ON_THE_MACHINE =
+    'It has stopped, but it is still on the machine. Still there, no money.';
+  const TOOK_IT_DOWN = 'You took our machine down. No money.';
+
+  const acceptedStore = (number = CLEANUP_JOB) =>
+    clientStore({ jobs: [{ number, state: 'accepted' }] });
+
+  const mailOnCleanupJob = (
+    store: ClientMailStore,
+    read: TargetBoxRead,
+    body = `all clean\n${WALLET}\n`,
+  ) => mailTo(store, { to: CLEANUP_TERMS.client, body, readTargetBox: boxReader(read).read });
+
+  it('reads the target of the job held, and pays once the listener and the implant are gone', async () => {
+    const { store, completes, replies } = acceptedStore();
+    const box = boxReader(cleaned(CLEANUP_JOB));
+
+    expect(
+      await mailTo(store, {
+        to: CLEANUP_TERMS.client,
+        body: `all clean\n${WALLET}\n`,
+        readTargetBox: box.read,
+      }),
+    ).toBe('replied');
+    expect(box.reads).toEqual([CLEANUP_JOB]);
+    expect(completes).toEqual([
+      {
+        number: CLEANUP_JOB,
+        wallet: WALLET,
+        pay: CLEANUP_TERMS.pay,
+        reply: fromCleanupClient(
+          `It's gone. §${CLEANUP_TERMS.pay.toLocaleString('en-US')} sent to ${WALLET}. Thank you for the help.`,
+        ),
+      },
+    ]);
+    expect(replies).toEqual([]);
+  });
+
+  it('completes and pays nothing when the mail names no wallet', async () => {
+    const { store, completes } = acceptedStore();
+
+    await mailOnCleanupJob(store, cleaned(CLEANUP_JOB), 'all clean\n');
+
+    expect(completes).toEqual([
+      {
+        number: CLEANUP_JOB,
+        wallet: null,
+        pay: CLEANUP_TERMS.pay,
+        reply: fromCleanupClient(
+          "It's gone. You sent no wallet, so there is nothing to pay. No wallet, no money.",
+        ),
+      },
+    ]);
+  });
+
+  // The client only knows the port answers, so any listener there is a miss: the intruder's,
+  // or one somebody started after it was killed.
+  it.each([
+    ['nothing has been touched', laid(CLEANUP_JOB)],
+    [
+      'the implant is gone but its listener still runs',
+      laid(CLEANUP_JOB, { removed: [IMPLANT.path] }),
+    ],
+    [
+      'somebody else listens there once it was killed',
+      laid(CLEANUP_JOB, {
+        removed: [IMPLANT.path, PIDFILE],
+        extra: [
+          [PIDFILE, formatListenerContent({ port: PORT, user: 'mallory', userType: 'root' })],
+        ],
+      }),
+    ],
+  ])('says something still answers when %s, and keeps the job open', async (_case, read) => {
+    const { store, completes, replies } = acceptedStore();
+
+    expect(await mailOnCleanupJob(store, read)).toBe('replied');
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromCleanupClient(STILL_ANSWERS)]);
+  });
+
+  it.each([
+    ['left where it was', laid(CLEANUP_JOB, { removed: [PIDFILE] })],
+    [
+      'put back byte for byte',
+      laid(CLEANUP_JOB, {
+        removed: [IMPLANT.path, PIDFILE],
+        extra: [[IMPLANT.path, IMPLANT.content]],
+      }),
+    ],
+  ])(
+    'says it is still on the machine once stopped, when the implant is %s',
+    async (_case, read) => {
+      const { store, completes, replies } = acceptedStore();
+
+      expect(await mailOnCleanupJob(store, read)).toBe('replied');
+      expect(completes).toEqual([]);
+      expect(replies).toEqual([fromCleanupClient(STILL_ON_THE_MACHINE)]);
+    },
+  );
+
+  // "Gone" is the destroy job's rule: the implant's path no longer holds the bytes laid there.
+  it.each([
+    ['overwritten', [[IMPLANT.path, 'exit 0\n']] as const],
+    ['moved', [[`${IMPLANT.path}.bak`, IMPLANT.content]] as const],
+  ])('pays for an implant %s once its listener is stopped', async (_case, extra) => {
+    const { store, completes, replies } = acceptedStore();
+
+    await mailOnCleanupJob(store, laid(CLEANUP_JOB, { removed: [IMPLANT.path, PIDFILE], extra }));
+
+    expect(completes.map(({ number }) => number)).toEqual([CLEANUP_JOB]);
+    expect(replies).toEqual([]);
+  });
+
+  it('tells a contractor who bricked the target there is no money, and keeps the job open', async () => {
+    const { store, completes, replies } = acceptedStore();
+
+    expect(await mailOnCleanupJob(store, { kind: 'absent' })).toBe('replied');
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromCleanupClient(TOOK_IT_DOWN)]);
+  });
+
+  describe('on two hops', () => {
+    const TWO_HOP_TERMS = missionTerms(TWO_HOP_JOB);
+
+    const mailOnTwoHops = (target: TargetBoxRead, front: TargetBoxRead) => {
+      const { store, completes, replies } = acceptedStore(TWO_HOP_JOB);
+      const targetReads = boxReader(target);
+      const frontReads = boxReader(front);
+      const answer = mailTo(store, {
+        to: TWO_HOP_TERMS.client,
+        body: `all clean\n${WALLET}\n`,
+        readTargetBox: targetReads.read,
+        readFrontBox: frontReads.read,
+      });
+      return { answer, completes, replies, targetReads, frontReads };
+    };
+
+    it('reads both machines, and pays once the target is clean and the edge machine still boots', async () => {
+      const { answer, completes, targetReads, frontReads } = mailOnTwoHops(cleaned(TWO_HOP_JOB), {
+        kind: 'up',
+        fs: buildMissionFrontBoxFs(TWO_HOP_JOB),
+      });
+
+      expect(await answer).toBe('replied');
+      expect(targetReads.reads).toEqual([TWO_HOP_JOB]);
+      expect(frontReads.reads).toEqual([TWO_HOP_JOB]);
+      expect(completes.map(({ number }) => number)).toEqual([TWO_HOP_JOB]);
+    });
+
+    it('tells a contractor who bricked the edge machine there is no money', async () => {
+      const { answer, completes, replies } = mailOnTwoHops(cleaned(TWO_HOP_JOB), {
+        kind: 'absent',
+      });
+
+      expect(await answer).toBe('replied');
+      expect(completes).toEqual([]);
+      expect(replies).toEqual([fromCleanupClient(TOOK_IT_DOWN, TWO_HOP_TERMS)]);
+    });
+
+    it('answers nothing when the edge machine could not be read', async () => {
+      const { answer, completes, replies } = mailOnTwoHops(cleaned(TWO_HOP_JOB), {
+        kind: 'error',
+      });
+
+      expect(await answer).toBeNull();
+      expect(completes).toEqual([]);
+      expect(replies).toEqual([]);
+    });
+  });
+
+  it('answers nothing when the target could not be read', async () => {
+    const { store, completes, replies } = acceptedStore();
+
+    expect(await mailOnCleanupJob(store, { kind: 'error' })).toBeNull();
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([]);
+  });
+
+  it('says the job is already closed once it is completed, without reading the target', async () => {
+    const { store, completes, replies } = clientStore({
+      jobs: [{ number: CLEANUP_JOB, state: 'completed' }],
+    });
+    const box = boxReader(cleaned(CLEANUP_JOB));
+
+    await mailTo(store, {
+      to: CLEANUP_TERMS.client,
+      body: `all clean\n${WALLET}\n`,
+      readTargetBox: box.read,
+    });
+
+    expect(box.reads).toEqual([]);
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromCleanupClient(CLOSED_LINE)]);
   });
 });
 

@@ -6,7 +6,8 @@ import {
   showReport,
 } from './hiremeOrders.js';
 import { missionLeakPath } from './missionLeak.js';
-import { backdoorJob, chainJob } from './targetRoles.js';
+import { backdoorJob, chainJob, cleanupJob } from './targetRoles.js';
+import { cleanupPlant } from './cleanupPlant.js';
 import { portforwardJob } from './portforwardJob.js';
 import { firmwarePackageOf } from '../packages/packageVersions.js';
 import { chainFinal, missionShape, type ChainFinal, type MissionShape } from './missionShape.js';
@@ -27,13 +28,7 @@ import {
   type RecordAction,
   type RecordSetting,
 } from './missionRecords.js';
-import {
-  COMMON_PASSWORDS,
-  CRACKABLE_PASSWORDS,
-  plaintextFor,
-  UNCRACKABLE_PASSWORDS,
-  WIFI_PASSWORDS,
-} from '../../test/passwords.js';
+import { DEPLOYMENT_SECRETS, plaintextFor } from '../../test/passwords.js';
 import {
   WEB_ROUTE_LEAK_PATH,
   WEB_ROUTE_NUMBER,
@@ -130,15 +125,9 @@ describe('showReport', () => {
   const MSFCONSOLE = singleHop(
     ({ keyBox, storage }) => keyBox.route === 'msfconsole' && storage === 'file',
   );
-  const RAW_SECRETS = JSON.stringify({
-    UNCRACKABLE_PASSWORDS,
-    CRACKABLE_PASSWORDS,
-    COMMON_PASSWORDS,
-    WIFI_PASSWORDS,
-  });
 
   it('prints both forwards, the leaked file and the word on a web route', () => {
-    const lines = showReport(WEB_ROUTE_NUMBER, SECRET, RAW_SECRETS).split('\n');
+    const lines = showReport(WEB_ROUTE_NUMBER, SECRET, DEPLOYMENT_SECRETS).split('\n');
 
     expect(lines).toContain('  Route:    web');
     expect(lines).toContain('  Forward:  :80 -> key box :80');
@@ -150,7 +139,7 @@ describe('showReport', () => {
 
   it('prints both forwards, the leaked file and the word on an ftp route', () => {
     const number = singleHop(({ keyBox }) => keyBox.route === 'ftp');
-    const lines = showReport(number, SECRET, RAW_SECRETS).split('\n');
+    const lines = showReport(number, SECRET, DEPLOYMENT_SECRETS).split('\n');
 
     expect(lines).toContain('  Route:    ftp');
     expect(lines).toContain('  Forward:  :21 -> key box :21');
@@ -166,7 +155,7 @@ describe('showReport', () => {
 
   it('prints both forwards, the datadir and the word on a database route', () => {
     const number = singleHop(({ keyBox }) => keyBox.route === 'mysql');
-    const lines = showReport(number, SECRET, RAW_SECRETS).split('\n');
+    const lines = showReport(number, SECRET, DEPLOYMENT_SECRETS).split('\n');
 
     expect(lines).toContain('  Route:    mysql');
     expect(lines).toContain('  Forward:  :3306 -> key box :3306');
@@ -180,7 +169,7 @@ describe('showReport', () => {
 
   it('prints both forwards, the agent config and the word on an snmp route', () => {
     const number = singleHop(({ keyBox }) => keyBox.route === 'snmp');
-    const lines = showReport(number, SECRET, RAW_SECRETS).split('\n');
+    const lines = showReport(number, SECRET, DEPLOYMENT_SECRETS).split('\n');
 
     expect(lines).toContain('  Route:    snmp');
     expect(lines).toContain('  Forward:  :161 -> key box :161');
@@ -200,7 +189,7 @@ describe('showReport', () => {
   });
 
   it('prints no leak on a route with none', () => {
-    const report = showReport(HYDRA, SECRET, RAW_SECRETS);
+    const report = showReport(HYDRA, SECRET, DEPLOYMENT_SECRETS);
 
     expect(report).not.toContain('Leak:');
     expect(report).not.toContain('Word:');
@@ -339,12 +328,6 @@ describe('showReport', () => {
 
 describe('showReport on a two-hop contract', () => {
   const SECRET = 'operator-test-secret';
-  const RAW_SECRETS = JSON.stringify({
-    UNCRACKABLE_PASSWORDS,
-    CRACKABLE_PASSWORDS,
-    COMMON_PASSWORDS,
-    WIFI_PASSWORDS,
-  });
   /** The first two-hop key job `wanted` accepts. */
   const twoHop = (wanted: (shape: MissionShape) => boolean): number =>
     Array.from({ length: 4000 }, (_unused, index) => index * 256 + 2).find((candidate) => {
@@ -412,7 +395,7 @@ describe('showReport on a two-hop contract', () => {
       ({ frontBox, keyBox }) => frontBox?.route === 'ftp' && keyBox.route === 'snmp',
     );
     const shape = missionShape(number);
-    const lines = showReport(number, SECRET, RAW_SECRETS).split('\n');
+    const lines = showReport(number, SECRET, DEPLOYMENT_SECRETS).split('\n');
     const keySection = lines.indexOf(`  Key box:   ${shape.stem}-files`);
     const frontLines = lines.slice(0, keySection);
     const keyLines = lines.slice(keySection);
@@ -954,6 +937,88 @@ describe('showReport on a portforward job', () => {
     expect(lines[6]).toBe(
       `  Router:   msfconsole, ${vendor} ${gatewayVersions[firmwarePackageOf(vendor)]}`,
     );
+  });
+});
+
+describe('showReport on a cleanup job', () => {
+  const SECRET = 'operator-test-secret';
+  const cleanupWhere = (twoHop: boolean): number =>
+    Array.from({ length: 8000 }, (_unused, index) => index * 256 + 2).find((candidate) => {
+      const shape = missionShape(candidate);
+      return shape.kind === 'cleanup' && (shape.frontBox !== null) === twoHop;
+    })!;
+  const SINGLE_HOP = cleanupWhere(false);
+  const TWO_HOP = cleanupWhere(true);
+
+  /** The lines that close a cleanup report: the port, then what the intruder left and where. */
+  const plantLines = (missionNumber: number): readonly string[] => {
+    const { implant, decoys } = cleanupPlant(missionNumber, SECRET);
+    return [
+      `  Port:     ${cleanupJob(missionNumber).port}`,
+      `  Implant:  ${implant.path}, ${implant.family}${implant.binary ? ', binary' : ''}`,
+      `  Decoys:   ${decoys.map(({ path }) => path).join(', ')}`,
+    ];
+  };
+
+  it('prints the report line by line: the machine, the login handed over, the port and the implant with its decoys', () => {
+    const shape = missionShape(SINGLE_HOP);
+    const terms = missionTerms(SINGLE_HOP);
+    const { role } = cleanupJob(SINGLE_HOP);
+    const decoyPorts = shape.forwards
+      .slice(shape.forwards.length - shape.keyBox.decoys.length)
+      .map(({ internalPort }) => internalPort);
+
+    expect(showReport(SINGLE_HOP, SECRET, DEPLOYMENT_SECRETS)).toBe(
+      [
+        `Contract ${SINGLE_HOP} at ${missionAddressForNumber(SINGLE_HOP)} (essid ${missionEssid(SINGLE_HOP)})`,
+        `  Client:   ${terms.client.company} (${terms.client.handle}@emailit.io)`,
+        `  Target:   ${terms.targetCompany}, ${shape.stem}-gw / ${shape.stem}-${role.suffix}`,
+        `  Pay:      §${terms.pay.toLocaleString('en-US')}`,
+        '  Template: single-hop',
+        `  Kind:     cleanup, ${role.noun}`,
+        '  Route:    none (handed over)',
+        ...shape.forwards.map(
+          (forward, index) =>
+            `  Forward:  :${forward.publicPort} -> target :${forward.internalPort}` +
+            (index >= shape.forwards.length - shape.keyBox.decoys.length ? ' (decoy)' : ''),
+        ),
+        '  Services:',
+        ...shape.keyBox.services.map(
+          (service) =>
+            `    ${service.service} (${service.package} ${service.version}) :${service.port}` +
+            (decoyPorts.includes(service.port) ? ' (decoy)' : ''),
+        ),
+        `  Login:    root / ${plaintextFor(shape.keyBox.rootHash)}`,
+        ...plantLines(SINGLE_HOP),
+      ].join('\n'),
+    );
+  });
+
+  it('hands over a login on each box of a two-hop job, the implant under the target box', () => {
+    const { stem, frontBox, keyBox } = missionShape(TWO_HOP);
+    const { role } = cleanupJob(TWO_HOP);
+    const lines = showReport(TWO_HOP, SECRET, DEPLOYMENT_SECRETS).split('\n');
+    const frontAt = lines.indexOf(`  Front box: ${stem}-web`);
+    const targetAt = lines.indexOf(`  Target box: ${stem}-${role.suffix}`);
+
+    expect(lines.filter((line) => line === '    Route:    none (handed over)')).toHaveLength(2);
+    expect(
+      lines.indexOf(`    Login:    root / ${plaintextFor(frontBox!.rootHash)}`),
+    ).toBeGreaterThan(frontAt);
+    expect(lines.indexOf(`    Login:    root / ${plaintextFor(keyBox.rootHash)}`)).toBeGreaterThan(
+      targetAt,
+    );
+    expect(frontAt).toBeGreaterThan(-1);
+    expect(targetAt).toBeGreaterThan(frontAt);
+    expect(lines.slice(-3)).toEqual(plantLines(TWO_HOP));
+  });
+
+  it('says the login words cannot be read without the pools, and prints no key', () => {
+    const report = showReport(SINGLE_HOP, SECRET, undefined);
+
+    expect(report.split('\n')).toContain('  Login:    root / (JSHACK_SECRETS is not set)');
+    expect(report).not.toContain('Key');
+    expect(report).not.toContain('Storage:');
   });
 });
 

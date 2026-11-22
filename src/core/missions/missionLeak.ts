@@ -71,6 +71,7 @@ import {
 import { GUESSABLE_COMMUNITIES } from './pools.js';
 import { missionRecords, recordsFiles } from './missionRecords.js';
 import { missionFileContent, missionFilePath } from './missionFileItem.js';
+import { cleanupFilePaths, cleanupFiles } from './cleanupPlant.js';
 
 /** A file the server lays onto a key box before its journal replays. */
 export type MissionFile = {
@@ -340,6 +341,10 @@ const holdsFile = (ref: MissionBoxRef): boolean => {
   return ref.role === 'key' && (kind === 'file' || kind === 'infiltrate' || kind === 'destroy');
 };
 
+/** Whether the box is a cleanup job's target, which holds what the intruder left. */
+const holdsImplant = (ref: MissionBoxRef): boolean =>
+  ref.role === 'key' && missionKind(ref.missionNumber) === 'cleanup';
+
 /** A file job's file, as the server lays it: root-only, like the key. */
 const fileJobFile = (missionNumber: number, secret: string): MissionFile => ({
   path: missionFilePath(missionNumber),
@@ -434,6 +439,9 @@ export const missionFiles = (
   return [
     ...keyFilesLaid,
     ...fileLaid,
+    ...(holdsImplant(ref)
+      ? cleanupFiles(ref.missionNumber, requireMissionSecret(env.keySecret))
+      : []),
     ...(leak === null ? [] : [leak]),
     ...(laysDatadir(ref) ? [datadirFile(ref, env)] : []),
     ...(holdsRecordsInFile(ref) ? recordsFilesLaid(ref.missionNumber) : []),
@@ -458,13 +466,15 @@ export const missionFilesForBox = async (
   }
 };
 
-/** The paths `missionFiles` lays in, from the number alone: the write gate asks whether a
- *  tier may write one, which only root may on any of them, and needs no secret to ask. */
-export const missionFilePaths = (ref: MissionBoxRef): readonly string[] => {
+/** The paths `missionFiles` lays in: the write gate asks whether a tier may write one, which
+ *  only root may on any of them. Every path is read from the number alone but a cleanup target's,
+ *  whose implant hides where only the mission secret says. */
+export const missionFilePaths = (ref: MissionBoxRef, keySecret?: string): readonly string[] => {
   const leakPath = ownLeakPath(ref);
   return [
     ...(holdsKey(ref) ? keyFilePaths(ref.missionNumber) : []),
     ...(holdsFile(ref) ? [missionFilePath(ref.missionNumber)] : []),
+    ...(holdsImplant(ref) ? cleanupFilePaths(ref.missionNumber, keySecret) : []),
     ...(leakPath === null ? [] : [leakPath]),
     ...(laysDatadir(ref) ? [DATADIR_PATH] : []),
     ...(holdsRecordsInFile(ref) ? recordsFiles(ref.missionNumber).map(({ path }) => path) : []),

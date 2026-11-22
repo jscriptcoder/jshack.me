@@ -294,12 +294,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return { data: data as OccupantWorkstation | null, error };
   };
 
-  // The paths of the files a contract box carries — paths only, no secret: the write gate
-  // asks whether a tier may write one, which its root-only perms answer. None for every other
-  // box. Letting a root's `rm` of one resolve and be permitted is all this does.
+  // The paths of the files a contract box carries — paths only, no secret but one: the
+  // write gate asks whether a tier may write one, which its root-only perms answer. None for
+  // every other box. Letting a root's `rm` of one resolve and be permitted is all this does. A
+  // cleanup target's implant hides where only the mission secret says, so it is read here.
   const missionFilePathsOf = ({ essid, machine_id }: { essid: string; machine_id: string }) => {
     const box = missionBoxAt(essid, machine_id);
-    return box === null ? [] : missionFilePaths(box);
+    return box === null ? [] : missionFilePaths(box, process.env.MISSION_KEY_SECRET);
   };
 
   if (actionOf(req.body) === 'listPatches') {

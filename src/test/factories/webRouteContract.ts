@@ -14,20 +14,9 @@ import {
   missionEssid,
 } from '../../core/missions/missionNetwork.js';
 import { missionShape } from '../../core/missions/missionShape.js';
-import {
-  COMMON_PASSWORDS,
-  CRACKABLE_PASSWORDS,
-  plaintextFor,
-  UNCRACKABLE_PASSWORDS,
-  WIFI_PASSWORDS,
-} from '../passwords.js';
+import { DEPLOYMENT_SECRETS, plaintextFor } from '../passwords.js';
 
-export const DEPLOYMENT_SECRETS = JSON.stringify({
-  UNCRACKABLE_PASSWORDS,
-  CRACKABLE_PASSWORDS,
-  COMMON_PASSWORDS,
-  WIFI_PASSWORDS,
-});
+export { DEPLOYMENT_SECRETS };
 
 const KEY_SECRET = 'test-mission-secret';
 

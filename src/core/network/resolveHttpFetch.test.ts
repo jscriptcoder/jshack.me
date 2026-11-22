@@ -77,6 +77,7 @@ import {
 import { TOWNS } from '../generation/world.js';
 import { sessionTable } from '../../test/factories/sessionTable.js';
 import { missionKeyPath } from '../missions/missionSecret.js';
+import { DEPLOYMENT_SECRETS } from '../../test/passwords.js';
 import {
   missionFilesWithNoPools,
   servedMissionFiles,
@@ -379,6 +380,7 @@ const makeDeps = (over: FetchOverrides = {}) => {
     findBoardHandle,
     contractStore,
     missionSecret: over.missionSecret === null ? undefined : (over.missionSecret ?? 'test-secret'),
+    rawSecrets: DEPLOYMENT_SECRETS,
     drawContractNumber: () => 100000,
     drawOfferRef: () => {
       offersDrawn += 1;

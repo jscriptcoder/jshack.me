@@ -106,6 +106,8 @@ describe('the key box of a contract network', () => {
     // An NPC user and guest sit below root, shells that cannot read the root-only key.
     expect(passwd).toMatch(/:1000:1000:/);
     expect(passwd).toMatch(/^guest:[^:]*:1001:1001:/m);
+    // Only a cleanup target lists the service account its intruder's listener runs under.
+    expect(passwd.trimEnd().split('\n')).toHaveLength(3);
   });
 
   it('runs a web server and sshd on the web route, beside its decoys, and holds no leak of its own', () => {
@@ -644,8 +646,8 @@ describe("a portforward job's target", () => {
 
   it("keeps the same cache store for a number every time, on the job's own stream", () => {
     // Captured from the generator.
-    expect(md5(JSON.stringify(storeIn(buildMissionKeyBoxFs(48))))).toBe(
-      '0fedc0d27f56d989ad98820042700ccb',
+    expect(md5(JSON.stringify(storeIn(buildMissionKeyBoxFs(94))))).toBe(
+      '941012d2d66c52ea58fa9212b4565519',
     );
   });
 

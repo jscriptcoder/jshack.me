@@ -5,6 +5,7 @@ import {
   CRACKABLE_PASSWORDS,
   plaintextFor,
   UNCRACKABLE_PASSWORDS,
+  WHITE_HAT_PASSWORDS,
 } from './passwords.js';
 
 describe('the reverse lookup', () => {
@@ -13,7 +14,7 @@ describe('the reverse lookup', () => {
     // list. A pool missing from it does not fail — the lookup simply returns
     // nothing, so an assertion like "the full wordlist cracks every account" keeps
     // passing while quietly meaning "the accounts I could still identify".
-    const everyPool = [...CRACKABLE_PASSWORDS, ...UNCRACKABLE_PASSWORDS];
+    const everyPool = [...CRACKABLE_PASSWORDS, ...UNCRACKABLE_PASSWORDS, ...WHITE_HAT_PASSWORDS];
     const missing = everyPool.filter((password) => !ALL_GENERATED_PASSWORDS.includes(password));
 
     expect(missing).toEqual([]);
