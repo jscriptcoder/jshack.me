@@ -19,7 +19,7 @@
 
 import { createPrng } from '../generation/prng.js';
 import { chainFinal, missionKind, missionTopology, type ChainFinal } from './missionShape.js';
-import { backdoorJob, chainJob, credentialRole, sabotageRole } from './targetRoles.js';
+import { backdoorJob, chainJob, cleanupJob, credentialRole, sabotageRole } from './targetRoles.js';
 import { missionFileItem } from './missionFileItem.js';
 import { portforwardJob } from './portforwardJob.js';
 import {
@@ -64,7 +64,8 @@ export type MissionTerms =
   | ({ readonly job: 'credential' } & CommonTerms)
   | ({ readonly job: 'destroy' } & CommonTerms)
   | ({ readonly job: 'wipe' } & CommonTerms)
-  | ({ readonly job: 'chain' } & CommonTerms);
+  | ({ readonly job: 'chain' } & CommonTerms)
+  | ({ readonly job: 'cleanup' } & CommonTerms);
 
 const CLIENTS: readonly MissionClient[] = [
   { company: 'Copper Systems', handle: 'copper-ops' },
@@ -341,6 +342,14 @@ const CHAIN_PITCHES: Readonly<Record<ChainFinal, readonly string[]>> = {
   ],
 };
 
+/** What a cleanup job pays, in JSC: the client hands over the login, so there is no way in to
+ *  find and the hunt is the work, at about three fifths of what breaking in pays. A machine behind
+ *  a second box starts where a single-hop one tops out. */
+const CLEANUP_PAY = {
+  singleHop: { minPay: 300, maxPay: 1200 },
+  twoHop: { minPay: 1200, maxPay: 2400 },
+} as const;
+
 /** What a chain job pays, in JSC: two boxes rooted and a step done on each, the most work any
  *  contract asks. */
 const CHAIN_PAY = { minPay: 4000, maxPay: 7000 } as const;
@@ -420,6 +429,17 @@ export const missionTerms = (missionNumber: number): MissionTerms => {
       kind: chainKind(missionNumber, final),
       pitch: prng.pick(CHAIN_PITCHES[final]),
       pay: payFrom(prng, CHAIN_PAY),
+    };
+  }
+  if (missionKind(missionNumber) === 'cleanup') {
+    const { noun, cleanupPitches } = cleanupJob(missionNumber).role;
+    return {
+      job: 'cleanup',
+      client: prng.pick(CLIENTS),
+      targetCompany: `${capitalised(stem)} ${prng.pick(TARGET_TRADES)}`,
+      kind: `clean up ${singleHop ? 'a' : 'an internal'} ${noun}`,
+      pitch: prng.pick(cleanupPitches),
+      pay: payFrom(prng, CLEANUP_PAY[singleHop ? 'singleHop' : 'twoHop']),
     };
   }
   const job = singleHop ? SINGLE_HOP : TWO_HOP;

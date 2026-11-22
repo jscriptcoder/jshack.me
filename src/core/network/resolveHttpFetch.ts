@@ -198,6 +198,9 @@ export type ResolveHttpFetchDeps = WebTargetDeps & {
   /** The deployment's mission secret, which an infiltrate job's briefing draws the client's
    *  file from; undefined on a deployment that has none. */
   readonly missionSecret: string | undefined;
+  /** The deployment's `JSHACK_SECRETS`, whose white-hat words a cleanup job's briefing hands
+   *  over; undefined on a deployment that has none. */
+  readonly rawSecrets: string | undefined;
   /** A contract number nobody may guess, offered to a board short of offers. */
   readonly drawContractNumber: () => number;
   /** A ref for a new offer, as its Accept form posts it. */
@@ -836,6 +839,7 @@ export const handleResolveHttpFetch = async (
             ...door,
             form: payload.body ?? '',
             missionSecret: deps.missionSecret,
+            rawSecrets: deps.rawSecrets,
           })
         : contractDoor === 'drop'
           ? await answerDrop({ ...door, form: payload.body ?? '' })

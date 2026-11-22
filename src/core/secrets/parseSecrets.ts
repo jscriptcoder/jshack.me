@@ -1,6 +1,6 @@
 /**
  * Reads `JSHACK_SECRETS`, the one environment variable that holds every password pool,
- * into the four lists the game draws from — or into a message naming each rule the
+ * into the five lists the game draws from — or into a message naming each rule the
  * value breaks.
  *
  * The pools left the repo so a reader of its history cannot learn the answer key; the
@@ -40,6 +40,7 @@ const secretsSchema = z.strictObject(
     CRACKABLE_PASSWORDS: wordList,
     COMMON_PASSWORDS: wordList,
     WIFI_PASSWORDS: wordList,
+    WHITE_HAT_PASSWORDS: wordList,
   },
   { error: 'must be a JSON object' },
 );
@@ -111,6 +112,22 @@ const uncrackableProblems = (secrets: Secrets): string[] => {
   return [...tooFew, ...outnumbered, ...leaked];
 };
 
+/** The lists whose words some door outside a white-hat job can hold: the pool every shut door
+ *  draws from, and the lists a player can read. */
+const LISTS_OUTSIDE_WHITE_HAT = [
+  'UNCRACKABLE_PASSWORDS',
+  ...LISTS_A_PLAYER_CAN_READ,
+] as const satisfies readonly ListKey[];
+
+/** A client hands a white-hat root word to whoever takes the job, and dropping a job costs
+ *  nothing, so the words are a list anyone can collect: each must open white-hat boxes only. */
+const whiteHatProblems = (secrets: Secrets): string[] =>
+  LISTS_OUTSIDE_WHITE_HAT.flatMap((key) =>
+    secrets.WHITE_HAT_PASSWORDS.filter((word) => secrets[key].includes(word)).map((word) =>
+      problem('WHITE_HAT_PASSWORDS', `${JSON.stringify(word)} is also in ${key}`),
+    ),
+  );
+
 /** The parsed value, boxed so that a value of `null` is not mistaken for a failed parse. */
 const parseJson = (raw: string): { readonly value: unknown } | null => {
   try {
@@ -132,6 +149,7 @@ export const parseSecrets = (raw: string | undefined): ParsedSecrets => {
   const problems = [
     ...LIST_KEYS.flatMap((key) => listProblems(key, secrets[key])),
     ...uncrackableProblems(secrets),
+    ...whiteHatProblems(secrets),
   ];
   return problems.length === 0 ? { ok: true, secrets } : { ok: false, error: problems.join('\n') };
 };

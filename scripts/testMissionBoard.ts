@@ -320,6 +320,7 @@ const main = async () => {
     destroy: 'Not gone, no money.',
     wipe: 'Not wiped, no money.',
     chain: 'Both done or no money.',
+    cleanup: 'Still there, no money.',
   } as const;
   const offered = inState(turnedRows, 'offered');
   const taken = offered[1]!;

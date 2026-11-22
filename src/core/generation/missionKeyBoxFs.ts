@@ -64,6 +64,7 @@ import {
   dir,
   file,
   generatePasswd,
+  type PasswdUser,
   GUEST_HOME_DIR,
   HOME_DIR,
   PASSWD_FILE,
@@ -99,7 +100,9 @@ import { generateHomeLan } from './generateHomeLan.js';
 import { MYSQL_USERNAMES } from './pools/database.js';
 import { usernamePool } from './pools/usernames.js';
 import { missionEssid } from '../missions/missionNetwork.js';
+import { cleanupJob } from '../missions/targetRoles.js';
 import {
+  missionKind,
   missionShape,
   type MissionBox,
   type MissionDatabase,
@@ -184,10 +187,23 @@ type BoxStreams = {
   readonly cache: string;
 };
 
+/** The locked account a cleanup target's intruder runs its listener under: a service account,
+ *  past every drawn one so no other draw moves, that nobody can log in as. */
+const serviceAccountRow = (account: string): PasswdUser => ({
+  username: account,
+  passwordHash: '*',
+  uid: 999,
+  gid: 999,
+  gecos: account,
+  home: `/var/lib/${account}`,
+  shell: '/usr/sbin/nologin',
+});
+
 const buildMissionBoxFs = (
   missionNumber: number,
   box: MissionBox,
   streams: BoxStreams,
+  serviceAccount: string | null = null,
 ): Directory => {
   const prng = createPrng(streams.accounts);
   const username = prng.pick(usernamePool(undefined));
@@ -220,6 +236,7 @@ const buildMissionBoxFs = (
       home: '/home/guest',
       shell: SHELL,
     },
+    ...(serviceAccount === null ? [] : [serviceAccountRow(serviceAccount)]),
   ]);
 
   // sshd always runs; the route's exposed service runs too on every route but hydra.
@@ -411,11 +428,18 @@ const buildMissionBoxFs = (
 };
 
 export const buildMissionKeyBoxFs = (missionNumber: number): Directory =>
-  buildMissionBoxFs(missionNumber, missionShape(missionNumber).keyBox, {
-    accounts: `mission-keybox-${missionNumber}`,
-    application: `mission-database-${missionNumber}`,
-    cache: `mission-cache-${missionNumber}`,
-  });
+  buildMissionBoxFs(
+    missionNumber,
+    missionShape(missionNumber).keyBox,
+    {
+      accounts: `mission-keybox-${missionNumber}`,
+      application: `mission-database-${missionNumber}`,
+      cache: `mission-cache-${missionNumber}`,
+    },
+    missionKind(missionNumber) === 'cleanup'
+      ? cleanupJob(missionNumber).role.serviceAccount
+      : null,
+  );
 
 /** A two-hop contract's front box: built as the key box is, from its own record and on its own
  *  streams. It holds no key and no storage, since the server lays nothing on it but its own

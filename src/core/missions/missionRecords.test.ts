@@ -26,12 +26,7 @@ import { materializeMachineFs } from '../network/materializeMachineFs.js';
 import type { Directory } from '../filesystem/types.js';
 import { createFsView } from '../filesystem/fsView.js';
 import { asAbsPath } from '../types.js';
-import {
-  COMMON_PASSWORDS,
-  CRACKABLE_PASSWORDS,
-  UNCRACKABLE_PASSWORDS,
-  WIFI_PASSWORDS,
-} from '../../test/passwords.js';
+import { DEPLOYMENT_SECRETS } from '../../test/passwords.js';
 
 /** A spread of contract numbers whose last octet is a host octet (2–254). */
 const SAMPLE_NUMBERS = Array.from({ length: 400 }, (_unused, index) => index * 41893 + 7).filter(
@@ -706,10 +701,14 @@ const hydraTamperNumber = (
   return found;
 };
 
-/** School contracts spread over the block, asking a change or an erase. */
-const SCHOOL_NUMBERS = Array.from({ length: 4000 }, (_unused, index) => index * 4153 + 9).filter(
-  (missionNumber) => isMissionNumber(missionNumber) && missionSetting(missionNumber) === 'school',
-);
+/** School contracts spread over the block, asking a change or an erase. Two spreads, the second
+ *  after the first, so a pick the first holds stays the first found: a hydra erase job keeping a
+ *  file is rare, and the first spread's one became a cleanup job. */
+const SCHOOL_NUMBERS = [9, 2081]
+  .flatMap((offset) => Array.from({ length: 4000 }, (_unused, index) => index * 4153 + offset))
+  .filter(
+    (missionNumber) => isMissionNumber(missionNumber) && missionSetting(missionNumber) === 'school',
+  );
 const CHANGE_NUMBERS = SCHOOL_NUMBERS.filter(isChange);
 const ERASE_NUMBERS = SCHOOL_NUMBERS.filter((missionNumber) => !isChange(missionNumber));
 
@@ -1590,15 +1589,7 @@ describe('recordsWiped on records kept in a database', () => {
 
   it('reads wiped on the database route with its settings table emptied too', () => {
     const missionNumber = wipeNumber('school', 'database', 'mysql');
-    const { after: routeAfter } = recordsBoxOf(
-      missionNumber,
-      JSON.stringify({
-        UNCRACKABLE_PASSWORDS,
-        CRACKABLE_PASSWORDS,
-        COMMON_PASSWORDS,
-        WIFI_PASSWORDS,
-      }),
-    );
+    const { after: routeAfter } = recordsBoxOf(missionNumber, DEPLOYMENT_SECRETS);
     const box = routeAfter('DELETE FROM grades', 'DELETE FROM settings');
 
     expect(databaseIn(box)?.tables['settings']?.rows).toEqual([]);

@@ -52,20 +52,11 @@ import { runStatement } from '../mysql/statements.js';
 import { missionAction, missionRecords, missionSetting, recordsFiles } from './missionRecords.js';
 import { missionFileContent, missionFileItem, missionFilePath } from './missionFileItem.js';
 import {
-  COMMON_PASSWORDS,
-  CRACKABLE_PASSWORDS,
+  DEPLOYMENT_POOLS,
+  DEPLOYMENT_SECRETS,
   plaintextFor,
   UNCRACKABLE_PASSWORDS,
-  WIFI_PASSWORDS,
 } from '../../test/passwords.js';
-
-/** The deployment's password pools, as the server reads them from its environment. */
-const RAW_SECRETS = JSON.stringify({
-  UNCRACKABLE_PASSWORDS,
-  CRACKABLE_PASSWORDS,
-  COMMON_PASSWORDS,
-  WIFI_PASSWORDS,
-});
 
 const KEY_SECRET = 'test-mission-secret';
 
@@ -133,12 +124,12 @@ describe('leakedWord', () => {
     const [hash] = LEAKABLE_HASHES;
     if (hash === undefined) throw new Error('no leakable hash');
 
-    expect(leakedWord(hash, RAW_SECRETS) === plaintextFor(hash)).toBe(true);
+    expect(leakedWord(hash, DEPLOYMENT_SECRETS) === plaintextFor(hash)).toBe(true);
   });
 
   it('refuses every hash outside the slice, so no other word can come out', () => {
     for (const hash of SHUT_HASHES) {
-      expect(() => leakedWord(hash, RAW_SECRETS), hash).toThrow(MissionLeakUnavailableError);
+      expect(() => leakedWord(hash, DEPLOYMENT_SECRETS), hash).toThrow(MissionLeakUnavailableError);
     }
   });
 
@@ -155,10 +146,8 @@ describe('leakedWord', () => {
     const word = plaintextFor(hash);
     const others = UNCRACKABLE_PASSWORDS.filter((candidate) => candidate !== word);
     const rotated = JSON.stringify({
+      ...DEPLOYMENT_POOLS,
       UNCRACKABLE_PASSWORDS: others,
-      CRACKABLE_PASSWORDS,
-      COMMON_PASSWORDS,
-      WIFI_PASSWORDS,
     });
 
     expect(() => leakedWord(hash, rotated)).toThrow(MissionLeakUnavailableError);
@@ -189,15 +178,15 @@ describe('missionLeakFile', () => {
   it('is the same for the same number', () => {
     const missionNumber = firstWithRoute('web');
 
-    expect(missionLeakFile(keyOf(missionNumber), RAW_SECRETS)).toEqual(
-      missionLeakFile(keyOf(missionNumber), RAW_SECRETS),
+    expect(missionLeakFile(keyOf(missionNumber), DEPLOYMENT_SECRETS)).toEqual(
+      missionLeakFile(keyOf(missionNumber), DEPLOYMENT_SECRETS),
     );
   });
 
   it('holds the word of the box root, and never names the account', () => {
     for (const missionNumber of numbersWithRoute('web')) {
       const word = plaintextFor(missionShape(missionNumber).keyBox.rootHash);
-      const leak = missionLeakFile(keyOf(missionNumber), RAW_SECRETS);
+      const leak = missionLeakFile(keyOf(missionNumber), DEPLOYMENT_SECRETS);
 
       expect(leak?.content.includes(word), `word in file of ${missionNumber}`).toBe(true);
       expect(/root/i.test(leak?.content ?? 'root'), `account in file of ${missionNumber}`).toBe(
@@ -221,7 +210,7 @@ describe('missionLeakFile', () => {
   it('holds the word of the box root on an ftp route, and never names the account', () => {
     for (const missionNumber of numbersWithRoute('ftp')) {
       const word = plaintextFor(missionShape(missionNumber).keyBox.rootHash);
-      const leak = missionLeakFile(keyOf(missionNumber), RAW_SECRETS);
+      const leak = missionLeakFile(keyOf(missionNumber), DEPLOYMENT_SECRETS);
 
       expect(leak?.content.includes(word), `word in file of ${missionNumber}`).toBe(true);
       expect(/root/i.test(leak?.content ?? 'root'), `account in file of ${missionNumber}`).toBe(
@@ -232,7 +221,7 @@ describe('missionLeakFile', () => {
 
   it('is the datadir on a database route, as root-only as the one it replaces', () => {
     for (const missionNumber of numbersWithRoute('mysql')) {
-      const leak = missionLeakFile(keyOf(missionNumber), RAW_SECRETS);
+      const leak = missionLeakFile(keyOf(missionNumber), DEPLOYMENT_SECRETS);
 
       expect(missionLeakPath(keyOf(missionNumber))).toBe(DATADIR_PATH);
       expect(leak?.path).toBe(DATADIR_PATH);
@@ -243,7 +232,7 @@ describe('missionLeakFile', () => {
   it('adds only the settings table to the database the box generates', () => {
     for (const missionNumber of numbersWithRoute('mysql')) {
       const laid = parseMysqlDatabase(
-        missionLeakFile(keyOf(missionNumber), RAW_SECRETS)?.content ?? '',
+        missionLeakFile(keyOf(missionNumber), DEPLOYMENT_SECRETS)?.content ?? '',
       );
       const generated = databaseIn(buildMissionKeyBoxFs(missionNumber));
       const { settings: _settings, ...others } = laid?.tables ?? {};
@@ -258,7 +247,7 @@ describe('missionLeakFile', () => {
     for (const missionNumber of numbersWithRoute('mysql')) {
       const word = plaintextFor(missionShape(missionNumber).keyBox.rootHash);
       const laid = parseMysqlDatabase(
-        missionLeakFile(keyOf(missionNumber), RAW_SECRETS)?.content ?? '',
+        missionLeakFile(keyOf(missionNumber), DEPLOYMENT_SECRETS)?.content ?? '',
       );
       const settings = laid?.tables['settings'];
 
@@ -283,14 +272,14 @@ describe('missionLeakFile', () => {
   it('is the same database for the same number', () => {
     const missionNumber = firstWithRoute('mysql');
 
-    expect(missionLeakFile(keyOf(missionNumber), RAW_SECRETS)).toEqual(
-      missionLeakFile(keyOf(missionNumber), RAW_SECRETS),
+    expect(missionLeakFile(keyOf(missionNumber), DEPLOYMENT_SECRETS)).toEqual(
+      missionLeakFile(keyOf(missionNumber), DEPLOYMENT_SECRETS),
     );
   });
 
   it('is the agent config on an snmp route, readable by any tier and written by root', () => {
     for (const missionNumber of numbersWithRoute('snmp')) {
-      const leak = missionLeakFile(keyOf(missionNumber), RAW_SECRETS);
+      const leak = missionLeakFile(keyOf(missionNumber), DEPLOYMENT_SECRETS);
 
       expect(missionLeakPath(keyOf(missionNumber))).toBe(SNMPD_CONF_PATH);
       expect(leak?.path).toBe(SNMPD_CONF_PATH);
@@ -301,7 +290,7 @@ describe('missionLeakFile', () => {
   it('holds the word of the box root as the contact, and never names the account', () => {
     for (const missionNumber of numbersWithRoute('snmp')) {
       const word = plaintextFor(missionShape(missionNumber).keyBox.rootHash);
-      const content = missionLeakFile(keyOf(missionNumber), RAW_SECRETS)?.content ?? '';
+      const content = missionLeakFile(keyOf(missionNumber), DEPLOYMENT_SECRETS)?.content ?? '';
 
       expect(parseSnmpdConf(content).sysContact.includes(word), `${missionNumber}`).toBe(true);
       expect(/root/i.test(content), `${missionNumber}`).toBe(false);
@@ -310,7 +299,7 @@ describe('missionLeakFile', () => {
 
   it('reads as a config: a header, its two directives and a closing newline', () => {
     const lines = (
-      missionLeakFile(keyOf(firstWithRoute('snmp')), RAW_SECRETS)?.content ?? ''
+      missionLeakFile(keyOf(firstWithRoute('snmp')), DEPLOYMENT_SECRETS)?.content ?? ''
     ).split('\n');
 
     expect(lines).toHaveLength(4);
@@ -320,7 +309,7 @@ describe('missionLeakFile', () => {
 
   it.each(['web', 'ftp'] as const)('keeps the agent config off a %s route', (route) => {
     for (const missionNumber of numbersWithRoute(route)) {
-      const content = missionLeakFile(keyOf(missionNumber), RAW_SECRETS)?.content ?? '';
+      const content = missionLeakFile(keyOf(missionNumber), DEPLOYMENT_SECRETS)?.content ?? '';
 
       expect(parseSnmpdConf(content).roCommunity, `${missionNumber}`).toBeNull();
     }
@@ -329,7 +318,7 @@ describe('missionLeakFile', () => {
   it('answers to monitor or netops and never to public, so a default walk gets silence', () => {
     const communities = numbersWithRoute('snmp').map(
       (missionNumber) =>
-        parseSnmpdConf(missionLeakFile(keyOf(missionNumber), RAW_SECRETS)?.content ?? '')
+        parseSnmpdConf(missionLeakFile(keyOf(missionNumber), DEPLOYMENT_SECRETS)?.content ?? '')
           .roCommunity,
     );
 
@@ -339,8 +328,8 @@ describe('missionLeakFile', () => {
   it('is the same config for the same number', () => {
     const missionNumber = firstWithRoute('snmp');
 
-    expect(missionLeakFile(keyOf(missionNumber), RAW_SECRETS)).toEqual(
-      missionLeakFile(keyOf(missionNumber), RAW_SECRETS),
+    expect(missionLeakFile(keyOf(missionNumber), DEPLOYMENT_SECRETS)).toEqual(
+      missionLeakFile(keyOf(missionNumber), DEPLOYMENT_SECRETS),
     );
   });
 
@@ -354,7 +343,7 @@ describe('missionLeakFile', () => {
     for (const route of ['hydra', 'msfconsole'] as const) {
       const missionNumber = firstWithRoute(route);
       expect(missionLeakPath(keyOf(missionNumber)), route).toBeNull();
-      expect(missionLeakFile(keyOf(missionNumber), RAW_SECRETS), route).toBeNull();
+      expect(missionLeakFile(keyOf(missionNumber), DEPLOYMENT_SECRETS), route).toBeNull();
     }
   });
 });
@@ -378,14 +367,14 @@ describe('missionFiles', () => {
     const missionNumber = firstWithRoute('web');
 
     expect(
-      missionFiles(keyOf(missionNumber), { keySecret: KEY_SECRET, rawSecrets: RAW_SECRETS }),
+      missionFiles(keyOf(missionNumber), { keySecret: KEY_SECRET, rawSecrets: DEPLOYMENT_SECRETS }),
     ).toEqual([
       {
         path: missionKeyPath(missionNumber),
         content: `${missionKey(missionNumber, KEY_SECRET)}\n`,
         perms: ROOT_FILE,
       },
-      missionLeakFile(keyOf(missionNumber), RAW_SECRETS),
+      missionLeakFile(keyOf(missionNumber), DEPLOYMENT_SECRETS),
     ]);
   });
 
@@ -405,7 +394,7 @@ describe('missionFiles', () => {
     expect(() =>
       missionFiles(keyOf(firstWithRoute('hydra')), {
         keySecret: undefined,
-        rawSecrets: RAW_SECRETS,
+        rawSecrets: DEPLOYMENT_SECRETS,
       }),
     ).toThrow(MissionSecretMissingError);
   });
@@ -419,7 +408,7 @@ describe('missionFilesForBox', () => {
     if (keyBox === undefined) throw new Error('a contract network has a key box');
     return { essid, machine_id: machineIdForLanHost(keyBox, essid) };
   };
-  const HOLDING_BOTH = { keySecret: KEY_SECRET, rawSecrets: RAW_SECRETS };
+  const HOLDING_BOTH = { keySecret: KEY_SECRET, rawSecrets: DEPLOYMENT_SECRETS };
 
   it('gives a key box its files', async () => {
     const missionNumber = firstWithRoute('web');
@@ -465,7 +454,7 @@ describe('missionFilesForBox', () => {
     expect(
       await missionFilesForBox(keyBoxOf(firstWithRoute('hydra')), {
         keySecret: undefined,
-        rawSecrets: RAW_SECRETS,
+        rawSecrets: DEPLOYMENT_SECRETS,
       }),
     ).toEqual({ data: null, error: 'mission_secret_missing' });
   });
@@ -498,7 +487,7 @@ describe('missionFilePaths', () => {
         if (missionNumber === undefined) throw new Error(`no ${route} ${storage} contract`);
         const laid = missionFiles(keyOf(missionNumber), {
           keySecret: KEY_SECRET,
-          rawSecrets: RAW_SECRETS,
+          rawSecrets: DEPLOYMENT_SECRETS,
         });
 
         expect(missionFilePaths(keyOf(missionNumber)), `${route} ${storage}`).toEqual(
@@ -523,7 +512,7 @@ describe('missionFilePaths', () => {
 });
 
 describe('the files of a two-hop contract', () => {
-  const HOLDING_BOTH = { keySecret: KEY_SECRET, rawSecrets: RAW_SECRETS };
+  const HOLDING_BOTH = { keySecret: KEY_SECRET, rawSecrets: DEPLOYMENT_SECRETS };
 
   const twoHopShapes = SAMPLE_NUMBERS.map(missionShape).filter((shape) => shape.frontBox !== null);
 
@@ -567,10 +556,10 @@ describe('the files of a two-hop contract', () => {
     "gives a %s front box's file the front box own root word",
     (route) => {
       const missionNumber = twoHopWith((shape) => shape.frontBox?.route === route);
-      const file = missionLeakFile(frontOf(missionNumber), RAW_SECRETS);
+      const file = missionLeakFile(frontOf(missionNumber), DEPLOYMENT_SECRETS);
 
       expect(
-        missionLeakWord(frontOf(missionNumber), RAW_SECRETS) === frontWord(missionNumber),
+        missionLeakWord(frontOf(missionNumber), DEPLOYMENT_SECRETS) === frontWord(missionNumber),
       ).toBe(true);
       expect(file?.content.includes(frontWord(missionNumber))).toBe(true);
     },
@@ -646,7 +635,7 @@ describe('the files of a two-hop contract', () => {
   it('names the same files the server lays in, for each box', () => {
     for (const { missionNumber } of twoHopShapes.slice(0, 80)) {
       for (const box of [keyOf(missionNumber), frontOf(missionNumber)]) {
-        expect(missionFilePaths(box), `${box.role} box of ${missionNumber}`).toEqual(
+        expect(missionFilePaths(box, KEY_SECRET), `${box.role} box of ${missionNumber}`).toEqual(
           missionFiles(box, HOLDING_BOTH).map(({ path }) => path),
         );
       }
@@ -685,7 +674,7 @@ describe('the files of a two-hop contract', () => {
 });
 
 describe('a contract that keeps its key encrypted', () => {
-  const HOLDING_BOTH = { keySecret: KEY_SECRET, rawSecrets: RAW_SECRETS };
+  const HOLDING_BOTH = { keySecret: KEY_SECRET, rawSecrets: DEPLOYMENT_SECRETS };
 
   const sealedPathOf = (missionNumber: number): string => `${missionKeyPath(missionNumber)}.gpg`;
   const programPathOf = (missionNumber: number): string =>
@@ -778,7 +767,7 @@ describe('a contract that keeps its key encrypted', () => {
     expect(() =>
       missionFiles(keyOf(firstWithStorage('gpg')), {
         keySecret: undefined,
-        rawSecrets: RAW_SECRETS,
+        rawSecrets: DEPLOYMENT_SECRETS,
       }),
     ).toThrow(MissionSecretMissingError);
   });
@@ -873,7 +862,7 @@ describe('a contract that keeps its key encrypted', () => {
 });
 
 describe('a contract that keeps its key in its database', () => {
-  const HOLDING_BOTH = { keySecret: KEY_SECRET, rawSecrets: RAW_SECRETS };
+  const HOLDING_BOTH = { keySecret: KEY_SECRET, rawSecrets: DEPLOYMENT_SECRETS };
 
   const laidDatabase = (missionNumber: number) =>
     parseMysqlDatabase(
@@ -978,7 +967,7 @@ describe('a contract that keeps its key in its database', () => {
     expect(() =>
       missionFiles(keyOf(firstWithRoute('hydra', 'database')), {
         keySecret: undefined,
-        rawSecrets: RAW_SECRETS,
+        rawSecrets: DEPLOYMENT_SECRETS,
       }),
     ).toThrow(MissionSecretMissingError);
   });
@@ -1020,7 +1009,7 @@ describe('a contract that keeps its key in its database', () => {
 });
 
 describe('who can read what the server lays onto a key box', () => {
-  const HOLDING_BOTH = { keySecret: KEY_SECRET, rawSecrets: RAW_SECRETS };
+  const HOLDING_BOTH = { keySecret: KEY_SECRET, rawSecrets: DEPLOYMENT_SECRETS };
 
   /** The key box as a door sees it, with the number's files laid on. */
   const laidBox = async (missionNumber: number) => {
@@ -1076,7 +1065,7 @@ describe('who can read what the server lays onto a key box', () => {
   });
 
   it('lets only root change the file in pub', () => {
-    const leak = missionLeakFile(keyOf(firstWithRoute('ftp')), RAW_SECRETS);
+    const leak = missionLeakFile(keyOf(firstWithRoute('ftp')), DEPLOYMENT_SECRETS);
 
     expect(leak?.perms.write).toEqual(['root']);
     expect(leak?.perms.execute).toEqual([]);
@@ -1124,9 +1113,10 @@ describe("a sabotage job's target", () => {
     const missionNumber = firstSabotageWithRoute('mysql');
     const laid = parseMysqlDatabase(
       // The word comes from the leak secrets; no key secret is needed, as there is no key.
-      missionFiles(keyOf(missionNumber), { keySecret: undefined, rawSecrets: RAW_SECRETS }).find(
-        ({ path }) => path === DATADIR_PATH,
-      )?.content ?? '',
+      missionFiles(keyOf(missionNumber), {
+        keySecret: undefined,
+        rawSecrets: DEPLOYMENT_SECRETS,
+      }).find(({ path }) => path === DATADIR_PATH)?.content ?? '',
     );
     const generated = databaseIn(buildMissionKeyBoxFs(missionNumber));
     const { settings, ...others } = laid?.tables ?? {};
@@ -1164,7 +1154,7 @@ describe("a sabotage job's target", () => {
 });
 
 describe("a portforward job's target", () => {
-  const HOLDING_BOTH = { keySecret: KEY_SECRET, rawSecrets: RAW_SECRETS };
+  const HOLDING_BOTH = { keySecret: KEY_SECRET, rawSecrets: DEPLOYMENT_SECRETS };
   const PORTFORWARD_NUMBERS = SAMPLE_NUMBERS.filter(
     (missionNumber) => missionShape(missionNumber).kind === 'portforward',
   );
@@ -1172,7 +1162,7 @@ describe("a portforward job's target", () => {
   // The job is the router's forward onto the machine, not anything inside it, so the server
   // lays no key, records, file or leak there, whatever the machine runs.
   it('has nothing laid on it: no key, records, file, leak or datadir', () => {
-    expect(PORTFORWARD_NUMBERS.length).toBeGreaterThan(200);
+    expect(PORTFORWARD_NUMBERS.length).toBeGreaterThan(150);
     for (const missionNumber of PORTFORWARD_NUMBERS) {
       expect(missionFilePaths(keyOf(missionNumber)), `contract ${missionNumber}`).toEqual([]);
       expect(missionFiles(keyOf(missionNumber), HOLDING_BOTH), `contract ${missionNumber}`).toEqual(
@@ -1183,7 +1173,7 @@ describe("a portforward job's target", () => {
 });
 
 describe("a file job's target", () => {
-  const HOLDING_BOTH = { keySecret: KEY_SECRET, rawSecrets: RAW_SECRETS };
+  const HOLDING_BOTH = { keySecret: KEY_SECRET, rawSecrets: DEPLOYMENT_SECRETS };
 
   /** The first file job in the sample whose target falls to `route`, on one hop or two. */
   const firstFileJob = (route: MissionRoute, twoHop = false): number => {
@@ -1258,7 +1248,7 @@ describe("a file job's target", () => {
     const missionNumber = firstFileJob('hydra');
 
     expect(() =>
-      missionFiles(keyOf(missionNumber), { keySecret: undefined, rawSecrets: RAW_SECRETS }),
+      missionFiles(keyOf(missionNumber), { keySecret: undefined, rawSecrets: DEPLOYMENT_SECRETS }),
     ).toThrow(MissionSecretMissingError);
   });
 
@@ -1296,7 +1286,7 @@ describe("a file job's target", () => {
 });
 
 describe("an infiltrate job's target", () => {
-  const HOLDING_BOTH = { keySecret: KEY_SECRET, rawSecrets: RAW_SECRETS };
+  const HOLDING_BOTH = { keySecret: KEY_SECRET, rawSecrets: DEPLOYMENT_SECRETS };
 
   /** The first infiltrate job in the sample whose target falls to `route`, on one hop or two. */
   const firstInfiltrateJob = (route: MissionRoute, twoHop = false): number => {
@@ -1355,7 +1345,7 @@ describe("an infiltrate job's target", () => {
 });
 
 describe("a destroy job's target", () => {
-  const HOLDING_BOTH = { keySecret: KEY_SECRET, rawSecrets: RAW_SECRETS };
+  const HOLDING_BOTH = { keySecret: KEY_SECRET, rawSecrets: DEPLOYMENT_SECRETS };
 
   /** The first destroy job in the sample whose target falls to `route`, on one hop or two. */
   const firstDestroyJob = (route: MissionRoute, twoHop = false): number => {
@@ -1408,7 +1398,7 @@ describe("a destroy job's target", () => {
     const missionNumber = firstDestroyJob('hydra');
 
     expect(() =>
-      missionFiles(keyOf(missionNumber), { keySecret: undefined, rawSecrets: RAW_SECRETS }),
+      missionFiles(keyOf(missionNumber), { keySecret: undefined, rawSecrets: DEPLOYMENT_SECRETS }),
     ).toThrow(MissionSecretMissingError);
   });
 
@@ -1422,7 +1412,7 @@ describe("a destroy job's target", () => {
 });
 
 describe("a tamper job's records box", () => {
-  const HOLDING_BOTH = { keySecret: KEY_SECRET, rawSecrets: RAW_SECRETS };
+  const HOLDING_BOTH = { keySecret: KEY_SECRET, rawSecrets: DEPLOYMENT_SECRETS };
 
   const laidDatabase = (missionNumber: number) =>
     parseMysqlDatabase(
@@ -1513,9 +1503,16 @@ describe("a tamper job's records box", () => {
   });
 
   it('lets the application account read the grades and change one', () => {
-    const missionNumber = tamperNumbersWithRoute('hydra').find(
-      (candidate) =>
-        missionAction(candidate) === 'change' && missionSetting(candidate) === 'school',
+    // Searched wider than the sample, whose one hydra school change job became a cleanup job.
+    const missionNumber = Array.from({ length: 4000 }, (_unused, index) => index * 4153 + 9).find(
+      (candidate) => {
+        if (!isMissionNumber(candidate) || missionKind(candidate) !== 'tamper') return false;
+        if (missionAction(candidate) !== 'change' || missionSetting(candidate) !== 'school') {
+          return false;
+        }
+        const shape = missionShape(candidate);
+        return shape.keyBox.route === 'hydra' && shape.storage === 'database';
+      },
     );
     if (missionNumber === undefined) throw new Error('no hydra school change job in the sample');
     const database = laidDatabase(missionNumber);
@@ -1619,7 +1616,7 @@ describe("a tamper job's records kept in a file", () => {
     const missionNumber = firstTamperWithRoute('mysql', 'file');
     const laid = missionFiles(keyOf(missionNumber), {
       keySecret: KEY_SECRET,
-      rawSecrets: RAW_SECRETS,
+      rawSecrets: DEPLOYMENT_SECRETS,
     });
     const database = parseMysqlDatabase(
       laid.find(({ path }) => path === DATADIR_PATH)?.content ?? '',
@@ -1723,7 +1720,7 @@ describe("a wipe job's records box", () => {
 });
 
 describe("a chain job's target", () => {
-  const HOLDING_BOTH = { keySecret: KEY_SECRET, rawSecrets: RAW_SECRETS };
+  const HOLDING_BOTH = { keySecret: KEY_SECRET, rawSecrets: DEPLOYMENT_SECRETS };
 
   /** The first chain job in a wide spread whose last step is `final`, with both boxes on the
    *  hydra route, which lays no leak, and that `wanted` accepts. */

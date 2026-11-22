@@ -91,7 +91,6 @@ describe('what a chain job names', () => {
     [720631, 1337, 4300, 'wexley-desk', '25e4001cf42e076b5d963ad9bd0036ee'],
     [1013634, 9001, 4550, 'copper-ops', '256096c252a7f42e2c221b7eeb3c0842'],
     [1029472, 9001, 5200, 'greyline-jobs', '2b74807946c67516397de98c525d7a24'],
-    [1298718, 31337, 6300, 'redfern-contracts', 'b9ad2f262445e79100be2c135cb83844'],
     [1377908, 7777, 6100, 'orchard-sec', '1f46b60ae052691b3271fa23c286f8f6'],
     [1504612, 5555, 5800, 'ashgrove-it', 'a6d567ce2ef21ef2f233e57639b5487e'],
   ] as const;

@@ -6,9 +6,11 @@
  *   JSON-stringified and XOR+Base64 obfuscated (see `contentCodec.ts`), except that the
  *   uncrackable pool is replaced by `UNCRACKABLE_HASHES`, the md5 of each word in list
  *   order. Those words are the answer key to every door that holds, so the bundle
- *   carries only what a player would have to crack anyway. The other lists reach every
+ *   carries only what a player would have to crack anyway. The white-hat words become
+ *   `WHITE_HAT_HASHES` the same way: a client hands one over in a briefing, so the
+ *   bundle must not. The other lists reach every
  *   player in the clear (the wordlist, a cracked wifi key), so obfuscation is enough.
- * - `src/core/secrets/__plaintext.ts`, the four raw lists, for tests and scripts that
+ * - `src/core/secrets/__plaintext.ts`, the five raw lists, for tests and scripts that
  *   need the word behind a hash. Lint forbids it to production code.
  *
  * Run automatically by the `predev`/`prebuild`/`pretest*` npm hooks so both files are
@@ -39,8 +41,12 @@ if (!parsed.ok) {
   process.exit(1);
 }
 
-const { UNCRACKABLE_PASSWORDS, ...readableLists } = parsed.secrets;
-const bundledLists = { ...readableLists, UNCRACKABLE_HASHES: UNCRACKABLE_PASSWORDS.map(md5) };
+const { UNCRACKABLE_PASSWORDS, WHITE_HAT_PASSWORDS, ...readableLists } = parsed.secrets;
+const bundledLists = {
+  ...readableLists,
+  UNCRACKABLE_HASHES: UNCRACKABLE_PASSWORDS.map(md5),
+  WHITE_HAT_HASHES: WHITE_HAT_PASSWORDS.map(md5),
+};
 
 const encodedEntries = Object.entries(bundledLists).map(
   ([key, words]) => [key, encodeContent(JSON.stringify(words))] as const,

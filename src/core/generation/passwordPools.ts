@@ -55,6 +55,16 @@ export const UNCRACKABLE_HASHES: readonly string[] = JSON.parse(
 ) as readonly string[];
 
 /**
+ * The md5 of every word a white-hat client hands over, in list order: the roots of the boxes a
+ * contractor is let into. No other door draws one (`parseSecrets` refuses a word that is also
+ * uncrackable or readable), so a collected list of them opens white-hat boxes only. The words
+ * stay on the server, which puts each into its briefing.
+ */
+export const WHITE_HAT_HASHES: readonly string[] = JSON.parse(
+  secrets.WHITE_HAT_HASHES,
+) as readonly string[];
+
+/**
  * How often each kind of account draws from the crackable pool.
  *
  * Stated once, together, because the numbers only mean anything relative to each

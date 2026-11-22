@@ -21,8 +21,10 @@
 
 import { z } from 'zod';
 import { EMAILIT_DOMAIN } from '../generation/fixedSites.js';
-import { missionAddressForNumber } from '../missions/missionNetwork.js';
-import { chainFinal, missionTopology } from '../missions/missionShape.js';
+import { missionAddressForNumber, missionEssid } from '../missions/missionNetwork.js';
+import { chainFinal, missionShape, missionTopology } from '../missions/missionShape.js';
+import { lanSubnetPrefix } from '../network/lanAddress.js';
+import { whiteHatWord } from '../missions/whiteHatLogin.js';
 import {
   missionRecords,
   missionSetting,
@@ -30,7 +32,13 @@ import {
   type RecordTarget,
 } from '../missions/missionRecords.js';
 import { missionTerms, type MissionTerms } from '../missions/missionTerms.js';
-import { backdoorJob, chainJob, credentialRole, sabotageRole } from '../missions/targetRoles.js';
+import {
+  backdoorJob,
+  chainJob,
+  cleanupJob,
+  credentialRole,
+  sabotageRole,
+} from '../missions/targetRoles.js';
 import { portforwardJob } from '../missions/portforwardJob.js';
 import {
   missionFileItem,
@@ -262,7 +270,7 @@ const chainFinalLines = (missionNumber: number): readonly string[] => {
  *  never their table, file or box. */
 const jobLines = (
   missionNumber: number,
-  terms: MissionTerms,
+  terms: Exclude<MissionTerms, { readonly job: 'cleanup' }>,
   inside: boolean,
 ): readonly string[] => {
   if (terms.job === 'sabotage') {
@@ -392,13 +400,85 @@ const jobLines = (
   ];
 };
 
+/** The logins a cleanup job's client hands over, or null when the deployment cannot give the
+ *  words: the edge machine's through the gateway's `:2222`, and on two hops the machine inside,
+ *  named for what it is, on its own `:22` at its address on the contract's LAN. */
+const cleanupLoginLines = (
+  missionNumber: number,
+  rawSecrets: string | undefined,
+): readonly string[] | null => {
+  const { keyBox, frontBox } = missionShape(missionNumber);
+  const address = missionAddressForNumber(missionNumber);
+  const edgeWord = whiteHatWord((frontBox ?? keyBox).rootHash, rawSecrets);
+  if (edgeWord === null) return null;
+  const edgeLogin = ['', `  ssh root@${address} -p 2222`, `  password: ${edgeWord}`, ''];
+  if (frontBox === null) return ['They have given you root:', ...edgeLogin];
+  const insideWord = whiteHatWord(keyBox.rootHash, rawSecrets);
+  if (insideWord === null) return null;
+  const inside = `${lanSubnetPrefix(missionEssid(missionNumber))}.${keyBox.octet}`;
+  return [
+    'They have given you root on the machine on the edge of their network:',
+    ...edgeLogin,
+    `The ${cleanupJob(missionNumber).role.noun} is inside their network, at ${inside}. From the edge machine:`,
+    '',
+    `  ssh root@${inside}`,
+    `  password: ${insideWord}`,
+    '',
+  ];
+};
+
+/** A cleanup job's briefing past its opening: a symptom, the port something answers on, never
+ *  the file behind it, then the logins, or null when the words cannot be given. Finding what runs
+ *  it is the job, so it names no path, no tool and nothing of what was left. */
+const cleanupLines = (
+  missionNumber: number,
+  rawSecrets: string | undefined,
+): readonly string[] | null => {
+  const logins = cleanupLoginLines(missionNumber, rawSecrets);
+  if (logins === null) return null;
+  const { role, port } = cleanupJob(missionNumber);
+  const twoHop = missionTopology(missionNumber).frontBoxOctet !== null;
+  return [
+    `Something on their ${role.noun} answers on port ${port}, and nobody there put it there.`,
+    'Find what runs it, stop it, and get it off the machine.',
+    '',
+    ...logins,
+    twoHop
+      ? 'Leave both machines running. If either no longer boots, there is no money.'
+      : 'Leave the machine running. If it no longer boots, there is no money.',
+    'Write to this address with your wallet address once it is gone.',
+    'Still there, no money. No wallet, no money.',
+  ];
+};
+
 /** The client's briefing, or null when it cannot be written: an infiltrate job's carries the
- *  client's file, drawn from the mission secret, and without the secret there is no file. */
+ *  client's file, drawn from the mission secret, and without the secret there is no file; a
+ *  cleanup job's hands over words only the deployment's pools hold, and its target's files are
+ *  laid from the mission secret, so without either there is no job to hand over. */
 const briefingOf = (
   missionNumber: number,
   missionSecret: string | undefined,
+  rawSecrets: string | undefined,
 ): ContractMail | null => {
   const terms = missionTerms(missionNumber);
+  if (terms.job === 'cleanup') {
+    const lines = missionSecret === undefined ? null : cleanupLines(missionNumber, rawSecrets);
+    if (lines === null) return null;
+    return {
+      sender: clientAddress(terms),
+      subject: subjectOf(terms),
+      body: [
+        terms.pitch,
+        '',
+        `Our customer is ${terms.targetCompany}. Their network is at ${missionAddressForNumber(missionNumber)}.`,
+        '',
+        ...lines,
+        '',
+        `-- ${terms.client.company}`,
+        '',
+      ].join('\n'),
+    };
+  }
   const inside = missionTopology(missionNumber).frontBoxOctet !== null;
   const attachment =
     terms.job !== 'infiltrate'
@@ -449,13 +529,17 @@ export const answerContractBoard = async (door: BoardDoor): Promise<string | nul
 export const answerAccept = async ({
   form,
   missionSecret,
+  rawSecrets,
   ...door
 }: BoardDoor & {
   /** The request body exactly as sent. */
   readonly form: string;
-  /** The deployment's mission secret, which an infiltrate job's briefing draws its file from;
-   *  undefined when the deployment has none. */
+  /** The deployment's mission secret, which an infiltrate job's briefing draws its file from and
+   *  a cleanup job's target its files; undefined when the deployment has none. */
   readonly missionSecret: string | undefined;
+  /** The deployment's `JSHACK_SECRETS`, whose white-hat words a cleanup job's briefing hands
+   *  over; undefined when the deployment has none. */
+  readonly rawSecrets: string | undefined;
 }): Promise<string | null> => {
   const held = await readBoard(door);
   if (held === null) return null;
@@ -464,7 +548,7 @@ export const answerAccept = async ({
   const offer = held.offers.find((candidate) => candidate.ref === ref);
   if (offer === undefined) return pageOf(door, held, { message: GONE, under: { offer: ref } });
 
-  const briefing = briefingOf(offer.number, missionSecret);
+  const briefing = briefingOf(offer.number, missionSecret, rawSecrets);
   if (briefing === null) return null;
   const reply = await door.store.accept({ handle: door.handle, number: offer.number, briefing });
   const outcome = acceptOutcomeSchema.safeParse(reply.data);

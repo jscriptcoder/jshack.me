@@ -27,6 +27,12 @@ export type TargetRole = {
   readonly backdoorPitches: readonly string[];
   /** Why a client wants its root login, one of which opens a credential job's briefing. */
   readonly credentialPitches: readonly string[];
+  /** Why a client, speaking for the customer who owns it, wants an intruder's implant found on it
+   *  and removed: a white-hat job, one of which opens a cleanup job's briefing. */
+  readonly cleanupPitches: readonly string[];
+  /** The account the machine's own service runs under, which the intruder's listener runs as on a
+   *  cleanup target: an account like that running `nc` is out of place, a clue for a sharp eye. */
+  readonly serviceAccount: string;
 };
 
 /** Every machine a client can want taken down, a way into or the root login of, each named for
@@ -35,6 +41,7 @@ const TARGET_ROLES: readonly TargetRole[] = [
   {
     noun: 'CCTV recorder',
     suffix: 'nvr',
+    serviceAccount: 'recorder',
     sabotagePitches: [
       'Their cameras caught our guy on Tuesday. The recorder goes down before anyone pulls the footage.',
       'Something happened in their car park last night that nobody wants on tape.',
@@ -51,10 +58,16 @@ const TARGET_ROLES: readonly TargetRole[] = [
       'Our client needs the password to their camera system, and nobody there can know it is gone.',
       'A login to their recorder is worth more to our client than any one night of footage.',
     ],
+    cleanupPitches: [
+      "Our customer's camera recorder has been sending footage somewhere it should not. They want it stopped.",
+      "Someone has been watching our customer's cameras from outside. They want their recorder back to themselves.",
+      'Our customer found their recorder talking to an address nobody there knows. They need it cleaned up.',
+    ],
   },
   {
     noun: 'backup server',
     suffix: 'backup',
+    serviceAccount: 'backup',
     sabotagePitches: [
       'Our client wants them to have nothing to restore from.',
       'When their main systems go down next week, they should find the backups already gone.',
@@ -70,10 +83,16 @@ const TARGET_ROLES: readonly TargetRole[] = [
       'Our client wants the login to their backups before the audit starts.',
       'Their backup server trusts one password. Our client would like to know it too.',
     ],
+    cleanupPitches: [
+      "Our customer's backup server is copying more than it should, to someone it should not. Make it stop.",
+      "Every night someone reads our customer's backups from outside. They want the box clean again.",
+      'Our customer thinks something got onto their backup server. Find it and get it out.',
+    ],
   },
   {
     noun: 'monitoring station',
     suffix: 'mon',
+    serviceAccount: 'nagios',
     sabotagePitches: [
       'Something is going to happen on their network this weekend. Nobody should be watching when it does.',
       'Their monitoring wakes someone up at 3am for anything odd. Our client needs a quiet night.',
@@ -89,10 +108,16 @@ const TARGET_ROLES: readonly TargetRole[] = [
       'Their monitoring answers to one root password. Bring it to us and we will do the rest.',
       'Our client wants to sign in to the box that watches all the others.',
     ],
+    cleanupPitches: [
+      "Our customer's monitoring station is quietly reporting to somebody else. They want it reporting only to them.",
+      "The box that watches our customer's network is being watched itself. Get rid of whoever is watching.",
+      "Our customer's monitoring went quiet at odd hours last month. They think someone put something on it.",
+    ],
   },
   {
     noun: 'build server',
     suffix: 'ci',
+    serviceAccount: 'jenkins',
     sabotagePitches: [
       "They ship a release on Friday that undercuts our client. It doesn't ship if it can't build.",
       'Their launch is next week. Our client would like it to slip.',
@@ -108,10 +133,16 @@ const TARGET_ROLES: readonly TargetRole[] = [
       'One password stands between our client and everything they ship. We want that password.',
       'Their engineers share the root login for that box. Our client would like a share of it.',
     ],
+    cleanupPitches: [
+      "Something on our customer's build server ships with every release, and they did not write it. Get it off.",
+      "Our customer's builds have been calling out to an address nobody there recognises. Clean the box.",
+      "A stranger has had a way into our customer's build server for weeks. They want it closed today.",
+    ],
   },
   {
     noun: 'licence server',
     suffix: 'lic',
+    serviceAccount: 'flexlm',
     sabotagePitches: [
       'Their whole office runs on software that checks in with that box every morning. Make the check fail.',
       'Our client wants them locked out of their own tools for a week.',
@@ -127,10 +158,16 @@ const TARGET_ROLES: readonly TargetRole[] = [
       'That password decides who in their office gets to work. Our client wants it.',
       'One login runs every licence they own. Our client means to hold it.',
     ],
+    cleanupPitches: [
+      "Our customer's licence server has a visitor it never issued a seat to. Find it and remove it.",
+      "Something on our customer's licence server answers to the outside world. They want it gone.",
+      "Our customer's licence server keeps a door open that nobody there opened. Shut it for them.",
+    ],
   },
   {
     noun: 'door-access controller',
     suffix: 'access',
+    serviceAccount: 'doorctl',
     sabotagePitches: [
       'Somebody needs to walk through their front door on Thursday without a badge.',
       "With that box down their doors fail open. That's all our client needs.",
@@ -146,10 +183,16 @@ const TARGET_ROLES: readonly TargetRole[] = [
       'Our client wants the password behind their badge system, and wants it quietly.',
       'A stolen badge gets you through one door. That login gets you through all of them.',
     ],
+    cleanupPitches: [
+      "Our customer's doors have been opening on nobody's badge. Something is on their access controller.",
+      "Someone outside can open our customer's doors. They want their access controller back in their own hands.",
+      'Our customer found their door-access controller talking to a stranger. Make it stop talking.',
+    ],
   },
   {
     noun: 'billing server',
     suffix: 'billing',
+    serviceAccount: 'billing',
     sabotagePitches: [
       'Their invoices go out on the first. Our client would like them not to.',
       "Month end is in a week. Without that box they can't charge anyone.",
@@ -164,6 +207,11 @@ const TARGET_ROLES: readonly TargetRole[] = [
       'Our client wants to sign in to their billing whenever the invoices go out.',
       "The root password to their billing is worth a year of our client's margin.",
       'One login sits over every account they bill. Bring it to us.',
+    ],
+    cleanupPitches: [
+      "Our customer's invoices are being read before they go out. Something is on their billing server.",
+      "Somebody has a way into our customer's billing server, and they want it closed before month end.",
+      "Our customer's billing server has been leaking their accounts to someone. Find the leak and close it.",
     ],
   },
 ];
@@ -196,6 +244,22 @@ export const backdoorJob = (missionNumber: number): BackdoorJob => {
   return { role, port: prng.pick(BACKDOOR_PORTS) };
 };
 
+/** What a cleanup job asks for: an intruder's implant found on one machine and removed, and the
+ *  port its listener holds, which the briefing names. */
+export type CleanupJob = {
+  readonly role: TargetRole;
+  readonly port: number;
+};
+
+/** The machine a cleanup job's client wants cleaned up and the port the intruder's listener holds
+ *  there, drawn on a stream of their own, the machine first, so nothing the contract drew before
+ *  them moves. */
+export const cleanupJob = (missionNumber: number): CleanupJob => {
+  const prng = createPrng(`mission-cleanup-${missionNumber}`);
+  const role = prng.pick(TARGET_ROLES);
+  return { role, port: prng.pick(BACKDOOR_PORTS) };
+};
+
 /** What a chain job asks for: a listener left on the front box, on one port, and, when its last
  *  step takes it down, the machine behind it. */
 export type ChainJob = {
@@ -213,13 +277,14 @@ export const chainJob = (missionNumber: number): ChainJob => {
 };
 
 /** The suffix on the hostname of the box in a contract's key-box slot: the box holding the key,
- *  the file or the records, or on a sabotage, backdoor, credential or portforward job, or a chain
+ *  the file or the records, or on a sabotage, backdoor, credential, cleanup or portforward job, or a chain
  *  job whose last step takes it down, the machine the job is about, named for what it is. */
 export const keyBoxSuffix = (missionNumber: number): string => {
   const kind = missionKind(missionNumber);
   if (kind === 'sabotage') return sabotageRole(missionNumber).suffix;
   if (kind === 'backdoor') return backdoorJob(missionNumber).role.suffix;
   if (kind === 'credential') return credentialRole(missionNumber).suffix;
+  if (kind === 'cleanup') return cleanupJob(missionNumber).role.suffix;
   if (kind === 'chain') {
     // A chain job's file or records sit where a destroy or wipe job's do.
     return chainFinal(missionNumber) === 'sabotage'

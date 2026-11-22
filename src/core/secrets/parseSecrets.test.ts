@@ -16,6 +16,7 @@ const validSecrets = (overrides: Record<string, unknown> = {}): Record<string, u
   CRACKABLE_PASSWORDS: ['admin', 'cisco', 'sunshine'],
   COMMON_PASSWORDS: ['123456', 'qwerty'],
   WIFI_PASSWORDS: ['coffeehouse', 'guestwifi'],
+  WHITE_HAT_PASSWORDS: ['ledgerkite', 'quaymoth'],
   ...overrides,
 });
 
@@ -23,7 +24,7 @@ const parse = (overrides: Record<string, unknown> = {}) =>
   parseSecrets(JSON.stringify(validSecrets(overrides)));
 
 describe('parseSecrets', () => {
-  it('hands back all four lists, words and order untouched', () => {
+  it('hands back all five lists, words and order untouched', () => {
     expect(parse()).toEqual({
       ok: true,
       secrets: {
@@ -31,6 +32,7 @@ describe('parseSecrets', () => {
         CRACKABLE_PASSWORDS: ['admin', 'cisco', 'sunshine'],
         COMMON_PASSWORDS: ['123456', 'qwerty'],
         WIFI_PASSWORDS: ['coffeehouse', 'guestwifi'],
+        WHITE_HAT_PASSWORDS: ['ledgerkite', 'quaymoth'],
       },
     });
   });
@@ -70,7 +72,7 @@ describe('parseSecrets', () => {
       });
     });
 
-    it('when a key is not one of the four — a typo beside the right key must not pass', () => {
+    it('when a key is not one of the five — a typo beside the right key must not pass', () => {
       expect(parse({ UNCRACKABLE_PASWORDS: ['typo1234'] })).toEqual({
         ok: false,
         error: 'JSHACK_SECRETS.UNCRACKABLE_PASWORDS: not a known list',
@@ -204,6 +206,36 @@ describe('parseSecrets', () => {
       expect(parse({ WIFI_PASSWORDS: ['coffeehouse', leaked] })).toEqual({
         ok: false,
         error: `JSHACK_SECRETS.UNCRACKABLE_PASSWORDS: "${leaked}" is also in WIFI_PASSWORDS`,
+      });
+    });
+  });
+
+  describe('fails when a white-hat word is one some other door could hold', () => {
+    // A client hands a white-hat root word to whoever takes the job, and dropping a job costs
+    // nothing, so the words are a list anyone can collect. Each must open white-hat boxes only.
+    it('in the uncrackable pool, which every world box, site and contract draws its shut doors from', () => {
+      expect(parse({ WHITE_HAT_PASSWORDS: ['ledgerkite', 'harbour3light'] })).toEqual({
+        ok: false,
+        error:
+          'JSHACK_SECRETS.WHITE_HAT_PASSWORDS: "harbour3light" is also in UNCRACKABLE_PASSWORDS',
+      });
+    });
+
+    it('in a list a player can read: the crackable pool, the common padding or the wifi keys', () => {
+      expect(
+        parse({
+          CRACKABLE_PASSWORDS: ['admin', 'ledgerkite'],
+          COMMON_PASSWORDS: ['qwerty', 'quaymoth'],
+          WIFI_PASSWORDS: ['guestwifi', 'tidemark'],
+          WHITE_HAT_PASSWORDS: ['ledgerkite', 'quaymoth', 'tidemark'],
+        }),
+      ).toEqual({
+        ok: false,
+        error: [
+          'JSHACK_SECRETS.WHITE_HAT_PASSWORDS: "ledgerkite" is also in CRACKABLE_PASSWORDS',
+          'JSHACK_SECRETS.WHITE_HAT_PASSWORDS: "quaymoth" is also in COMMON_PASSWORDS',
+          'JSHACK_SECRETS.WHITE_HAT_PASSWORDS: "tidemark" is also in WIFI_PASSWORDS',
+        ].join('\n'),
       });
     });
   });

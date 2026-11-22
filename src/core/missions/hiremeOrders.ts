@@ -17,6 +17,7 @@
 import {
   chainFinal,
   keyBoxKind,
+  missionKind,
   missionShape,
   type MissionBox,
   type MissionBoxRef,
@@ -26,6 +27,7 @@ import { FRONT_BOX_SUFFIX, GATEWAY_SUFFIX } from './pools.js';
 import {
   backdoorJob,
   chainJob,
+  cleanupJob,
   credentialRole,
   keyBoxSuffix,
   sabotageRole,
@@ -34,6 +36,8 @@ import { portforwardJob } from './portforwardJob.js';
 import { firmwarePackageOf } from '../packages/packageVersions.js';
 import { EMAILIT_DOMAIN } from '../generation/fixedSites.js';
 import { missionKeyFilePath, missionLeakPath, missionLeakWord } from './missionLeak.js';
+import { cleanupPlant } from './cleanupPlant.js';
+import { whiteHatWord } from './whiteHatLogin.js';
 import { missionKey, missionPassphrase } from './missionSecret.js';
 import { missionAddressForNumber, missionEssid } from './missionNetwork.js';
 import { missionTerms } from './missionTerms.js';
@@ -105,6 +109,24 @@ const leakLines = (
   ];
 };
 
+/** The root login a cleanup job's client hands over for a box, at `indent`: the word the
+ *  briefing carries, read from the deployment's pools. */
+const loginLines = (
+  missionNumber: number,
+  box: MissionBox,
+  rawSecrets: string | undefined,
+  indent: string,
+): readonly string[] =>
+  missionKind(missionNumber) === 'cleanup'
+    ? [
+        `${indent}Login:    root / ${whiteHatWord(box.rootHash, rawSecrets) ?? '(JSHACK_SECRETS is not set)'}`,
+      ]
+    : [];
+
+/** How a box is got into: its route, a cleanup box's login handed over, or no way at all. */
+const routeOf = (missionNumber: number, box: MissionBox): string =>
+  box.route ?? (missionKind(missionNumber) === 'cleanup' ? 'none (handed over)' : 'none (sealed)');
+
 /** A box's services as the report lists them, at `indent`: each with its release and port,
  *  a decoy's tagged. */
 const serviceLines = (box: MissionBox, decoyPorts: readonly number[], indent: string) => [
@@ -169,6 +191,7 @@ const kindLine = (missionNumber: number, kind: MissionKind): readonly string[] =
     }[final];
     return [`  Kind:     chain, ${final}, ${asked}`, `  Listener: :${port} on the front box`];
   }
+  if (kind === 'cleanup') return [`  Kind:     cleanup, ${cleanupJob(missionNumber).role.noun}`];
   if (kind === 'portforward') {
     const { machine, publicPort } = portforwardJob(missionNumber);
     return [
@@ -218,6 +241,14 @@ const jobLines = (
   if (kind === 'wipe') return recordsStorageLines(missionNumber);
   if (kind === 'sabotage' || kind === 'credential' || kind === 'portforward') return [];
   if (kind === 'backdoor') return [`  Port:     ${backdoorJob(missionNumber).port}`];
+  if (kind === 'cleanup') {
+    const { implant, decoys } = cleanupPlant(missionNumber, secret);
+    return [
+      `  Port:     ${cleanupJob(missionNumber).port}`,
+      `  Implant:  ${implant.path}, ${implant.family}${implant.binary ? ', binary' : ''}`,
+      `  Decoys:   ${decoys.map(({ path }) => path).join(', ')}`,
+    ];
+  }
   if (kind === 'infiltrate') {
     const sizeOf = (content: string): string => content.length.toLocaleString('en-US');
     return [
@@ -271,7 +302,8 @@ export const showReport = (
     shape.kind === 'credential' ||
     shape.kind === 'destroy' ||
     shape.kind === 'portforward' ||
-    shape.kind === 'chain';
+    shape.kind === 'chain' ||
+    shape.kind === 'cleanup';
   const slotName = isTarget ? 'target' : 'key box';
   const reached = frontBox === null ? slotName : 'front box';
   // A chain job's target holds what its last step's kind would, and the report says so alike.
@@ -280,19 +312,22 @@ export const showReport = (
     frontBox === null
       ? [
           ...serviceLines(keyBox, decoyPorts, '  '),
+          ...loginLines(missionNumber, keyBox, rawSecrets, '  '),
           ...keyLines,
           ...leakLines(keyRef, rawSecrets, '  '),
         ]
       : [
           `  Front box: ${shape.stem}-${FRONT_BOX_SUFFIX}`,
-          `    Route:    ${frontBox.route}`,
+          `    Route:    ${routeOf(missionNumber, frontBox)}`,
           ...serviceLines(frontBox, decoyPorts, '    '),
+          ...loginLines(missionNumber, frontBox, rawSecrets, '    '),
           ...leakLines({ missionNumber, role: 'front' }, rawSecrets, '    '),
           isTarget
             ? `  Target box: ${shape.stem}-${keyBoxSuffix(missionNumber)}`
             : `  Key box:   ${shape.stem}-${keyBoxSuffix(missionNumber)}`,
-          `    Route:    ${keyBox.route}`,
+          `    Route:    ${routeOf(missionNumber, keyBox)}`,
           ...serviceLines(keyBox, insideDecoyPorts, '    '),
+          ...loginLines(missionNumber, keyBox, rawSecrets, '    '),
           ...leakLines(keyRef, rawSecrets, '    '),
           ...keyLines,
         ];
@@ -310,7 +345,7 @@ export const showReport = (
     ...kindLine(missionNumber, shape.kind),
     // One box needs no section, so its route heads the report as it always has.
     // A portforward job's target has no route: nobody roots it.
-    ...(frontBox === null ? [`  Route:    ${keyBox.route ?? 'none (sealed)'}`] : []),
+    ...(frontBox === null ? [`  Route:    ${routeOf(missionNumber, keyBox)}`] : []),
     ...shape.forwards.map(
       (forward, index) =>
         `  Forward:  :${forward.publicPort} -> ${reached} :${forward.internalPort}` +
