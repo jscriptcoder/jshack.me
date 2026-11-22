@@ -226,6 +226,7 @@ the `ed25519:` prefix.
 | Deep subnet `10.a.b`        | `generateDeepLayer`                                                                            | Pure      |
 | An access point's public IP | Its place in the world (`publicAddress` in `world.ts`), even before anybody joins              | Pure      |
 | A contractor board's address | Drawn in `194` when a handle applies, stored in `hireme_boards`; read by `networkByPublicIp`  | Server    |
+| A contract network's address | Its contract number written as a `195` address (`missions/missionNetwork.ts`)                 | Pure      |
 
 `isPublicIp(target)` is the switch between "resolve this through the server, cross-player" and
 "resolve this on my own LAN".

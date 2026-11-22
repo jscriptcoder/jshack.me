@@ -1,13 +1,14 @@
 # 10. The server and the database
 
-This chapter is the reference for the server side: the three Vercel Functions in `api/`, every
+This chapter is the reference for the server side: the four Vercel Functions in `api/`, every
 action they accept, how requests are authorized, and the Supabase Postgres schema. Read it before
 adding an API action, a table, or a migration.
 
 ## The shape in one paragraph
 
-The server is **three Node functions** (`api/network.ts`, `api/patches.ts`, `api/sessions.ts`), each a
-single `POST` endpoint that multiplexes many **actions** on the payload's `action` field. Each file is
+The server is **four Node functions** (`api/network.ts`, `api/patches.ts`, `api/sessions.ts`,
+`api/wallet.ts`), each a single `POST` endpoint that multiplexes many **actions** on the payload's
+`action` field. Each file is
 a thin adapter: reject non-POST, build a service-role Supabase client, route on the action, call a
 pure `handle*` function in `src/core/`, passing database reads and writes in as closures, and write
 `res.status(status).json(body)`. **All logic, validation and authorization live in `src/core/`**,
@@ -18,14 +19,15 @@ where they are unit- and mutation-tested and shared with the client. Only the SQ
 
 | Path                                         | What it does                                                                                                                                 |
 | -------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `api/network.ts`                             | `POST /api/network`: joining networks, occupancy, scans, web fetches, cross-player tree reads. 11 actions; fallthrough `registerNetwork`.    |
-| `api/patches.ts`                             | `POST /api/patches`: the file journal and server-written traces. 11 actions; fallthrough `upsertPatch`.                                      |
-| `api/sessions.ts`                            | `POST /api/sessions`: sessions, every login door, `su`, exploits, `hydra`, databases, SNMP, reboot. 20 actions; fallthrough `createSession`. |
+| `api/network.ts`                             | `POST /api/network`: joining networks, occupancy, scans, web fetches and forms, mail, cross-player tree reads. 15 actions; fallthrough `registerNetwork`. |
+| `api/patches.ts`                             | `POST /api/patches`: the file journal and server-written traces. 10 actions; fallthrough `upsertPatch`.                                      |
+| `api/sessions.ts`                            | `POST /api/sessions`: sessions, every login door, `su`, `passwd`, exploits, `hydra`, databases, SNMP, reboot. 19 actions; fallthrough `createSession`. |
+| `api/wallet.ts`                              | `POST /api/wallet`: the public JSC ledger. A balance, a history, or a transfer signed by the wallet's own key.                               |
 | `src/core/signedRequest/`                    | Envelope schema, signing, verification, status mapping (chapter 9).                                                                          |
 | `src/core/patches/authorizeMachineAccess.ts` | The L1 gate.                                                                                                                                 |
 | `src/core/patches/remoteWritePermission.ts`  | The L2 gate.                                                                                                                                 |
 | `src/core/patches/readFilter.ts`             | The three-tier read filter. It hides what was written to a machine; seeded content is computable by any client (chapter 9).                  |
-| `supabase/migrations/*.sql`                  | The schema, as 12 forward-only migrations.                                                                                                   |
+| `supabase/migrations/*.sql`                  | The schema, as forward-only migrations (34 at v0.478.0).                                                                                     |
 | `supabase/config.toml`                       | Local stack configuration (project `jshack-me`, non-default ports).                                                                          |
 | `vercel.json`                                | `regions: ["fra1"]` (plus the `$schema` key) and nothing else.                                                                               |
 
@@ -40,14 +42,17 @@ Vercel runs these files as plain Node ESM, which does not guess file extensions.
 import must end in `.js`**; ESLint enforces it. Vite, Vitest, `tsx` and `vercel dev` all forgive a
 missing extension, so only a deploy would notice. The first deploy of `api/` failed exactly this way.
 
-## Behaviour common to all three endpoints
+## Behaviour common to every endpoint
 
 - **Method.** Only `POST`; anything else is `405 {"error":"method_not_allowed"}`.
 - **Configuration.** If `SUPABASE_URL` or `SUPABASE_SERVICE_ROLE_KEY` is missing, every request is
   `500 {"error":"not_configured"}`.
 - **Client.** `createClient(url, serviceRoleKey, {auth: {persistSession: false, autoRefreshToken:
 false}})`, per request. The service role bypasses row-level security.
-- **Body.** A signed envelope `{payload, publicKey, signature}` (chapter 9).
+- **Body.** A signed envelope `{payload, publicKey, signature}` (chapter 9). The one exception is
+  `api/wallet.ts`: the ledger is public, so a balance or history read is an unsigned
+  `{action, address}`, and only a transfer carries a signature, made with the wallet's key rather than
+  the player's.
 - **Routing.** `actionOf(req.body)` parses the **unverified** payload to read `action`. That is safe
   because every handler re-verifies with a schema whose `action` is a literal. An unknown action falls
   through to the endpoint's default handler, whose schema rejects it with `400 payload_invalid`.
@@ -83,11 +88,12 @@ false}})`, per request. The service role bypasses row-level security.
 | `resolveOccupantFetch`      | `curl`/`lynx` any box on the LAN or a deep layer but your own, from its journal; writes its `access.log`. | SIG + OCC        |
 | `resolveOccupantSweep`      | `gobuster` any box on the LAN or a deep layer but your own, from its journal; writes its `access.log`.    | SIG + OCC        |
 | `resolveSameLanScan`        | `nmap` a generated machine on your LAN (journal-aware).                                                 | SIG              |
+| `resolveDownHosts`          | A range sweep's one question: which of the boxes the shell reaches are down or bricked.                 | SIG              |
 | `resolveInnerGatewayScan`   | `nmap` an inner gateway from outside.                                                                   | SIG              |
 | `resolvePublicScan`         | `nmap` a public IP; writes a `kern.log` trace on the target gateway.                                    | SIG + REACH      |
-| `resolveHttpFetch`          | `curl`/`lynx` a public web server (findit's search, chainit's and talkit's views, emailit's sign-up, hireme's applications, valleynews's sections and stories); writes `access.log`. | SIG + REACH      |
+| `resolveHttpFetch`          | `curl`/`lynx` a public web server (findit's search, chainit's and talkit's views and posts, emailit's sign-up, hireme's applications and a board's offers, accept and drop, valleynews's sections and stories); writes `access.log`. | SIG + REACH      |
 | `resolveHttpSweep`          | `gobuster` against a public server; the path list is read from the caller's box.                        | SIG + L1 + REACH |
-| `resolveMail`               | `mail`: an inbox, a message to read or quote, a send, a delete or a new password, for its password.     | SIG + REACH      |
+| `resolveMail`               | `mail`: an inbox, a message to read or quote, a send (with an optional attachment), a delete or a new password, for its password. A mail to a contract's client is how a job is handed in and paid. | SIG + REACH      |
 | `resolveCrossPlayerFs`      | A box that is not yours to rebuild, pruned to your tier; root on emailit.io also gets its mail.         | SIG, tiered      |
 
 ### `POST /api/patches`
@@ -119,19 +125,40 @@ false}})`, per request. The service role bypasses row-level security.
 | `suElevate`                                                | Cross-player `su` on another player's box.                                                | SIG + PASSWD                                                          |
 | `exploitCreateSession`                                     | Remote exploit; the server recomputes the outcome from the target's manifest and the day. | SIG + REACH                                                           |
 | `exploitLocalElevate`                                      | Local exploit on any box you stand on that is not your own.                               | SIG + your active session on that box (none → `404 host_unreachable`) |
+| `passwdChange`                                             | `passwd` on a box that is not your own, from a live root shell on it.                     | SIG + your root session on that box                                   |
 | `mysqlConnect`, `mysqlStatement`                           | Database login and per-statement execution (no session row).                              | SIG + REACH + datadir account                                         |
 | `redisConnect`, `redisStatement`                           | Key-value store connection and statements (no session row).                               | SIG + REACH                                                           |
 | `snmpWalk`, `snmpSet`                                      | SNMP read and reconfigure (a wrong community reads like an absent device).                | SIG + REACH + community                                               |
-| `hydraCrack`, `hydraCrackPublic`, `hydraCrackInnerGateway` | Server-side password sweep per vantage (no session row).                                  | SIG + L1 (vantage) + REACH                                            |
+| `hydraCrack`                                               | Server-side password sweep from wherever the shell stands (no session row).               | SIG + L1 (vantage) + REACH                                            |
 
 Each handler lives in `src/core/<area>/<action>.ts` with its schema just above the `handle*` export
 (one exception: `suElevate` is handled by `src/core/sessions/authElevateSession.ts`).
 
+### `POST /api/wallet`
+
+| Request                                  | Purpose                                                                  | Auth                        |
+| ---------------------------------------- | ------------------------------------------------------------------------ | --------------------------- |
+| `{action: 'balance', address}`           | What an address holds.                                                   | none (the ledger is public) |
+| `{action: 'history', address}`           | What an address has sent and received.                                   | none                        |
+| A signed envelope                        | A transfer, applied only at the sending address's next sequence number. | the wallet's own signature  |
+
+There is no nonce store here either: the sequence number stops a transfer from being applied twice.
+Any other unsigned action is `400 unknown_action`. Coins enter the ledger only through
+`wallet_mint`: the operator's mint (`scripts/mintCoins.ts`) and a client paying for a completed
+contract. See [`wallet-architecture.md`](../wallet-architecture.md).
+
 ## The database
 
-Postgres 17 (local), everything in the `public` schema. All five tables have **row-level security
-enabled and no policies**, so only the service role (inside the functions) can read or write. There
-are no RPCs, no views, no seed data, and no Realtime use.
+Postgres 17 (local), everything in the `public` schema. Every table has **row-level security enabled
+and no policies**, so only the service role (inside the functions and the operator scripts) can read
+or write. There are no views, no seed data and no Realtime use.
+
+Writes that must check and change rows in one step are **SQL functions** called with
+`supabase.rpc(...)`: the wallet's transfer and mint, every email action (sign-up, inbox, read, send,
+delete, password), talkit's post and comment, hireme's apply, offers, accept, drop and completion,
+and `append_machine_log`, which appends a log line to a machine's journal without losing a line
+written at the same moment. Each is defined in the migration that introduced it; a later migration
+redefines it with `CREATE OR REPLACE`, or with `DROP` and `CREATE` when its arguments change.
 
 ### `patches`: the shared file journal
 
@@ -169,6 +196,23 @@ Primary key `(essid, owner_key)`, unique `(essid, octet)`, `octet SMALLINT CHECK
 outlives occupancy, so reconnecting returns the same address. The allocator excludes octets the
 network's generated machines use, prefers the player's derived octet, and redraws on conflict.
 
+### The other tables
+
+Each of these belongs to one shipped system, whose as-built doc holds the full model. The columns
+and constraints are in the migrations.
+
+| Table                                 | Holds                                                                                                | As-built doc                                                              |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `wallet_balances`, `wallet_transfers` | The JSC ledger: a balance and next sequence number per `jsc…` address, and every transfer.           | [`wallet-architecture.md`](../wallet-architecture.md)                     |
+| `email_accounts`, `email_messages`    | emailit.io accounts and their numbered messages, each with one optional attachment.                  | [`email-architecture.md`](../email-architecture.md)                       |
+| `email_login_failures`, `email_sends` | Timestamps per player that rate-limit wrong passwords and sends.                                     | [`email-architecture.md`](../email-architecture.md)                       |
+| `talkit_threads`, `talkit_comments`   | The talkit.io forum.                                                                                 | [`talkit-architecture.md`](../talkit-architecture.md)                     |
+| `talkit_writes`                       | Timestamps per player that rate-limit posting.                                                       | [`talkit-architecture.md`](../talkit-architecture.md)                     |
+| `news_stories`                        | valleynews.io's stories, posted by the operator (`scripts/valleynews.ts`).                           | [`valleynews-architecture.md`](../valleynews-architecture.md)             |
+| `hireme_boards`                       | A contractor's private board address, one per emailit.io handle.                                     | [`hireme-architecture.md`](../hireme-architecture.md)                     |
+| `hireme_missions`                     | Contracts by number and their state (`offered`, `accepted`, `completed`, `burned`, `abandoned`).     | [`missions-architecture.md`](../missions-architecture.md)                 |
+| `player_locations`                    | The town each player is in and how many trips they have taken (rideit.io).                           | [`procedural-world-architecture.md`](../procedural-world-architecture.md) |
+
 ### Query and index fit
 
 Most queries use a primary-key prefix. A few scan whole tables, fine at current scale and worth
@@ -192,6 +236,16 @@ current network by `owner_key`, `resolveOccupiedEssids` (every occupancy row).
 | `20260726000000_network_lan_leases.sql`                  | Leased LAN addresses.                                                                                                  |
 | `20260727000000_drop_network_registry.sql`               | Index occupants by machine id, then drop `network_registry`.                                                           |
 | `20260929000000_drop_network_public_ips.sql`             | Drop `network_public_ips`: every network's public IP is derived from its place in the world.                           |
+| `20261011*` (four files)                                 | The wallet: balances, transfers and the mint, the transfer function, and history indexes.                              |
+| `20261014*`, `20261015*` (four files)                    | Email: accounts and sign-up, reading and login failures, sending, and changing the password.                           |
+| `20261019*`, `20261020000000*`, `20261020010000*`        | talkit.io: threads, posting with its rate limit, comments, and removal.                                                |
+| `20261020020000_hireme_boards.sql`                       | hireme.io boards, and applying for one.                                                                                |
+| `20261021000000_news_stories.sql`                        | valleynews.io's stories.                                                                                               |
+| `20261023000000_player_locations.sql`                    | Where each player is, for travel between towns.                                                                        |
+| `20261030000000_append_machine_log.sql`                  | `append_machine_log`, so two log lines landing together both land.                                                     |
+| `20261101*` to `20261103*` (three files)                 | Contracts: missions, offers with accept and drop, and completion with the client's reply.                              |
+| `20261115000000_email_attachments.sql`                   | One attachment per message.                                                                                            |
+| `20261116000000_hireme_accept_attachment.sql`            | Accepting a contract can mail its briefing with an attachment.                                                         |
 
 Migrations are forward-only; there are no down migrations. The files moved from `v2/supabase/` to the
 repository root when v2 became the whole repo.
@@ -216,7 +270,8 @@ repository root when v2 became the whole repo.
 
 ### Add an API action
 
-1. Pick the endpoint by domain (network and reachability; the journal and traces; sessions and doors).
+1. Pick the endpoint by domain (network, reachability, the web and mail; the journal and traces;
+   sessions and doors; the ledger).
    Do not create a new file in `api/` unless you really want a new endpoint.
 2. Write the core handler first (test first) at `src/core/<area>/<action>.ts`: a `Deps` type with
    `nonceStore` and each database access as a function; a `looseObject` schema with
@@ -234,7 +289,8 @@ repository root when v2 became the whole repo.
 1. `npx supabase migration new <name>` creates `supabase/migrations/<timestamp>_<name>.sql`. Start with
    a header comment: what, why, security posture.
 2. New table: `ALTER TABLE <t> ENABLE ROW LEVEL SECURITY;` with no policies, and an index for every
-   new query shape. Copy the `patches_set_updated_at` trigger if ordering must be server-owned.
+   new query shape. Copy the `patches_set_updated_at` trigger if ordering must be server-owned. A
+   check-and-write that must not race belongs in a SQL function called through `rpc`.
 3. Apply locally: `npx supabase migration up`, or `npx supabase db reset` to replay everything (this
    wipes local data).
 4. Update the adapter selects and inserts, then run the wire-checks for the touched tables. Nothing
@@ -248,4 +304,6 @@ repository root when v2 became the whole repo.
 - [`cross-player-architecture.md`](../cross-player-architecture.md) §1, §4, §5: storage, authorization
   and the read filter (note the stale registry references listed in
   [known issues](./13-known-issues.md)).
+- The as-built docs named under "The other tables", for the wallet, email, talkit, valleynews,
+  hireme and missions.
 - [Chapter 12](./12-build-deploy-operate.md): environments, deployment and operations.

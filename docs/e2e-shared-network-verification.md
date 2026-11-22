@@ -45,7 +45,6 @@ Run the first two first. If either is red, stop — a browser failure on top of 
 suite tells you nothing.
 
 ```bash
-cd v2
 npm test -- --run
 for s in $(ls scripts/test*.ts | sed 's|scripts/||;s|\.ts$||'); do
   npx dotenv -e .env.development.local -- npx tsx scripts/$s.ts | tail -1
@@ -88,7 +87,7 @@ and a leftover occupant from an earlier session will make a two-player scan read
 three:
 
 ```bash
-cd v2 && npx supabase db reset      # local only — safe, no linked project ref
+npx supabase db reset      # local only — safe, no linked project ref
 ```
 
 This also re-applies `20260727000000_drop_network_registry.sql`. Confirm the table is
@@ -1309,7 +1308,6 @@ Per the skill's §6 — **a temp file inside the repo**, because `./src/...` imp
 only from there and `npx tsx -e` produces no output in this environment.
 
 ```bash
-cd v2
 cat > ./g.tmp.ts << 'EOF'
 import { seedApGatewayAdminHash } from './src/core/generation/routerFs.js';
 import { seedApGatewayHostname } from './src/core/generation/gatewayHostname.js';

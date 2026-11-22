@@ -12,6 +12,12 @@ them (passwords, weak services, published vulnerabilities), and defend their own
 players doing the same. Players who join the same WiFi network share it: they see the same machines
 and can reach each other's workstations.
 
+Past the first network lies Harrow Valley, a declared region of towns reached over the internet. Its
+public web is made of ordinary machines: a search engine and a map (findit.io, mapit.io), a paper
+(valleynews.io), a forum (talkit.io), mail (emailit.io), travel between towns (rideit.io), tutorials
+(hackademy.io) and contract work (hireme.io), which pays in JSC, the game's currency. A player holds
+JSC in a `wallet`, and chainit.io shows the public ledger.
+
 Everything is simulated. A "machine" is a tree of in-memory objects, "the network" is a set of pure
 functions, and "hacking" means calling commands that read and write that data. Nothing touches a real
 system.
@@ -23,18 +29,19 @@ flowchart LR
   Player(["Player's browser"])
   subgraph Vercel["Vercel (region fra1)"]
     SPA["Static single-page app<br/>(Vite build of src/)"]
-    FN["3 Node functions<br/>/api/network<br/>/api/patches<br/>/api/sessions"]
+    FN["4 Node functions<br/>/api/network<br/>/api/patches<br/>/api/sessions<br/>/api/wallet"]
   end
   subgraph Supabase["Supabase Postgres"]
-    DB[("patches<br/>sessions<br/>home_network_occupants<br/>network_lan_leases")]
+    DB[("patches, sessions,<br/>occupancy and leases,<br/>wallet, email, forum,<br/>news, contracts")]
   end
   Player -->|"loads"| SPA
   Player -->|"signed JSON POSTs"| FN
   FN -->|"service-role key"| DB
 ```
 
-_The browser runs the game; three functions guard the shared state; one database holds only what
-players changed. There are no user accounts: a player is a keypair in the browser._
+_The browser runs the game; four functions guard the shared state; one database holds only what
+players did and wrote (file changes, sessions, mail, posts, payments), never the generated world.
+There are no user accounts: a player is a keypair in the browser._
 
 Inside the browser and inside the functions, the same TypeScript runs:
 
@@ -141,19 +148,19 @@ file survives the actual write path).
 
 ## Technology choices
 
-| Technology                                            | Used for                                           | Why                                                                                                                    |
-| ----------------------------------------------------- | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| **TypeScript** (strict, `exactOptionalPropertyTypes`) | Everything                                         | Strict types on a large, rule-heavy codebase; one language across client, server and scripts.                          |
-| **Solid.js** (used minimally)                         | UI reactivity                                      | Signals without React's stale-closure bugs, which plagued the legacy app. Treated as a state library, not a framework. |
-| **Vite**                                              | Dev server and build                               | Fast, standard, same as the legacy app.                                                                                |
-| **Tailwind CSS v4**                                   | Styling                                            | CSS-first, no config file; colours come from CSS custom properties set by the theme.                                   |
-| **Vercel Functions** (Node, ESM)                      | The three API endpoints                            | The front end and API deploy together from one repository.                                                             |
-| **Supabase Postgres**                                 | The shared journal, sessions, occupancy, addresses | Managed Postgres. Used only through the service role; row-level security denies everything else.                       |
-| **zod**                                               | Schemas at trust boundaries                        | Every signed payload and every file a player could have edited (databases, stores) is parsed, never cast.              |
-| **@noble/ed25519, @noble/hashes**                     | Player keys, request signatures, SHA-256/512       | Small, audited, pure-JS cryptography that runs identically in the browser and Node.                                    |
-| **Vitest + jsdom + @solidjs/testing-library**         | Unit and UI tests                                  | One runner for core and UI. Browser Mode is deliberately not used.                                                     |
-| **Stryker**                                           | Mutation testing                                   | Measures whether tests would catch a change; run once per phase.                                                       |
-| **agent-browser**                                     | Manual end-to-end runs                             | Drives a real browser for the few things only a browser can prove.                                                     |
+| Technology                                            | Used for                                                                                                       | Why                                                                                                                    |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| **TypeScript** (strict, `exactOptionalPropertyTypes`) | Everything                                                                                                     | Strict types on a large, rule-heavy codebase; one language across client, server and scripts.                          |
+| **Solid.js** (used minimally)                         | UI reactivity                                                                                                  | Signals without React's stale-closure bugs, which plagued the legacy app. Treated as a state library, not a framework. |
+| **Vite**                                              | Dev server and build                                                                                           | Fast, standard, same as the legacy app.                                                                                |
+| **Tailwind CSS v4**                                   | Styling                                                                                                        | CSS-first, no config file; colours come from CSS custom properties set by the theme.                                   |
+| **Vercel Functions** (Node, ESM)                      | The four API endpoints                                                                                         | The front end and API deploy together from one repository.                                                             |
+| **Supabase Postgres**                                 | The shared journal, sessions, occupancy, leases, and the web's own data (ledger, mail, forum, news, contracts) | Managed Postgres. Used only through the service role; row-level security denies everything else.                       |
+| **zod**                                               | Schemas at trust boundaries                                                                                    | Every signed payload and every file a player could have edited (databases, stores) is parsed, never cast.              |
+| **@noble/ed25519, @noble/hashes**                     | Player keys, request signatures, SHA-256/512                                                                   | Small, audited, pure-JS cryptography that runs identically in the browser and Node.                                    |
+| **Vitest + jsdom + @solidjs/testing-library**         | Unit and UI tests                                                                                              | One runner for core and UI. Browser Mode is deliberately not used.                                                     |
+| **Stryker**                                           | Mutation testing                                                                                               | Measures whether tests would catch a change; run once per phase.                                                       |
+| **agent-browser**                                     | Manual end-to-end runs                                                                                         | Drives a real browser for the few things only a browser can prove.                                                     |
 
 There is deliberately no router, no global state library, no ORM, no auth provider, no Realtime and
 no IndexedDB.
@@ -204,21 +211,25 @@ target's own files, and records both the session and the trace._
 
 ## Security model, and its honest limits
 
-| Layer                             | Protects against                                              | Where                                          |
-| --------------------------------- | ------------------------------------------------------------- | ---------------------------------------------- |
-| Signed envelope + 2-minute window | Forged requests, most replays                                 | `core/signedRequest/`                          |
-| L1: session presence              | Acting on a machine you have no session on                    | `core/patches/authorizeMachineAccess.ts`       |
-| L2: tier walker                   | Writing where your tier may not                               | `core/patches/remoteWritePermission.ts`        |
-| Three-tier read filter            | Reading another player's files beyond your tier               | `core/patches/readFilter.ts`                   |
-| Server-side derivation            | Forged tiers, vulnerabilities, time, cross-network source IPs | `core/sessions/`, `core/cve/`, `core/logging/` |
-| Row-level security (deny all)     | Direct database access with the public key                    | `supabase/migrations/`                         |
-| Obfuscated spoiler pools          | Grepping the bundle for answers                               | `core/secrets/`, `scripts/encode.ts`           |
+| Layer                               | Protects against                                              | Where                                                  |
+| ----------------------------------- | ------------------------------------------------------------- | ------------------------------------------------------ |
+| Signed envelope + 2-minute window   | Forged requests, most replays                                 | `core/signedRequest/`                                  |
+| L1: session presence                | Acting on a machine you have no session on                    | `core/patches/authorizeMachineAccess.ts`               |
+| L2: tier walker                     | Writing where your tier may not                               | `core/patches/remoteWritePermission.ts`                |
+| Three-tier read filter              | Reading another player's files beyond your tier               | `core/patches/readFilter.ts`                           |
+| Server-side derivation              | Forged tiers, vulnerabilities, time, cross-network source IPs | `core/sessions/`, `core/cve/`, `core/logging/`         |
+| Row-level security (deny all)       | Direct database access with the public key                    | `supabase/migrations/`                                 |
+| Password pools kept out of the repo | Grepping the source or the bundle for answers                 | `JSHACK_SECRETS`, `scripts/encode.ts`, `core/secrets/` |
 
 Limits a maintainer must know:
 
 - Replay protection is only the 120-second timestamp window; the nonce store is a deliberate no-op.
 - Your **own** box has no server-side permission checks: anyone with your key can write any path on it.
-- The spoiler pools are obfuscated, not secret: the key ships in the bundle.
+- The password pools live in the `JSHACK_SECRETS` environment variable, never in the repository. In
+  the bundle the uncrackable pool is only MD5 hashes; the other pools are obfuscated, not secret,
+  because the decoding key ships with them.
+- A wallet balance or history is readable by anyone who knows the address; the ledger is public by
+  design.
 - `listPatches` returns a machine's raw journal, with nothing pruned to a tier, so it answers
   only the owner of a workstation. Every other box is read as a tree the server prunes
   (`resolveCrossPlayerFs`).

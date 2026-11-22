@@ -3,15 +3,15 @@
 A folder-by-folder reference: what lives where, and which chapter explains it. Use it to find the
 file you need; read [chapter 1](./01-architecture.md) first for why the folders are split this way.
 
-Sizes are as of v0.278.0 (2026-09-27): about 64,700 lines of non-test TypeScript in `src/`, 2,500 in
-`api/`, and 28,000 in `scripts/` (mostly wire-checks).
+Sizes are as of v0.478.0 (2026-11-22): about 90,300 lines of non-test TypeScript in `src/`, 3,400 in
+`api/`, and 62,800 in `scripts/` (mostly wire-checks).
 
 ## Top level
 
 ```text
 index.html              Static page shell: meta tags, favicon, <div id="root">, loads src/main.tsx
 src/                    The game (client) and the shared core
-api/                    The three Vercel Functions (every file here is an endpoint)
+api/                    The four Vercel Functions (every file here is an endpoint)
 scripts/                Build helpers, wire-checks, operator scripts
 supabase/               Database migrations and local stack config
 public/                 Static assets served as-is (favicon, social image, robots.txt, sitemap.xml)
@@ -56,12 +56,13 @@ src/
 | `renderPage.ts`                                   | HTML → text lines for the `lynx` browser.                                              |
 | `freshTab.ts`, `sleep.ts`, `banner.ts`            | `?fresh` flag, abortable sleep, the ASCII banner.                                      |
 | `theme/applyTheme.ts`                             | Writes the palette as CSS custom properties.                                           |
-| `screens/`                                        | `App`, `Intro`, `BootScreen`, `Terminal`, `TerminalLoading`, `Nano`, `Lynx`, `Author`. |
+| `screens/`                                        | `App`, `Intro`, `BootScreen`, `Terminal`, `TerminalLoading`, `Hud`, `Nano`, `Lynx`, `Author`. |
 
 ### `src/adapters/`
 
 `patchApi.ts` (`/api/patches`), `networkApi.ts` (`/api/network`), `sessionsApi.ts` (`/api/sessions`),
-`crossTabSync.ts` (`BroadcastChannel`). There is no database or IndexedDB adapter.
+`walletApi.ts` (`/api/wallet`: unsigned reads, transfers signed by the wallet's key), `crossTabSync.ts`
+(`BroadcastChannel`). There is no database or IndexedDB adapter.
 
 ### `src/core/`
 
@@ -93,6 +94,9 @@ src/
 | `talkit/`          | talkit.io's pages, player text shown safely, its views from the forum tables, the checks on a new thread or comment, the operator's removal words. | —       |
 | `hireme/`          | hireme.io's pages, and an application: the address read as `mail` reads it, its refusals, the board address drawn and drawn again; the board page, and the lookup that finds the boards' server at a held address. | —       |
 | `valleynews/`      | valleynews.io's pages, its sections and stories read from the stories table, and the operator's story file and the lines its script prints. | —       |
+| `wallet/`          | The `wallet` key and amounts, the ledger's server handlers (balance, history, transfer) and the operator's mint order.    | 10      |
+| `missions/`        | Contract work: a contract number's network and shape, its key and where it leaks, its terms and records, the board's orders, and the client's mail. | —       |
+| `crypto/`          | The `gpg -c`/`-d` cipher, kept apart from the command so the server can seal a file a player later opens.                 | —       |
 | `rideit/`          | rideit.io's pages, the one fare to any town and the trip address it is paid to, and boarding: the fare checked, leaving the network and the move to another town. | —       |
 | `guardian/`        | The operator's guardian: which box a public website's name reaches, the patrol a round walks, and a report's, a patch's, a password round's and a restore's decision and the lines its script prints. | 12      |
 | `logging/`         | One formatter per log file; source-IP and writer-key rules.                                                               | 8       |
@@ -106,12 +110,14 @@ Tests sit next to the code they test (`x.ts` and `x.test.ts` in the same folder)
 ### `src/test/`
 
 `setup.ts` (jest-dom matchers), `smoke.test.ts`, `worldContent.ts` and `deviceBoxes.ts` (readers over
-the generated world), and `factories/`: `commandEnv.ts` (`mockCommandEnv`), `filesystem.ts` (tree
-builders), `lanDatabase.ts` and `lanStore.ts` (find real generated database and store fixtures).
+the generated world), `passwords.ts` (the word behind a generated hash), and `factories/`:
+`commandEnv.ts` (`mockCommandEnv`), `filesystem.ts` (tree builders), `lanDatabase.ts` and
+`lanStore.ts` (find real generated database and store fixtures), and the others listed in
+[chapter 11](./11-testing-and-quality.md#other-factories).
 
 ## `api/`
 
-`network.ts`, `patches.ts`, `sessions.ts`. Each is one `POST` endpoint routing on the payload's
+`network.ts`, `patches.ts`, `sessions.ts`, `wallet.ts`. Each is one `POST` endpoint routing on the payload's
 `action`. Do not add helper modules here: every file becomes a deployed function. See
 [chapter 10](./10-server-and-database.md).
 
@@ -122,9 +128,12 @@ builders), `lanDatabase.ts` and `lanStore.ts` (find real generated database and 
 | `encode.ts`                | Writes `src/core/secrets/__encoded.ts` (uncrackable pool as md5s) and the test-only `__plaintext.ts`.                            |
 | `llms.ts`                  | Writes the git-ignored `public/llms/commands.md` and `public/llms-full.txt` from the command registry, for LLM agents.           |
 | `checkSecrets.ts`          | Post-build: fails if any uncrackable password appears in `dist/`.                                                                |
-| `checkBudgets.ts`          | Post-build bundle-size and per-box timing budget.                                                                                |
-| `test*.ts` (129 files)     | Wire-checks: drive the real `api/` endpoints against `vercel dev` and local Supabase.                                            |
+| `checkBudgets.ts`          | Post-build budgets: bundle size, box build time per set, and findit's generated web.                                            |
+| `test*.ts` (155 files)     | Wire-checks: drive the real `api/` endpoints against `vercel dev` and local Supabase.                                            |
 | `publicAddressOf.ts`       | A declared network's derived public address, for a wire-check to aim at; stops the run for a network the world does not declare. |
+| `standVantage.ts`          | Wire-check helper: `standOnNetwork` and `leaveNetwork` write and clear occupancy and lease together.                             |
+| `worldCensus.ts`           | Offline census of the whole world, the source of `docs/world-in-numbers.md`.                                                     |
+| `hireme.ts`                | Operator tool: the contracts desk (`accept`, `drop`, `post`, `show`). Can target production.                                     |
 | `seedCrossPlayerTarget.ts` | One-shot setup for a two-player browser run (not self-cleaning; run with `clean` after).                                         |
 | `guardian.ts`              | Operator tool: the guardian's round, run on prod by the `/guardian` skill. `report [name…]` reads each named public website (or the patrol) as behind and tampered, writing nothing; `patch [name…]` moves every package on each named public website (or the patrol) onto its shipped fix, as `apt upgrade` would, and gives every account a fresh password; `restore <name…>` reboots each named public website into its generated state, patched. Can target production. |
 | `mintCoins.ts`             | Operator tool: credit a ledger address with new coins. Can target production.                                                    |
@@ -136,8 +145,8 @@ Run any of them with `npx dotenv -e .env.development.local -- npx tsx scripts/<n
 
 ## `supabase/`
 
-`config.toml` (local stack: project `jshack-me`, ports 5442x) and `migrations/` (12 forward-only SQL
-files). `.branches/` and `.temp/` are CLI state and git-ignored.
+`config.toml` (local stack: project `jshack-me`, ports 5442x) and `migrations/` (34 forward-only SQL
+files at v0.478.0). `.branches/` and `.temp/` are CLI state and git-ignored.
 
 ## `docs/`
 
@@ -149,6 +158,10 @@ files). `.branches/` and `.temp/` are CLI state and git-ignored.
 | `backlog.md`                         | Deliberately deferred work and future content ideas.                                            |
 | `cross-player-architecture.md`       | As-built cross-player system.                                                                   |
 | `world-content-architecture.md`      | As-built generated content and its rules.                                                       |
+| `procedural-world-architecture.md`   | As-built Harrow Valley: towns, network keys, addresses, joins, travel.                          |
+| `world-in-numbers.md`                | The census of the whole world, measured by `scripts/worldCensus.ts`.                            |
+| `tutorials-architecture.md`          | As-built in-game tutorials (the home `README`, hackademy.io).                                   |
+| `missions-architecture.md`           | As-built contracts: offers, contract networks, keys, payment, the root view.                    |
 | `discovery-architecture.md`          | As-built DNS and public web (findit.io, mapit.io).                                              |
 | `vulnerability-architecture.md`      | As-built vulnerability system.                                                                  |
 | `wallet-architecture.md`             | As-built crypto wallet and chainit.io.                                                          |
@@ -158,7 +171,7 @@ files). `.branches/` and `.temp/` are CLI state and git-ignored.
 | `valleynews-architecture.md`         | As-built paper (valleynews.io) and the operator's desk that posts to it.                        |
 | `e2e-shared-network-verification.md` | Two-player browser journeys and a coverage map.                                                 |
 | `legacy/`                            | The retired React app's design, and the rewrite blueprint. Historical.                          |
-| `mission-ideas/`                     | Legacy mission designs, input to the planned missions feature.                                  |
+| `mission-ideas/`                     | Legacy mission designs, kept as inspiration for more contract templates.                        |
 
 ## `.claude/`
 

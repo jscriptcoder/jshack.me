@@ -329,7 +329,7 @@ escalate on A's box and permanently brick it.
 - **`canBoot` is the single authority** (`core/boot/bootFiles.ts`): both kernel images present →
   boots; else `{ missing: 'vmlinuz' | 'initrd.img' }` (vmlinuz checked first — GRUB load order →
   the correct panic copy). Pure over an already-resolved tree, so client and server agree.
-- **Detection on every app entry:** the boot screen (`ui/screens/boot.tsx`) runs for every
+- **Detection on every app entry:** the boot screen (`ui/screens/BootScreen.tsx`) runs for every
   returning player, resolves the OWN box (base + own journal, **hop-independent** — it checks YOUR
   box, not the remote you're standing on), and consults `canBoot`. Missing → GRUB / kernel-panic,
   **halt, no terminal, no recovery**. `reboot` (`core/commands/reboot.ts`, root-only via the binary

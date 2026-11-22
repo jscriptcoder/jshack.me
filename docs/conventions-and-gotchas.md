@@ -1211,8 +1211,9 @@ test's own bug. Applies to any module-level signal a test can leave set.
 
 ---
 
-- **Every `api/*.ts` file is a Vercel ENDPOINT.** There is no `vercel.json`, and `api/` holds
-  exactly `network.ts`, `patches.ts`, `sessions.ts` — three files, three serverless functions. A
+- **Every `api/*.ts` file is a Vercel ENDPOINT.** `vercel.json` sets only the region, and `api/`
+  holds exactly `network.ts`, `patches.ts`, `sessions.ts`, `wallet.ts` — four files, four
+  serverless functions. A
   helper module dropped in there (`api/deps.ts`, `api/shared.ts`) does not just sit quietly; it
   publishes a bogus function. Shared server-side helpers belong at module scope inside the endpoint
   that uses them, or somewhere outside `api/` entirely.
@@ -1714,9 +1715,9 @@ state costs you more than one wrong attempt.
   CommandResult`) for a future `node` command.
 - **`workstation_id` MUST go through `computeWorkstationId`** — suffix =
   `sha256('ed25519:' + playerKeyHex)[0..8]`. The `ed25519:` prefix is load-bearing; a
-  raw-playerKey derivation diverges and silently breaks auth/L1/L2. Routers/gateways have
-  their own prefixed namespaces (`ed25519-router:` / `ed25519-inner-gw:` /
-  `ed25519-deep-gw:`).
+  raw-playerKey derivation diverges and silently breaks auth/L1/L2. Gateways have their own
+  prefixed namespaces (`ap-gw:` / `inner-gw:` / `deep-gw:` in `core/identity/router.ts`), and
+  none is an `ed25519-` one, because no gateway is derived from a keypair.
 - **Two separate keypairs.** Identity (Ed25519) in browser localStorage, never auto-wiped
   (identity reset = an explicit "new game"). The wallet key lives in the in-game filesystem,
   lost on permadeath or theft — wallet defense is gameplay, not crypto.
@@ -1871,8 +1872,10 @@ state costs you more than one wrong attempt.
   statement with no session row to invalidate.
 
 - **A real occupant BEATS the generated sibling standing on the same octet, and every tool has to
-  answer by that rule.** A lease is issued from the whole `/24` and nothing reserves the octets the
-  ESSID's seeded NPCs already fill, so the collision is ordinary rather than exotic. `nmap` merges
+  answer by that rule.** When this was written a lease was issued from the whole `/24`, so the
+  collision was ordinary rather than exotic. The allocator now skips the octets the ESSID's seeded
+  NPCs fill (`excludedOctets: npcOctetsFor(essid)` in `api/network.ts`); the rule below still holds
+  for every tool. `nmap` merges
   the host list, `ssh` and `nc` check occupants first — and any tool that resolves its target from
   `generateHomeLan().hosts` ALONE cannot see a player at all, which is what `hydra` did until D6
   slice 7. The merge belongs to the target RESOLUTION, never to one service: fixing it for the
@@ -1978,7 +1981,7 @@ state costs you more than one wrong attempt.
   the shape every later one (`nc`, `mysql`, `redis`) should follow: a signal the terminal reads
   to dispatch elsewhere, `enter`/`leave` as siblings of `pushSession`, no `OverlayMode` arm, and
   an unknown command refused rather than falling through to the real shell. Two consequences.
-  `rehydrateSessionStack` rebuilds only HOP kinds (`ssh`/`su`) — an **allowlist**, so the next
+  `rehydrateSessionStack` rebuilds only HOP kinds (`ssh`/`su`/`exploit`) — an **allowlist**, so the next
   parallel door needs no second exclusion — and everything else comes back `abandoned` for the
   boot sweep to close, since a lingering active row is a silent write grant on someone else's
   box (sessions have no TTL). `end_reason` is a closed enum (`user_exit` | `abandoned`) so a row

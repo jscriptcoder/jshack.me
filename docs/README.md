@@ -57,11 +57,21 @@ disagree, the code wins; fix the doc.
 - [vulnerability-architecture.md](./vulnerability-architecture.md) — the vulnerability system:
   the world clock, package timelines, the three axes, effects, and the defender's loop.
 - [tutorials-architecture.md](./tutorials-architecture.md) — the in-game tutorials: the home
-  `README`, hackademy.io's ten chapters and example scripts, the rules every chapter keeps, the
+  `README`, hackademy.io's eleven chapters and example scripts, the rules every chapter keeps, the
   tests that hold them, and how to add a chapter (the in-game tutorials epic, shipped).
 - [missions-architecture.md](./missions-architecture.md) — contract work: offers on a hireme.io
   board, the 195 contract networks generated from a number, the key from a server-only secret,
   the client paying a mailed key, and the root view (the missions epic, shipped).
+- [wallet-architecture.md](./wallet-architecture.md) — money: the `wallet` command, the public
+  JSC ledger keyed by address, chainit.io, and the operator's mint.
+- [email-architecture.md](./email-architecture.md) — mail: the `mail` command, sign-up at
+  emailit.io, accounts and messages in server tables, attachments, and emailit.io's root view.
+- [talkit-architecture.md](./talkit-architecture.md) — the forum: talkit.io's threads and
+  comments, posted as an emailit.io account, and the operator's removal.
+- [valleynews-architecture.md](./valleynews-architecture.md) — the paper: valleynews.io, its
+  sections and stories, and the operator's desk that posts them.
+- [hireme-architecture.md](./hireme-architecture.md) — the contracting agency: applying at
+  hireme.io, the private board address mailed back, and the boards' server.
 - [e2e-shared-network-verification.md](./e2e-shared-network-verification.md) — two-player
   browser journeys against a local stack, and a coverage map.
 - [legacy/rewrite-blueprint/](./legacy/rewrite-blueprint/README.md) — the design-intent blueprint for the rewrite
@@ -69,6 +79,6 @@ disagree, the code wins; fix the doc.
   source of truth; the old monolithic `rewrite-blueprint.md` was dropped (it had drifted
   stale). Start at [legacy/rewrite-blueprint/README.md](./legacy/rewrite-blueprint/README.md).
 - [mission-ideas/](./mission-ideas/README.md) — how legacy missions worked
-  and every scenario they shipped, kept as inspiration for the missions rebuild.
+  and every scenario they shipped, kept as inspiration for more contract templates.
 - [legacy/](./legacy/README.md) — the retired React app's design docs and
   how to read its source from the `legacy-final` tag.

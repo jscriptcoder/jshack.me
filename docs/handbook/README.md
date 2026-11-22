@@ -2,8 +2,9 @@
 
 This handbook is for an engineer taking over jshack.me. It explains how the whole game is built
 (architecture, components, algorithms, data, deployment and testing) well enough to maintain and
-extend it without the original author and without an AI assistant. It describes the code as it is at
-v0.278.0 (2026-09-27). When the handbook and the code disagree, the code is right; fix the handbook.
+extend it without the original author and without an AI assistant. It was written against v0.278.0
+(2026-09-27) and brought up to date against v0.478.0 (2026-11-22). When the handbook and the code
+disagree, the code is right; fix the handbook.
 
 ## Start here
 
@@ -73,7 +74,8 @@ v0.278.0 (2026-09-27). When the handbook and the code disagree, the code is righ
 8. **Never add a draw to an existing random stream**; create a new one, or the world shifts under
    every player.
 9. **Start the local server with `npm run vercel:dev`**, never a bare `vercel dev`.
-10. **Bump the version** in `package.json` and `package-lock.json` on feature changes (most merged fixes bump it too).
+10. **Bump the version** in `package.json` and `package-lock.json`: the minor for a feature, the patch
+    for a fix.
 
 ## The other documentation
 
@@ -89,11 +91,22 @@ linked from the relevant chapters:
   [`world-content-architecture.md`](../world-content-architecture.md),
   [`procedural-world-architecture.md`](../procedural-world-architecture.md),
   [`discovery-architecture.md`](../discovery-architecture.md),
-  [`vulnerability-architecture.md`](../vulnerability-architecture.md): as-built deep dives.
+  [`vulnerability-architecture.md`](../vulnerability-architecture.md): as-built deep dives into the
+  world and how it is attacked and defended.
+- [`wallet-architecture.md`](../wallet-architecture.md),
+  [`email-architecture.md`](../email-architecture.md),
+  [`talkit-architecture.md`](../talkit-architecture.md),
+  [`valleynews-architecture.md`](../valleynews-architecture.md),
+  [`hireme-architecture.md`](../hireme-architecture.md),
+  [`missions-architecture.md`](../missions-architecture.md),
+  [`tutorials-architecture.md`](../tutorials-architecture.md): as-built deep dives into the public
+  web's own systems (the ledger, mail, the forum, the paper, contract work and the tutorials). The
+  handbook's chapters touch these only where they meet the shell, the server or the database.
+- [`world-in-numbers.md`](../world-in-numbers.md): the census of the whole world.
 - [`e2e-shared-network-verification.md`](../e2e-shared-network-verification.md): two-player browser
   journeys.
 - [`legacy/`](../legacy/README.md) and [`mission-ideas/`](../mission-ideas/README.md): history, and
-  input for the planned missions feature.
+  inspiration for more contract templates.
 
 ## Keeping this handbook true
 

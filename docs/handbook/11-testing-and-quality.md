@@ -6,8 +6,9 @@ this repository without it hanging, and the testing rules the project has learne
 it before writing your first test here.
 
 **There is no CI.** No workflow files exist, now or in git history. The only automatic check is
-Vercel's build of every push, which runs the type check and the bundle-size budget. Everything else
-is run by hand before opening or merging a pull request.
+Vercel's build of every push, which encodes the password pools, renders the LLM pages, type-checks,
+builds, and runs the secrets check and the bundle-size budget. Everything else is run by hand before
+opening or merging a pull request.
 
 ## The test layers
 
@@ -19,12 +20,12 @@ is run by hand before opening or merging a pull request.
 | **Browser E2E** (`agent-browser`, the `e2e` skill)  | The playable loop through the real UI against the real server: the editor, keyboard, two-player journeys                                                                                           | Nothing is recorded or replayable; each run is driven by hand                                                                         | `.claude/skills/e2e/SKILL.md`                                                               |
 | **Mutation** (Stryker)                              | That the tests would fail if the code changed                                                                                                                                                      | It produces hypotheses; survivors need hand-checking                                                                                  | the scoped recipe below                                                                     |
 | **Secrets** (`scripts/checkSecrets.ts`)             | That no uncrackable password reaches `dist/`                                                                                                                                                       | Lint also forbids `__plaintext.js` and `src/test/` to code that ships                                                                 | `npm run build`                                                                             |
-| **Budget** (`scripts/checkBudgets.ts`)              | Bundle size and per-box generation time                                                                                                                                                            | Timing is skipped on Vercel                                                                                                           | `npm run build`                                                                             |
+| **Budget** (`scripts/checkBudgets.ts`)              | Bundle size, the average box build time of each set (the landmarks, each town, the corporations), and the time to build findit's generated web                                                     | Timing is skipped on Vercel                                                                                                           | `npm run build`                                                                             |
 | **Types** (`npm run typecheck` = `tsc -b`)          | `src/` (tests included), `api/`, `scripts/`, `vite.config.ts` under strict settings                                                                                                                | SQL column names (strings), swapped arguments of the same type                                                                        | `npm run typecheck`                                                                         |
 | **Lint** (`npm run lint`)                           | ESLint recommended + TypeScript rules, Solid rules on non-test code, the `.js` import rule                                                                                                         | Formatting                                                                                                                            | `npm run lint`                                                                              |
 
-Size as of 2026-09-27 (v0.278.0): **268 test files, 6,464 tests, about 110 seconds** for
-`npx vitest run`; **79 wire-check scripts**. No `.skip`, `.only` or `.todo` anywhere. Nothing uses
+Size as of 2026-11-22 (v0.478.0): **347 test files** and **155 wire-check scripts**; the whole
+suite takes about two minutes. No `.skip`, `.only` or `.todo` anywhere. Nothing uses
 `vi.mock`: everything is tested through dependency injection (`CommandEnv` for commands, a `deps`
 object for server handlers, `fetchImpl` for adapters).
 
@@ -34,8 +35,9 @@ Prettier's output). `npm run lint` does not check formatting.
 ## Runner setup
 
 `vite.config.ts` configures Vitest: `globals: true`, `environment: 'jsdom'` for every file,
-`setupFiles: './src/test/setup.ts'` (which only adds the jest-dom matchers), `testTimeout: 30000`,
-and `include: ['src/**/*.test.{ts,tsx}']`. The 30-second timeout is a correctness setting: under
+`setupFiles: './src/test/setup.ts'` (the jest-dom matchers, and a no-op `scrollIntoView`, which jsdom
+does not implement), `testTimeout: 30000`, `include: ['src/**/*.test.{ts,tsx}']`, and
+`css: { include: [/src\/index\.css/] }`, so the theme tests can read `index.css`. The 30-second timeout is a correctness setting: under
 Stryker's instrumentation the default 5 seconds failed the dry run, so no mutants ran at all.
 Solid's hot reload is off under test (its virtual module does not resolve in jsdom), and Tailwind is
 not loaded. `__APP_VERSION__` is defined in tests too.
@@ -82,6 +84,21 @@ the handler agrees with the fixture:
   run it once before a PR that changes generated content, since the sample misses what one
   network or a coincidence breaks.
 - `src/test/deviceBoxes.ts`: device populations and 120 synthetic networks for rare kinds.
+- `src/test/passwords.ts`: `plaintextFor`, the word behind a generated hash.
+
+### Other factories
+
+All in `src/test/factories/`:
+
+- `identityIn.ts`: `generateIdentityIn(town)`, a key whose player starts in that town. A player may
+  join only their own town's networks.
+- `ownBox.ts`, `snmpAgentBox.ts`: the player's own workstation, plain or with the SNMP agent
+  installed.
+- `patchedBox.ts`: writes go through the real `createPatchApi` and replay with `applyPatches`.
+- `sessionTable.ts`: an in-memory `sessions` table, so a test can read why each row closed.
+- `signedEnvelope.ts`: `withForgedSignature`, which flips one bit of a signature.
+- `databaseRouteContract.ts`, `snmpRouteContract.ts`, `webRouteContract.ts`: a contract on each
+  route, as the doors see it.
 
 UI tests start from `startGame(SEED_CONFIG)` (`alice@workstation`, root password `hunter2`).
 
@@ -131,18 +148,19 @@ orphan and the test passes vacuously. Most existing helpers do not do this yet.
 
 ### A wire-check
 
-Copy `scripts/testSameLanConnect.ts` (or `testUpsertPatch.ts` for `/api/patches`), and add the
-seed-error checks it predates (step 4). The anatomy:
+Copy `scripts/testBrickedDark.ts` (or `testUpsertPatch.ts` for `/api/patches`). The anatomy:
 
 1. A header comment: what is new under test, each expected outcome, the usage line, and exit codes
    (0 all pass, 1 any fail, 2 missing environment).
 2. An environment guard (`process.exit(2)`), a service-role Supabase client, a `check(name, pass,
 detail)` helper, and a `post()` helper.
-3. Identities from `generateIdentity()`; every id, address and password from the production
-   derivations, never hand-written constants.
+3. Identities from `generateIdentityIn(town)` when the check joins a declared network, otherwise
+   `generateIdentity()`. Every id, address and password comes from the production derivations, never
+   hand-written constants.
 4. **Clean at setup**, including permanent tables (`network_lan_leases`), then **seed loudly** (check
-   every insert's `error` and exit on failure). Seed a lease together with occupancy. Aim at a
-   declared network's address through `scripts/publicAddressOf.ts`.
+   every insert's `error` and exit on failure). Seat a signer with `standOnNetwork` and clear the
+   network with `leaveNetwork` (`scripts/standVantage.ts`), which write occupancy and lease together.
+   Aim at a declared network's address through `scripts/publicAddressOf.ts`.
 5. Drive the real endpoint with signed envelopes; assert status, error code and the resulting rows.
    On shared machines, snapshot before and assert on the difference.
 6. Clean up, print `N/M checks passed`, and exit 0 only if all passed.
@@ -152,6 +170,11 @@ Run: start the stack (chapter 2), then
 
 Wire-check rules:
 
+- **`.env.development.local` must set `JSHACK_ADMIT_LAB_NETWORKS=1`.** Without it, every join to a
+  lab network such as `LEASE-TEST-NET` answers `403 network_not_joinable`. It is set on neither
+  Preview nor Production.
+- **The contract checks (`testMission*.ts`, `testHireme*.ts`) need `MISSION_KEY_SECRET`** in
+  `.env.development.local`. Without it the server leaves a key box unavailable.
 - **Run them one at a time.** They share deterministic machine ids and are not safe to sweep in a
   loop; re-run any failure alone before believing it. There is no committed runner.
 - **Some leave state behind.** `testDeepChainReach` bricks a gateway; the brick survives
@@ -168,7 +191,8 @@ Wire-check rules:
 `stryker.config.json` mutates `src/core/**/*.ts` with the Vitest runner and per-test coverage. A
 **whole-suite run never finishes on this repository** (Stryker's dry run of the full suite under
 instrumentation is too slow), so every real run is a scoped battery. Run it once per phase, at the
-end, before the pull request, not on every change.
+end, before the pull request, not on every change. `npm run test:mutation` runs that whole-suite
+config, so do not use it.
 
 ### Recipe: mutation-test one file
 
@@ -277,8 +301,9 @@ the file. Wait until the terminal input exists twice in a row.
   `chore:`).
 - **Merging.** Squash-merge: `gh pr merge <number> --squash --delete-branch`. Do not stack a pull
   request on a branch that will be squash-merged and deleted.
-- **Versioning.** Feature changes (and, in practice, most merged `fix` pull requests) bump the **minor** version in both `package.json` and
-  `package-lock.json` (`npm install --package-lock-only`). There are no release tags and no changelog;
+- **Versioning.** A feature bumps the **minor** version and a fix bumps the **patch** version, in both
+  `package.json` and `package-lock.json` (`npm install --package-lock-only`). The new version goes in
+  the pull request title. There are no release tags and no changelog;
   squash commit messages are the release notes.
 - **Before a pull request**, run by hand: `npm run typecheck`, `npm run lint`, `npm run test:run`,
   `npm run build`, the wire-checks for any `api/` path you touched, and a scoped mutation run at the

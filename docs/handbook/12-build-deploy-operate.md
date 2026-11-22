@@ -24,21 +24,25 @@ production.
 
 ## Environment variables
 
-| Name                                                                    | Used by                        | Purpose                                                                      |
-| ----------------------------------------------------------------------- | ------------------------------ | ---------------------------------------------------------------------------- |
-| `SUPABASE_URL`                                                          | `api/*.ts`, wire-checks        | The Supabase API URL. Missing → every endpoint answers `500 not_configured`. |
-| `SUPABASE_SERVICE_ROLE_KEY`                                             | `api/*.ts`, wire-checks        | The service-role key (bypasses row-level security). Required.                |
-| `SUPABASE_ANON_KEY`                                                     | `scripts/verifyPatchesRls.ts`  | Only for the row-level-security probe. The app does not use it.              |
-| `VERCEL`                                                                | `scripts/checkBudgets.ts`      | Set to `1` by Vercel builds; skips the timing budget.                        |
-| `ENDPOINT`, `NETWORK_ENDPOINT`, `PATCHES_ENDPOINT`, `SESSIONS_ENDPOINT` | wire-checks                    | Override the default `http://localhost:3100/api/<fn>`.                       |
-| `EXPLOIT_ESSID`                                                         | `scripts/testExploitOwnLan.ts` | Optional script parameter: which network to test against.                    |
+| Name                                                                                       | Used by                                                                            | Purpose                                                                                                                                             |
+| ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SUPABASE_URL`                                                                             | `api/*.ts`, wire-checks                                                            | The Supabase API URL. Missing → every endpoint answers `500 not_configured`.                                                                        |
+| `SUPABASE_SERVICE_ROLE_KEY`                                                                | `api/*.ts`, wire-checks                                                            | The service-role key (bypasses row-level security). Required.                                                                                       |
+| `SUPABASE_ANON_KEY`                                                                        | `scripts/verifyPatchesRls.ts`                                                      | Only for the row-level-security probe. The app does not use it.                                                                                     |
+| `VERCEL`                                                                                   | `scripts/checkBudgets.ts`                                                          | Set to `1` by Vercel builds; skips the timing budget.                                                                                               |
+| `JSHACK_SECRETS`                                                                           | `scripts/encode.ts`, `api/network.ts`, `api/sessions.ts`, `scripts/hireme.ts`      | The password pools. The build encodes them, and the functions also read them at runtime to lay a contract's leaked word onto its key box.           |
+| `MISSION_KEY_SECRET`                                                                       | `api/network.ts`, `api/sessions.ts`, `scripts/hireme.ts`, the contract wire-checks | Derives each contract's key and its path. Each deployment holds a different value; with it missing, a key box is unavailable rather than guessable. |
+| `JSHACK_ADMIT_LAB_NETWORKS`                                                                | `api/network.ts`                                                                   | Set to `1` in `.env.development.local` only, so wire-checks can join undeclared lab networks.                                                       |
+| `ENDPOINT`, `NETWORK_ENDPOINT`, `PATCHES_ENDPOINT`, `SESSIONS_ENDPOINT`, `WALLET_ENDPOINT` | wire-checks                                                                        | Override the default `http://localhost:3100/api/<fn>`.                                                                                              |
+| `EXPLOIT_ESSID`                                                                            | `scripts/testExploitOwnLan.ts`                                                     | Optional script parameter: which network to test against.                                                                                           |
 
-Set the two Supabase variables per Vercel environment in the Vercel dashboard (Production for
-jshack-prod; Preview for jshack-dev). Locally they live in `.env.development.local` (git-ignored),
-which holds the **local** stack's values; regenerate them with `npx supabase status -o env`.
+Set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `JSHACK_SECRETS` and `MISSION_KEY_SECRET` per Vercel
+environment in the Vercel dashboard (Production for jshack-prod; Preview for jshack-dev). Locally they
+live in `.env.development.local` (git-ignored), which holds the **local** stack's values; regenerate
+the Supabase ones with `npx supabase status -o env`.
 
-**The client uses no environment variables**: there is no `import.meta.env`. The only build-time
-injection is `__APP_VERSION__`.
+**The client uses no environment variables.** The only build-time injection is `__APP_VERSION__`.
+The one `import.meta.env` read is the test-only `WORLD_SWEEP` (`src/test/worldContent.ts`).
 
 ## The build
 
@@ -59,14 +63,16 @@ injection is `__APP_VERSION__`.
 3. **`vite build`**: emits the single-page app to `dist/`.
 4. **`postbuild` → `scripts/checkSecrets.ts`, then `scripts/checkBudgets.ts`**: the first fails the
    build, naming the word and the file, if any uncrackable password appears in `dist/`; the second
-   if the gzipped main chunk exceeds 286,975 bytes, or (locally only) if the average box build
-   exceeds 2 ms (chapter 6).
+   if the gzipped main chunk exceeds 308,075 bytes. Locally only, it also fails if the best of three
+   passes puts any set's average box build (the landmarks, each town, the corporations) over 2 ms,
+   or findit's generated web over 1,500 ms to build (chapter 6).
 
 Any failure fails the build, and on Vercel that means **nothing deploys**.
 
 ### What runs automatically
 
-Only Vercel's `npm run build` on every push. That covers types, the Vite build and the bundle budget.
+Only Vercel's `npm run build` on every push. That covers encoding, the LLM pages, types, the Vite
+build, the secrets check and the bundle budget.
 **Lint, tests, wire-checks, E2E and mutation testing never run automatically.** There is no CI and no
 git hooks.
 
@@ -75,8 +81,9 @@ git hooks.
 1. Work on a branch; push it. Vercel builds a preview against jshack-dev.
 2. Run the gates by hand: `npm run typecheck`, `npm run lint`, `npm run test:run`, `npm run build`,
    plus wire-checks for any `api/` change.
-3. Bump the minor version in `package.json` and `package-lock.json`
-   (`npm install --package-lock-only`). The version appears in the in-game boot banner.
+3. Bump the version, the minor for a feature and the patch for a fix, in `package.json` and
+   `package-lock.json` (`npm install --package-lock-only`), and put it in the pull request title. The
+   version appears in the in-game boot banner.
 4. Open a pull request and squash-merge it (`gh pr merge <number> --squash --delete-branch`).
 5. Vercel builds `main` and promotes it to production.
 6. **Smoke-check the functions.** An empty `POST` must answer `400 {"error":"envelope_invalid"}`:
@@ -124,11 +131,15 @@ it. Leaving the CLI linked risks pushing to the wrong project.
 
 - **Infrastructure secret**: `SUPABASE_SERVICE_ROLE_KEY`, per project. To rotate: regenerate it in the
   Supabase dashboard, update the matching Vercel environment, redeploy, and refresh
-  `.env.development.local` locally. There are no other server secrets: players sign with their own
-  keys, and there are no third-party API keys.
+  `.env.development.local` locally.
+- **Contract secret**: `MISSION_KEY_SECRET`, which holds a distinct value in Preview, Production and
+  `.env.development.local`. Changing it changes every contract's key on that deployment, and a key
+  read on one deployment never opens another. There are no other server secrets: players sign with
+  their own keys, and there are no third-party API keys.
 - **Game "secrets"**: the password pools, in the `JSHACK_SECRETS` variable (chapter 6). It is set,
   readable, in Production, Preview and Development, and in `.env.development.local` locally. Vercel
-  re-encodes it during `prebuild`; the bundle carries the uncrackable pool as md5s only. Changing the
+  re-encodes it during `prebuild`; the bundle carries the uncrackable pool as md5s only. The functions
+  also read it at runtime, so a change needs a redeploy for both the bundle and the server. Changing the
   codec key needs only a re-encode.
 
 ### Changing the secrets later
@@ -161,11 +172,13 @@ installed with until it is reinstalled.
 ## Operating production
 
 - **Logs.** Only `console.error` lines in the Vercel runtime logs, prefixed `[network]`,
-  `[patches]` or `[sessions]` and a label. Read them in the Vercel dashboard or with `vercel logs`.
+  `[patches]`, `[sessions]` or `[wallet]` and a label. Read them in the Vercel dashboard or with `vercel logs`.
   There are no metrics, alerts or error tracker.
 - **Data fixes.** There are no admin endpoints. Operators use the service-role key directly, through
-  Supabase Studio's SQL editor or a script. Four operator scripts exist, each pointed at production
-  by supplying production credentials by hand, and each printing the database host it writes to:
+  Supabase Studio's SQL editor or a script. Five operator scripts exist. Each is pointed at production
+  through the git-ignored `.env.production.local`
+  (`npx dotenv -e .env.production.local -- npx tsx scripts/<name>.ts …`), and each prints the
+  database it writes to:
   - `scripts/guardian.ts` is the guardian's round, which the owner runs on production with the
     checked-in `/guardian` skill (`.claude/skills/guardian/SKILL.md`): report, the owner picks the
     tampered boxes to restore, restore those, patch. `report [name…]` writes nothing. For each box
@@ -189,6 +202,10 @@ installed with until it is reinstalled.
     its journal, and writes today's manifest, fresh passwords and a fresh boot marker. Only the
     site's own box; its gateway and a fixed site's tables keep what they hold. It always names its
     boxes.
+  - `scripts/hireme.ts` is the contracts desk. `accept <handle> [--number N]` stages a job,
+    `drop <handle>` abandons one, `post <handle>` posts three fresh offers, and `show <address>`
+    prints what a contract number drew. It cannot complete a job, because a payout goes only through
+    the mail door. `show` needs `MISSION_KEY_SECRET` and `JSHACK_SECRETS`.
   - `scripts/mintCoins.ts <address> <amount>` credits a ledger address with new coins.
   - `scripts/talkitRemove.ts thread <id>` or `comment <id> <n>` takes a thread, with all its
     comments, or one comment off talkit.io. A thread is deleted; a comment keeps its number and
@@ -226,7 +243,12 @@ installed with until it is reinstalled.
 - **`__encoded.ts` must exist before `npm run vercel:dev`**, which has no pre-hook. On a fresh clone
   set `JSHACK_SECRETS` (chapter 2) and run `npm run encode` (or any of `typecheck`, `test`, `dev`,
   `build`) first. Wire-checks need its `__plaintext.ts` as well, for every generated password they
-  log in with.
+  log in with. Also set `MISSION_KEY_SECRET` and `JSHACK_ADMIT_LAB_NETWORKS=1` in
+  `.env.development.local`.
+- **Offline helpers.** `scripts/worldCensus.ts` counts the whole world offline and feeds
+  [`world-in-numbers.md`](../world-in-numbers.md); rerun it after any change that moves the world.
+  `scripts/seedCrossPlayerTarget.ts` seeds a cross-player target for a browser run and does not
+  clean up after itself, so run it with `clean` afterwards.
 - **Case-only renames on Windows** can ship import casing that fails on Linux. Check import casing
   after renaming.
 - **Do not run Stryker alongside `vercel dev`.** Its sandbox copies (`.stryker-tmp/`) can crash the

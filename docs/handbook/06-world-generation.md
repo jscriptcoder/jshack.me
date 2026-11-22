@@ -57,15 +57,19 @@ _Everything left of the journal is a pure function of strings. Only the journal 
 | `gameConfig/gameConfig.ts`                                                                                                                              | The new-game choices (machine name, username, root password) and their validation.                         |
 | `generation/world.ts`                                                                                                                                   | The declared world: regions, town rows, each network's key, name, kind, profile and address.               |
 | `generation/pools/essidCatalog.ts`                                                                                                                      | Ridgemont's 57 hand-written landmarks, their categories, places and web sites.                             |
+| `generation/pools/townLandmarks.ts`                                                                                                                     | The hand-written landmarks of every town beyond Ridgemont.                                                 |
 | `generation/pools/businessKinds.ts`, `pools/homeNames.ts`                                                                                               | The name grammars and word lists the towns draw their places from.                                         |
 | `generation/relations.ts`, `generation/seededForwards.ts`                                                                                               | Leads between a town's networks, and the services a drawn network's gateway forwards.                      |
 | `generation/generateWifi.ts`                                                                                                                            | Which networks a WiFi scan shows, and each network's WiFi password.                                        |
+| `generation/startingTown.ts`                                                                                                                            | The town a player starts in, drawn from their public key.                                                  |
 | `generation/generateHomeLan.ts`, `generateDeepLayer.ts`, `lanTopology.ts`                                                                               | Network topology (filesystem-free).                                                                        |
 | `generation/machineRole.ts`, `pools/hostnames.ts`, `rolePlacement.ts`                                                                                   | Machine roles, hostnames, and per-role service rates.                                                      |
 | `generation/lanHostIdentity.ts`                                                                                                                         | Topology → trees: `baseFsForLanHost`, `generatedBaseFsForMachineId`.                                       |
 | `generation/remoteHostFs.ts`                                                                                                                            | **The** generated-machine builder, `buildRemoteHostFs(essid, host)`.                                       |
 | `generation/deepHostFs.ts`                                                                                                                              | A deep machine: a normal machine plus a forced `sshd` on port 22.                                          |
 | `generation/routerFs.ts`                                                                                                                                | Gateway builders: access point, inner router, switch, deep router, deep switch.                            |
+| `generation/fixedSites.ts`, `fixedSiteFs.ts`                                                                                                            | The fixed internet sites and hireme.io's board server, and their box builder.                              |
+| `generation/missionKeyBoxFs.ts`, `missions/missionNetwork.ts`, `missions/missionShape.ts`                                                               | A contract network: its number, address and ESSID (`mission-<n>`), its LAN shape and its boxes.            |
 | `generation/workstationFs.ts`                                                                                                                           | A player's own workstation (a fresh install).                                                              |
 | `generation/baseFs.ts`, `binaries.ts`, `libraries.ts`                                                                                                   | Tree helpers, permission constants, `/etc/passwd`, `/boot`, stub binaries and libraries.                   |
 | `generation/passwordPools.ts`, `md5.ts`                                                                                                                 | Password pools, crack chances, and a deliberately weak MD5.                                                |
@@ -116,12 +120,18 @@ Examples of the namespaces in use:
 | One machine | `host-fs-<essid>-<ip>` (accounts), `svc-<service>-<essid>-<ip>`, `backdoor-`, `etc-config-`, `web-site-`, `mysql-db-`, `log-history-`, …                                 |
 | Machine id  | `mac-<id>`, `gw-history-<id>`, …                                                                                                                                         |
 
+The player's key also seeds `starting-town-<town>-<key>`, which picks the town the player starts in.
+
 ## The declared world
 
 Everything a player can reach is listed once, in `DECLARED_NETWORKS` (`generation/world.ts`): one
 region, Harrow Valley; eleven towns, each a hand-authored row of a name and a size class (village,
-town or city); and 612 networks, of which 57 are Ridgemont's hand-written landmarks and the rest are
-drawn from their town's row on streams keyed by the town (`town-businesses-r0/t3`, …). The list is
+town or city); and 655 networks. A hundred of them are hand-written landmarks: Ridgemont's 57 in
+`pools/essidCatalog.ts` and 43 across the other towns in `pools/townLandmarks.ts`. The rest are
+drawn from their town's row on streams keyed by the town (`town-businesses-r0/t3`, `town-homes-`,
+`town-practices-`, …). Nine fixed sites (findit.io, hackademy.io, mapit.io, emailit.io, chainit.io,
+talkit.io, hireme.io, valleynews.io and rideit.io) and hireme.io's board server are single boxes
+listed in `generation/fixedSites.ts`, outside `DECLARED_NETWORKS`. The list is
 built once when the module loads and walked by everything that must see the whole world: findit's
 index, `whois`, the reverse address lookup and the reachability test.
 
@@ -129,8 +139,10 @@ index, `whois`, the reverse address lookup and the reachability test.
   name, through `essidOf(key)`. Two towns' `TOWN-HALL-WIFI` are different networks with different
   passwords and LANs.
 - **Addresses** are a network's position: `publicAddress(key)` and `networkAt(address)` in
-  `world.ts`. A town's networks answer in its block (`87.<town>.x.y`), findit and the corporations in
-  `193`. Nothing is drawn or stored.
+  `world.ts`. A town's networks answer in its block (`87.<town>.x.y`); findit, the other fixed sites
+  and the corporations answer in `193`. hireme.io's contractor boards are handed out from `194`, one
+  stored address per handle. A contract's network answers in `195`, at its contract number written
+  as an address (`missions/missionNetwork.ts`). Nothing in `87` or `193` is drawn or stored.
 - **Profiles.** A drawn network declares how much stands behind its gateway (`lone`, `flat` or
   `deep`), and `generateHomeLan` reads it; a landmark declares none and is `deep`.
 - **Append only.** Regions, town rows, a town's networks and the word lists only ever grow at the
@@ -144,7 +156,9 @@ The full model, the scan's pool and the joins are in
 ### The home LAN
 
 `generateHomeLan(key)`, for the `deep` profile every landmark has (a `lone` network is the gateway
-and one machine, a `flat` one the gateway and 2–5, with no inner gateway or deep chain):
+and one machine, a `flat` one the gateway and 2–5, with no inner gateway or deep chain; a contract
+network, `mission-<n>`, takes neither path, and its LAN comes from `missionTopology(n)`, holding its
+key box and, for some shapes, a front box):
 
 1. Subnet `192.168.<0–255>` from the `home-subnet-` stream.
 2. `.1` is the access-point gateway (a router) with a seeded hostname.
@@ -170,10 +184,11 @@ gateways.
 
 ### The whole world, measured
 
-Measured on 2026-09-27 at v0.278.0 over the 57 landmarks: 470 home-LAN hosts, 55 deep gateways and
-169 deep machines, **694 generated boxes**. At v0.306.0 the world declares 612 networks and **3,727 generated boxes**:
-the landmarks' 694, Ridgemont's drawn 615, Kingsford's 797, the corporations' 256, and 1,365 across
-the other nine towns. The build's budget report (`checkBudgets`) prints each set's count.
+`scripts/worldCensus.ts` counts the whole world offline in a few seconds, and
+[`world-in-numbers.md`](../world-in-numbers.md) records its output. At v0.478.0 the world declares
+655 networks and **4,264 generated boxes** (2,977 machines and 1,287 gateways), plus 10 fixed boxes.
+The build's budget report (`checkBudgets`) prints each set's count. Contract networks are generated
+on demand from their number and are not in these counts.
 
 ## What a generated machine contains
 
@@ -291,17 +306,17 @@ not the doors.
 Because nothing is cached, every command on the client and every request on the server pays the
 generation cost. `scripts/checkBudgets.ts` runs after every `npm run build` and fails the build when:
 
-- **the gzipped main JavaScript chunk exceeds 286,975 bytes** (136,975 bytes of code, the
-  pre-content 134,975 raised once for talkit.io's forum, plus a fixed 150 KB allowance for content
-  pools). Checked on Vercel too. The fix is to trim pools; the
-  allowance does not grow.
+- **the gzipped main JavaScript chunk exceeds 308,075 bytes.** This is checked on Vercel too. The
+  ceiling is raised when a feature needs it, and the comment above `BUNDLE_CEILING_BYTES` records
+  each raise and its reason. Trimming pools is the remedy only when content alone breaches it.
 - **building the boxes of any one set averages over 2 ms per box**, the best of three passes after a
   warm-up. The sets are the Ridgemont landmarks, each drawn town, the corporations and Ridgemont's
   drawn networks, each timed alone so a dear town cannot hide in the average. Before adding a cache,
   look for a lookup made twice inside one build (that fixed it once before); the one cache that
   exists, the relations memo, was added when a town's box time measured 2.5 ms.
-- **building findit's generated web from nothing takes over 1,000 ms** (542–915 ms at v0.306.0, by
-  how loaded the machine was), the cost of the first search on a fresh server instance.
+- **building findit's generated web from nothing takes over 1,500 ms.** The world's 393 publishers
+  measured 692–1,073 ms on an idle machine. This is the cost of the first search on a fresh server
+  instance.
 
 The timings are skipped on Vercel (`VERCEL=1`), whose builders are several times slower.
 
@@ -311,10 +326,6 @@ wall-clock assertion would break mutation runs.
 Other size limits: a file a player can carry home must fit one signed write (payload up to
 `MAX_SIGNED_PAYLOAD`, 65,536 characters of JSON; `carryHome.test.ts` holds every generated file to it); the access-point gateway's root-visible tree must stay under 32,768 characters
 because it is sent to every occupant.
-
-> **Headroom note (2026-09-27):** one research run measured 1.61–1.83 ms per box against the 2 ms
-> ceiling, while the docs record 0.86–1.67 ms. The machine may have been loaded. Measure with a clean
-> `npm run build` before the next content change.
 
 ## `WORLD_EPOCH`
 
@@ -392,11 +403,13 @@ gateways of the corporations branching there moved, add it to `scripts/testTowns
 
 ### Add a hand-written network
 
-The catalog is closed at 57: inserting a landmark would move every key and address after it. A new
-hand-written network is declared after what its town already draws, as Millbrook's cottage hospital
-is, with a category, a place and optionally a web site. Fictional or parody names only. A publisher
-gets a guaranteed web server, and its address follows from its position. Only a Ridgemont network
-can be offered by a scan or joined.
+Ridgemont's catalog is closed at 57: inserting a landmark would move every key and address after it.
+Every other town's landmarks are listed in `pools/townLandmarks.ts` and declared after everything the
+town draws, so a new one goes at the end of its town's list, with a category, a place and optionally
+a web site. Fictional or parody names only. A publisher gets a guaranteed web server, and its address
+follows from its position. A WiFi scan offers only networks in the town the player stands in. That
+town starts as the one `startingTown(publicKey)` draws, weighted by how many networks each town holds,
+and changes when the player travels with rideit.io.
 
 ### Add a spoiler pool
 

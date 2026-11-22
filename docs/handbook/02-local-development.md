@@ -37,7 +37,13 @@ SUPABASE_URL=http://127.0.0.1:54421
 SUPABASE_ANON_KEY=<anon key from supabase status>
 SUPABASE_SERVICE_ROLE_KEY=<service role key from supabase status>
 JSHACK_SECRETS='<the password pools, as one line of JSON>'
+MISSION_KEY_SECRET=<any long random string of your own>
+JSHACK_ADMIT_LAB_NETWORKS=1
 ```
+
+`MISSION_KEY_SECRET` derives every contract's key; each deployment holds its own value, so make one
+up locally. Without it a contract's key box is unavailable. `JSHACK_ADMIT_LAB_NETWORKS=1` lets the
+wire-checks join their undeclared lab networks; it is set nowhere but locally.
 
 `JSHACK_SECRETS` holds every password pool the world draws from, as one JSON object with four lists:
 `UNCRACKABLE_PASSWORDS`, `CRACKABLE_PASSWORDS`, `COMMON_PASSWORDS` and `WIFI_PASSWORDS`. The repo does
@@ -69,7 +75,7 @@ API, database, Studio and mail ports into the 5442x range).
 npm run vercel:dev
 ```
 
-This runs `dotenv -e .env.development.local -- vercel dev --listen 3100`: Vite plus the three
+This runs `dotenv -e .env.development.local -- vercel dev --listen 3100`: Vite plus the four
 `api/` functions on `http://localhost:3100`. The first time, `vercel dev` may ask to link the
 directory to a Vercel project; the link metadata (`.vercel/`) is git-ignored.
 
@@ -132,9 +138,8 @@ These are enforced by review, not tools (except the `.js` import rule). The full
 - **Do not reference `plans/` or personal notes from code.** Link a `docs/` file if longer context is
   needed.
 - **Every relative import ends in `.js`** (`./x.js` resolves to `x.ts`). Lint enforces it.
-- **Bump the version** in `package.json` and `package-lock.json` on feature changes (in practice,
-  most merged `feat` and `fix` pull requests bump the minor version)
-  (`npm install --package-lock-only`).
+- **Bump the version** in `package.json` and `package-lock.json`, the minor for a feature and the
+  patch for a fix (`npm install --package-lock-only`).
 - **Command names are the real binary's name**, and a ported command keeps the legacy app's flags and
   error messages.
 - **There is no `/etc/shadow`** in this game; passwords are inline in `/etc/passwd`.

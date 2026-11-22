@@ -13,8 +13,8 @@ tokenizes the line, splits it into pipeline stages, looks each stage up in the *
 its flags, validates every stage before running any, then runs the stages, threading one stage's
 stdout into the next and applying a trailing `>` or `>>`. **Whether a command exists on a machine is
 decided by the filesystem**: the registry wraps each command in a check that its binary is present
-in `/bin`, `/usr/bin` or `/usr/sbin` and its shared libraries are in `/lib`. Delete `/bin/ls` on a
-box and `ls` is gone there.
+in `/bin`, `/usr/bin` or `/usr/sbin` and its shared libraries load from `/lib` or from beside the
+binary. Delete `/bin/ls` on a box and `ls` is gone there.
 
 ## Key files
 
@@ -31,6 +31,8 @@ box and `ls` is gone there.
 | `commands/availability.ts`                                           | The binary-presence gate; the list of always-available builtins and game commands.                                                                                                   |
 | `commands/libraryDeps.ts`                                            | The shared-library gate and the command → library link map.                                                                                                                          |
 | `commands/streaming.ts`                                              | `streamedResult`: turns an async generator into a streamed result that keeps its exit code.                                                                                          |
+| `commands/fileOperands.ts`                                           | The source and destination operand reader that `cp` and `mv` share.                                                                                                                  |
+| `commands/commandReference.ts`                                       | Renders `help` and every `man` page as markdown for `public/llms/commands.md`, which `scripts/llms.ts` writes before every build.                                                    |
 | `commands/help.ts`, `man.ts`                                         | Read registry metadata to list commands and show manual pages.                                                                                                                       |
 | `commands/daemon.ts`                                                 | One factory behind every service daemon (`sshd`, `mysqld`, `redis-server`, `named`, `snmpd`, …).                                                                                     |
 | `commands/ftpShell.ts`, `mysqlShell.ts`, `redisShell.ts`             | Line interpreters for the `ftp>`, `mysql>` and `redis>` sub-shells (not registered commands).                                                                                        |
@@ -150,8 +152,11 @@ ones is wrapped as `wrapWithBinaryCheck(wrapWithLibraryCheck(command))`:
 1. **Binary check** (outermost): look for the command's binary in `/bin`, `/usr/bin`, `/usr/sbin`.
    Missing → `command not found` (exit 127), with an `apt install <package>` hint from the catalog.
    Present but the session's tier may not execute it → `Permission denied` (126).
-2. **Library check**: every shared library the command links (`libraryDeps.ts`) must exist in
-   `/lib`, or the command fails with a glibc-style loader error (127).
+2. **Library check**: every shared library the command links (`libraryDeps.ts`) must load from
+   `/lib` or, failing that, from the directory the binary sits in. A library beside the binary must
+   really be that library (its stub names it), so a player without root can carry one in next to a
+   tool; only `/lib` counts for the local library-vulnerability route. A library that loads from
+   neither place fails the command with a glibc-style loader error (127).
 
 **Always available** (`availability.ts`): the shell builtins `cd`, `echo`, `exit`, `pwd`, `help`, and
 the game commands `identity`, `new-game`, `theme`, `effects`, `author`, `xterm`. `clear` and `whoami` are **not**
@@ -172,7 +177,8 @@ stub (`binaryStub(name)` in `generation/binaries.ts`).
   passphrase as an argument works without a terminal).
 - **Not from scripts (`withoutScript`).** Commands that push or pop a session, open a screen, or enter
   a sub-shell refuse to run from a `node` script: `ssh`, `su`, `nc` (connect form), `exit`, `reboot`,
-  `nano`, `lynx`, `mysql`, `redis-cli`, `ftp`, and the UI commands.
+  `nano`, `lynx`, `mysql`, `redis-cli`, `ftp`, `passwd`, the interactive `mail` forms (`login`,
+  `passwd`, `logout`), and the UI commands (`clear`, `theme`, `effects`, `author`, `xterm`).
 
 ## Slow commands stream their progress
 
@@ -223,7 +229,7 @@ capability. A script runs at the same tier, through the same checks, with the sa
 
 ## Packages: `apt`
 
-`apt install | list | upgrade` manages what a box carries.
+`apt install | list | upgrade | update` manages what a box carries.
 
 - **The catalog** (`packages/aptPackages.ts`) says what each package is: its binaries (tools go to
   `/usr/bin`, daemons to `/usr/sbin`), dependencies (one level), and extra data files computed per
@@ -231,11 +237,15 @@ capability. A script runs at the same tier, through the same checks, with the sa
 - **`install`** checks root, then network, then the package, before writing anything. It writes the
   binary stubs, missing libraries and data files (never overwriting an existing file, so a curated
   wordlist survives a reinstall), and records the version in `/var/lib/dpkg/status`.
-  `install pkg=<version>` pins an older release.
+  `install pkg=<version>` pins an older release. `install` takes several packages and installs them
+  in the order given, stopping at the first one that fails. `-y` is accepted and ignored, because
+  apt here never asks.
 - **`list -u`** reads the box's manifest and names each package with a live vulnerability, its
   severity and whether a fix exists (chapter 8). `list` needs no root.
 - **`upgrade`** moves packages onto their fixing release. Like `install`, it needs root and a
   network.
+- **`update`** reads the package lists and says how many packages `upgrade` could move. It needs
+  root.
 - `/var/lib/dpkg/status` is **the** version authority. Scans, the vulnerability system and `apt` all
   read it.
 - `core/packages/` imports nothing from `core/commands/`; the world generator uses the catalog to
@@ -255,8 +265,10 @@ animation.
 
 ## Command catalog
 
-Result: **S** sync, **A** streamed, **M** opens a full-screen app. As of v0.278.0 there are 65
-registered commands; `registry.ts` is the source of truth.
+Result: **S** sync, **A** streamed, **M** opens a full-screen app. As of v0.478.0 there are 73
+registered commands; `registry.ts` is the source of truth. The build regenerates
+`public/llms/commands.md` from the registry's `help` and `man` text (`scripts/llms.ts`,
+`commands/commandReference.ts`), so that file is always a complete reference.
 
 ### General
 
@@ -268,6 +280,7 @@ registered commands; `registry.ts` is the source of truth.
 | `clear`    | Clear the screen (a real `/bin` binary, so it can be deleted) | S      |
 | `exit`     | Leave the current hop (no-op at the base login)               | S      |
 | `su`       | Switch user (default root), masked password prompt            | S      |
+| `passwd`   | Change your own password, or another account's as root        | S      |
 | `identity` | Show the player's public key and fingerprint                  | S      |
 | `theme`    | List or switch colour themes                                  | S      |
 | `effects`  | List or switch the screen effects (glow, glitch, HUD, cursor) | S      |
@@ -283,13 +296,15 @@ registered commands; `registry.ts` is the source of truth.
 | `cat`          | Print files or stdin (`-n`)                                 | S      |
 | `cd`, `pwd`    | Change and print the working directory                      | S      |
 | `find`         | Find entries by name glob                                   | S      |
-| `grep`         | Search files or stdin, case-insensitive (`-l`, `-c`)        | S      |
+| `grep`         | Search files or stdin, case-insensitive (`-l`, `-c`, `-r`)  | S      |
 | `head`, `tail` | First or last N lines (`-n N`, `-nN`, `-N`)                 | S      |
 | `wc`           | Count lines and words (`-l`, `-w`)                          | S      |
 | `strings`      | Print readable runs inside a file                           | S      |
 | `mkdir`        | Create directories (`-p`)                                   | S      |
 | `touch`        | Create empty files                                          | S      |
 | `rm`           | Remove files and directories (`-r`, `-f`)                   | S      |
+| `cp`           | Copy files, or directories with `-r`                        | S      |
+| `mv`           | Move or rename files and directories                        | S      |
 | `chmod`        | Change tier permissions (symbolic modes)                    | S      |
 | `nano`         | Edit a file full-screen                                     | M      |
 | `gpg`          | Encrypt (`-c`) or decrypt (`-d`) a file with a passphrase   | S      |
@@ -309,7 +324,8 @@ registered commands; `registry.ts` is the source of truth.
 | `whois`                                                                 | Look up the network, organisation, town and region behind an address or a domain   | S      |
 | `curl`                                                                  | Fetch a URL (`-i` for headers, `-d` to POST a form)                                | A      |
 | `lynx`                                                                  | Browse a page full-screen, and fill in and send its forms                          | M      |
-| `mail`                                                                  | Read, send, reply to, delete mail, change its `passwd`; login is `~/.mailrc`       | S      |
+| `mail`                                                                  | Read, send, reply (`-A` attaches), save, delete, `passwd`; login in `~/.mailrc`    | S      |
+| `wallet`                                                                | Make a JSC wallet, read any address's balance or history, send JSC                 | S      |
 | `gobuster`                                                              | Probe a web server for paths from a list                                           | A      |
 | `nc`                                                                    | Connect to a port and read its banner; `-l` plants a listener (root)               | A/S    |
 | `ssh`                                                                   | Log into a host (`user@host`, `-p port`); pushes a hop                             | S      |
@@ -358,7 +374,8 @@ registered commands; `registry.ts` is the source of truth.
    (synopsis, description, arguments, examples), `flags` with dashed keys, and `stacking` if it has
    stackable one-letter boolean flags.
 2. **Register it** in `commands/registry.ts`: add the import and add it to `builtins`. The map key is
-   derived from `name`.
+   derived from `name`. The command then appears in `help`, `man` and the generated
+   `public/llms/commands.md` with no further edit; never edit that file by hand.
 3. **Decide how it becomes available:**
    - pre-installed on every box → add it to `SYSTEM_UTILITY_NAMES` or `SYSTEM_DAEMON_NAMES` in
      `generation/binaries.ts`;

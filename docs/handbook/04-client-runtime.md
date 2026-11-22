@@ -38,30 +38,34 @@ server only through seams on the `CommandEnv` that the UI wired._
 
 ## Key files
 
-| Path                                                       | What it does                                                                                                                                                                                                               |
-| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `index.html`                                               | Static shell: meta tags, favicon, `<div id="root">`, loads `/src/main.tsx`.                                                                                                                                                |
-| `src/main.tsx`                                             | Entry point. Paints the saved theme, spends the `?fresh` flag, renders `<App>`.                                                                                                                                            |
-| `src/index.css`                                            | Imports Tailwind; declares fallback `--theme-*` colours so the page is painted before JS runs.                                                                                                                             |
-| `src/ui/state.ts`                                          | **The** client state module (~2,000 lines): every signal, `startGame`, `runInput`/`executeLine`, prompts, history, completion, session push/pop, tree acquisition, sub-shells, theme, and `resetGame` (behind `new-game`). |
-| `src/ui/env.ts`                                            | `buildCommandEnv(args)`: a pure factory that turns UI state plus injected callbacks into the `CommandEnv` a command receives.                                                                                              |
-| `src/ui/screens/App.tsx`                                   | The phase gate: `intro` → `booting` → `terminal`.                                                                                                                                                                          |
-| `src/ui/screens/Intro.tsx`                                 | First-launch menu and new-game form (workstation name, username, root password).                                                                                                                                           |
-| `src/ui/screens/BootScreen.tsx`                            | Timed fake kernel boot that doubles as the "is this machine bricked?" check.                                                                                                                                               |
-| `src/ui/screens/Terminal.tsx`                              | Scrollback, prompt, input, busy bar, keyboard handling, and the overlay switch.                                                                                                                                            |
-| `src/ui/screens/Nano.tsx`, `Lynx.tsx`, `Author.tsx`        | Full-screen overlay apps: text editor, text-mode web browser, author card.                                                                                                                                                 |
-| `src/ui/renderPage.ts`                                     | Turns an in-game HTML page into text lines with numbered links and form fields, for `lynx`.                                                                                                                                |
-| `src/ui/activeRoot.ts`                                     | Chooses which filesystem tree the shell is standing in and replays the journal over it.                                                                                                                                    |
-| `src/ui/sessionRehydrate.ts`                               | Rebuilds the session stack from the server's session rows after a reload.                                                                                                                                                  |
-| `src/ui/connectionPersistence.ts`                          | Remembers which WiFi network (ESSID) you were connected to across reloads.                                                                                                                                                 |
-| `src/ui/themePersistence.ts`, `src/ui/theme/applyTheme.ts` | Store and paint the colour theme.                                                                                                                                                                                          |
-| `src/ui/identity.ts`, `src/ui/seed.ts`                     | Page-lifetime memo of the player's keypair; the player's own base session and base filesystem.                                                                                                                             |
-| `src/ui/freshTab.ts`                                       | Reads and strips the `?fresh` query flag used by the `xterm` command.                                                                                                                                                      |
-| `src/ui/sleep.ts`                                          | `abortableSleep`: the real implementation of `env.sleep`, cancelled by Ctrl-C.                                                                                                                                             |
-| `src/core/boot/`                                           | Pure boot logic: `canBoot` (brick check), boot-id marker, shared boot-failure text.                                                                                                                                        |
-| `src/core/theme/themes.ts`                                 | The colour palettes as data (4 themes × 10 colour tokens).                                                                                                                                                                 |
-| `src/core/types.ts`                                        | Branded primitive types used everywhere (`MachineId`, `AbsPath`, `PlayerKeyHex`, `EpochMs`, …).                                                                                                                            |
-| `src/adapters/crossTabSync.ts`                             | BroadcastChannel wrapper that tells other tabs "your journal changed".                                                                                                                                                     |
+| Path                                                       | What it does                                                                                                                                                                                                             |
+| ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `index.html`                                               | Static shell: meta tags, favicon, `<div id="root">`, loads `/src/main.tsx`.                                                                                                                                              |
+| `src/main.tsx`                                             | Entry point. Paints the saved theme, spends the `?fresh` flag, renders `<App>`.                                                                                                                                          |
+| `src/index.css`                                            | Imports Tailwind; declares fallback `--theme-*` colours so the page is painted before JS runs.                                                                                                                           |
+| `src/ui/state.ts`                                          | **The** client state module (~2,400 lines): every signal, `startGame`, `runInput`/`executeLine`, prompts, history, completion, sessions, tree acquisition, sub-shells, mail, theme, and `resetGame` (behind `new-game`). |
+| `src/ui/env.ts`                                            | `buildCommandEnv(args)`: a pure factory that turns UI state plus injected callbacks into the `CommandEnv` a command receives.                                                                                            |
+| `src/ui/screens/App.tsx`                                   | The phase gate: `intro` → `booting` → `terminal`.                                                                                                                                                                        |
+| `src/ui/screens/Intro.tsx`                                 | First-launch menu and new-game form (workstation name, username, root password).                                                                                                                                         |
+| `src/ui/screens/BootScreen.tsx`                            | Timed fake kernel boot that doubles as the "is this machine bricked?" check.                                                                                                                                             |
+| `src/ui/screens/Terminal.tsx`                              | Scrollback, prompt, input, busy bar, keyboard handling, and the overlay switch.                                                                                                                                          |
+| `src/ui/screens/Hud.tsx`                                   | The frame and two status bars around the terminal and its overlays: link state, clock, user@host, `wlan0` address, ESSID, version.                                                                                       |
+| `src/ui/screens/TerminalLoading.tsx`                       | The busy bar: a braille spinner and the name of the running command.                                                                                                                                                     |
+| `src/ui/screens/Nano.tsx`, `Lynx.tsx`, `Author.tsx`        | Full-screen overlay apps: text editor (also used to write a `mail` message), text-mode web browser, author card.                                                                                                         |
+| `src/ui/banner.ts`                                         | The ASCII banner, with the version from `__APP_VERSION__`.                                                                                                                                                               |
+| `src/ui/renderPage.ts`                                     | Turns an in-game HTML page into text lines with numbered links and form fields, for `lynx`.                                                                                                                              |
+| `src/ui/activeRoot.ts`                                     | `needsFreshTree`: whether a session must re-pull its box's tree before each line. `activeRoot()` itself lives in `state.ts`.                                                                                             |
+| `src/ui/sessionRehydrate.ts`                               | Rebuilds the session stack from the server's session rows after a reload.                                                                                                                                                |
+| `src/ui/connectionPersistence.ts`                          | Remembers which WiFi network (ESSID) you were connected to across reloads.                                                                                                                                               |
+| `src/ui/themePersistence.ts`, `src/ui/theme/applyTheme.ts` | Store and paint the colour theme.                                                                                                                                                                                        |
+| `src/ui/identity.ts`, `src/ui/seed.ts`                     | Page-lifetime memo of the player's keypair; the player's own base session and base filesystem.                                                                                                                           |
+| `src/ui/freshTab.ts`                                       | Reads and strips the `?fresh` query flag used by the `xterm` command.                                                                                                                                                    |
+| `src/ui/sleep.ts`                                          | `abortableSleep`: the real implementation of `env.sleep`, cancelled by Ctrl-C.                                                                                                                                           |
+| `src/core/boot/`                                           | Pure boot logic: `canBoot` (brick check), `runFirstBoot` (a new box's starting services), boot-id marker, shared boot-failure text.                                                                                      |
+| `src/core/theme/themes.ts`, `effects.ts`                   | The colour palettes as data (7 themes × 12 colour tokens), and the four effects (`glow`, `glitch`, `hud`, `cursor`).                                                                                                     |
+| `src/core/types.ts`                                        | Branded primitive types used everywhere (`MachineId`, `AbsPath`, `PlayerKeyHex`, `EpochMs`, …).                                                                                                                          |
+| `src/adapters/*Api.ts`                                     | The HTTP clients: `patchApi`, `sessionsApi`, `networkApi` (also mail) and `walletApi`. Wallet reads are unsigned; a transfer is signed by the wallet's key, not the player's.                                            |
+| `src/adapters/crossTabSync.ts`                             | BroadcastChannel wrapper that tells other tabs "your journal changed".                                                                                                                                                   |
 
 ## Why Solid, and how little of it
 
@@ -69,7 +73,8 @@ The UI uses Solid.js deliberately minimally (rewrite decision D2 in
 [`legacy/rewrite-blueprint/decisions.md`](../legacy/rewrite-blueprint/decisions.md)). It is treated
 as a reactivity library, not an app framework:
 
-- **Used:** `createSignal`, `createEffect`, `createMemo` and `on` (in `Lynx` only), `onMount`/`onCleanup`, `Show`, `For`,
+- **Used:** `createSignal`, `createEffect`, `createRoot` (in `state.ts` only, for the mail-notice
+  effect), `createMemo` and `on` (in `Lynx` only), `onMount`/`onCleanup`, `Show`, `For`,
   `Switch`/`Match`, JSX.
 - **Not used:** Router, Context, stores, `createResource`, `Suspense`, ecosystem packages.
 
@@ -119,15 +124,18 @@ Step by step:
       for the page in `ui/identity.ts`). A brand-new player's keypair is generated here;
    2. creates the base session (`seedSession`): the player logged in as themselves on their own
       workstation, whose id is `<machineName>-<8 hex chars derived from the public key>`;
-   3. seeds the network interfaces (`lo` up, `eth0` down, `wlan0` up but not associated) and the
-      list of nearby WiFi networks, both derived deterministically from the public key, then
-      restores the WiFi association if one was saved;
+   3. seeds the network interfaces (`lo` up, `eth0` down, `wlan0` up but not associated) and a
+      first WiFi list drawn from the public key and the key's starting town (later scans use the
+      town the server says you stand in), restores the WiFi association if one was saved, and
+      listens for `storage` events so a connect or disconnect in another tab is followed here;
    4. builds the HTTP client dependencies (patches, sessions, network) and the patch API, wrapped by
       `wrapWithRefetch` (see [chapter 9](./09-persistence-and-multiplayer.md));
-   5. resets UI state (cwd to `/home/<username>`, empty scrollback, empty journal, cleared history);
+   5. resets UI state (cwd to `/home/<username>`, empty scrollback, banner shown, empty journal,
+      cleared history), rejects any pending prompt and clears the busy bar;
    6. opens the cross-tab `BroadcastChannel`;
    7. fires `refetchPatches()` to load the active machine's journal from `/api/patches`
-      (fire-and-forget);
+      (fire-and-forget) and, once it settles, starts the new-mail checks (see
+      [New mail](#new-mail));
    8. unless `fresh`, fires `rehydrateSessions()` to rebuild the remote-session stack from the
       server's session rows.
 5. **BootScreen** plays a scripted BIOS, GRUB and systemd sequence (about 3.6 seconds). In parallel
@@ -135,7 +143,10 @@ Step by step:
    filesystem, and call `canBoot`. If `/boot/vmlinuz` or `/boot/initrd.img` has been deleted (by
    another player, see [chapter 8](./08-sessions-and-vulnerabilities.md)), the screen plays a kernel
    panic and **halts forever**. A failed fetch counts as "no patches", so a network error never
-   bricks a healthy box.
+   bricks a healthy box. Before the check, `resolveBootCheck` runs `runFirstBoot`: a workstation
+   that has never booted gets its one to three starting services, written as root. It then awaits
+   a journal refetch, so those services are there at the first prompt. It returns a `BootReport`
+   with the services running, and the boot screen prints a systemd `Started` line for each.
 6. **Terminal** mounts, shows the ASCII banner with the version (`__APP_VERSION__`, injected by Vite
    from `package.json`), and focuses the prompt.
 
@@ -170,7 +181,9 @@ Two kinds:
 - **Plain `let` bindings** set up by `startGame`: `identity`, `config`, the three client dependency
   objects, `patchApi`, `syncChannel`. `rebindPatchClient` later re-points `patchClientDeps` and
   `patchApi` at the active machine on every hop. They are read at call time, deliberately not
-  reactive. Also `activeRun` (the current `AbortController`) and `commandChain` (see below).
+  reactive. Also `activeRun` (the current `AbortController`), `commandChain` (see below),
+  `otherTabsListener` (the cross-tab WiFi listener), and the mail-check machinery: `mailChecks`,
+  `disposeMailNotices`, `mailWatch` (what has been announced) and `mailCheckOut`.
 - **Solid signals**, all `createSignal` holding immutable values:
 
 | Signal                                                | Meaning                                                                                                                                 |
@@ -183,12 +196,13 @@ Two kinds:
 | `patches`                                             | The journal of the **active** machine; swapped when the active machine changes.                                                         |
 | `servedRoot`                                          | A server-materialized tree for a machine owned by another player, tagged with its machine id.                                           |
 | `connectivity`, `wifiNetworks`, `wifiScanIndex`       | Network interface state and the latest WiFi scan.                                                                                       |
-| `overlayMode`                                         | Which full-screen app is up (`nano`, `lynx`, `author`) or `null`.                                                                       |
+| `overlayMode`                                         | Which full-screen app is up (`nano`, `lynx`, `author`, or `compose` for a `mail` message being written) or `null`.                      |
 | `ftpSession`, `ftpCwd`, `ftpPatches`, `ftpServedRoot` | The parallel `ftp>` sub-shell: its own session, cwd, journal and tree for the target.                                                   |
 | `mysqlConnection`, `redisConnection`                  | The held connection for the `mysql>` sub-shell (with its credential) and the `redis>` sub-shell (address and port only). No server row. |
 | `runningCommand`, `childCommand`                      | Busy-bar label; a child (for example, `nmap` run from a script) wins over its parent.                                                   |
 | `pendingPrompt`                                       | An in-flight `env.prompt()` (for example, a password prompt) with its resolve/reject.                                                   |
-| `currentTheme`, `bannerVisible`                       | Palette in use; whether the ASCII banner shows (`clear` hides it).                                                                      |
+| `currentTheme`, `currentEffects`, `bannerVisible`     | Palette in use; which of the four effects the player has on; whether the ASCII banner shows (`clear` hides it).                         |
+| `heldMail`                                            | New-mail notices held until the shell is idle, so they never land inside an editor, a sub-shell or a prompt.                            |
 
 **Importing `state.ts` must have no side effects.** It reads no storage and builds no identity at
 import time, because a new player has no config yet; an earlier eager version crashed. A test in
@@ -212,7 +226,8 @@ import time, because a new player has no config yet; an earlier eager version cr
    4. stamps the machine's boot id onto the session the first time it is seen (this is how a reboot
       evicts visitors, see chapter 8);
    5. creates an `AbortController` for Ctrl-C and shows the busy bar;
-   6. builds the `CommandEnv` with `buildCommandEnv({...})`, passing about 70 callbacks;
+   6. builds the `CommandEnv` with `shellEnv(...)`, a wrapper over `buildCommandEnv` that passes
+      about 80 callbacks; the mail check builds its env the same way;
    7. **dispatches.** If a `mysql>`, `redis>` or `ftp>` sub-shell is open, the line goes to that
       sub-shell's interpreter and **never** falls through to the main command registry (a security
       boundary). Otherwise it goes to `runCommandLine` in `core/shell` (chapter 5);
@@ -257,16 +272,17 @@ Completion always uses the main registry, even inside a sub-shell.
 `CommandEnv` is declared in `src/core/commands/types.ts` and built by `buildCommandEnv` in
 `src/ui/env.ts`. It is the **single seam** between pure game logic and the outside world.
 
-| Group                        | Members                                                                                                                                                                                                                 |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Who and where                | `identity`, `session` (active), `hopChain` (sessions below it), `hostname`, `workstationName`, `now()` (local clock for ephemeral values only; **never game time**)                                                     |
-| Filesystem                   | `fs`: a view over `activeRoot()` at the session's tier. It is a **snapshot** taken when the env was built; `fs.reload()` re-pulls.                                                                                      |
-| Network view                 | `network`: current machine, interfaces, online state, WiFi list, rescan                                                                                                                                                 |
-| Output                       | `output.text/error/dim`: append to scrollback mid-command                                                                                                                                                               |
-| Server-backed APIs           | `patches` (file writes), `log` (auth/kern/access log appends), `remote` (public web fetch/sweep), `homeNetwork`, `ssh`, `nc`, `ftp`, `mysql`, `redis`, `snmp`, `scp`, `apt`, `su`, `reboot`, `hydra`, `exploit`, `scan` |
-| UI-state writers             | `setCwd`, `setInterface`, `prompt`, `pushSession`, `popSession`, `resetGame`, `clearScreen`, `currentTheme`, `setTheme`, `openTerminal`, `setChildCommand`                                                              |
-| Run control                  | `signal` (per-run `AbortSignal`), `sleep(ms)` (abort-aware)                                                                                                                                                             |
-| Set by the shell, not the UI | `stdin` (pipelines), `argv0`, `scripted` (when run from a script)                                                                                                                                                       |
+| Group                        | Members                                                                                                                                                                                                          |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Who and where                | `identity`, `session` (active), `hopChain` (sessions below it), `hostname`, `workstationName`, `now()` (local clock for ephemeral values only; **never game time**)                                              |
+| Filesystem                   | `fs`: a view over `activeRoot()` at the session's tier. It is a **snapshot** taken when the env was built; `fs.reload()` re-pulls.                                                                               |
+| Network view                 | `network`: current machine, interfaces, online state, WiFi list, rescan                                                                                                                                          |
+| Output                       | `output.text/error/dim`: append to scrollback mid-command                                                                                                                                                        |
+| Server-backed APIs           | `patches` (file writes), `log` (auth/kern/access log appends), `remote` (public web fetch/sweep), `homeNetwork`, `wallet` (the coin ledger), `mail` (emailit.io inboxes)                                         |
+| Logins, doors and attacks    | `ssh`, `nc`, `ftp`, `mysql`, `redis`, `snmp`, `scp`, `apt`, `su`, `passwd`, `reboot`, `chain` (which hop rows are still open), `scan`, `hydra`, `exploit`                                                        |
+| UI-state writers             | `setCwd`, `setInterface`, `prompt`, `compose`, `mailSeen`, `pushSession`, `popSession`, `resetGame`, `clearScreen`, `currentTheme`, `setTheme`, `currentEffects`, `setEffect`, `openTerminal`, `setChildCommand` |
+| Run control                  | `signal` (per-run `AbortSignal`), `sleep(ms)` (abort-aware)                                                                                                                                                      |
+| Set by the shell, not the UI | `stdin` (pipelines), `argv0`, `scripted` (when run from a script)                                                                                                                                                |
 
 Apart from a few required members (`patches`, `log`, `prompt`, `onPushSession`, the connectivity
 and signal arguments), the server seams are optional in `BuildCommandEnvArgs` so unit tests can
@@ -274,12 +290,14 @@ build a small env; `state.ts` always supplies all of them. When a seam is not wi
 `buildCommandEnv` follows a policy:
 
 - **Loud** (throws `buildCommandEnv: <name> is not wired…`) for anything whose silent success would
-  lie: logins, cracks, exploits, remote writes, database runs, `output.*`, `resetGame`, theme. The
-  scan traces (`scan.record`, `recordZoneTransfer`) are loud too.
+  lie: logins, cracks, exploits, remote writes, database runs, `output.*`, `resetGame`, theme and
+  effects, `wallet.*`, `mail.*`, `compose`, `passwd.change` and `reboot.evict`. The scan traces
+  (`scan.record`, `recordZoneTransfer`) are loud too.
 - **Quiet** (no-op or empty result) where silence is provably harmless: entering and leaving
-  sub-shells, `ftp.recordTransfer`, `apt.recordDowngrade`, `scp.end`, `homeNetwork.leave`, and
-  additive reads that default to `[]` or `null`. `homeNetwork.join` returns `null` because the
-  client must never invent an IP address.
+  sub-shells, `ftp.recordTransfer`, `apt.recordDowngrade`, `scp.end`, `homeNetwork.leave`,
+  `mailSeen`, `chain.openSessionIds` (answers `null`), `remote.fetchOccupant` and
+  `remote.sweepOccupant` (answer `host_unreachable`), and additive reads that default to `[]` or
+  `null`. `homeNetwork.join` returns `null` because the client must never invent an IP address.
 
 The test factory `mockCommandEnv()` in `src/test/factories/commandEnv.ts` builds a complete fake env
 with sensible defaults; most command tests start from it.
@@ -288,7 +306,7 @@ with sensible defaults; most command tests start from it.
 
 A **hop** (`su`, `ssh`, `nc` backdoor, `exploit`) pushes a `Session` onto `sessionStack`. `exit`
 pops it. The type is in `core/commands/types.ts`:
-`{id, playerKey, machineId, username, userType, kind, createdAt, port?, bootId?}`.
+`{id, playerKey, machineId, username, userType, kind, createdAt, essid, port?, bootId?, fromIp?}`.
 
 - `pushSession` saves the cwd, pushes the session, persists it server-side if it is on your own
   workstation (remote sessions were already created by their own login round-trip), then calls
@@ -346,12 +364,18 @@ one `overlayMode` signal, so two overlays at once cannot be represented.
   reached by POST and never sends a form again, and only one request is out at a time. A password
   field is drawn as a star per character it holds (`[****]`, `[****_]` while typed into), never
   the characters.
+- **Compose** (`Nano.tsx` again): `env.compose` opens the editor on a `mail` message with no file
+  behind it. Ctrl-O keeps the draft as `written`; closing hands the last written-out draft (or
+  `null`) back to the `mail` command, which is still running and waiting on it. It is the one
+  overlay no `mode_change` opens.
 - **Author**: a static card with the author's links. It loads the only external asset in the game
   (a GitHub avatar).
 
 `renderPage` parses HTML with `DOMParser`, which executes nothing, and walks the block structure to
 produce lines. Links are numbered `[n]` in reading order, tables are padded into columns, password
-inputs render as `[]` (never the value or its length), and scripts and styles are dropped.
+inputs render as a star per character (never the characters), `<textarea>`s render as bordered
+boxes of their `rows`, hidden inputs are invisible but sent with the form, and scripts and styles
+are dropped.
 
 ## Multiple tabs
 
@@ -365,15 +389,27 @@ All tabs in one browser share `localStorage`, so they are the same player with t
   session stack. `exit` in one tab ends a row the other still thinks it holds. This is accepted.
 - The `xterm` command opens a new tab with `?fresh`: it skips rehydration and starts at home on your
   own box.
-- There are no `storage`, `visibilitychange` or unload listeners. A theme change in one tab shows in
-  others only after a reload. Closing a tab ends nothing on the server; the next non-fresh boot
+- A `storage` listener makes a WiFi connect or disconnect typed in one tab show in the others
+  (`concernsConnection`/`followConnection`). A `visibilitychange` listener triggers a mail check
+  when the tab comes back on screen. There is no unload listener. A theme change in one tab shows
+  in others only after a reload. Closing a tab ends nothing on the server; the next non-fresh boot
   sweeps abandoned rows.
+
+## New mail
+
+Mail is the one thing the terminal pulls on a timer. `startMailChecks` checks every 60 seconds and
+whenever the tab becomes visible, but only while it is visible and with one check out at a time. It
+builds the same env a typed `mail` would and runs `checkMail` with the login saved in `~/.mailrc`.
+Notices go into `heldMail`, and an effect prints them only when the shell is idle (no running
+command, overlay or sub-shell), so they never land inside an editor or a prompt. `env.mailSeen`
+records what a `mail` listing showed, so it is not announced again. Nothing else is polled, so an
+intruder who types nothing learns nothing.
 
 ## Theming
 
-Palettes are pure data in `src/core/theme/themes.ts`: seven themes, each with ten colour tokens
+Palettes are pure data in `src/core/theme/themes.ts`: seven themes, each with twelve colour tokens
 (`bg`, `text`, `textBright`, `textDim`, `error`, `caret`, `scrollThumb`, `scrollThumbHover`, `link`,
-`avatarBorder`). The three neon ones (`neon`, the default, `redline` and `synth`) add `neonColors`.
+`avatarBorder`, and `frameA`/`frameB`, the two colours the HUD frame fades between). The three neon ones (`neon`, the default, `redline` and `synth`) add `neonColors`.
 `applyTheme(id, effects)` writes the colours as `--theme-<kebab-name>` custom properties on `<html>`.
 Components never hold colours; they use Tailwind arbitrary values such as
 `text-[var(--theme-text-dim)]`. The `theme <name>` command calls `setTheme`, which sets the signal,
@@ -381,10 +417,11 @@ paints, and stores the choice in one function so the screen and storage cannot d
 
 Under a neon theme `applyTheme` also sets `data-look="neon"` (the font and backdrop) and lists the
 effects the player has on in `data-effects`: `glow` and `glitch` are CSS rules hanging off those
-words, while the HUD frame (`Hud.tsx`) and the block cursor (`Terminal.tsx`) read the `currentEffects`
-signal. `effects <name> on|off` calls `setEffect`, which works like `setTheme`. A plain theme shows
-no effects but keeps the player's choice for the next neon one. Reduced motion stops the glitch and
-the blink whatever the effects say.
+words, while the HUD frame (`Hud.tsx`) and the block cursor (`Terminal.tsx`) ask
+`effectShown(name)`. `effects <name> on|off` calls `setEffect`, which works like `setTheme`. The HUD
+is the one effect that is not neon-only: its bars show live game state, so it draws under every
+theme. A plain theme shows no glow, glitch or cursor but keeps the player's choice for the next neon
+one. Reduced motion stops the glitch and the blink whatever the effects say.
 
 ## Rules you must not break
 
@@ -423,7 +460,7 @@ the blink whatever the effects say.
 4. Create `ui/screens/MyApp.tsx`: prop-driven, with an `onExit` prop, focusing itself on mount and
    owning the keyboard.
 5. In `ui/screens/Terminal.tsx`, add a narrowing helper and a `<Match>` arm wired to `closeOverlay`.
-6. New colours need a token in `ThemeColors`, a value in all four palettes, and a fallback in
+6. New colours need a token in `ThemeColors`, a value in all seven palettes, and a fallback in
    `index.css`.
 7. Test it prop-driven in `MyApp.test.tsx`, plus one case in `Terminal.test.tsx`. Reset
    `setOverlayMode(null)` in `afterEach`, or a later test fails to find the input.
@@ -458,7 +495,7 @@ sub-shell mechanism until a fourth one makes it worthwhile.
 
 ### Add a theme
 
-Add the id to `ThemeId`, an entry in `THEMES` with all ten tokens, and its position in `THEME_IDS`
+Add the id to `ThemeId`, an entry in `THEMES` with all twelve tokens, and its position in `THEME_IDS`
 (the listing order). Nothing in `ui/` changes.
 
 ### Persist a new client setting
@@ -477,16 +514,18 @@ clears it automatically.
   identity) escapes the panic screen. This is intentional.
 - **`env.fs` is a snapshot.** A command that writes and then re-reads `env.fs` sees the old tree. Use
   `env.fs.reload()`.
-- **Journal hydration is fire-and-forget.** An `apt`-installed binary is "command not found" for the
-  first moment after boot. In tests, await one `setTimeout(0)` before the first command.
+- **Journal hydration in `startGame` is fire-and-forget.** In the app the boot screen awaits a
+  refetch before the terminal mounts, but a test that calls `startGame` directly must await one
+  `setTimeout(0)` before the first command, or an `apt`-installed binary is "command not found".
 - **Scrollback append is copy-on-write** (`[...previous, line]`). A command that prints thousands of
   lines is quadratic. It has not mattered yet.
 - **`startGame` does not reset `overlayMode`, sub-shell connections, `servedRoot` or
   `wifiScanIndex`.**
 - **Coming back online needs both** the stored ESSID and a remembered lease.
 - **`consumeFreshTabFlag` strips the whole query string,** not just `fresh`.
-- **`followLink` builds its own mini-environment** instead of using `buildCommandEnv`. Keep it in
-  sync with the `lynx` command's fetch path.
+- **`followLink` does not use `buildCommandEnv`.** It works out its own vantage and target
+  address, then calls the same `fetchWebPage`/`fetchPageAcrossNetwork` as the `lynx` and `curl`
+  commands. Keep its address resolution in step with `lynx`'s.
 - **Tailwind is off under Vitest,** and jsdom renders no CSS, so class-based visual assertions prove
   nothing in unit tests.
 - **Every `npm run dev/build/test*` runs `npm run encode` first** to generate the git-ignored
@@ -500,7 +539,7 @@ clears it automatically.
 | `src/ui/state.test.ts`                                                                                   | The big integration suite. Stubs `localStorage` and `fetch` (serving `/api/*` JSON), imports `state.js` fresh, calls `startGame`, drives `setInput` + `runInput`, and asserts on `scrollback()` and `overlayMode()`. |
 | `src/ui/screens/Terminal.test.tsx`                                                                       | Renders the terminal, types with `fireEvent`, and waits for the prompt with an `awaitPrompt()` helper: echo, busy bar, completion, Ctrl-L, themes, focus, overlays, sub-shell prompts.                               |
 | `App.test.tsx`, `BootScreen.test.tsx`, `Intro.test.tsx`                                                  | Phase gate with fake storage and fake timers; boot hand-off and panics with an injected `resolveBoot`; form validation.                                                                                              |
-| `Nano.test.tsx`, `Lynx.test.tsx`                                                                         | Prop-driven: an `onSave` or `onFollow` spy stands in for the state module.                                                                                                                                           |
+| `Nano.test.tsx`, `Lynx.test.tsx`, `TerminalLoading.test.tsx`                                             | Prop-driven: an `onSave` or `onFollow` spy stands in for the state module; the busy bar takes only a command name.                                                                                                   |
 | `renderPage.test.ts`, `env.test.ts`, `activeRoot.test.ts`, `sessionRehydrate.test.ts`, persistence tests | Pure units.                                                                                                                                                                                                          |
 
 Patterns worth copying: inject storage, location and history rather than touching globals; keep
