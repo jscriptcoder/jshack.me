@@ -1,6 +1,6 @@
 # Plan: White-hat jobs
 
-**Status:** Grilled 2026-11-22 (the shared rules and cleanup). No slice planned yet.
+**Status:** Grilled 2026-11-22 (the shared rules and cleanup). Cleanup slice planned; three questions open before RED.
 
 Every contract kind v2 ships is black-hat: the contractor breaks into the target's network and
 does something to it. Legacy also had defender contracts (`malware`, `forensics`, `db_fix`,
@@ -79,11 +79,15 @@ brings defender work back on top of the shipped missions system
    access when the job is paid or dropped, closer to practice but a contract-state check at the
    login door.
 
-   Settled from the code, proposed: the handed-over root passwords come from
-   `MISSION_KEY_SECRET` (an HMAC of the number, like the key in `core/missions/missionSecret.ts`)
-   and are laid in by the server, never by the bundle's generator. The generator ships in the
-   bundle and the number is the address, so a password drawn from the seed would give root to
-   anyone who holds the address without the briefing.
+   Settled from the code, proposed (revised while planning, 2026-11-22): the handed-over root
+   passwords follow the leak routes' pattern rather than a new HMAC. Root's hash is drawn in the
+   bundle from the leakable slice of the uncrackable pool (`LEAKABLE_HASHES`,
+   `core/missions/leakablePool.ts`), and the server turns it back into the word for the briefing
+   with `leakedWord` from `JSHACK_SECRETS` (`core/missions/missionLeak.ts`). The bundle holds
+   only hashes, so holding the address without the briefing gives no root, and `/etc/passwd`
+   stays the bundle's, with nothing new for the server to lay. The first draft proposed an HMAC
+   under `MISSION_KEY_SECRET`, which would have needed the server to lay root's `/etc/passwd`
+   line.
 
 8. **Cleanup: the briefing gives a symptom, never the file (2026-11-22).** It says what the
    client noticed, such as something answering on a port. `ps` shows the listener (`nc`, its
@@ -111,8 +115,10 @@ brings defender work back on top of the shipped missions system
     rule, which pays a defender who wrecked the box.
 
     Settled from the code, proposed:
-    - The bricked-machine mail closes the job unpaid, as a proof mail with no wallet does, rather
-      than leaving an active job that can never pay holding the board's slot.
+    - A bricked machine loses the job for good and the job stays active until the contractor
+      drops it, as on every black-hat kind (a bricked backdoor or destroy target never pays and
+      is never closed by the client). Revised while planning (2026-11-22): the first draft had
+      the mail close the job unpaid, which is a new state change in the mail path for one reply.
     - Cleanup is two-hop on one contract in three, as credential, destroy and wipe jobs are, the
       implant on the machine behind the front box, with a login for each.
     - "The file is gone" is the destroy job's rule: its path no longer holds the bytes laid there,
@@ -140,10 +146,179 @@ brings defender work back on top of the shipped missions system
     - The rest of each later kind (its target, plant, check and miss wording) is grilled when its
       story starts, on top of decisions 1–3, 6, 7, 10 and 12, which every white-hat kind shares.
 
-## For the plan to measure
+## Facts the plan rests on (measured 2026-11-22)
 
-- How the handed-over login reaches the machine: which forward on the router carries ssh to the
-  front box, and how the machine behind it is named in the briefing (its LAN address), given that
-  black-hat briefings never name the router or an address.
-- Whether v2's generated boxes already carry ordinary scripts in `cron.d`, `init.d`, `systemd`
-  and the rest for an implant to hide among, or whether the decoys are new content.
+- **The shape is drawn in the bundle** (`missionShape`, `core/missions/missionShape.ts`): a route
+  from `ROUTES` on the shape stream, then versions, root hash and forwards from `drawRoute`.
+  Growing `ROUTES` re-rolls every number's route, so a new way in must not join it. Portforward
+  already branches on `missionKind(n)` before `drawRoute` with a shape of its own
+  (`portforwardShape`), which is the precedent for a kind that is not reached by one of the six.
+- **The hydra and leak routes already have the login a white-hat job needs**: a public `:2222`
+  forwarded to the box's `:22` and `ssh root@<address> -p 2222`. On two-hop the front box takes
+  that forward, and the inside box is reached on its own `:22` at its LAN octet. A leak route's
+  root hash is drawn from `LEAKABLE_HASHES` and the server turns it into the word with
+  `leakedWord`; the bundle holds only hashes.
+- **The kind draw is `KIND_CUTS`**: 53 pieces in 27,720ths, eleven kinds at 2,520 each. A twelfth
+  kind takes 2,310 by every older kind giving up 210 at the top of one piece, as each kind before
+  it did. A draw past the last cut is portforward.
+- **The seven target machines** (`core/missions/targetRoles.ts`) are `nvr`, `backup`, `mon`, `ci`,
+  `lic`, `access` and `billing`, shared by sabotage, backdoor and credential jobs so a hostname
+  never says which job a box is. Each brings pitches of its own.
+- **A mission box's `/etc` is bare.** `buildMissionBoxFs` (`core/generation/missionKeyBoxFs.ts`)
+  gives it `passwd`, its service configs and nothing under `cron.d`, `init.d` or `systemd`; world
+  boxes have only `/etc/crontab` (`etcContent.ts`). The decoys are new content. The infiltrate
+  boot script is the precedent: a company's own SysV script the server lays at `/etc/init.d` or
+  `/etc/rc.d/init.d` (`core/missions/missionFileItem.ts`).
+- **The server lays files on a contract box before the journal is replayed** (`withMissionFiles`,
+  `core/network/missionBoxFiles.ts`, at the read, web, database and SNMP doors and the write
+  gate), so a root's `rm` of a laid file sticks for the next reader. `missionFilePaths(ref)`
+  (`missionLeak.ts`) lists each box's laid paths for the write gate.
+- **A listener is a pidfile**, `/var/run/nc-<port>.pid` holding
+  `nc:port=<n>,user=<name>,userType=<tier>` (`core/services/pidfile.ts`). `ps` lists it as `nc`
+  with its user and port at any tier; `kill <pid>` removes it as root, its pid derived from the
+  box and the port. Nothing restarts a killed listener, and `reboot` checks only `/boot`.
+- **`grep -r` skips binary files** and anything the shell may not read (`core/commands/grep.ts`),
+  so a binary implant is found by listing the directories and reading it with `strings`, not by
+  grepping. `ls -a` shows dot-files.
+- **The client already reads a target as it stands** (`readTargetBox` in `answerClientMail`,
+  `core/missions/clientMail.ts`): `listenerOn(fs, port)` is the backdoor check, the destroy check
+  compares a path with the bytes the server laid, a chain job reads its front box, and a target
+  that no longer boots answers as `absent`.
+
+## Slice plan: Cleanup jobs
+
+**Branch:** `feat/white-hat-cleanup` · **Delivery:** one independent PR against `main` ·
+**Version:** v0.479.0 (minor, a new kind).
+
+### Goal
+
+A contractor accepts a cleanup job on their hireme.io board, logs in as root with the login the
+briefing hands over, finds the listener and the implant behind it, gets rid of both, and is paid
+when they mail the client.
+
+### Slice 1: a twelfth kind, cleanup, paid once the listener and the implant are gone
+
+**Value:** a player gets defender work: a job whose way in is given and whose difficulty is the
+hunt.
+**Path:** board offer → accept → briefing mail with root logins → `ssh` through the gateway's
+`:2222` (and from the front box to the inside box on two-hop) → `ps`, `grep -r`, `ls`, `strings`,
+`kill`, `rm` on the target → `mail` to the client → `answerClientMail` reads the target → reply,
+pay minted.
+**Class:** behavior change. **Required skills:** `tdd`, `testing`, `functional`, `refactoring`;
+`mutation-testing` at PR readiness.
+
+**What it builds:**
+
+- **The kind.** `cleanup` joins `MissionKind` and takes a twelfth of `mission-kind-<n>`, each older
+  kind giving up 210 at the top of one piece. No number turns from one older kind into another.
+- **The white-hat login, in the shape.** A cleanup number still makes the route draw on the shape
+  stream, so no stream moves, and is then given the login instead: root's hash from
+  `LEAKABLE_HASHES`, the gateway forwarding `:2222` to the box's `:22`, decoys filling the
+  forwards as on every contract, every package on safe releases. On two-hop (the existing
+  one-in-three `mission-template-<n>` draw) the front box gets the same login and forward, and
+  the inside box its own root hash, reached on `:22` at its LAN address. `ROUTES` is unchanged.
+- **The target** is the key box's slot, named for one of the seven machines on a stream of its own
+  (`mission-cleanup-role-<n>`), with no storage. On two-hop it is the inside box.
+- **What the server lays on the target**, drawn under `MISSION_KEY_SECRET` from the number so
+  nobody makes it from the bundle: the implant, one of the 24 templates assigned to that machine,
+  root-owned, at a path in the boot and schedule directories; its listener's pidfile
+  `/var/run/nc-<port>.pid`, the port one of the backdoor job's eight; and two to four ordinary
+  decoy scripts from the same directories' pool that never name the port. All of them are
+  listed by `missionFilePaths` for the write gate.
+- **The terms:** `<Client> — clean up a build server — §<pay>`, `clean up an internal build
+  server` on two-hop; pay 300–1,200 single-hop and 1,200–2,400 two-hop, rounded to 50, as the
+  last draw on `mission-terms-<n>`. Three white-hat pitches per machine, in the client's voice as
+  a middleman for the target company.
+- **The briefing** names the target company, the machine and the port, and hands over the
+  login(s). It never names a path, `ps`, `kill` or the implant's family. Draft:
+
+  ```text
+  Our customer Halden Freight needs a hand. Something on their build server
+  answers on port 4444, and nobody there put it there. Find what runs it,
+  stop it, and get it off the machine.
+
+  They have given you root:
+
+    ssh root@195.12.40.7 -p 2222
+    password: <word>
+
+  Leave the machine running. If it no longer boots, there is no money.
+  Write to this address with your wallet address once it is gone.
+  Still there, no money. No wallet, no money.
+  ```
+
+  On two-hop the login is the front box's, followed by "The build server is inside their
+  network, at 10.40.7.23. From the edge machine: `ssh root@10.40.7.23`, password: <word>".
+- **The client's check**, first row that fits:
+
+  | The mail | The reply | What changes |
+  | --- | --- | --- |
+  | No accepted job with this client | "We have no contract with you." | nothing |
+  | A completed job | "That job is already closed." (nothing read) | nothing |
+  | A machine in scope no longer boots (the target; the front box too on two-hop) | "You took our machine down. No money." | nothing; the job can never pay |
+  | A listener still on the port | "Something still answers on port 4444. Still there, no money." | nothing |
+  | The implant's path still holds the laid bytes | "It has stopped, but it is still on the machine. Still there, no money." | nothing |
+  | Both gone, with a wallet | "It's gone. §650 sent to jsc…. Thank you for the help." | completed, the pay minted |
+  | Both gone, no wallet | "It's gone. You sent no wallet, so there is nothing to pay. …" | completed, nothing minted |
+
+  Anyone's `kill` and `rm` count, as anyone's brick does.
+- **`hireme.ts show`** prints `Kind: cleanup, <machine>`, the port, the implant's path and family,
+  the decoys' paths, and the login word(s).
+
+**Acceptance criteria** (to confirm with the owner before RED):
+
+- [ ] A twelfth of numbers are cleanup jobs; every other number keeps its kind, shape, terms and
+      LAN exactly (a sweep against `main` outside the cleanup share).
+- [ ] A cleanup offer reads `<Client> — clean up a <machine> — §<pay>` (`an internal …` on
+      two-hop), pays in the white-hat bands, and carries a white-hat pitch.
+- [ ] The briefing's login opens root on the target (and on both boxes on two-hop), and nothing in
+      the bundle yields the word or the implant's path.
+- [ ] On the target, `ps` shows the listener on the briefed port, `grep -r <port> /etc` finds a
+      script implant and no decoy, and `strings` on a binary implant shows the port.
+- [ ] The client answers each row of the table above, and pays only once both the listener and
+      the implant are gone, whoever removed them.
+- [ ] A root's `kill` and `rm` on the target hold for the next reader and the next mail.
+- [ ] `show` prints the report above.
+
+**RED:** unit tests through the public surfaces: the kind sweep and the cleanup share of
+`missionKind`; `missionShape` for a cleanup number (forwards, hashes, two-hop logins); the laid
+files from the server-side draw; `answerClientMail` for each row, over a target built with
+`src/test/factories/patchedBox.ts` and the real `kill`/`rm` paths; the terms and briefing text.
+**GREEN:** the minimum per row. **REFACTOR:** assess after each green; the briefing's login
+block is the first thing later white-hat kinds reuse, so keep it in one place once a second
+caller exists, not before.
+**Wire-check:** `scripts/testMissionCleanup.ts` against `vercel dev` + local supabase: accept with
+`scripts/hireme.ts`; the login opens root through `:2222` (and inside on two-hop); each miss
+reply; `kill` and `rm` through the real doors; the paid reply and the mint; a bricked target's
+reply; and every other mission and hireme wire-check still green.
+**Pre-PR:** mutation on the changed lines; `npm run typecheck`, `npm run lint`, the full unit
+suite, `npm run build` (the bundle budget).
+**Close-out:** one browser run on a fresh player, a single-hop and a two-hop cleanup job worked
+end to end; a "Cleanup jobs" section in `missions-architecture.md`; a `project-status.md` entry;
+the script jobs and any twists set aside go to `backlog.md`.
+
+### Risks
+
+- **The catalog is the bulk of the PR.** 24 implants, the decoy pool and 21 pitches are content.
+  The grill kept the whole catalog in one slice (decision 11); if the PR outgrows a review, the
+  binary implants could become a second PR, which needs the owner's say-so.
+- **Implant text is story, never working code.** Each implant reads as a believable service
+  script whose lines name its port, outside host and purpose, inert like the infiltrate boot
+  script. It is written in the main thread, not by subagents, which have been cut off copying
+  the game's malware content before.
+- **Accepted contracts move.** A twelfth of numbers become cleanup jobs, so some accepted prod
+  contracts change kind. Only test accounts and a bot play on prod, so this costs nothing yet.
+
+### Open before RED
+
+These came out of planning, not the grill, and each changes what gets built:
+
+1. ✅ **By fit, three or four per machine (2026-11-22).** Each template goes to the machine its
+   disguise suits best (legacy's IoT ones to `nvr` and `access`, file-server ones to `backup`,
+   database ones to `billing`, web ones to `ci` and `mon`), its disguise renamed where needed, so
+   every machine's implants look like they belong. Rejected: any implant on any machine, which
+   loses the believable disguise half the hunt rests on; and cleanup's own machines from
+   legacy's roles, whose hostnames would say which job a box is.
+2. Whether some implants are dot-named, legacy's hiding lever, which `ls -a` reveals.
+3. Which user `ps` shows for the listener: `root`, or a service account that has no business
+   running it, which is a second clue.
