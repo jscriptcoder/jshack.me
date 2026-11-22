@@ -1,6 +1,6 @@
 # Plan: White-hat jobs
 
-**Status:** Grilled 2026-11-22 (the shared rules and cleanup). Cleanup slice planned; three questions open before RED.
+**Status:** Grilled 2026-11-22 (the shared rules and cleanup). Cleanup slice planned, all questions answered; acceptance criteria to confirm before RED.
 
 Every contract kind v2 ships is black-hat: the contractor breaks into the target's network and
 does something to it. Legacy also had defender contracts (`malware`, `forensics`, `db_fix`,
@@ -309,9 +309,9 @@ the script jobs and any twists set aside go to `backlog.md`.
 - **Accepted contracts move.** A twelfth of numbers become cleanup jobs, so some accepted prod
   contracts change kind. Only test accounts and a bot play on prod, so this costs nothing yet.
 
-### Open before RED
+### Settled while planning
 
-These came out of planning, not the grill, and each changes what gets built:
+These came out of planning, not the grill, and each changes what gets built.
 
 1. ✅ **By fit, three or four per machine (2026-11-22).** Each template goes to the machine its
    disguise suits best (legacy's IoT ones to `nvr` and `access`, file-server ones to `backup`,
@@ -319,6 +319,16 @@ These came out of planning, not the grill, and each changes what gets built:
    every machine's implants look like they belong. Rejected: any implant on any machine, which
    loses the believable disguise half the hunt rests on; and cleanup's own machines from
    legacy's roles, whose hostnames would say which job a box is.
-2. Whether some implants are dot-named, legacy's hiding lever, which `ls -a` reveals.
-3. Which user `ps` shows for the listener: `root`, or a service account that has no business
-   running it, which is a second clue.
+2. ✅ **About half the implants are dot-named (2026-11-22).** A coin flip per contract under
+   `MISSION_KEY_SECRET`, so a plain `ls` misses the implant and `ls -a` shows it. It mostly
+   hardens the binary implants, which `grep -r` skips; whether `grep -r` walks dot-files is to be
+   confirmed in RED. Rejected: never, which leaves the disguise as the only cover; and always,
+   which makes any dot-file in those directories a tell.
+3. ✅ **`ps` shows the listener under a service account (2026-11-22).** It is the machine's own
+   service account, drawn per contract, written into the pidfile as
+   `user=<account>,userType=user`. An account like that running `nc` is out of place, a second
+   clue for a sharp player that fits the story of a broken-into service. A mission box's
+   `/etc/passwd` holds root, guest and one NPC user today, so RED confirms the account appears
+   there too (adding it, or falling back to the NPC user), and that `kill` stays root-only
+   whatever the listener's user. Rejected: `root`, which blends in and leaves the briefed port
+   as the only lead.
