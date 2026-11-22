@@ -1793,7 +1793,37 @@ agreed order:
     copies and moves held across two reloads, and a Vercel preview that first failed
     `checkBudgets` (+1,968 B) and passed once the bundle ceiling was raised. The `mv` owner label
     is in `backlog.md`. The plan was retired on close-out.
-    **Pick up here (2026-11-20):** the owner's choice from `backlog.md`.
+56. ✅ **Cleanup jobs, the first white-hat contract (v0.479.0, PR #801, merged 2026-11-22).** One
+    slice; as-built: "Cleanup jobs" in [`missions-architecture.md`](./missions-architecture.md).
+    The white-hat grill (`plans/white-hat-jobs.md`) brings defender work back as seven kinds, each
+    its own story, on rules they share: the client hands over a root login per machine in the
+    briefing, white-hat work joins hireme's kind draw at about three fifths of black-hat pay, the
+    same ten clients post it as a middleman for a customer, and a client never pays for a machine
+    that no longer boots. Cleanup is the backdoor job's mirror and a twelfth of the contracts: an
+    intruder's listener runs under the machine's own service account, and its implant, one of 24
+    (four of them compiled), sits among ordinary scripts in one of seven places under `/etc`,
+    dot-named in a cron directory half the time. The server lays it from `MISSION_KEY_SECRET`, so
+    the bundle can't say where it is. The client pays once nothing answers on the briefed port and
+    the implant's bytes are gone. The login words are a new list, `WHITE_HAT_PASSWORDS` in
+    `JSHACK_SECRETS`, whose words no other door holds; the bundle has only their hashes. Adding
+    the list to Production before the merge broke `main`'s production builds until #801 merged,
+    since `encode` refuses a list it does not know. Evidence: unit tests (11,409),
+    `testMissionCleanup` 16/16 and every other mission and hireme wire-check green except
+    `testMissions.ts` (2 of 25 failing on `main` too since v0.477.4); mutation in five scoped runs,
+    596 killed / 324 survived after seven new tests, the rest implant and script wording or
+    equivalent; the bundle ceiling raised 1,500 B for 1,493 B of growth.
+    **Close-out (2026-11-22, v0.479.0):** one browser run on a fresh player on LIBRARY-PUBLIC in
+    Oakhurst, the board turned over by a script. A single-hop build server (§300): told something
+    still answers before anything, `ps` and `kill` on the `jenkins` listener, `grep -r 1337 /etc`
+    to a systemd unit among three decoys, told it is still on the machine while the unit stayed,
+    then `rm` and paid. A two-hop billing server (§1,350): both logins from the briefing, the
+    implant a dot-named cron file `ls` missed and `ls -la` showed, and paid. A later mail on each
+    was told the job is closed. No defect. The white-hat plan stays in flight for the six kinds
+    still to come.
+    **Pick up here (2026-11-22):** the next white-hat kind, close the door (the portforward job's
+    mirror), which starts with its own grill on top of the shared decisions in
+    `plans/white-hat-jobs.md`. Also open: `scripts/testMissions.ts` still expects root-only files
+    in full where v0.477.4 serves other users empty stubs.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

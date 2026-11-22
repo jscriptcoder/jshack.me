@@ -12,7 +12,8 @@ router send a public port to one of its machines and mailing them while it does,
 credential job, by mailing them root's password on one of its machines, or, on a destroy job, by
 getting rid of one of its files, or, on a wipe job, by emptying one of its tables, or, on a chain
 job, by leaving a listener on its edge and then doing one of those last three things to the
-machine behind it. This is
+machine behind it, or, on a cleanup job, the first white-hat kind, by getting an intruder's
+listener and implant off one of its customer's machines. This is
 the shipped model of the missions epic, complete at **v0.441.0** (four slices, v0.438.0–v0.441.0,
 PRs #746–#749, 2026-11-01 to 2026-11-03), with the routes that leak a login added by the epic
 that followed (four slices, v0.442.0–v0.445.0, PRs #750–#753, 2026-11-03 to 2026-11-04), and a
@@ -25,7 +26,8 @@ v0.460.0, PR #772), and a fifth, a listener left on a machine ("Backdoor jobs", 
 a sixth, the client's own file put in place ("Infiltrate jobs", v0.465.0–v0.466.0), and a
 seventh, a port forwarded into a machine ("Portforward jobs", v0.467.0), and four black-hat
 kinds, a root login stolen, a file destroyed, a table wiped and a two-step chain ("Four black-hat
-kinds", v0.471.0–v0.475.0, PRs #785–#789, 2026-11-18 to 2026-11-20).
+kinds", v0.471.0–v0.475.0, PRs #785–#789, 2026-11-18 to 2026-11-20), and the first white-hat
+kind, an intruder's work removed ("Cleanup jobs", v0.479.0, PR #801, 2026-11-22).
 It sits
 on top of the contractor boards
 ([`hireme-architecture.md`](./hireme-architecture.md)), emailit.io
@@ -1261,6 +1263,108 @@ boxes, the most work in the game and the highest pay.
   server`, `chain, destroy, site photo`, `chain, wipe, police`) and `Listener: :<port> on the front
   box`, then the file's path, or the storage and table, under the target box.
 
+## Cleanup jobs
+
+The twelfth kind and the first white-hat one (v0.479.0, PR #801, 2026-11-22): an intruder left an
+implant on one of the client's customer's machines and a listener it holds open, and the client
+pays to have both gone. It is the backdoor job's mirror. Every kind before it has the contractor
+break in; on a white-hat job the client lets them in, so the difficulty moves from getting in to
+the hunt. Six more white-hat kinds are grilled but not yet built (close the door, lock them out,
+patch it, restore the record, forensics, incident response), each its own story, in
+`plans/white-hat-jobs.md` while the white-hat work is in flight. The rules every white-hat kind
+shares are below with cleanup, the first to use them.
+
+- **A twelfth of the draw.** Each of the eleven older kinds gave up a hundred-and-thirty-second
+  of `mission-kind-<n>` at the top of its largest piece, the lowest on a tie, so the top of the
+  draw stays portforward and no number turned from one older kind into another. `KIND_CUTS` now
+  holds 65 pieces in 27,720ths, 2,310 for each kind. Two-hop on the usual `mission-template-<n>`
+  draw, about one in three; on two-hop the target is the inside box.
+- **The client hands over root** (`cleanupShape`, `core/missions/missionShape.ts`). Every box in
+  scope has route `null`, runs nothing but sshd on safe releases besides its decoys, and has root's
+  hash drawn on `mission-cleanup-login-<n>` from `WHITE_HAT_HASHES`. The gateway forwards public
+  `:2222` to the first box's `:22`: the target, or on two-hop the front box, from which the target
+  is reached on its own `:22` at its LAN address. The router's admin is shut. The route draw still
+  happens on the shape stream, so no other stream moved.
+- **The words are a list of their own**, `WHITE_HAT_PASSWORDS` in `JSHACK_SECRETS`. The build
+  bundles only their hashes; the server turns a hash back into its word for the briefing and for
+  `show` (`whiteHatWord`, `core/missions/whiteHatLogin.ts`), which answers only for a white-hat
+  hash. `parseSecrets` refuses a word that is also uncrackable or in a list a player can read, so
+  no world box, fixed site, black-hat contract or leak route can draw one, and a handed-over word
+  opens white-hat boxes only. Without the list in the env, `encode` refuses to build and a
+  cleanup accept fails whole. The logins keep working after the job closes: the network stays
+  reachable as every mission network does, and a leaked briefing stays a root door for good.
+- **The target is the key box's slot**, named for one of the seven machines on
+  `mission-cleanup-<n>` (`cleanupJob`, `core/missions/targetRoles.ts`), with the port drawn after
+  it from the backdoor job's eight. No storage. Each machine has a locked service account of its
+  own (`recorder`, `backup`, `nagios`, `jenkins`, `flexlm`, `doorctl`, `billing`), laid in the
+  target's `/etc/passwd`, and three white-hat pitches.
+- **The server lays the intruder's work** (`cleanupFiles`, `core/missions/cleanupPlant.ts`),
+  drawn from the number under `MISSION_KEY_SECRET`, so nobody can say from the bundle where it is:
+  - the implant, one of 24 written for the machine it suits (three or four per machine, in six
+    families: cryptominer, exfiltrator, reverse shell, ransomware, credential harvester, botnet
+    agent), root-owned, in one of seven places: `/etc/cron.d`, `/etc/cron.daily`,
+    `/etc/cron.hourly`, `/etc/init.d`, `/etc/network/if-up.d`, `/etc/systemd/system` or `/etc`
+    beside `rc.local`;
+  - in a cron directory, dot-named half the time, so a plain `ls` misses it. Each cron directory
+    always holds Debian's stock `.placeholder`, so a dot-file there is never a tell;
+  - four of the 24 are compiled. `grep -r` skips a binary and `strings` reads it; the rest are
+    text, a unit, a cron line or a SysV script that starts a disguised program with flags naming
+    the port and an outside host;
+  - two to four ordinary scripts beside it, none naming a classic port;
+  - its listener, `/var/run/nc-<port>.pid`, under the machine's service account, so `ps` shows
+    `nc` on the port with a real PID and `kill` stops it.
+
+  The outside host is a public address no network holds, outside the 195 block and every address
+  the world assigns, so it answers nothing. Every implant is story, never working code: the game
+  runs nothing at boot, and the client checks only bytes and the listener. `cleanupFilePaths`
+  lists every laid path for the write gate (`api/patches.ts`); without the secret it lists none,
+  so a root's `rm` there fails closed as the read doors do.
+- **The terms**: `<Client> — clean up a build server — §<pay>`, `clean up an internal …` on
+  two-hop. White-hat work pays about three fifths of breaking in: 300–1,200 single-hop and
+  1,200–2,400 two-hop, to the nearest 50. The same ten clients post it as a middleman for the
+  target company ("Our customer is Meridian Records."), so their doors and handles are unchanged.
+- **The briefing names the symptom and hands over the login**, never a path, a tool or the
+  implant's family:
+
+  ```text
+  Our customer is Meridian Records. Their network is at 195.85.65.53.
+  Something on their build server answers on port 1337, and nobody there put it there.
+  Find what runs it, stop it, and get it off the machine.
+  They have given you root:
+    ssh root@195.85.65.53 -p 2222
+    password: <word>
+  Leave the machine running. If it no longer boots, there is no money.
+  Write to this address with your wallet address once it is gone.
+  Still there, no money. No wallet, no money.
+  ```
+
+  On two-hop the first login is for "the machine on the edge of their network", followed by "The
+  billing server is inside their network, at 192.168.70.138. From the edge machine:" and the
+  second login, and the warning reads "Leave both machines running. If either no longer boots,
+  there is no money."
+- **Any mail from the contractor reads the machines in scope** (`readTargetBox`, and
+  `readFrontBox` on two-hop). The first row that fits answers, and anyone's `kill` and `rm` count:
+
+  | The mail                                               | The reply                                                                | What changes                   |
+  | ------------------------------------------------------ | ------------------------------------------------------------------------ | ------------------------------ |
+  | No accepted job with this client                       | "We have no contract with you."                                          | nothing                        |
+  | A completed job                                        | "That job is already closed." (nothing read)                             | nothing                        |
+  | A machine in scope no longer boots (the front box too) | "You took our machine down. No money."                                   | nothing; the job can never pay |
+  | Any listener on the port                               | "Something still answers on port 1337. Still there, no money."           | nothing                        |
+  | The implant's path still holds the laid bytes          | "It has stopped, but it is still on the machine. Still there, no money." | nothing                        |
+  | Both gone, with a wallet                               | "It's gone. §300 sent to jsc…. Thank you for the help."                  | completed, the pay minted      |
+  | Both gone, no wallet                                   | "It's gone. You sent no wallet, so there is nothing to pay. …"           | completed, nothing minted      |
+
+  The boot check comes first and is shared by every white-hat kind: help that broke what it was
+  meant to mend is never paid, and since a brick is permanent the job stays open until dropped,
+  as a bricked black-hat target's does. "Gone" is the destroy job's rule, so deleting, overwriting
+  and `mv` all count. Any listener on the port is a miss, since the client only knows the port
+  answers: a fresh `nc -l` there after the laid one is killed keeps the job unpaid. A killed
+  listener stays dead whether or not the implant is still there.
+- `hireme.ts show` prints `Kind: cleanup, <machine>`, `Port: <n>`, `Implant: <path>, <family>`
+  (`, binary` on a compiled one), the decoys' paths, and each box's `Login: root / <word>` with its
+  route as `none (handed over)`.
+
 ## 7. What a root finds
 
 On the boards' server, beside `/etc/hireme/boards`, **`/etc/hireme/contracts`**: one
@@ -1309,6 +1413,8 @@ chunk's ceiling by its measured growth; at v0.459.0 the chunk is 300,450 B gzipp
 ceiling of 300,575 B (a tamper setting's content is not in it). The four black-hat kinds added
 their shares of the draw, the chain job's port and last step, and the credential pitches beside
 each machine's other pitches; at v0.475.0 the chunk is 304,564 B against a ceiling of 304,675 B.
+Cleanup jobs added the kind's shape, terms and replies and the white-hat hashes; the implant
+catalog is the server's. At v0.479.0 the chunk is 309,469 B against a ceiling of 309,575 B.
 
 ## 10. Proving it
 
@@ -1386,7 +1492,14 @@ each machine's other pitches; at v0.475.0 the chunk is 304,564 B against a ceili
   with no listener told so and the listener left after it paid, a listener on the inside machine
   and a bricked front box told nothing is listening; then a destroy ending and a wipe ending kept
   in files, each with the listener in place and the step unfinished given that kind's miss, and the
-  file or the CSV removed from the inside machine paid once). The
+  file or the CSV removed from the inside machine paid once); `testMissionCleanup.ts` (16:
+  accepted through a board's `/accept`, the briefing's word opening root over `:2222` on the
+  target and the files laid as `show` names them, a mail before anything told something still
+  answers, the listener killed told the implant is still there, both gone paid once then closed,
+  a rival's `kill` and `rm` with the leaked word paying the contractor, a listener started again
+  a miss, an overwritten implant gone, no wallet completing unpaid, a bricked target and a
+  bricked edge machine told they were taken down, and on two hops the inside word from the edge
+  machine and the inside machine cleaned paid). The
   board and pay checks each post a two-hop offer on a chosen number (21 and 17 checks at
   v0.452.0). The decoys' doors are also proven in `decoyMissionDoors.test.ts`.
 - **Mutation**: every slice's scoped run left no survivor but equivalents.
@@ -1480,6 +1593,19 @@ each machine's other pitches; at v0.475.0 the chunk is 304,564 B against a ceili
   35, and the mail paid §5,300, the balance §11,400. On both jobs a later mail got "That job is
   already closed." and no second mint, and `hireme.ts show` read `chain, destroy, site photo` and
   `chain, wipe, tournament`. No defect. Announced on valleynews.io `/dev` (story 24).
+- **One browser run at the cleanup close-out** (2026-11-22, v0.479.0), one fresh player on
+  LIBRARY-PUBLIC in Oakhurst, the board turned over by a script. A single-hop build server
+  (contract 5587253): "Wexley Partners — clean up a build server — §300", the briefing naming
+  Meridian Records, port 1337 and the login. A mail before anything got "Something still answers
+  on port 1337." Root over `:2222` landed on `meridian-ci`; `ps` showed `nc` on 1337 as
+  `jenkins`, `kill` removed it, and `grep -r 1337 /etc` found `runner-health.service` among three
+  other units, its `ExecStart` naming a program that is not on the box and an outside host. With
+  the unit still there the mail got "It has stopped, but it is still on the machine."; after
+  `rm` it paid §300. A two-hop billing server (contract 16209784, §1,350): the briefing gave both
+  logins and the inside address; on `sternco-billing`, `nc` on 7777 ran as `billing`, `grep -r
+  7777 /etc` found `/etc/cron.d/.invoice-replica`, which a plain `ls` missed and `ls -la` showed
+  beside `.placeholder`, and after `kill`, `rm` and two `exit`s the mail paid. A later mail on
+  each was told the job is closed, with no second mint. No defect.
 
 ## What follows
 
@@ -1490,6 +1616,8 @@ seventh inside route; recognition for completed jobs; a second, darknet operator
 jobs, adding a record, a second copy the client also checks, an audit log to keep clean, a
 white-hat fix, and clients and settings of their own. Set aside by the black-hat kinds: a hidden
 second copy of a destroyed file the client also wants gone, and chains longer than two steps.
+The white-hat kinds still to come are in `plans/white-hat-jobs.md`; set aside from them, in
+`backlog.md`, are the script jobs (legacy's `script_fix` and `script_auto`).
 
 ## Key files
 
@@ -1508,7 +1636,8 @@ second copy of a destroyed file the client also wants gone, and chains longer th
   and the port, and `keyBoxSuffix`); `missionFileItem.ts` (a file or infiltrate job's item and its pitches,
   its file's name and place, and the bytes of the company's file and the client's, server only);
   `portforwardJob.ts` (a portforward job's machine, its public and inside ports, and its
-  pitches).
+  pitches); `cleanupPlant.ts` (a cleanup target's implant, decoys, listener and placeholders,
+  server only) and `whiteHatLogin.ts` (a white-hat hash back to its word, server only).
 - **The lay-in and the doors**: `core/network/missionBoxFiles.ts`, `core/sessions/doorAdmission.ts`,
   `core/generation/missionKeyBoxFs.ts`, `core/crypto/gpgCodec.ts` (the cipher the server seals a
   gpg contract's key with).

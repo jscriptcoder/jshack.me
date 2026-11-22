@@ -217,8 +217,9 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   - **Backdoor twists**, set aside in the backdoor grill (2026-11-16): **a client that connects
     from outside**, which needs a breakable gateway and a forward the contractor adds (both exist
     since the portforward jobs, v0.467.0, so this is now a backdoor and a forward in one job); **a listener that must survive** a later check (deadlines,
-    above); **a hidden listener** that must not show in `ps` or a log (stealth, above); and the
-    white-hat mirror, **an implant to find and kill** that someone else left (legacy's `malware`).
+    above); and **a hidden listener** that must not show in `ps` or a log (stealth, above). The
+    white-hat mirror, an implant to find and kill that someone else left (legacy's `malware`),
+    shipped as cleanup jobs (v0.479.0).
   - **Infiltrate twists**, set aside in the infiltrate grill (2026-11-16): **a planted file that
     does something** (an executable or script the box then runs), which needs the game to give a
     planted binary an effect. The boot script (v0.466.0) is that item as story only: a script in
@@ -238,6 +239,17 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   - **Destroy and chain twists**, set aside in the black-hat jobs grill (2026-11-18): **a hidden
     second copy** of a destroyed file, which the client also wants gone; and **chains longer than
     two steps**.
+  - **White-hat, set aside** in the white-hat grill and the cleanup plan (2026-11-22). The six
+    white-hat kinds after cleanup are planned work, not backlog: they are in
+    `plans/white-hat-jobs.md`. Set aside: **the script jobs** (legacy's `script_fix` and
+    `script_auto`), which need a way to check a script's result designed against v2's `node`;
+    **a real staging host** for a cleanup implant's outside address, a machine the intruder
+    reports to and a lead for forensics, where today it names an address nothing holds; **a
+    listener that respawns** while its implant is there, which teaches persistence but adds a
+    rule at every read door and reads like a bug after `kill`; implants **outside `/etc`**
+    (legacy's `/tmp`, `/var/tmp` and `/opt`) and on **routers and switches**, both dropped from
+    the catalog; and **a client that revokes the login** once the job is paid or dropped, so a
+    leaked briefing stops being a root door.
   - **Recognition for completed jobs**, the other half of a mission reward; completions are only
     in `hireme_missions` today.
   - **Places posting vacancies** that say how they run (the old `hireit.io` idea), and a second,
