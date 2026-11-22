@@ -1,6 +1,6 @@
 # Plan: White-hat jobs
 
-**Status:** Grilled 2026-11-22 (the shared rules and cleanup). **Cleanup shipped** at v0.479.0 (PR #801, merged 2026-11-22) and closed out with a browser run the same day; as-built: "Cleanup jobs" in `docs/missions-architecture.md`. **Close the door grilled** 2026-11-22 (decisions 13–24); next: its slice plan. This plan is retired once the last white-hat kind closes out.
+**Status:** Grilled 2026-11-22 (the shared rules and cleanup). **Cleanup shipped** at v0.479.0 (PR #801, merged 2026-11-22) and closed out with a browser run the same day; as-built: "Cleanup jobs" in `docs/missions-architecture.md`. **Close the door grilled and planned** 2026-11-22 (decisions 13–24, "Slice plan: Close-the-door jobs"); next: confirm its acceptance criteria, then RED on `feat/white-hat-closedoor`. This plan is retired once the last white-hat kind closes out.
 
 Every contract kind v2 ships is black-hat: the contractor breaks into the target's network and
 does something to it. Legacy also had defender contracts (`malware`, `forensics`, `db_fix`,
@@ -483,3 +483,159 @@ These came out of planning, not the grill, and each changes what gets built.
 - [Should → AC] Accepting with a secret unset fails whole.
 - [Nice → briefing draft] The two-hop inside address is on the contract's own `/24`.
 - Checked clean: the hunt's tools are on every mission box.
+
+## Slice plan: Close-the-door jobs
+
+**Branch:** `feat/white-hat-closedoor` · **Delivery:** one independent PR against `main` ·
+**Version:** v0.480.0 (minor, a new kind).
+
+### Goal
+
+A contractor accepts a close-the-door job on their hireme.io board, logs in to the customer's
+router as root with the login the briefing hands over, finds the forward that exposes the machine
+the briefing names, takes it out and nothing else, and is paid when they mail the client.
+
+### Facts this slice rests on (measured 2026-11-22)
+
+- **The portforward job is the template.** `portforwardShape` (`missionShape.ts`) branches on
+  `missionKind` before the route draw, seals the target in the key box's slot, fills its forwards
+  with decoys never of the service's own kind (`EXPOSING_DECOYS`), and sets `gatewayAdminHash`,
+  `routerRoute` and `routerVendor`. Its four machines, their ports and pitches are `MACHINES` in
+  `core/missions/portforwardJob.ts`, drawn on `mission-portforward-<n>`.
+- **The client already reads the router** (`readRouter` beside `readTargetBox`,
+  `core/missions/clientMail.ts`; `handleResolveMail` replays its journal over
+  `materializeApGatewayFs` and answers `absent` when it no longer boots), and `machineServing`
+  decides which machine a public port reaches. A router's own listener on a port wins over a
+  forward there; a `deny` line is not read by it (`parseInputDenies` is read only by a box's own
+  `portsOpenToNetwork`).
+- **The forwards are written real first, decoys after** (`withDecoys`, `pointedAt`), so a rogue
+  forward laid as the "real" one would always be the top line of `rules.v4`.
+- **Cleanup's briefing login block** is `cleanupLoginLines` (`core/hireme/contracts.ts`): the word
+  through `whiteHatWord`, "They have given you root:", the `ssh` line and the password. This kind
+  is its second caller.
+- **`KIND_CUTS`** holds 65 pieces in 27,720ths, 2,310 per kind; 27,720 does not split by 13.
+
+### Slice 1: a thirteenth kind, close the door, paid once no public port reaches the machine's service and every other forward still works
+
+**Value:** a second defender job, whose challenge is choosing the one line to take out.
+**Path:** board offer → accept → briefing mail with the router's root login → `ssh root@<address>`
+onto the router's own `:22` → `cat /etc/iptables/rules.v4`, a public scan or an `nmap` of the LAN →
+`nano` the rules → `mail` to the client → `answerClientMail` reads the router → reply, pay minted.
+**Class:** behavior change. **Required skills:** `tdd`, `testing`, `functional`, `refactoring`;
+`mutation-testing` at PR readiness.
+
+**What it builds:**
+
+- **The kind.** `closedoor` joins `MissionKind` and takes a thirteenth of `mission-kind-<n>`:
+  `KIND_CUTS` moves to 360,360ths (every cut times 13), and each of the twelve older kinds gives
+  up 2,310 at the top of its largest piece, the lowest on a tie, as cleanup's split did. No number
+  turns from one older kind into another; numbers in the gaps become close-the-door jobs.
+- **The job** (`closeDoorJob`, on a stream of its own, `mission-closedoor-<n>`): one of the
+  portforward job's four machines and a public port from its `publicPorts`, read from the same
+  table so the two kinds cannot drift. Twelve white-hat pitches of its own, three per machine, in
+  the client's voice as a middleman.
+- **The shape** (`closeDoorShape`, branching before the route draw as portforward does): single
+  hop always. The target sits sealed in the key box's slot exactly as on a portforward job (its
+  service on a safe release, its decoys never the service's kind). The router's root is drawn
+  from `WHITE_HAT_HASHES` on `mission-closedoor-login-<n>`, its `routerRoute` and `routerVendor`
+  are `null`, and its firmware stays on the safe versions. Its forwards are the decoys onto the
+  target plus the rogue one, `:<public>` to the machine's inside port, at a drawn position among
+  them (settled item 1).
+- **The terms:** `<Client> — close a way into a <machine> — §<pay>`, pay 300–1,200 rounded to 50
+  as the last draw on `mission-terms-<n>`.
+- **The briefing** names the company, the address and the machine, never the port, the rules
+  file, `iptables` or `nano`, and hands over the router's login through the login block cleanup
+  built, moved to one place now that it has a second caller. Draft:
+
+  ```text
+  Our customer is Halden Freight. Their network is at 195.12.40.7.
+  Someone opened a way into their customer database from outside, and nobody there did it.
+  Shut it. Leave the rest of what their router forwards as it is.
+  They have given you root on their router:
+    ssh root@195.12.40.7
+    password: <word>
+  Leave the router running. If it no longer boots, there is no money.
+  Write to this address with your wallet address once it is shut.
+  Still open, no money. No wallet, no money.
+  ```
+
+- **The client's check** (`checkClosed`, reading the router with `readRouter`), the first row
+  that fits:
+
+  | The mail | The reply | What changes |
+  | --- | --- | --- |
+  | No accepted job with this client | "We have no contract with you." | nothing |
+  | A completed job | "That job is already closed." (the router is not read) | nothing |
+  | The router no longer boots | "You took our machine down. No money." | nothing; the job can never pay |
+  | Any public port reaches the machine's inside port | "Their customer database still answers from outside. Still open, no money." | nothing |
+  | A kept forward no longer reaches its machine and port | "That's not all you closed. Something they use no longer answers from outside. No money." | nothing |
+  | Shut, the rest intact, with a wallet | "It's shut. §650 sent to jsc…. Thank you for the help." | completed, the pay minted |
+  | Shut, the rest intact, no wallet | "It's shut. You sent no wallet, so there is nothing to pay. …" | completed, nothing minted |
+
+  "Reaches" is `machineServing` over every public port a forward in the router's `rules.v4`
+  names, so anyone's forward counts, a forward moved to another machine or port is shut, a
+  listener on the router shadowing the port is shut, and a `deny` on the router changes nothing.
+  "Kept" is each forward the shape lays other than the rogue one, read at its public port.
+- **`hireme.ts show`** prints `Kind: closedoor, <machine>, :<public> -> :<inside>`, the rogue
+  forward's position in `rules.v4`, `Router: none (handed over)` and its `Login: root / <word>`,
+  the kept forwards tagged `(keep)`, and the target's services.
+
+**Acceptance criteria** (to confirm with the owner before RED):
+
+- [ ] A thirteenth of numbers are close-the-door jobs; every other number keeps its kind, shape,
+      terms and LAN exactly (a sweep against `main` outside the new share).
+- [ ] A close-the-door offer reads `<Client> — close a way into a <machine> — §<pay>`, pays
+      300–1,200 to the nearest 50, and carries one of the kind's twelve pitches.
+- [ ] The briefing names the machine and never the public port, and its login opens root on the
+      router at `ssh root@<address>`; nothing in the bundle yields the word.
+- [ ] The router's `rules.v4` holds the rogue forward at a drawn position among the kept ones:
+      over 2,000 numbers it takes every slot, first in roughly a quarter to a third of them.
+- [ ] Before any change, a public scan of the address shows the rogue port answering as the
+      machine's service.
+- [ ] The client answers each row of the table above: still open while any forward reaches the
+      service's port (including a fresh one onto it from anyone), and still open after a router
+      `deny` of the port; the collateral miss after a kept forward is removed or moved, and paid
+      once it is put back; paid after the rogue line is removed, moved, or shadowed by a router
+      listener.
+- [ ] A bricked router gets the boot-rule reply on every later mail.
+- [ ] With `JSHACK_SECRETS` lacking the white-hat list, accepting fails whole, as a cleanup accept
+      does: no briefing without its password is mailed.
+- [ ] `show` prints the report above.
+
+**RED:** unit tests through the public surfaces: the kind sweep and the new share of
+`missionKind`; `missionShape` for a close-the-door number (the router's hash, null route, the
+rogue forward's position, the target sealed); `answerClientMail` for each row over a router built
+from the shape with the real `rules.v4` editors (`withForward`, `withInputDeny`) and a pidfile
+listener; the terms and briefing text; `show`.
+**GREEN:** the minimum per row. **REFACTOR:** the login block moves to one place serving both
+white-hat kinds; `portforwardJob` and `closeDoorJob` read one machine table. Assess the rest after
+each green.
+**Wire-check:** `scripts/testMissionCloseDoor.ts` against `vercel dev` + local supabase: accept
+with `scripts/hireme.ts`; the login opens root on the router; a public scan shows the rogue port
+as the service; each miss through the real router writes; the paid reply and the mint; a bricked
+router's reply; and `testMissionPortforward.ts`, `testMissionCleanup.ts`, `testMissionBoard.ts`
+and every other mission and hireme wire-check still green.
+**Pre-PR:** mutation on the changed lines; `npm run typecheck`, `npm run lint`, the full unit
+suite, `npm run build` (the bundle budget; raise the ceiling if the kind needs it).
+**Close-out:** one browser run on a fresh player, a close-the-door job worked end to end including
+one collateral miss put right; a "Close-the-door jobs" section in `missions-architecture.md`; a
+`project-status.md` entry; a valleynews story if the owner asks.
+
+### Risks
+
+- **Accepted contracts move.** A thirteenth of numbers become close-the-door jobs, so some
+  accepted prod contracts change kind. Only test accounts and a bot play on prod.
+- **The hunt is shallow** (decision 24, accepted): every forward lands on one box, so the rogue
+  line is the one onto the service's port. The deeper version is in `backlog.md`.
+- **Two kinds share the machine table.** A change to a portforward machine changes the
+  close-the-door job on it too; that is wanted (the same machine reads the same everywhere), and
+  each kind's own stream keeps the draws apart.
+
+### Settled while planning
+
+1. ✅ **The rogue forward sits at a drawn position among the kept ones (2026-11-22).** A mission
+   router writes its real forwards first, so a rogue forward laid as the real one would always be
+   the top line of `rules.v4`, a tell. Its index is drawn on `mission-closedoor-<n>` after the
+   public port, uniform over the 3 or 4 slots. Taken on the owner's standing instruction to adopt
+   the recommendation; reversible before RED. Rejected: always first, the tell; always last, the
+   same tell the other way round.
