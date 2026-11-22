@@ -1,6 +1,6 @@
 # Plan: White-hat jobs
 
-**Status:** Grilled 2026-11-22 (the shared rules and cleanup). **Cleanup shipped** at v0.479.0 (PR #801, merged 2026-11-22) and closed out with a browser run the same day; as-built: "Cleanup jobs" in `docs/missions-architecture.md`. Next: close the door, grilled on top of decisions 1–3, 6, 7, 10 and 12. This plan is retired once the last white-hat kind closes out.
+**Status:** Grilled 2026-11-22 (the shared rules and cleanup). **Cleanup shipped** at v0.479.0 (PR #801, merged 2026-11-22) and closed out with a browser run the same day; as-built: "Cleanup jobs" in `docs/missions-architecture.md`. **Close the door grilled** 2026-11-22 (decisions 13–24); next: its slice plan. This plan is retired once the last white-hat kind closes out.
 
 Every contract kind v2 ships is black-hat: the contractor breaks into the target's network and
 does something to it. Legacy also had defender contracts (`malware`, `forensics`, `db_fix`,
@@ -154,6 +154,85 @@ brings defender work back on top of the shipped missions system
       before it did, so no number changes between older kinds.
     - The rest of each later kind (its target, plant, check and miss wording) is grilled when its
       story starts, on top of decisions 1–3, 6, 7, 10 and 12, which every white-hat kind shares.
+
+### Close the door (grilled 2026-11-22)
+
+The portforward job's mirror: a forward someone wrote into the router's `rules.v4` exposes one of
+the customer's machines. Measured first: a mission router forwards 3–4 ports, all onto one box;
+the client reads the router's routing (`machineServing`), not the file's text; and a `deny` in a
+router's own INPUT filter does not stop a forward.
+
+13. **The briefing names the machine, never the port (2026-11-22).** "Someone opened a way into
+    their customer database from outside, and nobody there did it. Shut it." The forward is found
+    by reading `rules.v4` for the one onto the service's port, or by scanning the public address
+    for the port that answers as the service. Rejected: naming the port, which makes the job
+    deleting one line; and naming nothing, an audit with no symptom.
+
+14. **Every other forward must keep working (2026-11-22).** Otherwise `rm` of `rules.v4` does the
+    job with no hunt. The briefing states it as a rule, never a method ("Leave the rest of what
+    their router forwards as it is."), as cleanup's states "leave the machine running". Not
+    permanent: a forward put back and a fresh mail can still pay. Rejected: the boot rule alone,
+    which leaves nothing to hunt.
+
+15. **Only the router is in scope, with one login: root on the router (2026-11-22).**
+    `ssh root@<address>` on the router's own `:22`, its hash drawn from `WHITE_HAT_HASHES` on a
+    stream of its own. The router has no route (handed over) and safe firmware; the exposed
+    machine stays sealed, as on a portforward job. Rejected: also handing over the machine's
+    login, which opens closing the port on the machine itself (a `deny`, or stopping the service
+    the client wants kept).
+
+16. **Shut means no public port reaches the machine's service port, through anyone's forward
+    (2026-11-22).** The client reads the router's routing over every forward, not the one laid:
+    moving the forward elsewhere counts, and so does shadowing its port with a listener on the
+    router. A router `deny` does not count, since it stops no forward, and a fresh forward onto
+    the service's port from anyone keeps the job unpaid.
+
+17. **The machines are the portforward job's four (2026-11-22)**, with their ports: customer
+    database 13306 to 3306, cache server 16379 to 6379, staff intranet 8080 or 8443 to 80,
+    development server 2022 or 8022 to 22. The rogue forward is drawn on a stream of its own. The
+    decoys are never the service's own kind (`EXPOSING_DECOYS`), so only one forward reaches the
+    service's port.
+
+18. **Single-hop only (2026-11-22).** The door is on the router, so a front box adds nothing. Pay
+    is the white-hat single-hop band, 300–1,200 (decision 6).
+
+19. **The boot rule reads the router (2026-11-22).** Decision 10 applies: a bricked router gets
+    "You took our machine down. No money." and the job stays open until dropped.
+
+20. **The replies, the first row that fits (2026-11-22):**
+
+    | The mail                                    | The reply                                                                                 |
+    | ------------------------------------------- | ----------------------------------------------------------------------------------------- |
+    | No accepted job with this client            | "We have no contract with you."                                                           |
+    | A completed job                             | "That job is already closed." (nothing read)                                              |
+    | The router no longer boots                  | "You took our machine down. No money."                                                    |
+    | A forward still reaches the service's port  | "Their customer database still answers from outside. Still open, no money."               |
+    | Another forward no longer reaches its place | "That's not all you closed. Something they use no longer answers from outside. No money." |
+    | Shut, the rest intact, with a wallet        | "It's shut. §300 sent to jsc…. Thank you for the help."                                   |
+    | Shut, the rest intact, no wallet            | the no-wallet form; completed, nothing minted                                             |
+
+    The miss never names the port, or one free mail would undo decision 13, and the second never
+    says which forward broke, as a portforward job's miss never says which.
+
+21. **The terms (2026-11-22):** `<Client> — close a way into a customer database — §<pay>`,
+    posted as a middleman (decision 12): the briefing opens "Our customer is <Company>. Their
+    network is at <address>." Three white-hat pitches per machine, twelve in all.
+
+22. **The login keeps working after the job (2026-11-22).** Decision 7 applies: whoever holds the
+    briefing can open the door again after the pay. Accepted.
+
+23. **A thirteenth of the draw (2026-11-22).** Each older kind gives up an edge of one piece as
+    before, so no number turns from one older kind into another. 27,720 does not split by 13, so
+    `KIND_CUTS` moves to 360,360ths, 27,720 for each kind.
+
+24. **`hireme.ts show` (2026-11-22)** prints `Kind: closedoor, <machine>, :<public> -> :<inside>`,
+    the router's `Login: root / <word>` with its route as `none (handed over)`, and the other
+    forwards tagged as ones to keep.
+
+    Accepted risk: with every forward onto one box the hunt is shallow, spotting the line onto the
+    service's port and touching no other. Set aside for `backlog.md`: the kept forwards reaching
+    other machines on the LAN, so the hunt matches addresses to hosts with `nmap`, which needs new
+    LAN boxes in the shape.
 
 ## Facts the plan rests on (measured 2026-11-22)
 

@@ -249,7 +249,10 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
     rule at every read door and reads like a bug after `kill`; implants **outside `/etc`**
     (legacy's `/tmp`, `/var/tmp` and `/opt`) and on **routers and switches**, both dropped from
     the catalog; and **a client that revokes the login** once the job is paid or dropped, so a
-    leaked briefing stops being a root door.
+    leaked briefing stops being a root door. Set aside in the close-the-door grill: **kept
+    forwards onto other machines on the LAN**, so finding the rogue forward means matching
+    addresses to hosts with `nmap`, where today every forward lands on one box; it needs new LAN
+    boxes in the shape.
   - **Recognition for completed jobs**, the other half of a mission reward; completions are only
     in `hireme_missions` today.
   - **Places posting vacancies** that say how they run (the old `hireit.io` idea), and a second,
