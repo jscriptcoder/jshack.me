@@ -79,16 +79,23 @@ brings defender work back on top of the shipped missions system
    access when the job is paid or dropped, closer to practice but a contract-state check at the
    login door.
 
-   **Where the words come from (confirmed in find-gaps, 2026-11-22): a white-hat slice of the
-   uncrackable pool.** The leak routes' mechanism, on a slice of its own: root's hash is drawn in
-   the bundle from a fixed white-hat slice of the uncrackable pool that no other door holds,
-   beside `LEAKABLE_HASHES` (`core/missions/leakablePool.ts`), and the server turns it back into
-   the word for the briefing from `JSHACK_SECRETS`, as `leakedWord` does
-   (`core/missions/missionLeak.ts`). The bundle holds only hashes, so the address without the
-   briefing gives no root, and `/etc/passwd` stays the bundle's. A handed-over word opens white-hat
-   boxes only. Rejected: the leakable slice, which would let a player accept and drop cleanup jobs
-   for free to collect words that open black-hat leak-route roots with no break-in; and an HMAC
-   under `MISSION_KEY_SECRET` (the first draft), which needs the server to lay root's
+   **Where the words come from (revised at RED, 2026-11-22): a list of their own,
+   `WHITE_HAT_PASSWORDS` in `JSHACK_SECRETS`.** Find-gaps had settled on a white-hat slice of the
+   uncrackable pool, but measured at RED the pool's 52 words are drawn by every world box, fixed
+   site and mission NPC, not only by the leak routes, so no slice of it is free. The leak routes'
+   mechanism on a list of its own: `scripts/encode.ts` bundles only the list's hashes, root's hash
+   is drawn in the bundle from them, and the server turns it back into the word for the briefing
+   from `JSHACK_SECRETS`, as `leakedWord` does (`core/missions/missionLeak.ts`). `parseSecrets`
+   refuses a word that is also uncrackable or in a list a player can read. The bundle holds only
+   hashes, so the address without the briefing gives no root, and `/etc/passwd` stays the
+   bundle's. A handed-over word opens white-hat boxes only, and no other number, box or digest
+   moves. The cost is operational: the list is added to `JSHACK_SECRETS` locally and on Vercel
+   (Preview and Production) before the PR's preview builds. Rejected: carving a slice from the 52
+   and redirecting every other draw that lands on it, which hands about one uncrackable account in
+   eight a new word and moves some contracts' shut hashes; reusing the shut words, which lets a
+   cleanup word open a world box; the leakable slice, which would let a player accept and drop
+   cleanup jobs for free to collect words that open black-hat leak-route roots with no break-in;
+   and an HMAC under `MISSION_KEY_SECRET` (the first draft), which needs the server to lay root's
    `/etc/passwd` line.
 
 8. **Cleanup: the briefing gives a symptom, never the file (2026-11-22).** It says what the
@@ -217,7 +224,7 @@ pay minted.
   kind giving up 210 at the top of one piece. No number turns from one older kind into another.
 - **The white-hat login, in the shape.** A cleanup number still makes the route draw on the shape
   stream, so no stream moves, and is then given the login instead: root's hash from the white-hat
-  slice of the uncrackable pool (decision 7), the gateway forwarding `:2222` to the box's `:22`, decoys filling the
+  list (decision 7), the gateway forwarding `:2222` to the box's `:22`, decoys filling the
   forwards as on every contract, every package on safe releases. On two-hop (the existing
   one-in-three `mission-template-<n>` draw) the front box gets the same login and forward, and
   the inside box its own root hash, reached on `:22` at its LAN address. `ROUTES` is unchanged.
@@ -304,9 +311,9 @@ pay minted.
       two-hop), pays in the white-hat bands, and carries a white-hat pitch.
 - [ ] The briefing's login opens root on the target (and on both boxes on two-hop), and nothing in
       the bundle yields the word or the implant's path.
-- [ ] No hash in the white-hat slice is held by any door outside white-hat boxes: no fixed site,
-      world box, black-hat contract or leak route (a test over the pool, as the leakable slice
-      has).
+- [ ] No white-hat word is held by any door outside white-hat boxes: `parseSecrets` refuses one
+      that is also uncrackable or in a list a player can read, so no fixed site, world box,
+      black-hat contract or leak route can draw it.
 - [ ] Every implant's outside host is an address no machine holds: not in the 195 block and not
       one the world assigns, and `ping`, `ssh` and `nmap` to it reach nothing.
 - [ ] On the target, `ps` shows the listener on the briefed port, `grep -r <port> /etc` finds a
@@ -386,7 +393,8 @@ These came out of planning, not the grill, and each changes what gets built.
 
 ### Gaps closed (find-gaps, 2026-11-22)
 
-- [Blocker → decision 7, AC] The handed-over words come from a white-hat slice no other door holds.
+- [Blocker → decision 7, AC] The handed-over words come from a white-hat slice no other door holds
+  (revised at RED: a list of their own in `JSHACK_SECRETS`, since every door draws from all 52).
 - [Blocker → What it builds, AC] An implant's outside host is an in-game address no machine holds.
 - [Blocker → What it builds] Implants sit in legacy's seven `/etc` locations only.
 - [Should → reply table] "Gone" is the destroy job's path rule; a moved implant counts.
