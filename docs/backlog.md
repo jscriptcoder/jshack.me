@@ -252,7 +252,9 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
     leaked briefing stops being a root door. Set aside in the close-the-door grill: **kept
     forwards onto other machines on the LAN**, so finding the rogue forward means matching
     addresses to hosts with `nmap`, where today every forward lands on one box; it needs new LAN
-    boxes in the shape.
+    boxes in the shape. Set aside in the lock-them-out grill: **Debian's stock system accounts**
+    (`daemon`, `bin`, `www-data` and the rest) in every box's `/etc/passwd`, so an intruder's
+    added uid-0 row has something to hide among, where today a mission box holds four or five.
   - **Recognition for completed jobs**, the other half of a mission reward; completions are only
     in `hireme_missions` today.
   - **Places posting vacancies** that say how they run (the old `hireit.io` idea), and a second,

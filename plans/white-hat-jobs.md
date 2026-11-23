@@ -1,6 +1,6 @@
 # Plan: White-hat jobs
 
-**Status:** Grilled 2026-11-22 (the shared rules and cleanup). **Cleanup shipped** at v0.479.0 (PR #801, merged 2026-11-22) and closed out with a browser run the same day; as-built: "Cleanup jobs" in `docs/missions-architecture.md`. **Close the door shipped** at v0.480.0 (PR #802, merged 2026-11-23) and closed out with a browser run the same day; as-built: "Close-the-door jobs" in `docs/missions-architecture.md`. Next: lock them out, grilled on top of decisions 1–3, 6, 7, 10 and 12. This plan is retired once the last white-hat kind closes out.
+**Status:** Grilled 2026-11-22 (the shared rules and cleanup). **Cleanup shipped** at v0.479.0 (PR #801, merged 2026-11-22) and closed out with a browser run the same day; as-built: "Cleanup jobs" in `docs/missions-architecture.md`. **Close the door shipped** at v0.480.0 (PR #802, merged 2026-11-23) and closed out with a browser run the same day; as-built: "Close-the-door jobs" in `docs/missions-architecture.md`. **Lock them out grilled** 2026-11-23 (decisions 25–37); next: its slice plan. This plan is retired once the last white-hat kind closes out.
 
 Every contract kind v2 ships is black-hat: the contractor breaks into the target's network and
 does something to it. Legacy also had defender contracts (`malware`, `forensics`, `db_fix`,
@@ -233,6 +233,90 @@ router's own INPUT filter does not stop a forward.
     service's port and touching no other. Set aside for `backlog.md`: the kept forwards reaching
     other machines on the LAN, so the hunt matches addresses to hosts with `nmap`, which needs new
     LAN boxes in the shape.
+
+### Lock them out (grilled 2026-11-23)
+
+The credential job's mirror: root's password on one of the customer's machines has leaked, and
+the intruder used it. Measured first: a mission target's `/etc/passwd` holds root, one staff user
+(uid 1000), `guest` (1001) and the machine's service account; uid 0 is root at login
+(`userTypeFromPasswdFields`); ssh checks passwords only, nothing reads `.ssh`; `passwd <name>`
+from a root shell on a foreign box rewrites the row on the server; there is no `userdel`.
+
+25. **The intruder added an account with uid 0 (2026-11-23).** With root's word they laid one
+    more row in `/etc/passwd`, disguised as a system account, so a contractor who only changes
+    root's password has not locked them out. Nothing else is planted: no files, no `auth.log`
+    lines. Rejected: the password alone, which is `ssh`, `passwd root` and a mail; the leaked word
+    reused on several of the box's accounts, a chore more than a hunt; and an added account plus
+    an implant, which overlaps cleanup.
+
+26. **The handed-over login is the leaked word (2026-11-23).** The briefing gives root's login on
+    the target with the word the intruder holds, so the job starts from exactly what they have.
+    Decision 2 holds with no second word; decision 7 is turned round for this one login, since
+    ending it is the job. Rejected: a clean word for a second admin account the customer keeps,
+    a second draw and an extra row to explain.
+
+27. **The added account carries the same word (2026-11-23).** The intruder reused what they had,
+    so `cat /etc/passwd` shows root's hash twice, and the leaked word logs in as the added account
+    and lands root. No new draw.
+
+28. **The added row (2026-11-23).** Its name is drawn from about eight plausible system names
+    (`sysadm`, `toor`, `operator`, `support`, `ntpd` and the like), never one the box already
+    has; uid 0, gid 0, a fitting gecos and home, `/bin/bash`. Its place among the rows, never
+    first, is drawn on a stream of its own, as close the door's rogue line is. It ships in the
+    bundle, the trade close the door accepted for its rogue port.
+
+29. **The machines are the credential job's seven (2026-11-23)**, in the key box's slot, each with
+    its service account. Three lock-them-out pitches per machine, 21 in all.
+
+30. **Two-hop on about one contract in three (2026-11-23)**, as credential and cleanup jobs are.
+    The front box gets a white-hat login of its own on cleanup's stream; the target's root is the
+    leaked word. Access is cleanup's: no route, safe releases, public `:2222` forwarded to the
+    first box's `:22`. Pay is the white-hat bands, 300–1,200 and 1,200–2,400 (decision 6).
+
+31. **Still open is one rule with one reply (2026-11-23).** The job is still open while the leaked
+    word opens any account, root takes no password, or any account the customer did not have is
+    in the file. Changing the added account's password or taking it off uid 0 does not count; it
+    has to go. Anyone's edit counts, a rival's added account too. The reply never says which door
+    is left.
+
+32. **The customer's own accounts stay as laid (2026-11-23).** Every one of their rows must read
+    as it did, root's hash aside, or a file holding only root would do the job with no hunt (the
+    reason for decision 14). Root's new hash is any non-empty one but the leaked word's. Not
+    permanent: a row put back and a fresh mail can still pay.
+
+33. **The boot rule reads every machine in scope (2026-11-23).** Decision 10 applies.
+
+34. **The replies, the first row that fits (2026-11-23):**
+
+    | The mail                              | The reply                                                                                    |
+    | ------------------------------------- | -------------------------------------------------------------------------------------------- |
+    | No accepted job with this client      | "We have no contract with you."                                                              |
+    | A completed job                       | "That job is already closed." (nothing read)                                                 |
+    | A machine in scope no longer boots    | "You took our machine down. No money."                                                       |
+    | Still open (decision 31)              | "Whoever has that password can still get into their backup server. Still open, no money."    |
+    | One of their own rows gone or changed | "That's not all you changed. One of their own accounts no longer works as it did. No money." |
+    | Locked out, with a wallet             | "They're locked out. §300 sent to jsc…. Thank you for the help."                             |
+    | Locked out, no wallet                 | the no-wallet form; completed, nothing minted                                                |
+
+35. **The terms and the briefing (2026-11-23):** `<Client> — lock an intruder out of a <machine> —
+    §<pay>`, `… an internal <machine>` on two-hop, posted as a middleman (decision 12). The
+    briefing says someone outside has root's password on the machine, asks to lock them out and
+    to leave the customer's own accounts as they are, and gives the leaked word as the login. It
+    never mentions an added account: the player learns the hard way.
+
+36. **A fourteenth of the draw (2026-11-23).** 360,360 splits into 25,740 for each kind; each of
+    the thirteen older kinds gives up 1,980 at the top of its largest piece, the lowest on a tie,
+    so no number turns from one older kind into another.
+
+37. **`hireme.ts show` (2026-11-23)** prints `Kind: lockout, <machine>`, each box's
+    `Login: root / <word>` with its route as `none (handed over)`, and the added row with its
+    place.
+
+    Accepted risk: in a file of four or five rows a uid-0 line stands out, so the hunt is shallow;
+    the lesson is that uid 0 is root, which a contractor who only runs `passwd root` misses. Set
+    aside for `backlog.md`: Debian's stock system accounts on every box, so the row has something
+    to hide among. To measure while planning: that root can remove a row with `nano /etc/passwd`
+    on a mission box.
 
 ## Facts the plan rests on (measured 2026-11-22)
 
