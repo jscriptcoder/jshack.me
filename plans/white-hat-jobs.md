@@ -1,6 +1,6 @@
 # Plan: White-hat jobs
 
-**Status:** Grilled 2026-11-22 (the shared rules and cleanup). **Cleanup shipped** at v0.479.0 (PR #801, merged 2026-11-22) and closed out with a browser run the same day; as-built: "Cleanup jobs" in `docs/missions-architecture.md`. **Close the door shipped** at v0.480.0 (PR #802, merged 2026-11-23) and closed out with a browser run the same day; as-built: "Close-the-door jobs" in `docs/missions-architecture.md`. **Lock them out shipped** at v0.481.0 (PR #803, merged 2026-11-23) and closed out with a browser run the same day; as-built: "Lock-them-out jobs" in `docs/missions-architecture.md`. **Patch it grilled** 2026-11-23 (decisions 38–47); next: its slice plan. This plan is retired once the last white-hat kind closes out.
+**Status:** Grilled 2026-11-22 (the shared rules and cleanup). **Cleanup shipped** at v0.479.0 (PR #801, merged 2026-11-22) and closed out with a browser run the same day; as-built: "Cleanup jobs" in `docs/missions-architecture.md`. **Close the door shipped** at v0.480.0 (PR #802, merged 2026-11-23) and closed out with a browser run the same day; as-built: "Close-the-door jobs" in `docs/missions-architecture.md`. **Lock them out shipped** at v0.481.0 (PR #803, merged 2026-11-23) and closed out with a browser run the same day; as-built: "Lock-them-out jobs" in `docs/missions-architecture.md`. **Patch it grilled and planned** 2026-11-23 (decisions 38–47, "Slice plan: Patch-it jobs"); next: confirm its acceptance criteria, then RED on `feat/white-hat-patch`. This plan is retired once the last white-hat kind closes out.
 
 Every contract kind v2 ships is black-hat: the contractor breaks into the target's network and
 does something to it. Legacy also had defender contracts (`malware`, `forensics`, `db_fix`,
@@ -990,3 +990,191 @@ the still-open miss after `passwd root` alone; a "Lock-them-out jobs" section in
 4. ✅ **An emptied root hash is still open (2026-11-23).** ssh never admits an empty hash, but
    `su` from any shell on the box skips the prompt for one, so it is a door. Rejected: counting it
    locked, which pays for a box where any user shell becomes root.
+
+## Slice plan: Patch-it jobs
+
+**Branch:** `feat/white-hat-patch` · **Delivery:** one independent PR against `main` ·
+**Version:** v0.482.0 (minor, a new kind).
+
+### Goal
+
+A contractor accepts a patch-it job on their hireme.io board, logs in to the customer's machine as
+root with the login the briefing hands over, finds the one package whose release lets anyone in
+as root, moves that package and nothing else with `apt upgrade <package>`, and is paid when they
+mail the client.
+
+### Facts this slice rests on (measured 2026-11-23)
+
+- **Cleanup and lock them out are the template.** `handedOverShape` (`missionShape.ts`) hands
+  every box in scope a root from `WHITE_HAT_HASHES` on a login stream of the kind's own, route
+  `null`, safe releases, sshd and decoys, and `:2222` onto the first box's `:22`; on two hops the
+  front box comes from `drawTopology`. `checkLockout` (`clientMail.ts`) reads the target and on
+  two hops the front box, the boot rule first, and builds the laid box with
+  `buildMissionKeyBoxFs` to compare against.
+- **The services a mission box can run** are `nginx` (`WEB_SERVER`), `vsftpd` (`FTP_SERVER`),
+  `mysql` (`DATABASE_SERVER`), `snmp` (`SNMP_AGENT`) and `redis` (`CACHE_SERVER`). There is no
+  name server, so `bind9` cannot be a target's hole without a new door (settled item 1).
+  `sealedTarget`, the portforward job's machine, already runs one of them behind shut hashes
+  (a shut database account and root for `mysql`, a shut lock for `redis`), and
+  `EXPOSING_DECOYS` keeps a decoy of the same service off it.
+- **The hole's release.** `criticalRouteVersion(key)` gives the newest `critical` release
+  published by `MISSION_ROUTE_DAY` (111): `nginx` 1.28.7, `redis` 7.2.5, `mysql` 8.0.39, `vsftpd`
+  4.0.1. Every fix has shipped by day 113. At day 134 `vsftpd`'s newest release is itself inside
+  its patch delay (`high`), so an upgrade lands it on a newer hole; decision 40 pays it anyway.
+- **The target's manifest** is laid by `withPackageManifest(tree, { versions })`
+  (`missionKeyBoxFs.ts`) from the shape's versions: every library, `openssh-server`, `vsftpd`,
+  and each running service's package, all on safe releases but the hole.
+- **`apt upgrade <package>`** runs `planUpgrade(manifest, day, package)`
+  (`core/cve/planUpgrade.ts`), which moves only that package's row, and writes the whole manifest
+  through `env.patches.write`, so from a root shell on a hop it is a root write on that box. A
+  bare `apt upgrade` moves every package a fix has shipped for: on a target that is nearly
+  every row, since every safe release is a `low` or `medium` hole.
+- **A release resolves** with `installedRelease(key, version, day)` (`packageTimeline.ts`): the
+  newest release at or below the version, the start tuple for anything that is not one. Its
+  `index` orders releases, so "later than the laid one" is a greater index.
+- **`KIND_CUTS`** holds 90 pieces in 360,360ths, 25,740 per kind; fifteenths are 24,024, so each
+  of the fourteen kinds gives up 1,716 at the top of its largest piece, the lowest on a tie:
+  tamper 24,024–25,740, lockout 26,004–27,720, closedoor 31,044–32,760, cleanup 43,329–45,045,
+  chain 58,344–60,060, sabotage 144,144–145,860, wipe 158,444–160,160, credential
+  169,884–171,600, infiltrate 185,471–187,187, destroy 208,494–210,210, file 222,924–224,640,
+  backdoor 259,510–261,226, key 294,294–296,010, portforward 356,664–358,380. The top of the
+  draw, 358,380–360,360, stays lockout's, so the fallback past the last cut is unchanged.
+
+### Slice 1: a fifteenth kind, patch it, paid once the holed package has moved forward and nothing else on the target has moved
+
+**Value:** a fourth defender job, whose challenge is reading severity: `apt list -u` lists nearly
+every package on the box, and only one of them lets anyone in as root.
+**Path:** board offer → accept → briefing mail with root's login → `ssh root@<address> -p 2222`
+(and on to the inside box on two hops) → `apt list -u`, `apt upgrade <package>` (or `nmap -sV`
+from home on a single-hop job) → `mail` to the client → `answerClientMail` reads the boxes →
+reply, pay minted.
+**Class:** behavior change. **Required skills:** `tdd`, `testing`, `functional`, `refactoring`;
+`mutation-testing` at PR readiness.
+
+**What it builds:**
+
+- **The kind.** `patch` joins `MissionKind` and takes a fifteenth of `mission-kind-<n>`, the
+  fourteen pieces above. No number turns from one older kind into another.
+- **The job** (`patchJob`, on `mission-patch-<n>`): one of the credential job's seven machines
+  (`TARGET_ROLES`), then the holed service from the four, its release
+  `criticalRouteVersion(package)`. Three patch-it pitches per machine, 21 in all, in the client's
+  voice as a middleman.
+- **The shape** (`handedOverShape` with `kind: 'patch'`): the target's root the first draw on
+  `mission-patch-login-<n>`, the front box's the second on two hops; route `null`; the holed
+  service running on its critical release behind shut hashes as on `sealedTarget`, every other
+  package on a safe release; no decoy of the hole's own service. On a single hop the router
+  forwards the hole's port beside `:2222` and the decoys; on two hops the hole is reached only
+  from the front box. Two hops on the usual `mission-template-<n>` draw, about one in three.
+- **The terms:** `<Client> — patch a <machine> — §<pay>`, `… an internal <machine>` on two hops,
+  pay 300–1,200 single-hop and 1,200–2,400 two-hop to the nearest 50, the last draw on
+  `mission-terms-<n>`.
+- **The briefing** names the company, the address and the machine, says anyone can get in as root
+  on it, never names the package, the port or the CVE, hands over root through the shared login
+  block, and asks to move only what has to move. Draft (single hop):
+
+  ```text
+  Our customer is Meridian Records. Their network is at 195.85.65.53.
+  Something on their backup server lets anyone in as root. It needs patching.
+  Move only what has to move. The rest of their software is certified on the versions it runs.
+  The customer has given you root:
+    ssh root@195.85.65.53 -p 2222
+    password: <word>
+  Leave the machine running. If it no longer boots, there is no money.
+  Write to this address with your wallet address once it is patched.
+  Still open, no money. No wallet, no money.
+  ```
+
+  On two hops the edge machine's login comes first, then the inside address and the target's
+  login from the edge machine, and the warning names both machines.
+- **The client's check** (`checkPatch`, reading the target and on two hops the front box), the
+  first row that fits:
+
+  | The mail | The reply | What changes |
+  | --- | --- | --- |
+  | No accepted job with this client | "We have no contract with you." | nothing |
+  | A completed job | "That job is already closed." (nothing read) | nothing |
+  | A machine in scope no longer boots | "You took our machine down. No money." | nothing; the job can never pay |
+  | Still open | "Their backup server still runs the release with that hole. Still open, no money." | nothing |
+  | Another package moved or gone | "That's not all you moved. Something else on their backup server is no longer on the version they run. No money." | nothing |
+  | Patched, with a wallet | "It's patched. §650 sent to jsc…. Thank you for the help." | completed, the pay minted |
+  | Patched, no wallet | "It's patched. You sent no wallet, so there is nothing to pay. …" | completed, nothing minted |
+
+  "Still open" is the holed package with no row, or a row whose release, resolved by
+  `installedRelease` on the server's day, has an index at or below the laid one's (settled item
+  3). "Moved or gone" is any other row of the laid manifest missing or reading another version
+  string; a row the laid manifest never had is free.
+- **`hireme.ts show`** prints `Kind: patch, <machine>, <package> <version>`, each box's
+  `Login: root / <word>` with its route as `none (handed over)`, and the target's package rows in
+  manifest order, the holed one tagged `(hole)`.
+
+**Acceptance criteria** (to confirm with the owner before RED):
+
+- [ ] A fifteenth of numbers are patch-it jobs; every other number keeps its kind, shape, terms
+      and LAN exactly (a sweep against `main` outside the new share).
+- [ ] A patch-it offer reads `<Client> — patch a <machine> — §<pay>`, pays in the white-hat bands
+      to the nearest 50, and carries one of its machine's three pitches; about one in three is
+      two-hop.
+- [ ] The briefing gives root's login on the target (and on two hops the edge machine's first),
+      never names the package, the port or the CVE, and asks to move only what has to move;
+      nothing in the bundle yields either word.
+- [ ] The target runs one of `nginx`, `redis`, `mysql` and `vsftpd` on its `critical` release
+      and every other package on a `low` or `medium` one; over 2,000 numbers each of the four
+      is drawn; no decoy runs the hole's service; on a single hop the router forwards its port.
+- [ ] Before any change, `apt list -u` on the target lists the holed package as `critical` and
+      upgradable, among the others, and `nmap -sV` from outside shows it on a single-hop job.
+- [ ] The client answers each row of the table above: still open before anything, after the hole
+      is downgraded, and after its service is stopped; the collateral miss after a bare `apt
+      upgrade` and after another row is removed or pinned elsewhere, paid once it is put back;
+      paid after `apt upgrade <package>`, and after the version is hand-edited past the newest.
+- [ ] A bricked target, or front box on two hops, gets the boot-rule reply on every later mail.
+- [ ] With `JSHACK_SECRETS` lacking the white-hat list, accepting fails whole, as a cleanup accept
+      does.
+- [ ] `show` prints the report above.
+
+**RED:** unit tests through the public surfaces: the kind sweep and the new share of
+`missionKind`; `missionShape` and `buildMissionKeyBoxFs` for a patch-it number (the logins, null
+routes, the hole's service, version and forward, the decoys, every other release safe);
+`answerClientMail` for each row over a target built from the shape with its manifest rewritten as
+`apt` would leave it; the terms and briefing text; `show`.
+**GREEN:** the minimum per row. **REFACTOR:** whether the running-service-behind-shut-hashes
+part of `sealedTarget` serves both kinds; assess the rest after each green.
+**Wire-check:** `scripts/testMissionPatch.ts` against `vercel dev` + local supabase: accept with
+`scripts/hireme.ts`; root over `:2222`; a mail before anything still open; a real manifest write
+moving the hole and the paid reply and mint, once, then closed; a bare upgrade's collateral miss
+and its repair; a downgrade still open; no wallet completing unpaid; a two-hop job's front login
+and the inside machine patched; a bricked target's and a bricked edge machine's reply; and every
+other mission, hireme and wallet wire-check still green.
+**Pre-PR:** mutation on the changed lines; `npm run typecheck`, `npm run lint`, the full unit
+suite, `npm run build` (raise the bundle ceiling if the kind needs it).
+**Close-out:** one browser run on a fresh player, a patch-it job worked end to end through the
+collateral miss after a bare `apt upgrade`; a "Patch-it jobs" section in
+`missions-architecture.md`; a `project-status.md` entry; a valleynews story if the owner asks.
+
+### Risks
+
+- **Accepted contracts move.** A fifteenth of numbers become patch-it jobs, so some accepted prod
+  contracts change kind. Only test accounts and a bot play on prod.
+- **A bare `apt upgrade` cannot be undone with `apt`.** `apt install pkg=<version>` pins each
+  moved package back, one per row, so the repair after the collateral miss is many commands or a
+  hand edit of the manifest. Accepted: it is the lesson, and the miss says what to look for.
+- **Anyone can root the target through the hole** on a single-hop job, since the router forwards
+  it, and a rival who bricks it loses the job for good (decision 10). The briefing's login
+  already hands root to whoever reads it, so nothing new is exposed.
+- **The newest release can be holed.** A job paid on `vsftpd` today leaves the box on a `high`
+  release inside its own window; decision 40 accepts it.
+
+### Settled while planning
+
+1. ✅ **`bind9` is dropped from decision 38: the hole is one of `nginx`, `redis`, `mysql` and
+   `vsftpd` (2026-11-23).** Taken by the owner while planning. Mission boxes run no name server, so `bind9` would need a new door
+   (the daemon, its zone files, its port on the router). Rejected: building that door for one of
+   five draws.
+2. ✅ **Each older kind gives up 1,716 at the top of its largest piece, the lowest on a tie
+   (2026-11-23),** as every split before. The top of the draw stays lockout's, so a draw past the
+   last cut is still a lock-them-out job.
+3. ✅ **"Later" is a greater release index, resolved on the server's day (2026-11-23).** The
+   manifest's version is resolved with `installedRelease`, as every reader of a box's exposure
+   resolves it, so `9.9.9` reads as the newest release and `banana` as the start tuple.
+   Rejected: comparing version strings, which calls `9.9.9` and `1.28.10` by their characters.
+4. ✅ **No decoy runs the hole's service (2026-11-23),** as `EXPOSING_DECOYS` keeps one off a
+   portforward target: two daemons cannot share a port.
