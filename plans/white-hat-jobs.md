@@ -1,6 +1,6 @@
 # Plan: White-hat jobs
 
-**Status:** Grilled 2026-11-22 (the shared rules and cleanup). **Cleanup shipped** at v0.479.0 (PR #801, merged 2026-11-22) and closed out with a browser run the same day; as-built: "Cleanup jobs" in `docs/missions-architecture.md`. **Close the door shipped** at v0.480.0 (PR #802, merged 2026-11-23) and closed out with a browser run the same day; as-built: "Close-the-door jobs" in `docs/missions-architecture.md`. **Lock them out grilled** 2026-11-23 (decisions 25–37); next: its slice plan. This plan is retired once the last white-hat kind closes out.
+**Status:** Grilled 2026-11-22 (the shared rules and cleanup). **Cleanup shipped** at v0.479.0 (PR #801, merged 2026-11-22) and closed out with a browser run the same day; as-built: "Cleanup jobs" in `docs/missions-architecture.md`. **Close the door shipped** at v0.480.0 (PR #802, merged 2026-11-23) and closed out with a browser run the same day; as-built: "Close-the-door jobs" in `docs/missions-architecture.md`. **Lock them out grilled and planned** 2026-11-23 (decisions 25–37, "Slice plan: Lock-them-out jobs"); next: confirm its acceptance criteria, then RED on `feat/white-hat-lockout`. This plan is retired once the last white-hat kind closes out.
 
 Every contract kind v2 ships is black-hat: the contractor breaks into the target's network and
 does something to it. Legacy also had defender contracts (`malware`, `forensics`, `db_fix`,
@@ -723,3 +723,189 @@ one collateral miss put right; a "Close-the-door jobs" section in `missions-arch
    `mission-closedoor-place-<n>`, uniform over the 3 or 4 slots. Taken on the owner's standing
    instruction to adopt the recommendation; reversible before RED. Rejected: always first, the
    tell; always last, the same tell the other way round.
+
+## Slice plan: Lock-them-out jobs
+
+**Branch:** `feat/white-hat-lockout` · **Delivery:** one independent PR against `main` ·
+**Version:** v0.481.0 (minor, a new kind).
+
+### Goal
+
+A contractor accepts a lock-them-out job on their hireme.io board, logs in to the customer's
+machine as root with the leaked word the briefing hands over, changes root's password, finds and
+removes the account the intruder added, leaves the customer's own accounts alone, and is paid when
+they mail the client.
+
+### Facts this slice rests on (measured 2026-11-23)
+
+- **Cleanup is the template.** `cleanupShape` (`missionShape.ts`) hands every box in scope a root
+  drawn from `WHITE_HAT_HASHES` on a login stream of its own, route `null`, safe releases, no
+  services but sshd, and forwards public `:2222` onto the first box's `:22`; on two hops the
+  front box comes from `drawTopology` as every two-hop contract's does. The client's
+  `checkCleanup` branch (`clientMail.ts`) already reads the target and, on two hops, the front
+  box, with the boot rule first.
+- **The key box's `/etc/passwd`** (`buildMissionBoxFs`, `generation/missionKeyBoxFs.ts`) is root,
+  one staff user drawn from the generic username pool (uid 1000), `guest` (1001), and the
+  machine's locked service account (`*`, uid 999, `nologin`), which today is laid on cleanup
+  targets only.
+- **Logins read the box's rows as they stand.** `admitToDoor` (`sessions/doorAdmission.ts`) takes
+  the first row with the name and admits on `md5(password)`; uid 0 is root
+  (`userTypeFromPasswdFields`). An empty hash never admits at ssh, but `su` and `passwd` treat it
+  as password-less and skip the prompt.
+- **`passwd <name>` from a root shell on a foreign box** is the server's `passwdChange`
+  (`api/sessions.ts`), composed against the box's journal; the credential wire-check proves a
+  password set this way logs in and pays. There is no `userdel`; a row is removed with `nano
+  /etc/passwd`, an ordinary root write (`api/patches.ts` gates only the server-laid paths).
+- **Names.** `operator`, `support` and `admin` are in the generic username pool, so the intruder's
+  names come from a list of their own, disjoint from every username pool and every service
+  account: `sysadm`, `toor`, `ntpd`, `syslogd`, `dbus`, `systemd-sync`, `sshd-agent`, `netadm`
+  (none is in `pools/usernames.ts`).
+- **`KIND_CUTS`** holds 77 pieces in 360,360ths, 27,720 per kind; 360,360 splits into fourteenths
+  of 25,740. Each kind's largest piece, the lowest on a tie: closedoor 27,720–30,030 (twelve tied
+  at 2,310), cleanup 33,306–36,036, chain 51,779–55,055, wipe 104,676–108,680, destroy
+  187,187–192,192, credential 113,685–120,120, portforward 351,780–360,360 (the top of the draw),
+  infiltrate 240,240–248,248, backdoor 192,192–201,929, file 210,210–226,620, and tamper,
+  sabotage and key their single pieces.
+
+### Slice 1: a fourteenth kind, lock them out, paid once the leaked word and the added account no longer let anyone in and the customer's own accounts read as laid
+
+**Value:** a third defender job, whose challenge is knowing that a password change is not the
+whole lockout: uid 0 is root, whatever the account is called.
+**Path:** board offer → accept → briefing mail with the leaked word as root's login → `ssh
+root@<address> -p 2222` (and on to the inside box on two hops) → `passwd root`, `cat
+/etc/passwd`, `nano /etc/passwd` → `mail` to the client → `answerClientMail` reads the boxes →
+reply, pay minted.
+**Class:** behavior change. **Required skills:** `tdd`, `testing`, `functional`, `refactoring`;
+`mutation-testing` at PR readiness.
+
+**What it builds:**
+
+- **The kind.** `lockout` joins `MissionKind` and takes a fourteenth of `mission-kind-<n>`: each
+  of the thirteen older kinds gives up 1,980 at the top of its largest piece, the lowest on a tie
+  (settled item 1). No number turns from one older kind into another.
+- **The job** (`lockoutJob`, on `mission-lockout-<n>`): one of the credential job's seven machines
+  (`TARGET_ROLES`), then the added account's name from the eight, then its place among the rows.
+  Three lock-them-out pitches per machine, 21 in all, in the client's voice as a middleman.
+- **The shape** (`lockoutShape`, beside `cleanupShape` and sharing what they have in common): the
+  target's root, the leaked word, is the first draw on `mission-lockout-login-<n>`, the front
+  box's the second on two hops; route `null`, safe releases, `:2222` onto the first box's `:22`.
+  Two hops on the usual `mission-template-<n>` draw, about one in three.
+- **The target's rows** (`buildMissionKeyBoxFs`): the machine's service account laid as on a
+  cleanup target, and the added row at its drawn place, never first (settled item 3):
+  `<name>:<root's hash>:0:0:<name>:/var/lib/<name>:/bin/bash`, the intruder having reused the word.
+- **The terms:** `<Client> — lock an intruder out of a <machine> — §<pay>`, `… of an internal
+  <machine>` on two hops, pay 300–1,200 single-hop and 1,200–2,400 two-hop to the nearest 50, the
+  last draw on `mission-terms-<n>`.
+- **The briefing** names the company, the address and the machine, says someone outside has
+  root's password, never mentions an added account, a file or a tool, and hands over the leaked
+  word through the shared login block. Draft (single hop):
+
+  ```text
+  Our customer is Meridian Records. Their network is at 195.85.65.53.
+  Someone outside has root's password on their backup server, and nobody there gave it to them.
+  Lock them out. Leave their own accounts as they are.
+  This is the password they have. The customer has given you root with it:
+    ssh root@195.85.65.53 -p 2222
+    password: <word>
+  Leave the machine running. If it no longer boots, there is no money.
+  Write to this address with your wallet address once they are locked out.
+  Still open, no money. No wallet, no money.
+  ```
+
+  On two hops the edge machine's login comes first, as on a cleanup job, then "The backup server
+  is inside their network, at 192.168.70.138. This is the password they have. From the edge
+  machine:" and the leaked word's login, and the warning names both machines.
+- **The client's check** (`checkLockout`, reading the target and on two hops the front box), the
+  first row that fits:
+
+  | The mail | The reply | What changes |
+  | --- | --- | --- |
+  | No accepted job with this client | "We have no contract with you." | nothing |
+  | A completed job | "That job is already closed." (nothing read) | nothing |
+  | A machine in scope no longer boots | "You took our machine down. No money." | nothing; the job can never pay |
+  | Still open | "Whoever has that password can still get into their backup server. Still open, no money." | nothing |
+  | One of their own rows gone or changed | "That's not all you changed. One of their own accounts no longer works as it did. No money." | nothing |
+  | Locked out, with a wallet | "They're locked out. §650 sent to jsc…. Thank you for the help." | completed, the pay minted |
+  | Locked out, no wallet | "They're locked out. You sent no wallet, so there is nothing to pay. …" | completed, nothing minted |
+
+  The rows are matched by name against the ones laid (settled item 2). "Still open" is root's
+  hash still the leaked word's or empty, or any row whose name is not one of the customer's, or a
+  second row with one of their names. "Gone or changed" is a customer's name with no row, or a
+  row that differs from the laid one in any field but root's hash. Row order is free.
+- **`hireme.ts show`** prints `Kind: lockout, <machine>`, each box's `Login: root / <word>` with
+  its route as `none (handed over)`, the target's rows in order with the added one tagged
+  `(intruder)`, and the target's services.
+
+**Acceptance criteria** (to confirm with the owner before RED):
+
+- [ ] A fourteenth of numbers are lock-them-out jobs; every other number keeps its kind, shape,
+      terms and LAN exactly (a sweep against `main` outside the new share).
+- [ ] A lock-them-out offer reads `<Client> — lock an intruder out of a <machine> — §<pay>`,
+      pays in the white-hat bands to the nearest 50, and carries one of its machine's three
+      pitches; about one in three is two-hop.
+- [ ] The briefing gives the leaked word as root's login on the target, never mentions an added
+      account, and on two hops gives the edge machine's own login first; nothing in the bundle
+      yields either word.
+- [ ] The target's `/etc/passwd` holds root, the staff user, `guest`, the service account and the
+      added uid-0 row with root's hash, at a drawn place: over 2,000 numbers the row takes every
+      slot after root's, and its name is never one the box already has.
+- [ ] Before any change, the leaked word logs in as root and as the added account, both landing
+      root.
+- [ ] The client answers each row of the table above: still open after `passwd root` alone,
+      after changing the added account's password, after taking it off uid 0, after emptying
+      root's hash, and with a further account added by anyone; the collateral miss after a
+      customer's row is removed or changed, and paid once it is put back; paid after root's
+      password is changed and the added row removed, in either order and with the rows reordered.
+- [ ] A bricked target, or front box on two hops, gets the boot-rule reply on every later mail.
+- [ ] With `JSHACK_SECRETS` lacking the white-hat list, accepting fails whole, as a cleanup accept
+      does.
+- [ ] `show` prints the report above.
+
+**RED:** unit tests through the public surfaces: the kind sweep and the new share of
+`missionKind`; `missionShape` and `buildMissionKeyBoxFs` for a lock-them-out number (the logins,
+null routes, the added row's name, fields and place, the service account); `answerClientMail` for
+each row over a target built from the shape with its `/etc/passwd` rewritten as `passwd` and
+`nano` would leave it; the terms and briefing text; `show`.
+**GREEN:** the minimum per row. **REFACTOR:** what `lockoutShape` shares with `cleanupShape`
+moves to one place; the briefing's login block serves all three white-hat kinds. Assess the rest
+after each green.
+**Wire-check:** `scripts/testMissionLockout.ts` against `vercel dev` + local supabase: accept with
+`scripts/hireme.ts`; the leaked word opens root on the target and as the added account; `passwd
+root` through `passwdChange` and the still-open reply; the added row removed through a real
+`/etc/passwd` write and the paid reply and mint; the collateral miss and its repair; a two-hop
+job's front login; a bricked target's reply; and every other mission, hireme and wallet
+wire-check still green.
+**Pre-PR:** mutation on the changed lines; `npm run typecheck`, `npm run lint`, the full unit
+suite, `npm run build` (raise the bundle ceiling if the kind needs it).
+**Close-out:** one browser run on a fresh player, a lock-them-out job worked end to end through
+the still-open miss after `passwd root` alone; a "Lock-them-out jobs" section in
+`missions-architecture.md`; a `project-status.md` entry; a valleynews story if the owner asks.
+
+### Risks
+
+- **Accepted contracts move.** A fourteenth of numbers become lock-them-out jobs, so some
+  accepted prod contracts change kind. Only test accounts and a bot play on prod.
+- **The hunt is shallow** (decision 37, accepted): five rows, one with uid 0. The deeper version,
+  Debian's system accounts on every box, is in `backlog.md`.
+- **Rows by name.** A player who edits a customer's row and also adds one under a new name gets
+  the still-open reply first, since still open is checked before collateral; each mail answers
+  one thing, as every kind's does.
+
+### Settled while planning
+
+1. ✅ **Portforward gives up the top of the draw (2026-11-23).** Its largest piece is the tail,
+   351,780–360,360, so by the rule every split has used its top 1,980 becomes lock-them-out and
+   a draw past the last cut is now a lock-them-out job. Taken on the owner's standing instruction
+   to adopt the recommendation (one rule, no carve-out); reversible before RED. Rejected: taking
+   portforward's share from its second-largest piece to keep it on top, an exception to a rule
+   that has held for twelve splits.
+2. ✅ **The customer's rows are matched by name (2026-11-23).** A row whose fields changed is the
+   collateral miss, not a foreign row, so a contractor who changed `guest`'s password hears what
+   they did. Order is ignored, so a reordered file is the same file. Rejected: matching whole
+   lines, which turns an edited customer row into a foreign one and answers it "still open".
+3. ✅ **The added row's place is any slot after root's (2026-11-23)**, drawn on `mission-lockout-<n>`
+   after the name. Root's row stays first, as every generated file has it, so the added row
+   moving root down would be a tell of its own. Rejected: last always, a tell.
+4. ✅ **An emptied root hash is still open (2026-11-23).** ssh never admits an empty hash, but
+   `su` from any shell on the box skips the prompt for one, so it is a door. Rejected: counting it
+   locked, which pays for a box where any user shell becomes root.
