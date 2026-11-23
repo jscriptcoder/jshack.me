@@ -92,15 +92,23 @@ import type { Directory } from '../filesystem/types.js';
 import { writeAmount } from '../wallet/amount.js';
 import { missionKey } from './missionSecret.js';
 import { missionFileContent, missionFilePath, missionPlantContent } from './missionFileItem.js';
-import { chainFinal, missionKind, missionTopology, type ChainFinal } from './missionShape.js';
+import {
+  chainFinal,
+  missionKind,
+  missionShape,
+  missionTopology,
+  type ChainFinal,
+} from './missionShape.js';
 import { recordsLookRight, recordsWiped } from './missionRecords.js';
 import { backdoorJob, chainJob, cleanupJob, credentialRole } from './targetRoles.js';
 import { cleanupPlant } from './cleanupPlant.js';
 import { portforwardJob } from './portforwardJob.js';
+import { closeDoorJob } from './closeDoorJob.js';
 import { md5 } from '../generation/md5.js';
 import { accountIn } from '../sessions/passwdAccount.js';
 import { missionEssid } from './missionNetwork.js';
 import { machineServing } from '../network/machineServing.js';
+import { parseForwardRules, readRulesV4 } from '../network/iptablesRules.js';
 import { lanSubnetPrefix } from '../network/lanAddress.js';
 import { listenerOn } from '../services/pidfile.js';
 import { createFsView } from '../filesystem/fsView.js';
@@ -171,6 +179,7 @@ const THROUGH = "We're through.";
 const LOGIN_WORKS = 'That login works.';
 const FILE_GONE = "It's gone.";
 const RECORDS_GONE = 'The records are gone.';
+const SHUT = "It's shut.";
 const BOTH_DONE = 'Both done.';
 /** A white-hat client closes with thanks, not with the black-hat clients' sign-off. */
 const THANKS = 'Thank you for the help.';
@@ -197,6 +206,13 @@ const notInPlace = (path: string): string =>
  *  longer boots. */
 const noWayIn = (port: number, noun: string): string =>
   `Port ${port} doesn't reach their ${noun}. No way in, no money.`;
+/** Any forward that still reaches the machine's service, the one laid or anyone's since. Never
+ *  the port: which forward it is, is the job. */
+const stillReachable = (noun: string): string =>
+  `Their ${noun} still answers from outside. Still open, no money.`;
+/** Any forward the customer wants kept that no longer reaches where it did. Never which. */
+const NOT_ALL_CLOSED =
+  "That's not all you closed. Something they use no longer answers from outside. No money.";
 /** One reply for every miss: no password line, an empty or wrong password, or a target that no
  *  longer boots. */
 const loginRefused = (noun: string): string =>
@@ -263,12 +279,14 @@ type Decision =
   | { readonly kind: 'checkWiped'; readonly number: number }
   | { readonly kind: 'checkChain'; readonly number: number }
   | { readonly kind: 'checkCleanup'; readonly number: number }
+  | { readonly kind: 'checkClosed'; readonly number: number }
   | { readonly kind: 'reply'; readonly reply: ContractMail };
 
 /** How the client opens its reply to a job done: the key or the file it was sent, the records it
  *  read, the machine it found down, the listener it found, its own file found in place, the way
  *  in it found open, the login it found working, the company's file it found gone, the records
- *  it found emptied, both steps of a chain job found done, or the intruder's implant found gone. */
+ *  it found emptied, both steps of a chain job found done, the intruder's implant found gone, or
+ *  the way in someone opened found shut. */
 const RECEIVED: Readonly<Record<Exclude<Decision['kind'], 'reply'>, string>> = {
   complete: KEY_RECEIVED,
   completeFile: FILE_RECEIVED,
@@ -282,6 +300,7 @@ const RECEIVED: Readonly<Record<Exclude<Decision['kind'], 'reply'>, string>> = {
   checkWiped: RECORDS_GONE,
   checkChain: BOTH_DONE,
   checkCleanup: FILE_GONE,
+  checkClosed: SHUT,
 };
 
 /** What the client says on a job the mail itself proves: when the mail carries no proof, when it
@@ -336,6 +355,7 @@ const decide = ({
   if (acceptedKind === 'wipe') return { kind: 'checkWiped', number: accepted.number };
   if (acceptedKind === 'chain') return { kind: 'checkChain', number: accepted.number };
   if (acceptedKind === 'cleanup') return { kind: 'checkCleanup', number: accepted.number };
+  if (acceptedKind === 'closedoor') return { kind: 'checkClosed', number: accepted.number };
   const said = MAILED_PROOF[acceptedKind];
   if ((acceptedKind === 'file' ? file : key) === null) return reply(accepted.number, said.none);
   if (proves(accepted.number)) return { kind: said.done, number: accepted.number };
@@ -355,6 +375,35 @@ const reachesMachine = (routerFs: Directory, missionNumber: number): boolean => 
     served.internalIp === machineIp &&
     served.internalPort === machine.insidePort
   );
+};
+
+/** What the client says of a close-the-door job's router that is not yet right: some public port
+ *  still reaches the machine's service, through the forward laid or anyone's since, or a forward
+ *  the customer wants kept no longer reaches where it did. Null once the one is shut and the rest
+ *  stand. The router's routing decides, as on a portforward job: a forward moved elsewhere or a
+ *  router listener answering on the port first shuts it, and a router `deny` stops no forward. */
+const closeDoorMiss = (routerFs: Directory, missionNumber: number): string | null => {
+  const { machine, publicPort } = closeDoorJob(missionNumber);
+  const { forwards, keyBox } = missionShape(missionNumber);
+  const subnet = lanSubnetPrefix(missionEssid(missionNumber));
+  const reaches = (port: number, internalIp: string, internalPort: number): boolean => {
+    const served = machineServing({ routerFs, port });
+    return (
+      served.kind === 'forward' &&
+      served.internalIp === internalIp &&
+      served.internalPort === internalPort
+    );
+  };
+  const machineIp = `${subnet}.${keyBox.octet}`;
+  const open = parseForwardRules(readRulesV4(routerFs)).some(({ publicPort: port }) =>
+    reaches(port, machineIp, machine.insidePort),
+  );
+  if (open) return stillReachable(machine.noun);
+  const kept = forwards.filter((forward) => forward.publicPort !== publicPort);
+  const allKept = kept.every((forward) =>
+    reaches(forward.publicPort, `${subnet}.${forward.boxOctet}`, forward.internalPort),
+  );
+  return allKept ? null : NOT_ALL_CLOSED;
 };
 
 /** Whether the box holds exactly `content` at the job's file path. */
@@ -543,8 +592,18 @@ export const answerClientMail = async ({
     const miss = cleanupMiss(decision.number, box.fs, secret);
     if (miss !== null) return sendReply(store, login.handle, replyAbout(terms, miss));
   }
+  if (decision.kind === 'checkClosed') {
+    const router = await readRouter(decision.number);
+    if (router.kind === 'error') return null;
+    // A router that no longer boots is help that broke what it was meant to mend, whoever did it.
+    if (router.kind === 'absent') {
+      return sendReply(store, login.handle, replyAbout(terms, TOOK_IT_DOWN));
+    }
+    const miss = closeDoorMiss(router.fs, decision.number);
+    if (miss !== null) return sendReply(store, login.handle, replyAbout(terms, miss));
+  }
   const received = RECEIVED[decision.kind];
-  const signOff = terms.job === 'cleanup' ? THANKS : PLEASURE;
+  const signOff = terms.job === 'cleanup' || terms.job === 'closedoor' ? THANKS : PLEASURE;
   const wallet = firstMatch(text, WALLET_SHAPE)?.toLowerCase() ?? null;
   const completed = await store.complete({
     handle: login.handle,

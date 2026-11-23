@@ -23,9 +23,10 @@ const KEY_SECRET = 'test-mission-secret';
 const firstWebRouteNumber = (): number => {
   for (let candidate = 66051; candidate < 66051 + 5000; candidate += 1) {
     if (!isMissionNumber(candidate)) continue;
-    // One hop: the gateway forwards straight onto the key box this reaches.
-    const { keyBox, frontBox } = missionShape(candidate);
-    if (keyBox.route === 'web' && frontBox === null) return candidate;
+    // One hop: the gateway forwards straight onto the key box this reaches. A key job, so the
+    // box is a key box whatever later kinds take over the numbers around it.
+    const { keyBox, frontBox, kind } = missionShape(candidate);
+    if (kind === 'key' && keyBox.route === 'web' && frontBox === null) return candidate;
   }
   throw new Error('no web route contract in the range');
 };

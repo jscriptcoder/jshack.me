@@ -40,6 +40,7 @@ import {
   sabotageRole,
 } from '../missions/targetRoles.js';
 import { portforwardJob } from '../missions/portforwardJob.js';
+import { closeDoorJob } from '../missions/closeDoorJob.js';
 import {
   missionFileItem,
   missionFileName,
@@ -270,7 +271,7 @@ const chainFinalLines = (missionNumber: number): readonly string[] => {
  *  never their table, file or box. */
 const jobLines = (
   missionNumber: number,
-  terms: Exclude<MissionTerms, { readonly job: 'cleanup' }>,
+  terms: Exclude<MissionTerms, { readonly job: 'cleanup' | 'closedoor' }>,
   inside: boolean,
 ): readonly string[] => {
   if (terms.job === 'sabotage') {
@@ -400,6 +401,15 @@ const jobLines = (
   ];
 };
 
+/** One root login a white-hat client hands over, as every briefing sets it out: the `ssh` line
+ *  and the password, a blank line either side. */
+const handedOverLogin = (sshTarget: string, word: string): readonly string[] => [
+  '',
+  `  ssh root@${sshTarget}`,
+  `  password: ${word}`,
+  '',
+];
+
 /** The logins a cleanup job's client hands over, or null when the deployment cannot give the
  *  words: the edge machine's through the gateway's `:2222`, and on two hops the machine inside,
  *  named for what it is, on its own `:22` at its address on the contract's LAN. */
@@ -411,7 +421,7 @@ const cleanupLoginLines = (
   const address = missionAddressForNumber(missionNumber);
   const edgeWord = whiteHatWord((frontBox ?? keyBox).rootHash, rawSecrets);
   if (edgeWord === null) return null;
-  const edgeLogin = ['', `  ssh root@${address} -p 2222`, `  password: ${edgeWord}`, ''];
+  const edgeLogin = handedOverLogin(`${address} -p 2222`, edgeWord);
   if (frontBox === null) return ['They have given you root:', ...edgeLogin];
   const insideWord = whiteHatWord(keyBox.rootHash, rawSecrets);
   if (insideWord === null) return null;
@@ -420,10 +430,7 @@ const cleanupLoginLines = (
     'They have given you root on the machine on the edge of their network:',
     ...edgeLogin,
     `The ${cleanupJob(missionNumber).role.noun} is inside their network, at ${inside}. From the edge machine:`,
-    '',
-    `  ssh root@${inside}`,
-    `  password: ${insideWord}`,
-    '',
+    ...handedOverLogin(inside, insideWord),
   ];
 };
 
@@ -451,18 +458,45 @@ const cleanupLines = (
   ];
 };
 
+/** A close-the-door job's briefing past its opening: the machine someone made reachable from
+ *  outside, never the port or the forward, then the router's login, or null when the word cannot
+ *  be given. Which forward reaches the machine is the job, so it names no port, file or tool. */
+const closeDoorLines = (
+  missionNumber: number,
+  rawSecrets: string | undefined,
+): readonly string[] | null => {
+  const word = whiteHatWord(missionShape(missionNumber).gatewayAdminHash, rawSecrets);
+  if (word === null) return null;
+  const { noun } = closeDoorJob(missionNumber).machine;
+  return [
+    `Someone opened a way into their ${noun} from outside, and nobody there did it.`,
+    'Shut it. Leave the rest of what their router forwards as it is.',
+    '',
+    'They have given you root on their router:',
+    ...handedOverLogin(missionAddressForNumber(missionNumber) ?? '', word),
+    'Leave the router running. If it no longer boots, there is no money.',
+    'Write to this address with your wallet address once it is shut.',
+    'Still open, no money. No wallet, no money.',
+  ];
+};
+
 /** The client's briefing, or null when it cannot be written: an infiltrate job's carries the
  *  client's file, drawn from the mission secret, and without the secret there is no file; a
- *  cleanup job's hands over words only the deployment's pools hold, and its target's files are
- *  laid from the mission secret, so without either there is no job to hand over. */
+ *  white-hat job's hands over words only the deployment's pools hold, and a cleanup job's target
+ *  files are laid from the mission secret, so without them there is no job to hand over. */
 const briefingOf = (
   missionNumber: number,
   missionSecret: string | undefined,
   rawSecrets: string | undefined,
 ): ContractMail | null => {
   const terms = missionTerms(missionNumber);
-  if (terms.job === 'cleanup') {
-    const lines = missionSecret === undefined ? null : cleanupLines(missionNumber, rawSecrets);
+  if (terms.job === 'cleanup' || terms.job === 'closedoor') {
+    const lines =
+      terms.job === 'closedoor'
+        ? closeDoorLines(missionNumber, rawSecrets)
+        : missionSecret === undefined
+          ? null
+          : cleanupLines(missionNumber, rawSecrets);
     if (lines === null) return null;
     return {
       sender: clientAddress(terms),

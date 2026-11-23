@@ -9,6 +9,7 @@ import { missionLeakPath } from './missionLeak.js';
 import { backdoorJob, chainJob, cleanupJob } from './targetRoles.js';
 import { cleanupPlant } from './cleanupPlant.js';
 import { portforwardJob } from './portforwardJob.js';
+import { closeDoorJob } from './closeDoorJob.js';
 import { firmwarePackageOf } from '../packages/packageVersions.js';
 import { chainFinal, missionShape, type ChainFinal, type MissionShape } from './missionShape.js';
 import { missionKey, missionKeyPath, missionPassphrase } from './missionSecret.js';
@@ -936,6 +937,54 @@ describe('showReport on a portforward job', () => {
 
     expect(lines[6]).toBe(
       `  Router:   msfconsole, ${vendor} ${gatewayVersions[firmwarePackageOf(vendor)]}`,
+    );
+  });
+});
+
+describe('showReport on a close-the-door job', () => {
+  const SECRET = 'operator-test-secret';
+  const CLOSE_DOOR = Array.from({ length: 8000 }, (_unused, index) => index * 256 + 2).find(
+    (candidate) =>
+      missionShape(candidate).kind === 'closedoor' &&
+      closeDoorJob(candidate).machine.noun === 'customer database',
+  )!;
+
+  it('prints the report line by line: the machine and the rogue forward, the router handed over with its login, every forward marked rogue or kept, and a sealed target', () => {
+    const shape = missionShape(CLOSE_DOOR);
+    const terms = missionTerms(CLOSE_DOOR);
+    const { publicPort } = closeDoorJob(CLOSE_DOOR);
+    const [mysql, ...decoys] = shape.keyBox.services;
+
+    expect(showReport(CLOSE_DOOR, SECRET, DEPLOYMENT_SECRETS)).toBe(
+      [
+        `Contract ${CLOSE_DOOR} at ${missionAddressForNumber(CLOSE_DOOR)} (essid ${missionEssid(CLOSE_DOOR)})`,
+        `  Client:   ${terms.client.company} (${terms.client.handle}@emailit.io)`,
+        `  Target:   ${terms.targetCompany}, ${shape.stem}-gw / ${shape.stem}-db`,
+        `  Pay:      §${terms.pay.toLocaleString('en-US')}`,
+        '  Template: single-hop',
+        `  Kind:     closedoor, customer database, :${publicPort} -> :3306`,
+        '  Router:   none (handed over)',
+        `  Login:    root / ${plaintextFor(shape.gatewayAdminHash)}`,
+        '  Route:    none (sealed)',
+        // In the order the router's rules hold them, so the report shows where the rogue one is.
+        ...shape.forwards.map(
+          (forward) =>
+            `  Forward:  :${forward.publicPort} -> target :${forward.internalPort}` +
+            (forward.publicPort === publicPort ? ' (rogue)' : ' (keep)'),
+        ),
+        '  Services:',
+        `    mysql (mysql ${mysql?.version}) :3306`,
+        ...decoys.map(
+          (service) =>
+            `    ${service.service} (${service.package} ${service.version}) :${service.port} (decoy)`,
+        ),
+      ].join('\n'),
+    );
+  });
+
+  it("says the router's word cannot be read without the pools", () => {
+    expect(showReport(CLOSE_DOOR, SECRET, undefined).split('\n')).toContain(
+      '  Login:    root / (JSHACK_SECRETS is not set)',
     );
   });
 });

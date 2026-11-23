@@ -14,7 +14,7 @@ import { WORLD_EPOCH } from '../cve/worldClock.js';
 import { CAMERAS } from '../generation/pools/shareFiles.js';
 
 /** File jobs, from a spread of contract numbers across the whole block. */
-const FILE_JOBS = Array.from({ length: 6000 }, (_unused, index) => index * 2741 + 2).filter(
+const FILE_JOBS = Array.from({ length: 40000 }, (_unused, index) => index * 997 + 2).filter(
   (missionNumber) => isMissionNumber(missionNumber) && missionKind(missionNumber) === 'file',
 );
 

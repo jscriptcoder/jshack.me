@@ -12,6 +12,7 @@
 import { createPrng } from '../generation/prng.js';
 import { chainFinal, missionKind } from './missionShape.js';
 import { portforwardJob } from './portforwardJob.js';
+import { closeDoorJob } from './closeDoorJob.js';
 import { KEY_BOX_SUFFIX } from './pools.js';
 
 /** A machine a client can want taken down, want a way into, or want the root login of. */
@@ -277,7 +278,8 @@ export const chainJob = (missionNumber: number): ChainJob => {
 };
 
 /** The suffix on the hostname of the box in a contract's key-box slot: the box holding the key,
- *  the file or the records, or on a sabotage, backdoor, credential, cleanup or portforward job, or a chain
+ *  the file or the records, or on a sabotage, backdoor, credential, cleanup, portforward or
+ *  close-the-door job, or a chain
  *  job whose last step takes it down, the machine the job is about, named for what it is. */
 export const keyBoxSuffix = (missionNumber: number): string => {
   const kind = missionKind(missionNumber);
@@ -292,5 +294,6 @@ export const keyBoxSuffix = (missionNumber: number): string => {
       : KEY_BOX_SUFFIX;
   }
   if (kind === 'portforward') return portforwardJob(missionNumber).machine.suffix;
+  if (kind === 'closedoor') return closeDoorJob(missionNumber).machine.suffix;
   return KEY_BOX_SUFFIX;
 };

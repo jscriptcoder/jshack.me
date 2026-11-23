@@ -31,6 +31,7 @@ import {
 } from '../missions/missionShape.js';
 import { backdoorJob, chainJob, cleanupJob } from '../missions/targetRoles.js';
 import { portforwardJob } from '../missions/portforwardJob.js';
+import { closeDoorJob } from '../missions/closeDoorJob.js';
 import {
   RECORD_SETTINGS,
   missionAction,
@@ -197,6 +198,16 @@ const portforwardNumber = (noun: string): number => {
     if (portforwardJob(candidate).machine.noun === noun) return candidate;
   }
   throw new Error(`no portforward contract on a ${noun}`);
+};
+
+/** The first close-the-door contract from 70,000 up on the machine called `noun`. */
+const closeDoorNumber = (noun: string): number => {
+  for (let candidate = 70_000; candidate < 2_000_000; candidate++) {
+    if (!isMissionNumber(candidate)) continue;
+    if (missionShape(candidate).kind !== 'closedoor') continue;
+    if (closeDoorJob(candidate).machine.noun === noun) return candidate;
+  }
+  throw new Error(`no close-the-door contract on a ${noun}`);
 };
 
 /** The first single-hop file contract from 70,000 up asking for the item called `noun`. */
@@ -1361,6 +1372,89 @@ describe('accepting an offer', () => {
       });
 
       expect(alertOf(await acceptWithoutPools('offer=bbb', store))).toMatch(/^Contract accepted\./);
+      expect(accepts).toHaveLength(1);
+    });
+  });
+
+  describe('on a close-the-door job', () => {
+    it.each(['customer database', 'cache server', 'staff intranet', 'development server'])(
+      'names their %s as reachable from outside, never the port, and hands over root on their router',
+      async (noun) => {
+        const missionNumber = closeDoorNumber(noun);
+        const { store, accepts } = boardStore({ offers: [{ number: missionNumber, ref: 'ccc' }] });
+        const terms = missionTerms(missionNumber);
+        const address = missionAddressForNumber(missionNumber);
+        const word = plaintextFor(missionShape(missionNumber).gatewayAdminHash);
+
+        await accept('offer=ccc', store);
+
+        expect(accepts[0]!.briefing).toEqual({
+          sender: `${terms.client.handle}@emailit.io`,
+          subject: `Contract: ${terms.targetCompany}`,
+          body: [
+            terms.pitch,
+            '',
+            `Our customer is ${terms.targetCompany}. Their network is at ${address}.`,
+            '',
+            `Someone opened a way into their ${noun} from outside, and nobody there did it.`,
+            'Shut it. Leave the rest of what their router forwards as it is.',
+            '',
+            'They have given you root on their router:',
+            '',
+            `  ssh root@${address}`,
+            `  password: ${word}`,
+            '',
+            'Leave the router running. If it no longer boots, there is no money.',
+            'Write to this address with your wallet address once it is shut.',
+            'Still open, no money. No wallet, no money.',
+            '',
+            `-- ${terms.client.company}`,
+            '',
+          ].join('\n'),
+        });
+      },
+    );
+
+    // A symptom, never the answer: which forward reaches the machine is the job, so the
+    // briefing names neither of its ports, no box, no file and no tool.
+    it('names no port, no box, no file and no tool', async () => {
+      for (const noun of ['customer database', 'staff intranet', 'development server']) {
+        const missionNumber = closeDoorNumber(noun);
+        const { store, accepts } = boardStore({ offers: [{ number: missionNumber, ref: 'ccc' }] });
+        const { stem } = missionShape(missionNumber);
+        const { machine, publicPort } = closeDoorJob(missionNumber);
+
+        await accept('offer=ccc', store);
+        const { body } = accepts[0]!.briefing;
+
+        expect(body, noun).not.toContain(`${stem}-`);
+        expect(body, noun).not.toMatch(new RegExp(`\\b(${publicPort}|${machine.insidePort})\\b`));
+        expect(body, noun).not.toMatch(/rules\.v4|iptables|\/etc|nano|\bport\b/i);
+        expect(new Set(body.match(/\d+\.\d+\.\d+\.\d+/g)), noun).toEqual(
+          new Set([missionAddressForNumber(missionNumber)]),
+        );
+      }
+    });
+
+    // The word is the server's, so a briefing that cannot carry it is no briefing.
+    it('answers nothing, asking the store nothing, when the password pools are unset', async () => {
+      const { store, accepts } = boardStore({
+        offers: [{ number: closeDoorNumber('cache server'), ref: 'ccc' }],
+      });
+
+      expect(await acceptWithoutPools('offer=ccc', store)).toBeNull();
+      expect(accepts).toEqual([]);
+    });
+
+    // Nothing is laid on a close-the-door job's boxes: the rogue forward is the router's own.
+    it('takes the job without the mission secret', async () => {
+      const { store, accepts } = boardStore({
+        offers: [{ number: closeDoorNumber('cache server'), ref: 'ccc' }],
+      });
+
+      expect(alertOf(await acceptWithoutSecret('offer=ccc', store))).toMatch(
+        /^Contract accepted\./,
+      );
       expect(accepts).toHaveLength(1);
     });
   });

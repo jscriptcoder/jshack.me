@@ -22,6 +22,7 @@ import type { Directory } from '../filesystem/types.js';
 import { backdoorJob, chainJob, cleanupJob, credentialRole } from './targetRoles.js';
 import { cleanupFiles, cleanupPlant } from './cleanupPlant.js';
 import { portforwardJob } from './portforwardJob.js';
+import { closeDoorJob } from './closeDoorJob.js';
 import { missionEssid } from './missionNetwork.js';
 import { buildApGatewayBaseFs } from '../generation/routerFs.js';
 import { lanSubnetPrefix } from '../network/lanAddress.js';
@@ -30,6 +31,7 @@ import {
   RULES_V4_PERMISSIONS,
   readRulesV4,
   withForward,
+  withInputDeny,
 } from '../network/iptablesRules.js';
 import {
   PIDFILE_PERMISSIONS,
@@ -129,7 +131,8 @@ const NO_TARGET_BOX = async (): Promise<TargetBoxRead> => {
   throw new Error('a key job read a box');
 };
 
-/** A router nobody should be asked for: only a portforward job's mail reads one. */
+/** A router nobody should be asked for: only a portforward or close-the-door job's mail reads
+ *  one. */
 const NO_ROUTER = async (): Promise<TargetBoxRead> => {
   throw new Error('a job read a router');
 };
@@ -1278,6 +1281,259 @@ describe('a mail on a portforward job', () => {
       to: PORTFORWARD_TERMS.client,
       readRouter: router(forwarding([PUBLIC_PORT, TARGET_IP, MACHINE.insidePort])).readRouter,
     });
+  });
+});
+
+describe('a mail on a close-the-door job', () => {
+  const CLOSE_DOOR_JOB = ALL_HOST_NUMBERS.find(
+    (missionNumber) => missionKind(missionNumber) === 'closedoor',
+  )!;
+  const CLOSE_DOOR_TERMS = missionTerms(CLOSE_DOOR_JOB);
+  const { machine: MACHINE, publicPort: ROGUE_PORT } = closeDoorJob(CLOSE_DOOR_JOB);
+  const SUBNET = lanSubnetPrefix(missionEssid(CLOSE_DOOR_JOB));
+  const TARGET_IP = `${SUBNET}.${missionShape(CLOSE_DOOR_JOB).keyBox.octet}`;
+  /** A box on the LAN that is not the target. */
+  const OTHER_IP = `${SUBNET}.${missionShape(CLOSE_DOOR_JOB).keyBox.octet === 2 ? 3 : 2}`;
+  /** The forwards the customer wants kept: every one the router was born with but the rogue. */
+  const KEPT = missionShape(CLOSE_DOOR_JOB).forwards.filter(
+    ({ publicPort }) => publicPort !== ROGUE_PORT,
+  );
+  const FIRST_KEPT = KEPT[0]!;
+
+  /** A router read answering with `read`, keeping every number it was asked for. */
+  const router = (read: TargetBoxRead) => {
+    const reads: number[] = [];
+    return {
+      reads,
+      readRouter: async (missionNumber: number): Promise<TargetBoxRead> => {
+        reads.push(missionNumber);
+        return read;
+      },
+    };
+  };
+
+  /** The contract's router up as it was born, the rogue forward and all, with `edit` made to
+   *  its rules and a root's listener on each of `listening`. */
+  const routerWith = (
+    edit: (rules: string) => string = (rules) => rules,
+    listening: readonly number[] = [],
+  ): TargetBoxRead => {
+    const generated = buildApGatewayBaseFs(missionEssid(CLOSE_DOOR_JOB));
+    return {
+      kind: 'up',
+      fs: withFiles(generated, [
+        [RULES_V4_PATH, file(edit(readRulesV4(generated)), RULES_V4_PERMISSIONS)],
+        ...listening.map(
+          (port) =>
+            [
+              listenerPidfilePath(port),
+              file(
+                formatListenerContent({ port, user: 'root', userType: 'root' }),
+                PIDFILE_PERMISSIONS,
+              ),
+            ] as const,
+        ),
+      ]),
+    };
+  };
+
+  const withoutRogue = (rules: string): string => withForward(rules, ROGUE_PORT, null);
+
+  const fromCloseDoorClient = (line: string): ContractMail => ({
+    sender: `${CLOSE_DOOR_TERMS.client.handle}@emailit.io`,
+    subject: `Contract: ${CLOSE_DOOR_TERMS.targetCompany}`,
+    body: signed(line, CLOSE_DOOR_TERMS.client.company),
+  });
+
+  const STILL_OPEN = `Their ${MACHINE.noun} still answers from outside. Still open, no money.`;
+  const NOT_ALL =
+    "That's not all you closed. Something they use no longer answers from outside. No money.";
+
+  const mailOnCloseDoorJob = (
+    store: ClientMailStore,
+    readRouter: (missionNumber: number) => Promise<TargetBoxRead>,
+    body = `it is shut\n${WALLET}\n`,
+  ) => mailTo(store, { to: CLOSE_DOOR_TERMS.client, body, readRouter });
+
+  it.each([
+    ['the rogue forward is taken out', routerWith(withoutRogue)],
+    [
+      'the rogue forward is sent to another machine',
+      routerWith((rules) =>
+        withForward(rules, ROGUE_PORT, { internalIp: OTHER_IP, internalPort: MACHINE.insidePort }),
+      ),
+    ],
+    [
+      'the rogue forward is sent to another port on the machine',
+      routerWith((rules) =>
+        withForward(rules, ROGUE_PORT, {
+          internalIp: TARGET_IP,
+          internalPort: MACHINE.insidePort + 1,
+        }),
+      ),
+    ],
+    [
+      'a listener on the router answers on the rogue port first',
+      routerWith((rules) => rules, [ROGUE_PORT]),
+    ],
+  ])('reads the router and pays once %s, every other forward kept', async (_case, read) => {
+    const { store, completes, replies } = clientStore({
+      jobs: [{ number: CLOSE_DOOR_JOB, state: 'accepted' }],
+    });
+    const reading = router(read);
+
+    expect(await mailOnCloseDoorJob(store, reading.readRouter)).toBe('replied');
+    expect(reading.reads).toEqual([CLOSE_DOOR_JOB]);
+    expect(completes).toEqual([
+      {
+        number: CLOSE_DOOR_JOB,
+        wallet: WALLET,
+        pay: CLOSE_DOOR_TERMS.pay,
+        reply: fromCloseDoorClient(
+          `It's shut. §${CLOSE_DOOR_TERMS.pay.toLocaleString('en-US')} sent to ${WALLET}. Thank you for the help.`,
+        ),
+      },
+    ]);
+    expect(replies).toEqual([]);
+  });
+
+  it('completes and pays nothing when the mail names no wallet', async () => {
+    const { store, completes } = clientStore({
+      jobs: [{ number: CLOSE_DOOR_JOB, state: 'accepted' }],
+    });
+
+    expect(
+      await mailOnCloseDoorJob(store, router(routerWith(withoutRogue)).readRouter, 'done.\n'),
+    ).toBe('replied');
+    expect(completes).toEqual([
+      {
+        number: CLOSE_DOOR_JOB,
+        wallet: null,
+        pay: CLOSE_DOOR_TERMS.pay,
+        reply: fromCloseDoorClient(
+          "It's shut. You sent no wallet, so there is nothing to pay. No wallet, no money.",
+        ),
+      },
+    ]);
+  });
+
+  it.each([
+    ['the router is as it was born', routerWith()],
+    [
+      'a fresh forward on another port reaches the machine',
+      routerWith((rules) =>
+        withForward(withoutRogue(rules), ROGUE_PORT + 1, {
+          internalIp: TARGET_IP,
+          internalPort: MACHINE.insidePort,
+        }),
+      ),
+    ],
+    [
+      "the router's own filter denies the rogue port, which stops no forward",
+      routerWith((rules) => withInputDeny(rules, ROGUE_PORT, true)),
+    ],
+    [
+      'a kept forward is gone too, the rogue one still in place',
+      routerWith((rules) => withForward(rules, FIRST_KEPT.publicPort, null)),
+    ],
+  ])(
+    'says the machine still answers from outside when %s, and keeps the job open',
+    async (_case, read) => {
+      const { store, completes, replies } = clientStore({
+        jobs: [{ number: CLOSE_DOOR_JOB, state: 'accepted' }],
+      });
+
+      expect(await mailOnCloseDoorJob(store, router(read).readRouter)).toBe('replied');
+      expect(completes).toEqual([]);
+      expect(replies).toEqual([fromCloseDoorClient(STILL_OPEN)]);
+    },
+  );
+
+  it.each([
+    [
+      'a kept forward is taken out with it',
+      routerWith((rules) => withForward(withoutRogue(rules), FIRST_KEPT.publicPort, null)),
+    ],
+    [
+      'a kept forward is sent to another machine',
+      routerWith((rules) =>
+        withForward(withoutRogue(rules), FIRST_KEPT.publicPort, {
+          internalIp: OTHER_IP,
+          internalPort: FIRST_KEPT.internalPort,
+        }),
+      ),
+    ],
+    [
+      'a listener on the router answers on a kept port first',
+      routerWith(withoutRogue, [FIRST_KEPT.publicPort]),
+    ],
+  ])('says more was closed than asked when %s, and keeps the job open', async (_case, read) => {
+    const { store, completes, replies } = clientStore({
+      jobs: [{ number: CLOSE_DOOR_JOB, state: 'accepted' }],
+    });
+
+    expect(await mailOnCloseDoorJob(store, router(read).readRouter)).toBe('replied');
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromCloseDoorClient(NOT_ALL)]);
+  });
+
+  it('pays once a kept forward taken out is put back', async () => {
+    const { store, completes } = clientStore({
+      jobs: [{ number: CLOSE_DOOR_JOB, state: 'accepted' }],
+    });
+    const putBack = routerWith((rules) =>
+      withForward(
+        withForward(withoutRogue(rules), FIRST_KEPT.publicPort, null),
+        FIRST_KEPT.publicPort,
+        {
+          internalIp: TARGET_IP,
+          internalPort: FIRST_KEPT.internalPort,
+        },
+      ),
+    );
+
+    expect(await mailOnCloseDoorJob(store, router(putBack).readRouter)).toBe('replied');
+    expect(completes.map(({ number }) => number)).toEqual([CLOSE_DOOR_JOB]);
+  });
+
+  // Help that broke what it was meant to mend is never paid: the boot rule every white-hat
+  // client keeps, read before anything else.
+  it('says the machine was taken down when the router no longer boots, and keeps the job open', async () => {
+    const { store, completes, replies } = clientStore({
+      jobs: [{ number: CLOSE_DOOR_JOB, state: 'accepted' }],
+    });
+
+    expect(await mailOnCloseDoorJob(store, router({ kind: 'absent' }).readRouter)).toBe('replied');
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromCloseDoorClient('You took our machine down. No money.')]);
+  });
+
+  it('answers nothing when the router could not be read', async () => {
+    const { store, completes, replies } = clientStore({
+      jobs: [{ number: CLOSE_DOOR_JOB, state: 'accepted' }],
+    });
+
+    expect(await mailOnCloseDoorJob(store, router({ kind: 'error' }).readRouter)).toBeNull();
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([]);
+  });
+
+  it('says the job is already closed once it is completed, without reading the router', async () => {
+    const { store, completes, replies } = clientStore({
+      jobs: [{ number: CLOSE_DOOR_JOB, state: 'completed' }],
+    });
+    const reading = router(routerWith());
+
+    expect(await mailOnCloseDoorJob(store, reading.readRouter)).toBe('replied');
+    expect(reading.reads).toEqual([]);
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromCloseDoorClient(CLOSED_LINE)]);
+  });
+
+  it('never reads the target, only the router', async () => {
+    const { store } = clientStore({ jobs: [{ number: CLOSE_DOOR_JOB, state: 'accepted' }] });
+
+    await mailOnCloseDoorJob(store, router(routerWith(withoutRogue)).readRouter);
   });
 });
 
