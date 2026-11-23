@@ -1,6 +1,6 @@
 # Plan: White-hat jobs
 
-**Status:** Grilled 2026-11-22 (the shared rules and cleanup). **Cleanup shipped** at v0.479.0 (PR #801, merged 2026-11-22) and closed out with a browser run the same day; as-built: "Cleanup jobs" in `docs/missions-architecture.md`. **Close the door shipped** at v0.480.0 (PR #802, merged 2026-11-23) and closed out with a browser run the same day; as-built: "Close-the-door jobs" in `docs/missions-architecture.md`. **Lock them out shipped** at v0.481.0 (PR #803, merged 2026-11-23) and closed out with a browser run the same day; as-built: "Lock-them-out jobs" in `docs/missions-architecture.md`. Next: patch it, the next white-hat kind, with its own grill on top of the shared decisions. This plan is retired once the last white-hat kind closes out.
+**Status:** Grilled 2026-11-22 (the shared rules and cleanup). **Cleanup shipped** at v0.479.0 (PR #801, merged 2026-11-22) and closed out with a browser run the same day; as-built: "Cleanup jobs" in `docs/missions-architecture.md`. **Close the door shipped** at v0.480.0 (PR #802, merged 2026-11-23) and closed out with a browser run the same day; as-built: "Close-the-door jobs" in `docs/missions-architecture.md`. **Lock them out shipped** at v0.481.0 (PR #803, merged 2026-11-23) and closed out with a browser run the same day; as-built: "Lock-them-out jobs" in `docs/missions-architecture.md`. **Patch it grilled** 2026-11-23 (decisions 38–47); next: its slice plan. This plan is retired once the last white-hat kind closes out.
 
 Every contract kind v2 ships is black-hat: the contractor breaks into the target's network and
 does something to it. Legacy also had defender contracts (`malware`, `forensics`, `db_fix`,
@@ -317,6 +317,87 @@ from a root shell on a foreign box rewrites the row on the server; there is no `
     aside for `backlog.md`: Debian's stock system accounts on every box, so the row has something
     to hide among. To measure while planning: that root can remove a row with `nano /etc/passwd`
     on a mission box.
+
+### Patch it (grilled 2026-11-23)
+
+A new kind, on the CVE system (`docs/vulnerability-architecture.md`): one of the customer's
+machines runs a service on a release whose hole lets anyone in as root, and the client pays to
+have it moved off that release and nothing else moved. Measured first, at game day 134:
+
+- Everything on a mission box that is not its way in sits on a `low` or `medium` release
+  (`safeVersions`, as of `MISSION_ROUTE_DAY`, 111), each one a live hole granting a guest shell at
+  most, so `apt list -u` on any target already lists several upgradable packages.
+- The services with a `critical` release (a root-tier hole) published by day 111: `nginx` and
+  `redis` (a full shell), `bind9` (two, the newer a full shell), `mysql` (a file read) and
+  `vsftpd` (a directory listing). `openssh-server`, `snmp` and `apache2` have none. Every library
+  has several `high` or `critical` releases, each a local root.
+- A release laid at day 111 or earlier has its fix out by day 113 at the latest (the patch delay
+  is 1–2 days), so the job can always be done. Today's newest release can itself be inside its
+  own window: `libssl`'s and `vsftpd`'s are, at day 134.
+- `apt upgrade <package>` moves one package; a bare `apt upgrade` moves every package a fix has
+  shipped for.
+
+Decision 4's "only works inside the patch-delay window" does not apply: the laid release's fix
+has always shipped by the time a job is played.
+
+38. **The hole is a service on the target, on its newest `critical` release by day 111
+    (2026-11-23),** drawn from `nginx`, `redis`, `mysql`, `vsftpd` and `bind9`, as the
+    msfconsole route draws its release (`criticalRouteVersion`). On a single-hop job the router
+    forwards that service, so `nmap -sV` from home shows its CVE and `critical` before the job
+    and the change after it. Rejected: a library hole, a local root only and invisible from
+    outside; the router's firmware, whose move reboots the router and drops every session on it;
+    and only the full-shell services, since all five are root-tier.
+
+39. **The challenge is to move only what has to move (2026-11-23).** The briefing says the rest
+    of the customer's software is certified on the versions it runs. The player reads
+    `apt list -u` and its severities and runs `apt upgrade <package>`; a bare `apt upgrade` moves
+    everything and is the collateral miss. Rejected: any upgrade paying, which is `apt upgrade`
+    and a mail; and two holes to find, a chore more than a hunt.
+
+40. **Patched is the package's release, as `apt` resolves it, later than the laid one
+    (2026-11-23),** whatever is live on the day. A downgrade, a missing row or a stopped service
+    each stay open. A hand edit to `9.9.9` resolves to the newest known release and counts, as
+    lying buys exactly what being patched buys. Rejected: no root-tier hole live on the server's
+    day, which moves with the clock and leaves a job unpayable for a day or two whenever the
+    newest release is inside its own window; and on the newest release, which turns back the day
+    a new release ships.
+
+41. **The collateral miss is any other laid row on the target that no longer reads its laid
+    version, or is gone (2026-11-23).** A row for a package installed since is free. The front
+    box on two hops is read only for the boot rule (decision 10). Rejected: holding the front box
+    to its versions too, a second job with no hunt in it.
+
+42. **Two hops on one contract in three (2026-11-23),** as cleanup and lock them out: the target
+    behind the front box, its service not forwarded, a login for each.
+
+43. **The briefing names the machine, never the package, the port or the CVE (2026-11-23).** It
+    says anyone can get in as root on their `<machine>`, hands over root, and asks to move only
+    what has to move. Rejected: naming the CVE id, which makes the job a `grep`; and naming the
+    service, which skips reading the severities.
+
+44. **The replies, in lock them out's order (2026-11-23):**
+
+    | The state                          | The reply                                                                                                     |
+    | ---------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+    | A machine in scope no longer boots | "You took our machine down. No money."                                                                        |
+    | Still open                         | "Their <machine> still runs the release with that hole. Still open, no money."                                |
+    | Another package moved or gone      | "That's not all you moved. Something else on their <machine> is no longer on the version they run. No money." |
+    | Patched, with a wallet             | "It's patched. §<pay> sent to jsc…. Thank you for the help."                                                  |
+    | Patched, no wallet                 | the no-wallet form; completed, nothing minted                                                                 |
+
+45. **The white-hat pay (2026-11-23):** 300–1,200 JSC single-hop and 1,200–2,400 two-hop
+    (decision 6).
+
+46. **A fifteenth of the draw (2026-11-23).** 360,360 splits into 24,024 for each kind; each of
+    the fourteen older kinds gives up 1,716 at the top of its largest piece, the lowest on a tie,
+    so no number turns from one older kind into another.
+
+47. **`hireme.ts show` (2026-11-23)** prints `Kind: patch, <machine>, <package> <version>`, the
+    logins, and every package row on the target, the holed one tagged `(hole)`.
+
+    To measure while planning: that `apt upgrade <package>` from a root shell on a mission box
+    writes the manifest under the network's key and moves no other row, libraries included; and
+    that every target role can carry each of the five services beside its decoys.
 
 ## Facts the plan rests on (measured 2026-11-22)
 
