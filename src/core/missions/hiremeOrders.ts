@@ -33,6 +33,7 @@ import {
   sabotageRole,
 } from './targetRoles.js';
 import { portforwardJob } from './portforwardJob.js';
+import { closeDoorJob } from './closeDoorJob.js';
 import { firmwarePackageOf } from '../packages/packageVersions.js';
 import { EMAILIT_DOMAIN } from '../generation/fixedSites.js';
 import { missionKeyFilePath, missionLeakPath, missionLeakWord } from './missionLeak.js';
@@ -93,6 +94,10 @@ export const readMissionOrder = (words: readonly string[]): MissionOrder | null 
 
 const decoyTag = (isDecoy: boolean): string => (isDecoy ? ' (decoy)' : '');
 
+/** How a close-the-door job's report marks a forward: the one someone laid, or one the customer
+ *  wants kept. */
+const doorTag = (isRogue: boolean): string => (isRogue ? ' (rogue)' : ' (keep)');
+
 /** The lines `show` adds on a route that leaks a word, at `indent`. Reading the word needs the
  *  pools, so the report says when they are missing rather than failing the whole of `show`. */
 const leakLines = (
@@ -109,6 +114,11 @@ const leakLines = (
   ];
 };
 
+/** The login line for a word a white-hat client hands over, at `indent`, read from the
+ *  deployment's pools. */
+const handedOverLine = (hash: string, rawSecrets: string | undefined, indent: string): string =>
+  `${indent}Login:    root / ${whiteHatWord(hash, rawSecrets) ?? '(JSHACK_SECRETS is not set)'}`;
+
 /** The root login a cleanup job's client hands over for a box, at `indent`: the word the
  *  briefing carries, read from the deployment's pools. */
 const loginLines = (
@@ -118,9 +128,7 @@ const loginLines = (
   indent: string,
 ): readonly string[] =>
   missionKind(missionNumber) === 'cleanup'
-    ? [
-        `${indent}Login:    root / ${whiteHatWord(box.rootHash, rawSecrets) ?? '(JSHACK_SECRETS is not set)'}`,
-      ]
+    ? [handedOverLine(box.rootHash, rawSecrets, indent)]
     : [];
 
 /** How a box is got into: its route, a cleanup box's login handed over, or no way at all. */
@@ -160,8 +168,9 @@ const routerLine = (missionNumber: number): string => {
  *  the setting it wipes, and the port its listener holds on the front box, the machine a sabotage
  *  job asks taken down, the item a file job asks brought back, the machine a backdoor job wants a
  *  way into, the item an infiltrate job slips in, the machine a credential job wants the root login
- *  of, the item a destroy job wants gone, or the machine a portforward job wants reached and the
- *  forward that reaches it. A key job has no line. */
+ *  of, the item a destroy job wants gone, the machine a portforward job wants reached and the
+ *  forward that reaches it, or the machine a close-the-door job wants shut off and the forward
+ *  someone laid to it, with the router it hands over. A key job has no line. */
 const kindLine = (missionNumber: number, kind: MissionKind): readonly string[] => {
   if (kind === 'tamper') {
     return [
@@ -197,6 +206,13 @@ const kindLine = (missionNumber: number, kind: MissionKind): readonly string[] =
     return [
       `  Kind:     portforward, ${machine.noun}, :${publicPort} -> :${machine.insidePort}`,
       `  Router:   ${routerLine(missionNumber)}`,
+    ];
+  }
+  if (kind === 'closedoor') {
+    const { machine, publicPort } = closeDoorJob(missionNumber);
+    return [
+      `  Kind:     closedoor, ${machine.noun}, :${publicPort} -> :${machine.insidePort}`,
+      '  Router:   none (handed over)',
     ];
   }
   return [];
@@ -239,7 +255,14 @@ const jobLines = (
 ): readonly string[] => {
   if (kind === 'tamper') return recordLines(missionNumber);
   if (kind === 'wipe') return recordsStorageLines(missionNumber);
-  if (kind === 'sabotage' || kind === 'credential' || kind === 'portforward') return [];
+  if (
+    kind === 'sabotage' ||
+    kind === 'credential' ||
+    kind === 'portforward' ||
+    kind === 'closedoor'
+  ) {
+    return [];
+  }
   if (kind === 'backdoor') return [`  Port:     ${backdoorJob(missionNumber).port}`];
   if (kind === 'cleanup') {
     const { implant, decoys } = cleanupPlant(missionNumber, secret);
@@ -288,7 +311,14 @@ export const showReport = (
   // the list is theirs; a service is a decoy's when it answers on a decoy's port.
   const entry = frontBox ?? keyBox;
   const realForwardCount = shape.forwards.length - entry.decoys.length;
-  const decoyPorts = shape.forwards.slice(realForwardCount).map(({ internalPort }) => internalPort);
+  // A close-the-door job's rogue forward stands anywhere among the decoys', so it is found by
+  // its port, and the report tags each forward by it.
+  const roguePort = shape.kind === 'closedoor' ? closeDoorJob(missionNumber).publicPort : null;
+  const isDecoyForward = (forward: { readonly publicPort: number }, index: number): boolean =>
+    roguePort === null ? index >= realForwardCount : forward.publicPort !== roguePort;
+  const decoyPorts = shape.forwards
+    .filter((forward, index) => isDecoyForward(forward, index))
+    .map(({ internalPort }) => internalPort);
   // A two-hop key box's decoys have no forwards: each runs a daemon after its real doors.
   const insideDecoyPorts = keyBox.services
     .slice(keyBox.services.length - keyBox.decoys.length)
@@ -303,7 +333,8 @@ export const showReport = (
     shape.kind === 'destroy' ||
     shape.kind === 'portforward' ||
     shape.kind === 'chain' ||
-    shape.kind === 'cleanup';
+    shape.kind === 'cleanup' ||
+    shape.kind === 'closedoor';
   const slotName = isTarget ? 'target' : 'key box';
   const reached = frontBox === null ? slotName : 'front box';
   // A chain job's target holds what its last step's kind would, and the report says so alike.
@@ -343,13 +374,19 @@ export const showReport = (
     `  Pay:      ${writeAmount(terms.pay)}`,
     `  Template: ${frontBox === null ? 'single-hop' : 'two-hop'}`,
     ...kindLine(missionNumber, shape.kind),
+    // A close-the-door job hands over the router, so its login heads the report beside it.
+    ...(shape.kind === 'closedoor'
+      ? [handedOverLine(shape.gatewayAdminHash, rawSecrets, '  ')]
+      : []),
     // One box needs no section, so its route heads the report as it always has.
     // A portforward job's target has no route: nobody roots it.
     ...(frontBox === null ? [`  Route:    ${routeOf(missionNumber, keyBox)}`] : []),
     ...shape.forwards.map(
       (forward, index) =>
         `  Forward:  :${forward.publicPort} -> ${reached} :${forward.internalPort}` +
-        decoyTag(index >= realForwardCount),
+        (roguePort === null
+          ? decoyTag(isDecoyForward(forward, index))
+          : doorTag(!isDecoyForward(forward, index))),
     ),
     ...boxes,
   ].join('\n');

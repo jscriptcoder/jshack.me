@@ -59,14 +59,14 @@ describe("the boards' server /etc/hireme/contracts", () => {
     const tree = withContractsList(boardsBox(), [
       contract({ handle: 'trin', number: 8, accepted_at: '2026-11-03T10:00:00Z' }),
       contract({ handle: 'neo', number: 796679, accepted_at: '2026-11-03T09:00:00Z' }),
-      contract({ handle: 'morph', number: 131330, accepted_at: '2026-11-03T11:00:00Z' }),
+      contract({ handle: 'morph', number: 131333, accepted_at: '2026-11-03T11:00:00Z' }),
     ]);
 
-    // Contracts 8 and 131330 are two-hop, so their lines carry a two-hop job's pay.
+    // Contracts 8 and 131333 are two-hop, so their lines carry a two-hop job's pay.
     expect(contentAt(tree, '/etc/hireme/contracts')).toBe(
       'neo bellwether-desk 195.12.40.7 550\n' +
         'trin copper-ops 195.0.0.8 2000\n' +
-        'morph greyline-jobs 195.2.1.2 2650\n',
+        'morph bellwether-desk 195.2.1.5 3450\n',
     );
   });
 

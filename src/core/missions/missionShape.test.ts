@@ -32,6 +32,8 @@ import { md5 } from '../generation/md5.js';
 import { DEFAULT_WORDLIST } from '../wordlist/defaultWordlist.js';
 import { LEAKABLE_HASHES, SHUT_HASHES, fixedBoxRootHash } from './leakablePool.js';
 import { portforwardJob, type PortforwardService } from './portforwardJob.js';
+import { closeDoorJob } from './closeDoorJob.js';
+import { lanSubnetPrefix } from '../network/lanAddress.js';
 import { missionEssid } from './missionNetwork.js';
 import { buildApGatewayBaseFs } from '../generation/routerFs.js';
 import { machineServing } from '../network/machineServing.js';
@@ -113,10 +115,11 @@ const SAMPLE_NUMBERS = Array.from({ length: 2000 }, (_unused, index) => index * 
 
 const ALL_SAMPLE_SHAPES: readonly MissionShape[] = SAMPLE_NUMBERS.map(missionShape);
 
-/** The sample's contracts whose boxes each fall to a route: all but the portforward jobs, whose
- *  target nobody roots, and the cleanup jobs, whose client hands over root. */
+/** The sample's contracts whose boxes each fall to a route: all but the portforward and
+ *  close-the-door jobs, whose target nobody roots, and the cleanup jobs, whose client hands over
+ *  root. */
 const SAMPLE_SHAPES: readonly MissionShape[] = ALL_SAMPLE_SHAPES.filter(
-  ({ kind }) => kind !== 'portforward' && kind !== 'cleanup',
+  ({ kind }) => kind !== 'portforward' && kind !== 'cleanup' && kind !== 'closedoor',
 );
 
 /** Every box in the sample on `route`, with the contract it belongs to. */
@@ -179,7 +182,7 @@ describe('missionShape', () => {
     }
   });
 
-  it('makes about a twelfth of the contracts each of key, tamper, sabotage, file, backdoor, infiltrate, portforward, credential, destroy, wipe, chain and cleanup jobs', () => {
+  it('makes about a thirteenth of the contracts each of key, tamper, sabotage, file, backdoor, infiltrate, portforward, credential, destroy, wipe, chain, cleanup and close-the-door jobs', () => {
     const counts = ALL_SAMPLE_SHAPES.reduce<Record<string, number>>(
       (tally, { kind }) => ({ ...tally, [kind]: (tally[kind] ?? 0) + 1 }),
       {},
@@ -189,6 +192,7 @@ describe('missionShape', () => {
       'backdoor',
       'chain',
       'cleanup',
+      'closedoor',
       'credential',
       'destroy',
       'file',
@@ -200,37 +204,46 @@ describe('missionShape', () => {
       'wipe',
     ]);
     for (const [kind, count] of Object.entries(counts)) {
-      expect(count / ALL_SAMPLE_SHAPES.length, kind).toBeGreaterThan(0.055);
-      expect(count / ALL_SAMPLE_SHAPES.length, kind).toBeLessThan(0.115);
+      expect(count / ALL_SAMPLE_SHAPES.length, kind).toBeGreaterThan(0.05);
+      expect(count / ALL_SAMPLE_SHAPES.length, kind).toBeLessThan(0.105);
     }
   });
 
-  it('turns no contract from one older kind into another: each keeps its kind or becomes a cleanup job', () => {
+  it('turns no contract from one older kind into another: each keeps its kind or becomes a close-the-door job', () => {
     // The contracts drawn nearest the bottom and the top of every piece of the draw, with the kind
-    // each had before cleanup jobs. Each older kind gave up the top of its largest piece.
+    // each had before close-the-door jobs. Each older kind gave up the top of its largest piece,
+    // the lowest on a tie, so the top of the draw stays portforward.
     const drawnAtTheEdges = [
       [50188, 'tamper', 'tamper'],
-      [285493, 'tamper', 'tamper'],
-      [284749, 'tamper', 'cleanup'],
-      [1, 'tamper', 'cleanup'],
+      [382189, 'tamper', 'tamper'],
+      [103736, 'tamper', 'closedoor'],
+      [285493, 'tamper', 'closedoor'],
+      [284749, 'cleanup', 'cleanup'],
+      [19182, 'cleanup', 'cleanup'],
+      [19869, 'cleanup', 'closedoor'],
+      [1, 'cleanup', 'closedoor'],
       [264480, 'chain', 'chain'],
       [221416, 'chain', 'chain'],
-      [159517, 'chain', 'cleanup'],
-      [79015, 'chain', 'cleanup'],
+      [159517, 'cleanup', 'cleanup'],
+      [79015, 'cleanup', 'cleanup'],
       [289154, 'wipe', 'wipe'],
       [92958, 'wipe', 'wipe'],
       [258415, 'chain', 'chain'],
-      [147445, 'chain', 'chain'],
+      [410333, 'chain', 'chain'],
+      [413609, 'chain', 'closedoor'],
+      [147445, 'chain', 'closedoor'],
       [38316, 'destroy', 'destroy'],
       [187051, 'destroy', 'destroy'],
       [142239, 'wipe', 'wipe'],
       [27031, 'wipe', 'wipe'],
-      [309428, 'wipe', 'cleanup'],
-      [111531, 'wipe', 'cleanup'],
+      [309428, 'cleanup', 'cleanup'],
+      [111531, 'cleanup', 'cleanup'],
       [394474, 'credential', 'credential'],
       [410321, 'credential', 'credential'],
       [164649, 'wipe', 'wipe'],
-      [159029, 'wipe', 'wipe'],
+      [130215, 'wipe', 'wipe'],
+      [300222, 'wipe', 'closedoor'],
+      [159029, 'wipe', 'closedoor'],
       [65482, 'portforward', 'portforward'],
       [182042, 'portforward', 'portforward'],
       [122989, 'chain', 'chain'],
@@ -251,12 +264,14 @@ describe('missionShape', () => {
       [8680, 'backdoor', 'backdoor'],
       [307488, 'credential', 'credential'],
       [56418, 'credential', 'credential'],
-      [271153, 'credential', 'cleanup'],
-      [85779, 'credential', 'cleanup'],
+      [271153, 'cleanup', 'cleanup'],
+      [85779, 'cleanup', 'cleanup'],
       [98011, 'portforward', 'portforward'],
       [197989, 'portforward', 'portforward'],
       [250014, 'credential', 'credential'],
-      [178075, 'credential', 'credential'],
+      [222036, 'credential', 'credential'],
+      [413395, 'credential', 'closedoor'],
+      [178075, 'credential', 'closedoor'],
       [171959, 'file', 'file'],
       [102421, 'file', 'file'],
       [181423, 'chain', 'chain'],
@@ -265,20 +280,24 @@ describe('missionShape', () => {
       [264492, 'wipe', 'wipe'],
       [201442, 'destroy', 'destroy'],
       [220076, 'destroy', 'destroy'],
-      [396178, 'destroy', 'cleanup'],
-      [85176, 'destroy', 'cleanup'],
+      [396178, 'cleanup', 'cleanup'],
+      [85176, 'cleanup', 'cleanup'],
       [357602, 'credential', 'credential'],
       [122434, 'credential', 'credential'],
       [274029, 'sabotage', 'sabotage'],
-      [392944, 'sabotage', 'sabotage'],
-      [255980, 'sabotage', 'cleanup'],
-      [91152, 'sabotage', 'cleanup'],
+      [398852, 'sabotage', 'sabotage'],
+      [148879, 'sabotage', 'closedoor'],
+      [392944, 'sabotage', 'closedoor'],
+      [255980, 'cleanup', 'cleanup'],
+      [91152, 'cleanup', 'cleanup'],
       [319204, 'chain', 'chain'],
       [173917, 'chain', 'chain'],
       [205855, 'wipe', 'wipe'],
       [119597, 'wipe', 'wipe'],
       [106011, 'destroy', 'destroy'],
-      [113543, 'destroy', 'destroy'],
+      [85724, 'destroy', 'destroy'],
+      [354605, 'destroy', 'closedoor'],
+      [113543, 'destroy', 'closedoor'],
       [191694, 'credential', 'credential'],
       [368933, 'credential', 'credential'],
       [67874, 'portforward', 'portforward'],
@@ -296,27 +315,33 @@ describe('missionShape', () => {
       [253581, 'destroy', 'destroy'],
       [159977, 'destroy', 'destroy'],
       [373540, 'file', 'file'],
-      [212121, 'file', 'file'],
-      [82018, 'file', 'cleanup'],
-      [33426, 'file', 'cleanup'],
+      [164779, 'file', 'file'],
+      [284184, 'file', 'closedoor'],
+      [212121, 'file', 'closedoor'],
+      [82018, 'cleanup', 'cleanup'],
+      [33426, 'cleanup', 'cleanup'],
       [351177, 'portforward', 'portforward'],
       [182231, 'portforward', 'portforward'],
-      [152823, 'portforward', 'cleanup'],
-      [98506, 'portforward', 'cleanup'],
+      [152823, 'cleanup', 'cleanup'],
+      [98506, 'cleanup', 'cleanup'],
       [31807, 'infiltrate', 'infiltrate'],
       [191315, 'infiltrate', 'infiltrate'],
       [414330, 'wipe', 'wipe'],
       [124259, 'wipe', 'wipe'],
       [414845, 'backdoor', 'backdoor'],
-      [375582, 'backdoor', 'backdoor'],
-      [138691, 'backdoor', 'cleanup'],
-      [10449, 'backdoor', 'cleanup'],
+      [319327, 'backdoor', 'backdoor'],
+      [195095, 'backdoor', 'closedoor'],
+      [375582, 'backdoor', 'closedoor'],
+      [138691, 'cleanup', 'cleanup'],
+      [10449, 'cleanup', 'cleanup'],
       [147532, 'wipe', 'wipe'],
       [62849, 'wipe', 'wipe'],
       [205635, 'key', 'key'],
-      [365748, 'key', 'key'],
-      [342722, 'key', 'cleanup'],
-      [318435, 'key', 'cleanup'],
+      [386648, 'key', 'key'],
+      [13400, 'key', 'closedoor'],
+      [365748, 'key', 'closedoor'],
+      [342722, 'cleanup', 'cleanup'],
+      [318435, 'cleanup', 'cleanup'],
       [246170, 'chain', 'chain'],
       [70378, 'chain', 'chain'],
       [359893, 'wipe', 'wipe'],
@@ -328,11 +353,15 @@ describe('missionShape', () => {
       [337672, 'destroy', 'destroy'],
       [76265, 'destroy', 'destroy'],
       [250139, 'portforward', 'portforward'],
-      [289215, 'portforward', 'portforward'],
+      [125601, 'portforward', 'portforward'],
+      [386725, 'portforward', 'closedoor'],
+      [289215, 'portforward', 'closedoor'],
       [369810, 'infiltrate', 'infiltrate'],
-      [155082, 'infiltrate', 'infiltrate'],
-      [363109, 'infiltrate', 'cleanup'],
-      [4512, 'infiltrate', 'cleanup'],
+      [27168, 'infiltrate', 'infiltrate'],
+      [58133, 'infiltrate', 'closedoor'],
+      [155082, 'infiltrate', 'closedoor'],
+      [363109, 'cleanup', 'cleanup'],
+      [4512, 'cleanup', 'cleanup'],
       [323218, 'backdoor', 'backdoor'],
       [269448, 'backdoor', 'backdoor'],
       [74985, 'infiltrate', 'infiltrate'],
@@ -591,7 +620,7 @@ describe('missionShape', () => {
      *  taken from the generator before a contract could have two hops. Two hops draw on a
      *  stream of their own, so a contract that stays single-hop keeps its network to the byte.
      *  Only key jobs: a contract that became a tamper job keeps its records in its database.
-     *  Contracts that later turned file, backdoor, infiltrate, portforward, destroy or wipe jobs were swapped for key jobs alike,
+     *  Contracts that later turned file, backdoor, infiltrate, portforward, destroy, wipe or close-the-door jobs were swapped for key jobs alike,
      *  digested on the generator before that kind. */
     const SINGLE_HOP_BEFORE: readonly (readonly [number, string])[] = [
       [16837, 'f27ddd33257d952bc4a6d15bf3649686'], // mysql, database
@@ -599,7 +628,7 @@ describe('missionShape', () => {
       [25, 'bc6079d753a35b0d2fbbc0d419866d9b'], // web, file
       [188, 'e22849bb6178062832ca21a15ac6ec26'], // snmp, database
       [26, 'bebc7e5d21c0cec1690d8cf632581e64'], // ftp, file
-      [603, 'de657d25452e576a8c1cb5d6fe18058c'], // msfconsole, file
+      [933, 'c6cbad730e79f75385a76475bff44a5e'], // msfconsole, file
       [243624, '7c68cca9b7aa79bf353cfa5d54b2ad88'], // hydra, file
       [369262, '58f3820e66d08af310e1cdfc9895fddc'], // hydra, database
     ];
@@ -607,15 +636,15 @@ describe('missionShape', () => {
     /** Two-hop key jobs across the routes and storages, and the digest of each key box as it
      *  stood before the contract had two hops, its forwards and decoys aside: its names, route,
      *  hashes and the doors it ran for its route and its storage. Contracts that later turned
-     *  sabotage, file, backdoor, infiltrate, portforward, credential, destroy, wipe, chain or cleanup jobs were swapped for key jobs alike, digested on the generator before
+     *  sabotage, file, backdoor, infiltrate, portforward, credential, destroy, wipe, chain, cleanup or close-the-door jobs were swapped for key jobs alike, digested on the generator before
      *  that kind. */
     const KEY_BOX_BEFORE: readonly (readonly [number, string])[] = [
       [3123, '03a899a0dd25fdf05107be461c2533ec'], // ftp, file
       [134098, 'dcbef343e36fdf2840eedb351fc86040'], // mysql, file
       [107, '07e6b06a5f7a03c022308311f9773111'], // web, database
-      [489083, '0330cb9dc48bc702cf745e7e6672c9b4'], // snmp, file
+      [1131, '0e675fc551df9bd38209c346974f729e'], // snmp, file
       [8064, 'ecc1c1f4d60a0bb5de51a6e65cfa4cf3'], // msfconsole, gpg
-      [3887, 'a51d66366f4e23dc7ad18bf28edd4a80'], // msfconsole, file
+      [4075, '4ce1ca7b12ada33872ff6d52d7ce8839'], // msfconsole, file
       [1049074, 'bfd8b75efdc9d35cae9ff1dc2f34617c'], // hydra, file
       [929, '2d4a5dc6923e351565f77cd2d1dbb97b'], // hydra, gpg
       [6068, '7a7bf4713e4f1e702e1e2beb440d952c'], // mysql, database
@@ -683,15 +712,15 @@ describe('missionShape', () => {
 
     /** Two-hop key jobs across the routes on each box, and the digest of everything but the key
      *  box, taken from the generator before the key box ran decoys of its own. Contracts that later turned
-     *  sabotage, file, backdoor, infiltrate, portforward, credential, destroy, wipe, chain or cleanup jobs were swapped for key jobs alike, digested on the generator before
+     *  sabotage, file, backdoor, infiltrate, portforward, credential, destroy, wipe, chain, cleanup or close-the-door jobs were swapped for key jobs alike, digested on the generator before
      *  that kind. */
     const BESIDE_KEY_BOX_BEFORE: readonly (readonly [number, string])[] = [
       [3123, 'ffdeeae469845a328fc5eb6f048093c2'], // ftp, front msfconsole
       [134098, '3d8cd43ac152027f6eb3e5a142dec083'], // mysql, front hydra
       [107, '710e67a04a3478676b7959999df01141'], // web, front hydra
-      [489083, 'be5d89e4e7b41edbff7f9ec9b700a1db'], // snmp, front hydra
+      [1131, 'bb02faef930af04f3b737dd7647a8978'], // snmp, front hydra
       [8064, 'b6ac6f1b16c2d14a428475b0bf322b05'], // msfconsole, front web
-      [3887, 'fdbf255fc335327f5cf01a439ae01241'], // msfconsole, front web
+      [4075, 'cb38daa91fadab5c6c7196780fd53521'], // msfconsole, front web
       [1049074, '01d872c7ef8470098ac4b8177f582430'], // hydra, front snmp
       [929, '0bbb667b4152faaf0fc2594ad134cca4'], // hydra, front mysql
       [6068, '9411744ba409adb9772a7993742b9ee1'], // mysql, front msfconsole
@@ -946,7 +975,7 @@ describe('missionShape', () => {
 
     /** Single-hop key jobs across the routes and storages, and the digest of what each had
      *  before decoys, taken from the generator as it stood then. Contracts that later turned
-     *  sabotage, file, backdoor, infiltrate, portforward, credential, destroy or wipe jobs were swapped for key jobs alike, digested on the generator before
+     *  sabotage, file, backdoor, infiltrate, portforward, credential, destroy, wipe or close-the-door jobs were swapped for key jobs alike, digested on the generator before
      *  that kind. */
     const BEFORE_DECOYS: readonly (readonly [number, string])[] = [
       [26, '529fc16f6500aaea7286d4b3f6457e5c'], // ftp, file
@@ -954,7 +983,7 @@ describe('missionShape', () => {
       [3989358, '522716c66d0a298f6c790b504f8095be'], // snmp, file
       [25, 'd6ab3acaa8ca2c0fb37bdd0aef86b65f'], // web, file
       [188, 'fa38e003de44240bca1b8067df439f9f'], // snmp, database
-      [603, 'f736592c25c513e0b53cba3cb525f5e7'], // msfconsole, file
+      [933, '1436b8c852232a355b50a275be14f5bc'], // msfconsole, file
       [243624, '924baecf49de2ecb96d61a2e4255a120'], // hydra, file
       [231, '116f11ad14d62f50f30b701bdc8799d0'], // hydra, database
     ];
@@ -1321,24 +1350,24 @@ describe('a cleanup contract', () => {
   });
 });
 
+/** The program each machine's service runs as, none for ssh: sshd runs on every box. */
+const PROGRAMS: Readonly<Record<PortforwardService, readonly string[]>> = {
+  mysql: ['mysqld'],
+  redis: ['redis-server'],
+  web: ['nginx'],
+  ssh: [],
+};
+
+/** The decoy that would already expose each machine's service, none for redis. */
+const EXPOSING_DECOY: Readonly<Record<PortforwardService, MissionDecoy | null>> = {
+  mysql: 'mysql',
+  redis: null,
+  web: 'web',
+  ssh: 'ssh',
+};
+
 describe('a portforward contract', () => {
   const portforwardShapes = ALL_SAMPLE_SHAPES.filter(({ kind }) => kind === 'portforward');
-
-  /** The program each machine's service runs as, none for ssh: sshd runs on every box. */
-  const PROGRAMS: Readonly<Record<PortforwardService, readonly string[]>> = {
-    mysql: ['mysqld'],
-    redis: ['redis-server'],
-    web: ['nginx'],
-    ssh: [],
-  };
-
-  /** The decoy that would already expose each machine's service, none for redis. */
-  const EXPOSING_DECOY: Readonly<Record<PortforwardService, MissionDecoy | null>> = {
-    mysql: 'mysql',
-    redis: null,
-    web: 'web',
-    ssh: 'ssh',
-  };
 
   it('is single-hop: the target stands in the key-box slot, and no front box', () => {
     expect(portforwardShapes.length).toBeGreaterThan(150);
@@ -1432,7 +1461,8 @@ describe('a portforward contract', () => {
   });
 
   it("draws the router's way in half and half: hydra on a crackable admin, msfconsole on a shut one", () => {
-    for (const shape of ALL_SAMPLE_SHAPES) {
+    // A close-the-door job's router is handed over, not broken into: its own block below.
+    for (const shape of ALL_SAMPLE_SHAPES.filter(({ kind }) => kind !== 'closedoor')) {
       const label = `${shape.kind} contract ${shape.missionNumber}`;
       if (shape.kind !== 'portforward') {
         expect(shape.routerRoute, label).toBeNull();
@@ -1506,6 +1536,117 @@ describe('a portforward contract', () => {
           pinnedSeverities({ [routed]: shape.gatewayVersions[routed] ?? '' })[0],
         );
       }
+    }
+  });
+});
+
+describe('a close-the-door contract', () => {
+  const closeDoorShapes = ALL_SAMPLE_SHAPES.filter(({ kind }) => kind === 'closedoor');
+
+  /** Where the rogue forward stands among the router's forwards: the one onto the machine's
+   *  port. */
+  const rogueIndex = (shape: MissionShape): number =>
+    shape.forwards.findIndex(
+      ({ internalPort }) => internalPort === closeDoorJob(shape.missionNumber).machine.insidePort,
+    );
+
+  it("draws each job's router word and its target's logins apart, so no two jobs read alike", () => {
+    expect(new Set(closeDoorShapes.map(({ gatewayAdminHash }) => gatewayAdminHash)).size).toBe(
+      WHITE_HAT_HASHES.length,
+    );
+    // Within one machine, so a difference is the job's own draw and not the machine's.
+    const databases = closeDoorShapes.filter(
+      ({ missionNumber }) => closeDoorJob(missionNumber).machine.service === 'mysql',
+    );
+    expect(new Set(databases.map(({ keyBox }) => keyBox.rootHash)).size).toBeGreaterThan(1);
+  });
+
+  it('is single-hop: the target stands in the key-box slot, and no front box', () => {
+    expect(closeDoorShapes.length).toBeGreaterThan(100);
+    for (const shape of closeDoorShapes) {
+      expect(shape.frontBox, `contract ${shape.missionNumber}`).toBeNull();
+    }
+  });
+
+  it("seals the target as a portforward job's: its service on the inside port, on a safe release, root shut, nothing kept", () => {
+    for (const shape of closeDoorShapes) {
+      const { machine } = closeDoorJob(shape.missionNumber);
+      const { keyBox } = shape;
+      const label = `${machine.noun} of ${shape.missionNumber}`;
+      const real = realServices(keyBox);
+
+      expect(shape.storage, label).toBeNull();
+      expect(keyBox.route, label).toBeNull();
+      expect(SHUT_HASHES, label).toContain(keyBox.rootHash);
+      expect(
+        real.map(({ program }) => program),
+        label,
+      ).toEqual(PROGRAMS[machine.service]);
+      for (const service of real) expect(service.port, label).toBe(machine.insidePort);
+      for (const severity of pinnedSeverities(keyBox.versions)) {
+        expect(['low', 'medium'], label).toContain(severity);
+      }
+    }
+  });
+
+  // The client hands over the router, so nothing breaks into it: its root is a white-hat word
+  // and every package on it sits on a low or medium release.
+  it('hands over the router: root a white-hat word, no route, no vendor pinned, every release safe', () => {
+    for (const shape of closeDoorShapes) {
+      const label = `gateway of ${shape.missionNumber}`;
+
+      expect(WHITE_HAT_HASHES, label).toContain(shape.gatewayAdminHash);
+      expect(shape.routerRoute, label).toBeNull();
+      expect(shape.routerVendor, label).toBeNull();
+      for (const severity of pinnedSeverities(shape.gatewayVersions)) {
+        expect(['low', 'medium'], label).toContain(severity);
+      }
+    }
+  });
+
+  it("forwards three or four ports onto the target: the rogue one onto the machine's port, the rest decoys of other kinds", () => {
+    for (const shape of closeDoorShapes) {
+      const { machine, publicPort } = closeDoorJob(shape.missionNumber);
+      const label = `${machine.noun} of ${shape.missionNumber}`;
+      const ontoTheService = shape.forwards.filter(
+        ({ internalPort }) => internalPort === machine.insidePort,
+      );
+
+      expect([3, 4], label).toContain(shape.forwards.length);
+      for (const forward of shape.forwards) {
+        expect(forward.boxOctet, label).toBe(shape.keyBox.octet);
+      }
+      expect(ontoTheService, label).toEqual([
+        { publicPort, boxOctet: shape.keyBox.octet, internalPort: machine.insidePort },
+      ]);
+      expect(shape.keyBox.decoys, label).toHaveLength(shape.forwards.length - 1);
+      const exposing = EXPOSING_DECOY[machine.service];
+      if (exposing !== null) expect(shape.keyBox.decoys, label).not.toContain(exposing);
+    }
+  });
+
+  it('puts the rogue forward at any place among the others, so its line in the rules tells nothing', () => {
+    const places = closeDoorShapes.map(rogueIndex);
+    const first = places.filter((place) => place === 0).length;
+
+    expect(new Set(places)).toEqual(new Set([0, 1, 2, 3]));
+    expect(first / places.length).toBeGreaterThan(0.2);
+    expect(first / places.length).toBeLessThan(0.45);
+  });
+
+  it("sends the rogue public port to the machine's service before anyone touches the router", () => {
+    for (const shape of closeDoorShapes) {
+      const { machine, publicPort } = closeDoorJob(shape.missionNumber);
+      const essid = missionEssid(shape.missionNumber);
+
+      expect(
+        machineServing({ routerFs: buildApGatewayBaseFs(essid), port: publicPort }),
+        `contract ${shape.missionNumber}`,
+      ).toEqual({
+        kind: 'forward',
+        internalIp: `${lanSubnetPrefix(essid)}.${shape.keyBox.octet}`,
+        internalPort: machine.insidePort,
+      });
     }
   });
 });

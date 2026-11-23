@@ -589,9 +589,10 @@ describe('the files of a two-hop contract', () => {
   });
 
   // Captured before a front box existed: a front box drawing its file on a stream of its own
-  // must leave every key box's draw where it was.
+  // must leave every key box's draw where it was. 66102 took the place of 66058 when that became
+  // a close-the-door job, its file read on the generator before close-the-door jobs.
   it.each([
-    [66058, '/var/www/html/todo.txt'],
+    [66102, '/var/www/html/todo.txt'],
     [66065, '/srv/ftp/pub/old'],
     [66068, '/srv/ftp/pub/settings'],
     [66082, '/srv/ftp/pub/settings'],

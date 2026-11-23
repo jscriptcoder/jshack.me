@@ -75,6 +75,7 @@ import { firmwareExploitOutcome } from '../cve/firmwareExploit.js';
 import { LEAKABLE_HASHES, SHUT_HASHES } from './leakablePool.js';
 import { TARGET_STEMS } from './pools.js';
 import { portforwardJob, type PortforwardService } from './portforwardJob.js';
+import { closeDoorJob } from './closeDoorJob.js';
 
 /** The game day a route's hole must have published on or before: the day slice 1 ships.
  *  Fixed, never the live clock — moving it changes every existing contract's network. */
@@ -149,10 +150,11 @@ export type MissionKind =
   | 'destroy'
   | 'wipe'
   | 'chain'
-  | 'cleanup';
+  | 'cleanup'
+  | 'closedoor';
 
-/** Where the one draw on a contract's kind changes, in 27720ths. Each kind takes a twelfth. Every
- *  newer kind was carved from the edges of the ones before it, so a contract is the kind it was
+/** Where the one draw on a contract's kind changes, in 360360ths. Each kind takes a thirteenth.
+ *  Every newer kind was carved from the edges of the ones before it, so a contract is the kind it was
  *  or has become the newer one, and none turned from one older kind into another: file jobs fill
  *  the gaps tamper, sabotage and key left as they shrank from thirds to quarters, backdoor jobs
  *  the twentieth each of the four gave up as they shrank to fifths, infiltrate jobs the thirtieth
@@ -160,76 +162,91 @@ export type MissionKind =
  *  the forty-second each of the six gave up the same way as they shrank to sevenths, credential
  *  jobs the fifty-sixth each of the seven gave up the same way as they shrank to eighths, destroy
  *  jobs the seventy-second each of the eight gave up the same way as they shrank to ninths, wipe
- *  jobs the ninetieth each of the nine gave up the same way as they shrank to tenths, and chain
- *  jobs the hundred-and-tenth each of the ten gave up the same way as they shrank to elevenths, and
+ *  jobs the ninetieth each of the nine gave up the same way as they shrank to tenths, chain jobs
+ *  the hundred-and-tenth each of the ten gave up the same way as they shrank to elevenths,
  *  cleanup jobs the hundred-and-thirty-second each of the eleven gave up at the top of its largest
- *  piece, the lowest on a tie (so the top of the draw stays portforward), as they shrank to twelfths.
- *  A draw past the last cut, the top forty-second, is a portforward job. */
+ *  piece, the lowest on a tie (so the top of the draw stays portforward), as they shrank to
+ *  twelfths, and close-the-door jobs the hundred-and-fifty-sixth each of the twelve gave up the
+ *  same way as they shrank to thirteenths. 27720ths do not split into thirteenths, so the draw
+ *  is in thirteen times as many. A draw past the last cut, the top forty-second, is a portforward
+ *  job. */
 const KIND_CUTS: readonly (readonly [below: number, kind: MissionKind])[] = [
-  [2310, 'tamper'],
-  [2520, 'cleanup'],
-  [2562, 'chain'],
-  [2772, 'cleanup'],
-  [2828, 'wipe'],
-  [3080, 'chain'],
-  [3157, 'destroy'],
-  [3255, 'wipe'],
-  [3465, 'cleanup'],
-  [3652, 'credential'],
-  [3960, 'wipe'],
-  [3983, 'portforward'],
-  [4235, 'chain'],
-  [4368, 'destroy'],
-  [4620, 'chain'],
-  [4797, 'infiltrate'],
-  [5049, 'chain'],
-  [5292, 'credential'],
-  [5544, 'chain'],
-  [5775, 'backdoor'],
-  [6060, 'credential'],
-  [6270, 'cleanup'],
-  [6435, 'portforward'],
-  [6930, 'credential'],
-  [7800, 'file'],
-  [8052, 'chain'],
-  [8360, 'wipe'],
-  [8535, 'destroy'],
-  [8745, 'cleanup'],
-  [9240, 'credential'],
-  [11550, 'sabotage'],
-  [11760, 'cleanup'],
-  [12012, 'chain'],
-  [12320, 'wipe'],
-  [12705, 'destroy'],
-  [13200, 'credential'],
-  [13552, 'portforward'],
-  [13860, 'wipe'],
-  [14399, 'infiltrate'],
-  [14784, 'destroy'],
-  [15533, 'backdoor'],
-  [15785, 'chain'],
-  [16170, 'destroy'],
-  [17610, 'file'],
-  [17820, 'cleanup'],
-  [18270, 'portforward'],
-  [18480, 'cleanup'],
-  [19096, 'infiltrate'],
-  [19404, 'wipe'],
-  [20272, 'backdoor'],
-  [20482, 'cleanup'],
-  [20790, 'wipe'],
-  [23100, 'key'],
-  [23310, 'cleanup'],
-  [23562, 'chain'],
-  [23870, 'wipe'],
-  [24255, 'destroy'],
-  [24365, 'credential'],
-  [24750, 'destroy'],
-  [25410, 'portforward'],
-  [26124, 'infiltrate'],
-  [26334, 'cleanup'],
-  [26796, 'backdoor'],
-  [27060, 'infiltrate'],
+  [27720, 'tamper'],
+  [30030, 'closedoor'],
+  [30450, 'cleanup'],
+  [32760, 'closedoor'],
+  [33306, 'chain'],
+  [36036, 'cleanup'],
+  [36764, 'wipe'],
+  [37730, 'chain'],
+  [40040, 'closedoor'],
+  [41041, 'destroy'],
+  [42315, 'wipe'],
+  [45045, 'cleanup'],
+  [47476, 'credential'],
+  [49170, 'wipe'],
+  [51480, 'closedoor'],
+  [51779, 'portforward'],
+  [55055, 'chain'],
+  [56784, 'destroy'],
+  [60060, 'chain'],
+  [62361, 'infiltrate'],
+  [65637, 'chain'],
+  [68796, 'credential'],
+  [72072, 'chain'],
+  [75075, 'backdoor'],
+  [78780, 'credential'],
+  [81510, 'cleanup'],
+  [83655, 'portforward'],
+  [87780, 'credential'],
+  [90090, 'closedoor'],
+  [101400, 'file'],
+  [104676, 'chain'],
+  [108680, 'wipe'],
+  [110955, 'destroy'],
+  [113685, 'cleanup'],
+  [120120, 'credential'],
+  [147840, 'sabotage'],
+  [150150, 'closedoor'],
+  [152880, 'cleanup'],
+  [156156, 'chain'],
+  [160160, 'wipe'],
+  [162855, 'destroy'],
+  [165165, 'closedoor'],
+  [171600, 'credential'],
+  [176176, 'portforward'],
+  [180180, 'wipe'],
+  [187187, 'infiltrate'],
+  [192192, 'destroy'],
+  [201929, 'backdoor'],
+  [205205, 'chain'],
+  [210210, 'destroy'],
+  [226620, 'file'],
+  [228930, 'closedoor'],
+  [231660, 'cleanup'],
+  [237510, 'portforward'],
+  [240240, 'cleanup'],
+  [248248, 'infiltrate'],
+  [252252, 'wipe'],
+  [261226, 'backdoor'],
+  [263536, 'closedoor'],
+  [266266, 'cleanup'],
+  [270270, 'wipe'],
+  [297990, 'key'],
+  [300300, 'closedoor'],
+  [303030, 'cleanup'],
+  [306306, 'chain'],
+  [310310, 'wipe'],
+  [315315, 'destroy'],
+  [316745, 'credential'],
+  [321750, 'destroy'],
+  [328020, 'portforward'],
+  [330330, 'closedoor'],
+  [337302, 'infiltrate'],
+  [339612, 'closedoor'],
+  [342342, 'cleanup'],
+  [348348, 'backdoor'],
+  [351780, 'infiltrate'],
 ];
 
 /** Whether a contract asks for a key, a changed record, a machine taken down, a file brought
@@ -237,7 +254,7 @@ const KIND_CUTS: readonly (readonly [below: number, kind: MissionKind])[] = [
  *  destroyed, a table wiped, or a listener left and a machine taken down. Drawn on a stream of its own, so a contract that keeps its kind
  *  keeps its network and its terms to the byte. */
 export const missionKind = (missionNumber: number): MissionKind => {
-  const draw = createPrng(`mission-kind-${missionNumber}`).next() * 27720;
+  const draw = createPrng(`mission-kind-${missionNumber}`).next() * 360360;
   return KIND_CUTS.find(([below]) => draw < below)?.[1] ?? 'portforward';
 };
 
@@ -693,13 +710,15 @@ const drawTopology = (
   const stem = shapePrng.pick(TARGET_STEMS);
   const keyBoxOctet = shapePrng.nextInt(2, 254);
   // On a stream of its own, so a contract that stays single-hop keeps its network to the byte. A
-  // portforward job is never two-hop: the router is the job, and the target sits right behind it.
-  // A chain job always is: its first step is on the front box and its last on the machine behind.
+  // portforward or close-the-door job is never two-hop: the router is the job, and the target sits
+  // right behind it. A chain job always is: its first step is on the front box and its last on the
+  // machine behind.
   const kind = missionKind(missionNumber);
   const twoHop =
     kind === 'chain' ||
     (createPrng(`mission-template-${missionNumber}`).next() < TWO_HOP_SHARE &&
-      kind !== 'portforward');
+      kind !== 'portforward' &&
+      kind !== 'closedoor');
   if (!twoHop) return { stem, keyBoxOctet, shapePrng, front: null };
   const prng = createPrng(`mission-front-${missionNumber}`);
   const octet = prng.pick(HOST_OCTETS.filter((candidate) => candidate !== keyBoxOctet));
@@ -749,6 +768,40 @@ const pointedAt = (forwards: readonly PortPair[], boxOctet: number): readonly Mi
  *  router falls half the time to a crackable admin (`hydra`) and half the time, its admin shut,
  *  to a firmware release whose hole lands a root shell (`msfconsole`), on a vendor that has one.
  *  The machine and the router's way in are each drawn on a stream of their own. */
+/** A machine a client wants reached from outside, or shut off from it, which nobody roots: no
+ *  route, root and every store behind it shut, and its one service on a safe release. */
+const sealedTarget = ({
+  service,
+  octet,
+  base,
+  prng,
+}: {
+  readonly service: PortforwardService;
+  readonly octet: number;
+  readonly base: Readonly<Record<string, string>>;
+  readonly prng: Prng;
+}): BareBox => {
+  const daemon = PORTFORWARD_SERVICES[service];
+  const running =
+    daemon === null ? [] : [{ ...daemon, version: safeVersionOf(daemon.package, prng) }];
+  return {
+    octet,
+    route: null,
+    rootHash: prng.pick(SHUT_HASHES),
+    database:
+      service === 'mysql'
+        ? { accountHash: prng.pick(SHUT_HASHES), rootHash: prng.pick(SHUT_HASHES) }
+        : null,
+    communityHash: null,
+    storeHash: service === 'redis' ? prng.pick(SHUT_HASHES) : null,
+    services: running,
+    versions: {
+      ...base,
+      ...Object.fromEntries(running.map((daemonRun) => [daemonRun.package, daemonRun.version])),
+    },
+  };
+};
+
 const portforwardShape = ({
   missionNumber,
   stem,
@@ -762,27 +815,13 @@ const portforwardShape = ({
   readonly keyBoxBase: Readonly<Record<string, string>>;
   readonly gatewayVersions: Readonly<Record<string, string>>;
 }): MissionShape => {
-  const targetPrng = createPrng(`mission-portforward-target-${missionNumber}`);
   const { service } = portforwardJob(missionNumber).machine;
-  const daemon = PORTFORWARD_SERVICES[service];
-  const running =
-    daemon === null ? [] : [{ ...daemon, version: safeVersionOf(daemon.package, targetPrng) }];
-  const target: BareBox = {
+  const target = sealedTarget({
+    service,
     octet: keyBoxOctet,
-    route: null,
-    rootHash: targetPrng.pick(SHUT_HASHES),
-    database:
-      service === 'mysql'
-        ? { accountHash: targetPrng.pick(SHUT_HASHES), rootHash: targetPrng.pick(SHUT_HASHES) }
-        : null,
-    communityHash: null,
-    storeHash: service === 'redis' ? targetPrng.pick(SHUT_HASHES) : null,
-    services: running,
-    versions: {
-      ...keyBoxBase,
-      ...Object.fromEntries(running.map((daemonRun) => [daemonRun.package, daemonRun.version])),
-    },
-  };
+    base: keyBoxBase,
+    prng: createPrng(`mission-portforward-target-${missionNumber}`),
+  });
   const entry = withDecoys(target, [], missionNumber, EXPOSING_DECOYS[service]);
   const routerPrng = createPrng(`mission-router-${missionNumber}`);
   const routerRoute = routerPrng.pick(ROUTER_ROUTES);
@@ -871,6 +910,57 @@ const cleanupShape = ({
   };
 };
 
+/** A close-the-door job's network: someone forwarded a public port onto the machine's service,
+ *  and the client hands over the router to shut it. The target is sealed as a portforward job's
+ *  is; the router's root is one of the white-hat words the briefing hands over, with no route
+ *  and its firmware on safe releases. The rogue forward stands at a drawn place among the decoys'
+ *  forwards, so its line in the router's rules says nothing. Single-hop always: the door is on
+ *  the router, so a front box would add nothing. */
+const closeDoorShape = ({
+  missionNumber,
+  stem,
+  keyBoxOctet,
+  keyBoxBase,
+  gatewayVersions,
+}: {
+  readonly missionNumber: number;
+  readonly stem: string;
+  readonly keyBoxOctet: number;
+  readonly keyBoxBase: Readonly<Record<string, string>>;
+  readonly gatewayVersions: Readonly<Record<string, string>>;
+}): MissionShape => {
+  const { machine, publicPort } = closeDoorJob(missionNumber);
+  const target = sealedTarget({
+    service: machine.service,
+    octet: keyBoxOctet,
+    base: keyBoxBase,
+    prng: createPrng(`mission-closedoor-target-${missionNumber}`),
+  });
+  const rogue: PortPair = { publicPort, internalPort: machine.insidePort };
+  const entry = withDecoys(target, [rogue], missionNumber, EXPOSING_DECOYS[machine.service]);
+  const decoyForwards = entry.forwards.slice(1);
+  const place = createPrng(`mission-closedoor-place-${missionNumber}`).nextInt(
+    0,
+    decoyForwards.length,
+  );
+  return {
+    missionNumber,
+    kind: 'closedoor',
+    stem,
+    storage: null,
+    keyBox: entry.box,
+    frontBox: null,
+    gatewayAdminHash: createPrng(`mission-closedoor-login-${missionNumber}`).pick(WHITE_HAT_HASHES),
+    routerRoute: null,
+    routerVendor: null,
+    gatewayVersions,
+    forwards: pointedAt(
+      [...decoyForwards.slice(0, place), rogue, ...decoyForwards.slice(place)],
+      keyBoxOctet,
+    ),
+  };
+};
+
 export const missionShape = (missionNumber: number): MissionShape => {
   const { stem, keyBoxOctet, shapePrng, front: frontDraw } = drawTopology(missionNumber);
   const route = shapePrng.pick(ROUTES);
@@ -886,6 +976,9 @@ export const missionShape = (missionNumber: number): MissionShape => {
 
   if (missionKind(missionNumber) === 'portforward') {
     return portforwardShape({ missionNumber, stem, keyBoxOctet, keyBoxBase, gatewayVersions });
+  }
+  if (missionKind(missionNumber) === 'closedoor') {
+    return closeDoorShape({ missionNumber, stem, keyBoxOctet, keyBoxBase, gatewayVersions });
   }
   if (missionKind(missionNumber) === 'cleanup') {
     return cleanupShape({

@@ -88,8 +88,9 @@ import {
  *  chapter on getting paid and hireme.io saying how it pays (the prose rides in the bundle
  *  with the sites' generated trees) added 972 B, rounded up to 1,000; then cleanup jobs (the
  *  new kind's shape, terms and replies, and the white-hat password hashes) added 1,493 B,
- *  rounded up to 1,500. */
-const BUNDLE_CEILING_BYTES = 309_575;
+ *  rounded up to 1,500; then close-the-door jobs (the thirteenth kind's shape, its machines'
+ *  white-hat reasons, and the router read the client does) added 587 B, rounded up to 600. */
+const BUNDLE_CEILING_BYTES = 310_175;
 
 /** About a tenth of that before world content, so a loaded machine's noise cannot fail
  *  the check while a content change that makes boxes ten times dearer still does. */

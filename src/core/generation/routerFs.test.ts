@@ -1064,12 +1064,14 @@ describe('the gateway of a contract network', () => {
     expect(readOpenPorts(gateway()).some((openPort) => openPort.service === 'ssh')).toBe(true);
   });
 
-  /** The first web route contract in the range keeping its key as `storage` says. */
+  /** The first single-hop web route contract in the range keeping its key as `storage` says:
+   *  single-hop, so its doors are forwarded onto the key box itself. */
   const webNumberWith = (storage: 'file' | 'database'): number => {
     const found = Array.from({ length: 5000 }, (_unused, index) => index + 66051).find(
       (candidate) =>
         isMissionNumber(candidate) &&
         missionShape(candidate).keyBox.route === 'web' &&
+        missionShape(candidate).frontBox === null &&
         missionShape(candidate).storage === storage,
     );
     if (found === undefined) throw new Error(`no web route ${storage} contract in the range`);

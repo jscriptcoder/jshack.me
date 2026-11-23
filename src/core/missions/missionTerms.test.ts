@@ -11,6 +11,7 @@ import {
 import { missionAction, missionSetting, type RecordSetting } from './missionRecords.js';
 import { missionFileItem } from './missionFileItem.js';
 import { portforwardJob } from './portforwardJob.js';
+import { closeDoorJob } from './closeDoorJob.js';
 import { chainJob, cleanupJob } from './targetRoles.js';
 import { md5 } from '../generation/md5.js';
 import { isMissionNumber } from './missionNetwork.js';
@@ -154,24 +155,24 @@ describe('missionTerms', () => {
     // when file jobs took a quarter, again when backdoor jobs took a fifth, and again when
     // infiltrate jobs took a sixth, again when portforward jobs took a seventh, again when
     // credential jobs took an eighth, again when destroy jobs took a ninth, again when wipe jobs
-    // took a tenth, again when chain jobs took an eleventh, and again when cleanup jobs took a
-    // twelfth, each time over the key jobs left, whose terms the earlier digest's own fixture held
-    // unchanged.
+    // took a tenth, again when chain jobs took an eleventh, again when cleanup jobs took a twelfth,
+    // and again when close-the-door jobs took a thirteenth, each time over the key jobs left,
+    // whose terms the earlier digest's own fixture held unchanged.
     expect(md5(JSON.stringify(SINGLE_HOP_NUMBERS.map(missionTerms).map(withoutJob)))).toBe(
-      'fa312392454201345a6e0aacbec5c2b2',
+      'e6a7d11f79f11a2e38efba815c99d725',
     );
   });
 
-  // Retaken over the key jobs left when cleanup jobs took a twelfth of the numbers.
+  // Retaken over the key jobs left when close-the-door jobs took a thirteenth of the numbers.
   it('keeps the client, target, pitch and key of a two-hop key job as they were', () => {
     const beside = TWO_HOP_NUMBERS.map(missionTerms)
       .map(withoutJob)
       .map(({ kind: _kind, pay: _pay, ...rest }) => rest);
 
-    expect(md5(JSON.stringify(beside))).toBe('66cb4be3d09aac2edd82eaad55840ef0');
+    expect(md5(JSON.stringify(beside))).toBe('83f160d13fe6116ea4733ac3874ae180');
   });
 
-  it('marks each contract a key, tamper, sabotage, file, backdoor, infiltrate, portforward, credential, destroy, wipe, chain or cleanup job, as its shape does', () => {
+  it('marks each contract a key, tamper, sabotage, file, backdoor, infiltrate, portforward, credential, destroy, wipe, chain, cleanup or close-the-door job, as its shape does', () => {
     for (const missionNumber of SAMPLE_NUMBERS) {
       expect(missionTerms(missionNumber).job).toBe(missionShape(missionNumber).kind);
     }
@@ -327,16 +328,17 @@ describe('missionTerms', () => {
         pay,
       }));
 
-      // Retaken over the sabotage jobs left when cleanup jobs took a twelfth of the numbers.
-      expect(md5(JSON.stringify(kept))).toBe('c5d2b356b95ac894acb06e5a543fda65');
+      // Retaken over the sabotage jobs left when close-the-door jobs took a thirteenth.
+      expect(md5(JSON.stringify(kept))).toBe('09e5a26df3b81c99c652f2852ebaa8a7');
     });
 
     // The work is a key job's, finding the way in and rooting the box, so the pay is too.
     it('pays a key job: 500 to 2,000 JSC on one hop, 2,000 to 4,000 on two, in steps of 50', () => {
       const paysOf = (numbers: readonly number[]) =>
         numbers.map((missionNumber) => missionTerms(missionNumber).pay);
-      const singleHop = paysOf(SINGLE_HOP_SABOTAGE_NUMBERS);
-      const twoHop = paysOf(TWO_HOP_SABOTAGE_NUMBERS);
+      const sabotageJobs = widerJobsOf('sabotage');
+      const singleHop = paysOf(sabotageJobs.filter((missionNumber) => !isTwoHop(missionNumber)));
+      const twoHop = paysOf(sabotageJobs.filter(isTwoHop));
 
       for (const pay of [...singleHop, ...twoHop]) expect(pay % 50).toBe(0);
       expect([Math.min(...singleHop), Math.max(...singleHop)]).toEqual([500, 2000]);
@@ -1125,6 +1127,75 @@ describe('missionTerms', () => {
         );
       }
       expect(new Set(terms.map(({ pitch }) => pitch)).size).toBe(12);
+    });
+  });
+
+  describe('a close-the-door job', () => {
+    const CLOSE_DOOR_NUMBERS = SAMPLE_NUMBERS.filter(
+      (missionNumber) => missionKind(missionNumber) === 'closedoor',
+    );
+
+    /** The machine a close-the-door job is offered as shutting off, read off the board's line. */
+    const machineOf = (missionNumber: number): string =>
+      missionTerms(missionNumber).kind.replace(/^close a way into a /, '');
+
+    it('is offered as closing a way into one of the four machines, never an internal one', () => {
+      for (const missionNumber of CLOSE_DOOR_NUMBERS) {
+        expect(missionTerms(missionNumber).kind, `contract ${missionNumber}`).toBe(
+          `close a way into a ${closeDoorJob(missionNumber).machine.noun}`,
+        );
+      }
+      expect(new Set(CLOSE_DOOR_NUMBERS.map(machineOf))).toEqual(
+        new Set(['customer database', 'cache server', 'staff intranet', 'development server']),
+      );
+    });
+
+    // The client hands over the router, so there is no way in to find: white-hat work, at the
+    // white-hat single-hop pay. The door is on the router, so the job is never two-hop.
+    it('pays 300 to 1,200 JSC, in steps of 50, reaching both ends', () => {
+      const pays = widerJobsOf('closedoor').map((missionNumber) => missionTerms(missionNumber).pay);
+
+      for (const pay of pays) expect(pay % 50).toBe(0);
+      expect([Math.min(...pays), Math.max(...pays)]).toEqual([300, 1200]);
+    });
+
+    it('names the target after its stem and a trade a key job is drawn from', () => {
+      const keyJobTrades = new Set(
+        KEY_NUMBERS.map((missionNumber) => missionTerms(missionNumber).targetCompany.split(' ')[1]),
+      );
+
+      for (const missionNumber of CLOSE_DOOR_NUMBERS) {
+        const { stem } = missionShape(missionNumber);
+        const [company, trade, ...rest] = missionTerms(missionNumber).targetCompany.split(' ');
+        expect(company).toBe(capitalised(stem));
+        expect(keyJobTrades.has(trade ?? ''), `contract ${missionNumber}`).toBe(true);
+        expect(rest).toEqual([]);
+      }
+    });
+
+    it("draws every client, and pitches from three white-hat reasons of its machine's own, twelve in all, none another kind's", () => {
+      const terms = CLOSE_DOOR_NUMBERS.map(missionTerms);
+      const otherPitches = new Set(
+        SAMPLE_NUMBERS.filter((missionNumber) => missionKind(missionNumber) !== 'closedoor').map(
+          (missionNumber) => missionTerms(missionNumber).pitch,
+        ),
+      );
+      const pitches = new Set(
+        widerJobsOf('closedoor').map((missionNumber) => missionTerms(missionNumber).pitch),
+      );
+
+      expect(new Set(terms.map(({ client }) => client.handle))).toEqual(new Set(CLIENT_HANDLES));
+      for (const missionNumber of CLOSE_DOOR_NUMBERS) {
+        expect(closeDoorJob(missionNumber).machine.closeDoorPitches).toContain(
+          missionTerms(missionNumber).pitch,
+        );
+      }
+      expect(pitches.size).toBe(12);
+      for (const pitch of pitches) {
+        expect(otherPitches.has(pitch), pitch).toBe(false);
+        // What the board shows: a whole sentence, never a blank line.
+        expect(pitch, pitch).toMatch(/^[A-Z].{20,}\.$/);
+      }
     });
   });
 

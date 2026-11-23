@@ -22,6 +22,7 @@ import { chainFinal, missionKind, missionTopology, type ChainFinal } from './mis
 import { backdoorJob, chainJob, cleanupJob, credentialRole, sabotageRole } from './targetRoles.js';
 import { missionFileItem } from './missionFileItem.js';
 import { portforwardJob } from './portforwardJob.js';
+import { closeDoorJob } from './closeDoorJob.js';
 import {
   missionAction,
   missionSetting,
@@ -65,7 +66,8 @@ export type MissionTerms =
   | ({ readonly job: 'destroy' } & CommonTerms)
   | ({ readonly job: 'wipe' } & CommonTerms)
   | ({ readonly job: 'chain' } & CommonTerms)
-  | ({ readonly job: 'cleanup' } & CommonTerms);
+  | ({ readonly job: 'cleanup' } & CommonTerms)
+  | ({ readonly job: 'closedoor' } & CommonTerms);
 
 const CLIENTS: readonly MissionClient[] = [
   { company: 'Copper Systems', handle: 'copper-ops' },
@@ -342,10 +344,10 @@ const CHAIN_PITCHES: Readonly<Record<ChainFinal, readonly string[]>> = {
   ],
 };
 
-/** What a cleanup job pays, in JSC: the client hands over the login, so there is no way in to
- *  find and the hunt is the work, at about three fifths of what breaking in pays. A machine behind
- *  a second box starts where a single-hop one tops out. */
-const CLEANUP_PAY = {
+/** What white-hat work pays, in JSC: the client hands over the login, so there is no way in to
+ *  find and the work itself is the job, at about three fifths of what breaking in pays. A machine
+ *  behind a second box starts where a single-hop one tops out. */
+const WHITE_HAT_PAY = {
   singleHop: { minPay: 300, maxPay: 1200 },
   twoHop: { minPay: 1200, maxPay: 2400 },
 } as const;
@@ -439,7 +441,19 @@ export const missionTerms = (missionNumber: number): MissionTerms => {
       targetCompany: `${capitalised(stem)} ${prng.pick(TARGET_TRADES)}`,
       kind: `clean up ${singleHop ? 'a' : 'an internal'} ${noun}`,
       pitch: prng.pick(cleanupPitches),
-      pay: payFrom(prng, CLEANUP_PAY[singleHop ? 'singleHop' : 'twoHop']),
+      pay: payFrom(prng, WHITE_HAT_PAY[singleHop ? 'singleHop' : 'twoHop']),
+    };
+  }
+  if (missionKind(missionNumber) === 'closedoor') {
+    const { noun, closeDoorPitches } = closeDoorJob(missionNumber).machine;
+    return {
+      job: 'closedoor',
+      client: prng.pick(CLIENTS),
+      targetCompany: `${capitalised(stem)} ${prng.pick(TARGET_TRADES)}`,
+      kind: `close a way into a ${noun}`,
+      pitch: prng.pick(closeDoorPitches),
+      // The door is on the router, so a close-the-door job is never two-hop.
+      pay: payFrom(prng, WHITE_HAT_PAY.singleHop),
     };
   }
   const job = singleHop ? SINGLE_HOP : TWO_HOP;

@@ -32,9 +32,13 @@ export type PortforwardMachine = {
   readonly publicPorts: readonly number[];
   /** Why the client wants it reached, one of which opens the briefing. */
   readonly pitches: readonly string[];
+  /** Why a client wants it shut off from outside again, on behalf of the customer whose machine
+   *  it is: a white-hat job, one of which opens a close-the-door job's briefing. */
+  readonly closeDoorPitches: readonly string[];
 };
 
-const MACHINES: readonly PortforwardMachine[] = [
+/** The machines a client may want reached from outside, or shut off from it again. */
+export const EXPOSABLE_MACHINES: readonly PortforwardMachine[] = [
   {
     noun: 'customer database',
     suffix: 'db',
@@ -45,6 +49,11 @@ const MACHINES: readonly PortforwardMachine[] = [
       'An auditor needs to look through their customer list without anyone knowing it was looked at.',
       'Our client wants their numbers live, not in a quarterly report.',
       'Every customer they sign lands in that database. We want to know the day it happens.',
+    ],
+    closeDoorPitches: [
+      "Our customer's database answers from the internet, and nobody there opened it. They want it shut.",
+      'Someone gave our customer a door from the outside straight into their customer records.',
+      'Our customer found their database talking to strangers. They want it back behind the router.',
     ],
   },
   {
@@ -58,6 +67,11 @@ const MACHINES: readonly PortforwardMachine[] = [
       'Their sessions sit in that cache. Our client wants to see who is signed in, and when.',
       'Our client wants to see their traffic as it happens, not after they have tidied it up.',
     ],
+    closeDoorPitches: [
+      "Our customer's cache answers anyone who knocks from outside, and their sessions pass through it.",
+      'Someone opened our customer’s cache server to the internet. They want it shut before it is emptied.',
+      'That cache should only ever talk to their own site. Right now it talks to anyone.',
+    ],
   },
   {
     noun: 'staff intranet',
@@ -70,6 +84,11 @@ const MACHINES: readonly PortforwardMachine[] = [
       'Our client wants to read their internal memos the morning they go up.',
       'Their org chart, their rotas and their plans all live on that intranet. We want to browse.',
     ],
+    closeDoorPitches: [
+      "Our customer's staff intranet can be read from anywhere. It was meant for their staff.",
+      'Someone put our customer’s intranet on the internet, memos and all. They want it taken back off.',
+      'Our customer found their internal pages answering from outside. They want that door shut.',
+    ],
   },
   {
     noun: 'development server',
@@ -81,6 +100,11 @@ const MACHINES: readonly PortforwardMachine[] = [
       'Their developers push to that box all day. Our client wants a door to it of our own.',
       'Our client has someone who can log in there, if only the box could be reached from outside.',
       'What they build next starts on that server. We want to be able to knock on it from home.',
+    ],
+    closeDoorPitches: [
+      "Our customer's development server takes logins from outside, and nobody there set that up.",
+      'Someone opened a way into our customer’s development server from the internet. They want it closed.',
+      'Our customer’s developers found strangers knocking on their dev box from outside. They want it stopped.',
     ],
   },
 ];
@@ -95,6 +119,6 @@ export type PortforwardJob = {
  *  stream of their own, the machine first, so nothing the contract drew before them moves. */
 export const portforwardJob = (missionNumber: number): PortforwardJob => {
   const prng = createPrng(`mission-portforward-${missionNumber}`);
-  const machine = prng.pick(MACHINES);
+  const machine = prng.pick(EXPOSABLE_MACHINES);
   return { machine, publicPort: prng.pick(machine.publicPorts) };
 };
