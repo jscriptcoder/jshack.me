@@ -1817,7 +1817,8 @@ read the client does, 914 B; at v0.481.0 the chunk is 311,076 B against a ceilin
   `passwd root` alone got the same still-open reply. The leaked word still logged in as `ntpd`,
   at a `#` prompt; from that shell `nano /etc/passwd` lost the `ntpd` row, and the mail paid §450,
   the wallet reading §450. The leaked word was then refused as root, and a later mail was told
-  the job is closed, with no second mint. No defect.
+  the job is closed, with no second mint. No defect. Announced on valleynews.io `/dev` (story
+  27).
 
 ## What follows
 

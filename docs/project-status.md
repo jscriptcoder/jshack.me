@@ -1867,7 +1867,8 @@ agreed order:
     last of five rows: told it is still open before anything and again after `passwd root` alone,
     the leaked word still opening a root shell as `ntpd`; with that row removed in `nano` it paid,
     the leaked word was refused as root, and a later mail was told the job is closed. No defect.
-    The white-hat plan stays in flight for the four kinds still to come.
+    Announced on valleynews.io `/dev` (story 27). The white-hat plan stays in flight for the four
+    kinds still to come.
     **Pick up here (2026-11-23):** the next white-hat kind, patch it (a box on a release with a
     root-level CVE, on the CVE system), which starts with its own grill on top of the shared
     decisions in `plans/white-hat-jobs.md`. Also open: `scripts/testMissions.ts` still expects
