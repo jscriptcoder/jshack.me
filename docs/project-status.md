@@ -1843,10 +1843,35 @@ agreed order:
     `forward 21` put back and paid; a later mail was told the job is closed. No defect.
     Announced on valleynews.io `/dev` (story 26). The white-hat plan stays in flight for the
     five kinds still to come.
-    **Pick up here (2026-11-23):** the next white-hat kind, lock them out (the credential job's
-    mirror), which starts with its own grill on top of the shared decisions in
-    `plans/white-hat-jobs.md`. Also open: `scripts/testMissions.ts` still expects root-only files
-    in full where v0.477.4 serves other users empty stubs.
+58. ✅ **Lock-them-out jobs, the third white-hat contract (v0.481.0, PR #803, merged
+    2026-11-23).** One slice; as-built: "Lock-them-out jobs" in
+    [`missions-architecture.md`](./missions-architecture.md). The credential job's mirror and a
+    fourteenth of the contracts (each older kind gave up 1,980 of the 360,360ths at the top of its
+    largest piece): someone outside holds root's password on one of the credential job's seven
+    machines and has added a uid-0 account with it, under one of eight system-looking names, at a
+    drawn place among the customer's rows. The briefing hands over root with that leaked word and
+    never mentions the account. The client reads the target's `/etc/passwd` on every mail, rows
+    matched by name, and pays once root takes neither the leaked word nor an empty one, every row
+    is one of the customer's own once each, and each reads as laid but root's hash; `passwd root`
+    alone is still open, and a spoiled customer row is the collateral miss. `cleanupShape` became
+    `handedOverShape`, shared by both kinds. Also fixed: a cleanup target's staff user could share
+    the service account's name (`backup` on a backup server), leaving two rows with one name; it
+    is now drawn again. Evidence: unit tests (11,501), `testMissionLockout` 20/20 and every other
+    mission, hireme and wallet wire-check green except `testMissions.ts` (2 of 25 failing, as on
+    `main`); mutation on the changed lines 100% on five modules, two survivors in the client check
+    closed by reusing `passwdFields` and two new tests, nine static mutants Stryker never ran
+    checked by hand (eight killed, one not run), one equivalent; the bundle ceiling raised 1,000 B
+    for 914 B of growth.
+    **Close-out (2026-11-23, v0.481.0):** one browser run on a fresh player in Ridgemont on
+    BARN-CONVERSION, the board turned over by a script. A billing server (§450), `ntpd` with uid 0
+    last of five rows: told it is still open before anything and again after `passwd root` alone,
+    the leaked word still opening a root shell as `ntpd`; with that row removed in `nano` it paid,
+    the leaked word was refused as root, and a later mail was told the job is closed. No defect.
+    The white-hat plan stays in flight for the four kinds still to come.
+    **Pick up here (2026-11-23):** the next white-hat kind, patch it (a box on a release with a
+    root-level CVE, on the CVE system), which starts with its own grill on top of the shared
+    decisions in `plans/white-hat-jobs.md`. Also open: `scripts/testMissions.ts` still expects
+    root-only files in full where v0.477.4 serves other users empty stubs.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

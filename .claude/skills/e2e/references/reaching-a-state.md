@@ -728,3 +728,25 @@ the screen reads mask with. About one offer in thirteen matches; the run matched
 | 5 | `nano /etc/iptables/rules.v4`, delete the rogue line, `^O`, `close-nano.sh` | A `deny <port>` line instead is still open: a deny stops no forward. Deleting a kept line too gets "That's not all you closed. Something they use no longer answers from outside. No money." on the next mail; put the line back exactly as it was and mail again |
 | 6 | `exit`, `nmap <address>` | The rogue public port is gone; every kept one still shows (`21/tcp ftp`, `80/tcp http`) beside the router's own `22/tcp ssh` |
 | 7 | `mail reply <briefing n>` with the wallet | "It's shut. §<pay> sent to jsc…. Thank you for the help."; a later mail gets "That job is already closed." and no second mint |
+
+### Then: a lock-them-out job, the leaked word and the intruder's account shut out, to a payout
+
+Verified 2026-11-23 (v0.481.0), the lock-them-out close-out: a single-hop billing server (contract
+6891685) paid §450. A fourteenth of the contracts are lock-them-out jobs; the board names one
+`lock an intruder out of a <machine>` (`an internal <machine>` on two-hop). Nothing needs
+cracking: the briefing hands over root with the very word the intruder has. Turn the board over
+with a script, as for a file job, matching `missionShape(n).kind === 'lockout'` and `frontBox`
+(null on single-hop). It can write `lockoutJob(n)` (`role.noun`, `account`, `place`) to a scratch
+file, and `whiteHatWord(missionShape(n).keyBox.rootHash, process.env.JSHACK_SECRETS)` to another
+that the screen reads mask with and the login types from, so the word never appears in a command.
+About one offer in fourteen matches; the run matched on round 3.
+
+| # | Command | Trap |
+| --- | --- | --- |
+| 1 | `curl -d "offer=<ref>" http://<board>/accept`, then `mail read <n>` | **The briefing prints the leaked word**, as a cleanup job's does: mask it on every later read of the screen. It never names the added account |
+| 2 | `mail reply <briefing n>` with the wallet, before anything | "Whoever has that password can still get into their <machine>. Still open, no money." |
+| 3 | `ssh root@<address> -p 2222` and the word; two-hop: then `ssh root@<inside ip>` and the second word | The prompt names the box for its machine (`<stem>-billing`, …) |
+| 4 | `cat /etc/passwd` | Five rows: root, the staff user (1000), `guest`, the service account (`*`, 999) and the intruder's (`ntpd`, `toor`, `sysadm`, …) with uid `0` and root's own hash, anywhere after root. `cat` is paced: read a few seconds later. Mask the hashes too if the screen is shared |
+| 5 | `passwd root`, the new word twice, `exit`, mail | **Still open**, the same reply: the leaked word still logs in as the added account (`ssh <name>@<address> -p 2222`), and the prompt ends in `#` because uid 0 is root |
+| 6 | `nano /etc/passwd`, delete the intruder's row, `^O`, `close-nano.sh` | A blank line left where the row was is fine: the client skips blank lines. Deleting or changing a customer's row too gets "That's not all you changed. One of their own accounts no longer works as it did. No money."; put it back exactly and mail again. Changing the added account's word, its uid or its name instead is still open |
+| 7 | `exit`, then `mail reply <briefing n>` with the wallet | "They're locked out. §<pay> sent to jsc…. Thank you for the help."; the leaked word is now refused, and a later mail gets "That job is already closed." and no second mint |

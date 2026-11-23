@@ -14,7 +14,9 @@ getting rid of one of its files, or, on a wipe job, by emptying one of its table
 job, by leaving a listener on its edge and then doing one of those last three things to the
 machine behind it, or, on a cleanup job, the first white-hat kind, by getting an intruder's
 listener and implant off one of its customer's machines, or, on a close-the-door job, by
-shutting a forward someone laid on a customer's router into one of its machines. This is
+shutting a forward someone laid on a customer's router into one of its machines, or, on a
+lock-them-out job, by locking someone out of a customer's machine they hold root's password
+on. This is
 the shipped model of the missions epic, complete at **v0.441.0** (four slices, v0.438.0–v0.441.0,
 PRs #746–#749, 2026-11-01 to 2026-11-03), with the routes that leak a login added by the epic
 that followed (four slices, v0.442.0–v0.445.0, PRs #750–#753, 2026-11-03 to 2026-11-04), and a
@@ -29,7 +31,8 @@ seventh, a port forwarded into a machine ("Portforward jobs", v0.467.0), and fou
 kinds, a root login stolen, a file destroyed, a table wiped and a two-step chain ("Four black-hat
 kinds", v0.471.0–v0.475.0, PRs #785–#789, 2026-11-18 to 2026-11-20), and the first white-hat
 kind, an intruder's work removed ("Cleanup jobs", v0.479.0, PR #801, 2026-11-22), and the
-second, a way in shut ("Close-the-door jobs", v0.480.0, PR #802, 2026-11-23).
+second, a way in shut ("Close-the-door jobs", v0.480.0, PR #802, 2026-11-23), and the third,
+an intruder locked out ("Lock-them-out jobs", v0.481.0, PR #803, 2026-11-23).
 It sits
 on top of the contractor boards
 ([`hireme-architecture.md`](./hireme-architecture.md)), emailit.io
@@ -1271,9 +1274,9 @@ The twelfth kind and the first white-hat one (v0.479.0, PR #801, 2026-11-22): an
 implant on one of the client's customer's machines and a listener it holds open, and the client
 pays to have both gone. It is the backdoor job's mirror. Every kind before it has the contractor
 break in; on a white-hat job the client lets them in, so the difficulty moves from getting in to
-the hunt. Close the door followed (below); five more white-hat kinds are grilled but not yet
-built (lock them out, patch it, restore the record, forensics, incident response), each its
-own story, in
+the hunt. Close the door and lock them out followed (below); four more white-hat kinds are
+grilled but not yet built (patch it, restore the record, forensics, incident response), each
+its own story, in
 `plans/white-hat-jobs.md` while the white-hat work is in flight. The rules every white-hat kind
 shares are below with cleanup, the first to use them.
 
@@ -1455,6 +1458,83 @@ clients posting as a middleman, white-hat pay, and no money for a machine that n
   the order the rules hold them, tagged `(rogue)` or `(keep)`, so the report shows where the
   rogue line sits.
 
+## Lock-them-out jobs
+
+The fourteenth kind and the third white-hat one (v0.481.0, PR #803, 2026-11-23): someone outside
+holds root's password on one of the client's customer's machines and has added an account of their
+own with it, and the client pays to have them locked out while the customer's own accounts stay as
+they are. It is the credential job's mirror, on the rules cleanup set: root handed over in the
+briefing, the same clients posting as a middleman, white-hat pay, and no money for a machine that
+no longer boots. Its lesson is that a password change is not the whole lockout: uid 0 is root,
+whatever the account is called.
+
+- **A fourteenth of the draw.** Each of the thirteen older kinds gave up 1,980 of the 360,360ths of
+  `mission-kind-<n>` at the top of its largest piece, the lowest on a tie, as the two splits
+  before it did, so no number turned from one older kind into another. Portforward's largest
+  piece is the top of the draw, so a draw past the last cut is now a lock-them-out job. Two hops
+  on the usual `mission-template-<n>` draw, about one in three.
+- **The job** (`lockoutJob`, `core/missions/targetRoles.ts`, on `mission-lockout-<n>`): one of the
+  credential job's seven machines (`TARGET_ROLES`), then the added account's name from
+  `INTRUDER_ACCOUNTS` (`sysadm`, `toor`, `ntpd`, `syslogd`, `dbus`, `systemd-sync`, `sshd-agent`,
+  `netadm`, none of them in a username pool or a service account), then its place among the rows,
+  any slot after root's. Each machine has three lock-them-out pitches of its own.
+- **The shape** (`handedOverShape`, `missionShape.ts`, shared with cleanup): every box in scope
+  gets a root drawn from `WHITE_HAT_HASHES` on `mission-lockout-login-<n>`, the target's first,
+  which is the leaked word, route `null`, safe releases, and public `:2222` onto the first box's
+  `:22`.
+- **The target's rows** (`buildMissionKeyBoxFs`): root, the staff user (uid 1000), `guest` (1001),
+  the machine's locked service account (`*`, 999, `nologin`) as on a cleanup target, and the added
+  row at its drawn place: `<name>:<root's hash>:0:0:<name>:/var/lib/<name>:/bin/bash`, the
+  intruder having reused the word. ssh admits on the first row with the name, so the leaked word
+  logs in as root and as the added account, both landing root.
+- **The terms**: `<Client> — lock an intruder out of a <machine> — §<pay>`, `… of an internal
+  <machine>` on two hops, at the white-hat pay.
+- **The briefing says someone outside has root's password and hands over root with it**, never an
+  added account, a file or a tool, since finding the second way in is the job. On two hops the
+  edge machine's login comes first, then the inside address and the leaked word's login from the
+  edge machine:
+
+  ```text
+  Our customer's billing server takes root logins from someone outside. They want that door shut.
+  Our customer is Corva Holdings. Their network is at 195.105.40.165.
+  Someone outside has root's password on their billing server, and nobody there gave it to them.
+  Lock them out. Leave their own accounts as they are.
+  This is the password they have. The customer has given you root with it:
+    ssh root@195.105.40.165 -p 2222
+    password: <word>
+  Leave the machine running. If it no longer boots, there is no money.
+  Write to this address with your wallet address once they are locked out.
+  Still open, no money. No wallet, no money.
+  ```
+
+- **Any mail from the contractor reads the target's `/etc/passwd`** (`checkLockout`, then
+  `lockoutMiss` in `core/missions/clientMail.ts`), and on two hops the edge machine for the boot
+  rule. The rows are matched by name against the ones the server laid, and the first row of the
+  table that fits answers:
+
+  | The mail                              | The reply                                                                                        | What changes                   |
+  | ------------------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------ |
+  | No accepted job with this client      | "We have no contract with you."                                                                  | nothing                        |
+  | A completed job                       | "That job is already closed." (nothing read)                                                     | nothing                        |
+  | A machine in scope no longer boots    | "You took our machine down. No money."                                                           | nothing; the job can never pay |
+  | Still open                            | "Whoever has that password can still get into their billing server. Still open, no money."      | nothing                        |
+  | One of their own rows gone or changed | "That's not all you changed. One of their own accounts no longer works as it did. No money."     | nothing                        |
+  | Locked out, with a wallet             | "They're locked out. §450 sent to jsc…. Thank you for the help."                                 | completed, the pay minted      |
+  | Locked out, no wallet                 | "They're locked out. You sent no wallet, so there is nothing to pay. No wallet, no money."       | completed, nothing minted      |
+
+  "Still open" is root's hash still the leaked word's or empty (`su` and `passwd` treat an empty
+  hash as no password), or any row under a name the customer never had, or a second row under one
+  of theirs. So `passwd root` alone, the added account's word changed too, or the account taken
+  off uid 0 or renamed each stay open, and so does an account anyone adds. "Gone or changed" is a
+  customer's name with no row, or a row that differs from the laid one in any field but root's
+  hash, an extra field included; put back as it was, it pays. Row order is free, and anyone's
+  change counts, since the word is in every briefing of the job. A way still in answers before an
+  account of theirs spoiled, and neither reply says which.
+
+- `hireme.ts show` prints `Kind: lockout, <machine>`, each box's `Login: root / <word>` with its
+  route `none (handed over)`, the target's services, and `Accounts:` with the target's rows in
+  file order, the added one tagged `(intruder)`.
+
 ## 7. What a root finds
 
 On the boards' server, beside `/etc/hireme/boards`, **`/etc/hireme/contracts`**: one
@@ -1506,7 +1586,9 @@ each machine's other pitches; at v0.475.0 the chunk is 304,564 B against a ceili
 Cleanup jobs added the kind's shape, terms and replies and the white-hat hashes; the implant
 catalog is the server's. At v0.479.0 the chunk is 309,469 B against a ceiling of 309,575 B.
 Close-the-door jobs added the kind's shape, terms and replies and the router read the client
-does, 587 B; at v0.480.0 the chunk is 310,162 B against a ceiling of 310,175 B.
+does, 587 B; at v0.480.0 the chunk is 310,162 B against a ceiling of 310,175 B. Lock-them-out
+jobs added the kind's shape and cuts, its machines' pitches, the intruder's names and the accounts
+read the client does, 914 B; at v0.481.0 the chunk is 311,076 B against a ceiling of 311,175 B.
 
 ## 10. Proving it
 
@@ -1598,7 +1680,16 @@ does, 587 B; at v0.480.0 the chunk is 310,162 B against a ceiling of 310,175 B.
   `deny` and a fresh forward onto the machine each still open, a kept forward taken with the
   rogue one the collateral miss, put back and paid once then closed; a rival with the word
   closing a cache server and the contractor paid; a bricked router told it was taken down; and
-  no wallet completing unpaid). The
+  no wallet completing unpaid); `testMissionLockout.ts` (20: a job accepted through a board's
+  `/accept`, the briefing naming the machine and no account, file or tool, `show` tagging the
+  intruder, a mail before anything told it is still open, the leaked word logging in over
+  `:2222` as root and as the added account, both landing root, the added row read at its place,
+  `passwd root` through `passwdChange` alone still open, the row removed through a real
+  `/etc/passwd` write paid once then closed; the added account's word changed and then taken off
+  uid 0 each still open; the row removed before `passwd root` still open, then paid with the rows
+  reordered; `guest` removed with the intruder the collateral miss, put back and paid; no wallet
+  completing unpaid; a bricked target and a bricked edge machine told they were taken down; and
+  on two hops the leaked word from the edge machine and the inside machine locked paid). The
   board and pay checks each post a two-hop offer on a chosen number (21 and 17 checks at
   v0.452.0). The decoys' doors are also proven in `decoyMissionDoors.test.ts`.
 - **Mutation**: every slice's scoped run left no survivor but equivalents.
@@ -1716,6 +1807,17 @@ does, 587 B; at v0.480.0 the chunk is 310,162 B against a ceiling of 310,175 B.
   and the mail got "That's not all you closed."; with `forward 21` put back, `nmap` showed 21
   again and the mail paid §950, the wallet reading §950. A later mail was told the job is
   closed, with no second mint. No defect. Announced on valleynews.io `/dev` (story 26).
+- **One browser run at the lock-them-out close-out** (2026-11-23, v0.481.0), one fresh player in
+  Ridgemont on BARN-CONVERSION, the board turned over by a script, which matched on round 3. A
+  billing server (contract 6891685, §450, Copper Systems for Corva Holdings): the briefing gave
+  the leaked word as root's login over `:2222` and named no account. A mail before anything got
+  "Whoever has that password can still get into their billing server. Still open, no money."
+  `ssh root@<address> -p 2222` with the word landed on `corva-billing`, whose `/etc/passwd` held
+  root, `admin`, `guest`, `billing` (`*`, 999) and, last, `ntpd` with uid 0 and root's hash.
+  `passwd root` alone got the same still-open reply. The leaked word still logged in as `ntpd`,
+  at a `#` prompt; from that shell `nano /etc/passwd` lost the `ntpd` row, and the mail paid §450,
+  the wallet reading §450. The leaked word was then refused as root, and a later mail was told
+  the job is closed, with no second mint. No defect.
 
 ## What follows
 
@@ -1741,9 +1843,11 @@ The white-hat kinds still to come are in `plans/white-hat-jobs.md`; set aside fr
   `clientMail.ts`, `contractsList.ts`, `hiremeOrders.ts` (server and scripts); `missionRecords.ts`
   (a tamper job's setting, records and the check) and `recordSettings.ts` (the eight settings'
   tables, and `recordsWiped`, a wipe job's check); `targetRoles.ts` (the seven machines a
-  sabotage job can ask down, a backdoor job a way into or a credential job the root login of: each
-  target's hostname, noun and three kinds' pitches, a backdoor or chain job's draw of the machine
-  and the port, and `keyBoxSuffix`); `missionFileItem.ts` (a file or infiltrate job's item and its pitches,
+  sabotage job can ask down, a backdoor job a way into, a credential job the root login of, a
+  cleanup job an implant off or a lock-them-out job an intruder out of: each target's hostname,
+  noun and five kinds' pitches, a
+  backdoor or chain job's draw of the machine and the port, a lock-them-out job's draw of the
+  machine, the intruder's account and its place, and `keyBoxSuffix`); `missionFileItem.ts` (a file or infiltrate job's item and its pitches,
   its file's name and place, and the bytes of the company's file and the client's, server only);
   `portforwardJob.ts` (a portforward job's machine, its public and inside ports, and its
   pitches); `closeDoorJob.ts` (a close-the-door job's machine and its rogue public port, from

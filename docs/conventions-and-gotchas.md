@@ -291,6 +291,17 @@ score, treat `killed` as `killed + timeout` when judging, re-measure a suspiciou
 believing a number, and quote the run with the fewest timeouts when reporting one. A batch run is
 for finding survivors quickly; a single-file run is for scoring.
 
+**A survivor with `testsCompleted: 0` was never tested; check it by hand.** Stryker marks a
+mutant in code that runs when a module loads as `static`, and in a narrowed battery it can report
+such a mutant `Survived` after running no test at all. The lock-them-out slice's `missionKeyBoxFs`
+run listed nine survivors, among them `added === null` inverted and `withAddedRow` returning
+nothing, either of which breaks every box the suite builds. Each had `static: true` and
+`testsCompleted: 0` in `mutation.json`, and all eight checked by hand were killed. So read
+`static` and `testsCompleted` beside every survivor before writing a test for it, and confirm a
+zero-run one with the hand-verification harness above, its file restored in a `finally`. A hand
+run whose file fails to load (`Tests  no tests`, a `TypeError` at import) is a kill only once the
+error is the mutant's, read from stderr.
+
 **Run `npm run encode` before `npx stryker run`, or lose ten minutes to a blank error.**
 The `test:mutation` script has a `pretest:mutation` hook that runs it; invoking Stryker directly to
 pass `--mutate` skips the hook, and the run then dies with `Error: Something went wrong in the
