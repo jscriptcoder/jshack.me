@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildMissionFrontBoxFs, buildMissionKeyBoxFs } from './missionKeyBoxFs.js';
 import {
+  missionKind,
   missionShape,
   MISSION_ROUTE_DAY,
   type MissionDecoy,
@@ -20,6 +21,7 @@ import { isMissionNumber } from '../missions/missionNetwork.js';
 import { SNMP_ROUTE_NUMBER } from '../../test/factories/snmpRouteContract.js';
 import { DEPLOYMENT_SECRETS } from '../../test/factories/webRouteContract.js';
 import { portforwardJob, type PortforwardService } from '../missions/portforwardJob.js';
+import { lockoutJob } from '../missions/targetRoles.js';
 import { storeIn } from '../redis/datadir.js';
 import { formatRedisConf } from './generateRedisStore.js';
 import { md5 } from './md5.js';
@@ -694,5 +696,65 @@ describe("a portforward job's target", () => {
     const box = buildMissionKeyBoxFs(numberServing('web'));
 
     expect(fileAt(box, ['var', 'www', 'html', 'index.html'])).toContain('It works!');
+  });
+});
+
+describe("a cleanup or lock-them-out job's target", () => {
+  it("never gives the staff user the name of the machine's service account", () => {
+    const numbers = Array.from({ length: 20000 }, (_unused, index) => index * 7919 + 3)
+      .filter(isMissionNumber)
+      .filter((missionNumber) => ['cleanup', 'lockout'].includes(missionKind(missionNumber)));
+    for (const missionNumber of numbers) {
+      const names = fileAt(buildMissionKeyBoxFs(missionNumber), ['etc', 'passwd'])
+        .trimEnd()
+        .split('\n')
+        .map((row) => row.split(':')[0]);
+      expect(new Set(names).size, `contract ${missionNumber}`).toBe(names.length);
+    }
+  });
+});
+
+describe("a lock-them-out job's target", () => {
+  /** A spread of lock-them-out contracts. */
+  const lockoutNumbers = Array.from({ length: 9000 }, (_unused, index) => index * 1663 + 3)
+    .filter(isMissionNumber)
+    .filter((missionNumber) => missionKind(missionNumber) === 'lockout');
+
+  const rowsOf = (missionNumber: number): readonly string[] =>
+    fileAt(buildMissionKeyBoxFs(missionNumber), ['etc', 'passwd']).trimEnd().split('\n');
+
+  it("adds the intruder's account to the customer's own, with root's uid and the leaked word", () => {
+    expect(lockoutNumbers.length).toBeGreaterThan(200);
+    for (const missionNumber of lockoutNumbers) {
+      const { role, account } = lockoutJob(missionNumber);
+      const rootHash = missionShape(missionNumber).keyBox.rootHash;
+      const rows = rowsOf(missionNumber);
+      const label = `contract ${missionNumber}`;
+
+      expect(rows, label).toHaveLength(5);
+      expect(rows[0], label).toBe(`root:${rootHash}:0:0:root:/root:/bin/bash`);
+      expect(rows, label).toContain(
+        `${account}:${rootHash}:0:0:${account}:/var/lib/${account}:/bin/bash`,
+      );
+      expect(rows, label).toContain(
+        `${role.serviceAccount}:*:999:999:${role.serviceAccount}:/var/lib/${role.serviceAccount}:/usr/sbin/nologin`,
+      );
+      expect(rows.filter((row) => /^[^:]*:[^:]*:1000:1000:/.test(row)), label).toHaveLength(1);
+      expect(rows.filter((row) => row.startsWith('guest:')), label).toHaveLength(1);
+      // The added name is never one the box gives an account of its own.
+      expect(new Set(rows.map((row) => row.split(':')[0])).size, label).toBe(5);
+    }
+  });
+
+  it('puts the added row in any slot after root, each drawn', () => {
+    const slots = new Set(
+      lockoutNumbers.map((missionNumber) =>
+        rowsOf(missionNumber).findIndex((row) =>
+          row.startsWith(`${lockoutJob(missionNumber).account}:`),
+        ),
+      ),
+    );
+
+    expect([...slots].sort()).toEqual([1, 2, 3, 4]);
   });
 });

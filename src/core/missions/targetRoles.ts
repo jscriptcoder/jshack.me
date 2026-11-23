@@ -31,6 +31,9 @@ export type TargetRole = {
   /** Why a client, speaking for the customer who owns it, wants an intruder's implant found on it
    *  and removed: a white-hat job, one of which opens a cleanup job's briefing. */
   readonly cleanupPitches: readonly string[];
+  /** Why a client, speaking for the customer who owns it, wants whoever holds its leaked root
+   *  password locked out: a white-hat job, one of which opens a lock-them-out job's briefing. */
+  readonly lockoutPitches: readonly string[];
   /** The account the machine's own service runs under, which the intruder's listener runs as on a
    *  cleanup target: an account like that running `nc` is out of place, a clue for a sharp eye. */
   readonly serviceAccount: string;
@@ -64,6 +67,11 @@ const TARGET_ROLES: readonly TargetRole[] = [
       "Someone has been watching our customer's cameras from outside. They want their recorder back to themselves.",
       'Our customer found their recorder talking to an address nobody there knows. They need it cleaned up.',
     ],
+    lockoutPitches: [
+      "Someone outside has the root password to our customer's camera recorder. They want that person shut out.",
+      "Our customer's recorder login turned up somewhere it should not be. They need whoever has it kept out.",
+      "Somebody has been logging in to our customer's recorder as root, and it is nobody who works there.",
+    ],
   },
   {
     noun: 'backup server',
@@ -88,6 +96,11 @@ const TARGET_ROLES: readonly TargetRole[] = [
       "Our customer's backup server is copying more than it should, to someone it should not. Make it stop.",
       "Every night someone reads our customer's backups from outside. They want the box clean again.",
       'Our customer thinks something got onto their backup server. Find it and get it out.',
+    ],
+    lockoutPitches: [
+      "The root password to our customer's backup server has leaked. They want the person holding it locked out.",
+      "Someone outside can log in to our customer's backups as root. They want that door closed for good.",
+      "Our customer's backup server has had root logins from nobody they know. They want them stopped.",
     ],
   },
   {
@@ -114,6 +127,11 @@ const TARGET_ROLES: readonly TargetRole[] = [
       "The box that watches our customer's network is being watched itself. Get rid of whoever is watching.",
       "Our customer's monitoring went quiet at odd hours last month. They think someone put something on it.",
     ],
+    lockoutPitches: [
+      "Someone has root on our customer's monitoring station and is not one of theirs. They want them out.",
+      "The root login to our customer's monitoring station was passed around outside. They need it to stop working.",
+      "Our customer's monitoring station shows a root login nobody there made. They want the intruder locked out.",
+    ],
   },
   {
     noun: 'build server',
@@ -138,6 +156,11 @@ const TARGET_ROLES: readonly TargetRole[] = [
       "Something on our customer's build server ships with every release, and they did not write it. Get it off.",
       "Our customer's builds have been calling out to an address nobody there recognises. Clean the box.",
       "A stranger has had a way into our customer's build server for weeks. They want it closed today.",
+    ],
+    lockoutPitches: [
+      "A root password for our customer's build server has been posted somewhere public. They want it worthless.",
+      "Someone outside has been logging in to our customer's build server as root. They want them kept out.",
+      "Our customer thinks a former contractor still has root on their build server. They want that ended.",
     ],
   },
   {
@@ -164,6 +187,11 @@ const TARGET_ROLES: readonly TargetRole[] = [
       "Something on our customer's licence server answers to the outside world. They want it gone.",
       "Our customer's licence server keeps a door open that nobody there opened. Shut it for them.",
     ],
+    lockoutPitches: [
+      "Our customer's licence server root password is in someone else's hands. They want that person locked out.",
+      "Someone outside keeps logging in to our customer's licence server as root. They want it to stop.",
+      "The root login to our customer's licence server has leaked. They need the intruder shut out of it.",
+    ],
   },
   {
     noun: 'door-access controller',
@@ -189,6 +217,11 @@ const TARGET_ROLES: readonly TargetRole[] = [
       "Someone outside can open our customer's doors. They want their access controller back in their own hands.",
       'Our customer found their door-access controller talking to a stranger. Make it stop talking.',
     ],
+    lockoutPitches: [
+      "Someone outside has root on our customer's door controller. They want them out before a door opens for them.",
+      "The root password to our customer's door-access controller leaked. They want the person holding it locked out.",
+      "Our customer's door controller has had root logins nobody there made. They need them stopped.",
+    ],
   },
   {
     noun: 'billing server',
@@ -213,6 +246,11 @@ const TARGET_ROLES: readonly TargetRole[] = [
       "Our customer's invoices are being read before they go out. Something is on their billing server.",
       "Somebody has a way into our customer's billing server, and they want it closed before month end.",
       "Our customer's billing server has been leaking their accounts to someone. Find the leak and close it.",
+    ],
+    lockoutPitches: [
+      "Someone has the root password to our customer's billing server. They want them locked out of it today.",
+      "Our customer's billing server takes root logins from someone outside. They want that door shut.",
+      "The root login to our customer's billing server was sold on. They need it to open nothing.",
     ],
   },
 ];
@@ -261,6 +299,44 @@ export const cleanupJob = (missionNumber: number): CleanupJob => {
   return { role, port: prng.pick(BACKDOOR_PORTS) };
 };
 
+/** The names an intruder gives the account they add to a lock-them-out target, each passing for a
+ *  system account and none a name any generated box gives an account of its own. */
+const INTRUDER_ACCOUNTS = [
+  'sysadm',
+  'toor',
+  'ntpd',
+  'syslogd',
+  'dbus',
+  'systemd-sync',
+  'sshd-agent',
+  'netadm',
+] as const;
+
+/** The rows a lock-them-out target's `/etc/passwd` holds before the intruder's: root, the staff
+ *  user, `guest` and the machine's service account. */
+const CUSTOMER_ROWS = 4;
+
+/** What a lock-them-out job is about: the machine whose root password leaked, the account the
+ *  intruder added to it with root's uid, and the row that account takes in its `/etc/passwd`,
+ *  counted from root's at 0. */
+export type LockoutJob = {
+  readonly role: TargetRole;
+  readonly account: string;
+  readonly place: number;
+};
+
+/** The machine a lock-them-out job's client wants the intruder locked out of and the name of the
+ *  account they added, drawn on a stream of their own, the machine first, so nothing the contract
+ *  drew before them moves. */
+export const lockoutJob = (missionNumber: number): LockoutJob => {
+  const prng = createPrng(`mission-lockout-${missionNumber}`);
+  const role = prng.pick(TARGET_ROLES);
+  const account = prng.pick(INTRUDER_ACCOUNTS);
+  // Any slot after root's: a generated file always opens with root, so an added row above it
+  // would be a tell of its own.
+  return { role, account, place: prng.nextInt(1, CUSTOMER_ROWS) };
+};
+
 /** What a chain job asks for: a listener left on the front box, on one port, and, when its last
  *  step takes it down, the machine behind it. */
 export type ChainJob = {
@@ -278,8 +354,8 @@ export const chainJob = (missionNumber: number): ChainJob => {
 };
 
 /** The suffix on the hostname of the box in a contract's key-box slot: the box holding the key,
- *  the file or the records, or on a sabotage, backdoor, credential, cleanup, portforward or
- *  close-the-door job, or a chain
+ *  the file or the records, or on a sabotage, backdoor, credential, cleanup, lock-them-out,
+ *  portforward or close-the-door job, or a chain
  *  job whose last step takes it down, the machine the job is about, named for what it is. */
 export const keyBoxSuffix = (missionNumber: number): string => {
   const kind = missionKind(missionNumber);
@@ -287,6 +363,7 @@ export const keyBoxSuffix = (missionNumber: number): string => {
   if (kind === 'backdoor') return backdoorJob(missionNumber).role.suffix;
   if (kind === 'credential') return credentialRole(missionNumber).suffix;
   if (kind === 'cleanup') return cleanupJob(missionNumber).role.suffix;
+  if (kind === 'lockout') return lockoutJob(missionNumber).role.suffix;
   if (kind === 'chain') {
     // A chain job's file or records sit where a destroy or wipe job's do.
     return chainFinal(missionNumber) === 'sabotage'

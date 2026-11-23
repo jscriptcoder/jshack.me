@@ -80,7 +80,7 @@ describe('what a chain job names', () => {
 
   /** Chain jobs as they were before their last step was drawn: the listener's port, the pay, the
    *  client, and the digest of the front box with the gateway's forwards and admin, which the
-   *  last step must never move. */
+   *  last step must never move. One that later became a lock-them-out job was dropped. */
   const BEFORE_THE_LAST_STEP = [
     [110868, 1337, 4500, 'marlowe-ops', 'f41d91ef41c92f1f45b17258abdc20bb'],
     [213815, 4444, 6750, 'orchard-sec', '3fac3b7a9ff1503a909dd7e7c6c9c47f'],
@@ -89,7 +89,6 @@ describe('what a chain job names', () => {
     [657279, 12345, 6650, 'marlowe-ops', 'f2980404e02fb16fb2a9106f190a142a'],
     [704793, 5555, 5300, 'wexley-desk', '3d0d20a93d1c7ef0f5c0be5f95542c9b'],
     [720631, 1337, 4300, 'wexley-desk', '25e4001cf42e076b5d963ad9bd0036ee'],
-    [1013634, 9001, 4550, 'copper-ops', '256096c252a7f42e2c221b7eeb3c0842'],
     [1029472, 9001, 5200, 'greyline-jobs', '2b74807946c67516397de98c525d7a24'],
     [1377908, 7777, 6100, 'orchard-sec', '1f46b60ae052691b3271fa23c286f8f6'],
     [1504612, 5555, 5800, 'ashgrove-it', 'a6d567ce2ef21ef2f233e57639b5487e'],

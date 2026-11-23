@@ -6,8 +6,9 @@ import {
   showReport,
 } from './hiremeOrders.js';
 import { missionLeakPath } from './missionLeak.js';
-import { backdoorJob, chainJob, cleanupJob } from './targetRoles.js';
+import { backdoorJob, chainJob, cleanupJob, lockoutJob } from './targetRoles.js';
 import { cleanupPlant } from './cleanupPlant.js';
+import { buildMissionKeyBoxFs } from '../generation/missionKeyBoxFs.js';
 import { portforwardJob } from './portforwardJob.js';
 import { closeDoorJob } from './closeDoorJob.js';
 import { firmwarePackageOf } from '../packages/packageVersions.js';
@@ -1060,6 +1061,91 @@ describe('showReport on a cleanup job', () => {
     expect(frontAt).toBeGreaterThan(-1);
     expect(targetAt).toBeGreaterThan(frontAt);
     expect(lines.slice(-3)).toEqual(plantLines(TWO_HOP));
+  });
+
+  it('says the login words cannot be read without the pools, and prints no key', () => {
+    const report = showReport(SINGLE_HOP, SECRET, undefined);
+
+    expect(report.split('\n')).toContain('  Login:    root / (JSHACK_SECRETS is not set)');
+    expect(report).not.toContain('Key');
+    expect(report).not.toContain('Storage:');
+  });
+});
+
+describe('showReport on a lock-them-out job', () => {
+  const SECRET = 'operator-test-secret';
+  const lockoutWhere = (twoHop: boolean): number =>
+    Array.from({ length: 8000 }, (_unused, index) => index * 256 + 2).find((candidate) => {
+      const shape = missionShape(candidate);
+      return shape.kind === 'lockout' && (shape.frontBox !== null) === twoHop;
+    })!;
+  const SINGLE_HOP = lockoutWhere(false);
+  const TWO_HOP = lockoutWhere(true);
+
+  /** The line that closes a lock-them-out report: the target's accounts in the order its
+   *  `/etc/passwd` holds them, the one the intruder added tagged. */
+  const accountsLine = (missionNumber: number): string => {
+    const { account } = lockoutJob(missionNumber);
+    const etc = buildMissionKeyBoxFs(missionNumber).entries.get('etc');
+    const passwd = etc?.kind === 'directory' ? etc.entries.get('passwd') : undefined;
+    const names = (passwd?.kind === 'file' ? passwd.content : '')
+      .trimEnd()
+      .split('\n')
+      .map((row) => row.split(':')[0]);
+    return `  Accounts: ${names.map((name) => (name === account ? `${name} (intruder)` : name)).join(', ')}`;
+  };
+
+  it('prints the report line by line: the machine, the leaked word handed over, and the accounts with the intruder tagged', () => {
+    const shape = missionShape(SINGLE_HOP);
+    const terms = missionTerms(SINGLE_HOP);
+    const { role } = lockoutJob(SINGLE_HOP);
+    const decoyPorts = shape.forwards
+      .slice(shape.forwards.length - shape.keyBox.decoys.length)
+      .map(({ internalPort }) => internalPort);
+
+    expect(showReport(SINGLE_HOP, SECRET, DEPLOYMENT_SECRETS)).toBe(
+      [
+        `Contract ${SINGLE_HOP} at ${missionAddressForNumber(SINGLE_HOP)} (essid ${missionEssid(SINGLE_HOP)})`,
+        `  Client:   ${terms.client.company} (${terms.client.handle}@emailit.io)`,
+        `  Target:   ${terms.targetCompany}, ${shape.stem}-gw / ${shape.stem}-${role.suffix}`,
+        `  Pay:      §${terms.pay.toLocaleString('en-US')}`,
+        '  Template: single-hop',
+        `  Kind:     lockout, ${role.noun}`,
+        '  Route:    none (handed over)',
+        ...shape.forwards.map(
+          (forward, index) =>
+            `  Forward:  :${forward.publicPort} -> target :${forward.internalPort}` +
+            (index >= shape.forwards.length - shape.keyBox.decoys.length ? ' (decoy)' : ''),
+        ),
+        '  Services:',
+        ...shape.keyBox.services.map(
+          (service) =>
+            `    ${service.service} (${service.package} ${service.version}) :${service.port}` +
+            (decoyPorts.includes(service.port) ? ' (decoy)' : ''),
+        ),
+        `  Login:    root / ${plaintextFor(shape.keyBox.rootHash)}`,
+        accountsLine(SINGLE_HOP),
+      ].join('\n'),
+    );
+  });
+
+  it('hands over a login on each box of a two-hop job, the accounts under the target box', () => {
+    const { stem, frontBox, keyBox } = missionShape(TWO_HOP);
+    const { role } = lockoutJob(TWO_HOP);
+    const lines = showReport(TWO_HOP, SECRET, DEPLOYMENT_SECRETS).split('\n');
+    const frontAt = lines.indexOf(`  Front box: ${stem}-web`);
+    const targetAt = lines.indexOf(`  Target box: ${stem}-${role.suffix}`);
+
+    expect(lines.filter((line) => line === '    Route:    none (handed over)')).toHaveLength(2);
+    expect(
+      lines.indexOf(`    Login:    root / ${plaintextFor(frontBox!.rootHash)}`),
+    ).toBeGreaterThan(frontAt);
+    expect(lines.indexOf(`    Login:    root / ${plaintextFor(keyBox.rootHash)}`)).toBeGreaterThan(
+      targetAt,
+    );
+    expect(frontAt).toBeGreaterThan(-1);
+    expect(targetAt).toBeGreaterThan(frontAt);
+    expect(lines.at(-1)).toBe(accountsLine(TWO_HOP));
   });
 
   it('says the login words cannot be read without the pools, and prints no key', () => {

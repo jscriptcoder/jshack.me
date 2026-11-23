@@ -595,7 +595,7 @@ describe('generateHomeLan for a contract network', () => {
   });
 
   it('stands a front box beside the key box on a two-hop contract, where the shape says', () => {
-    for (const missionNumber of [8383, 66056, 134098, 326872]) {
+    for (const missionNumber of [8383, 66056, 134098, 326876]) {
       const lan = generateHomeLan(`mission-${missionNumber}`);
       const { stem, keyBox, frontBox } = missionShape(missionNumber);
 
@@ -610,7 +610,7 @@ describe('generateHomeLan for a contract network', () => {
     }
   });
 
-  it('names a sabotage target for the machine the client wants down, and every key box but a backdoor, portforward, credential, chain, cleanup or close-the-door target as before', () => {
+  it('names a sabotage target for the machine the client wants down, and every key box but a backdoor, portforward, credential, chain, cleanup, lock-them-out or close-the-door target as before', () => {
     // The board names the machine; the box the contractor lands on carries the name to match.
     const suffixByMachine: Readonly<Record<string, string>> = {
       'CCTV recorder': 'nvr',
@@ -641,6 +641,7 @@ describe('generateHomeLan for a contract network', () => {
         kind !== 'credential' &&
         kind !== 'chain' &&
         kind !== 'cleanup' &&
+        kind !== 'lockout' &&
         kind !== 'closedoor'
       );
     });
@@ -695,7 +696,10 @@ describe('generateHomeLan for a contract network', () => {
     }
   });
 
-  it('names a cleanup target for the machine the client wants cleaned up, as a sabotage target is named', () => {
+  it.each([
+    { kind: 'cleanup', name: 'cleanup', verb: 'clean up' },
+    { kind: 'lockout', name: 'lock-them-out', verb: 'lock an intruder out of' },
+  ] as const)('names a $name target for the machine the job is on, as a sabotage target is named', ({ kind: whiteHatKind, verb }) => {
     // The white-hat and black-hat kinds share the machines, so a hostname alone never says
     // which job a box is.
     const suffixByMachine: Readonly<Record<string, string>> = {
@@ -707,19 +711,22 @@ describe('generateHomeLan for a contract network', () => {
       'door-access controller': 'access',
       'billing server': 'billing',
     };
-    const cleanup = CONTRACT_NUMBERS.filter(
-      (missionNumber) => missionShape(missionNumber).kind === 'cleanup',
+    const targets = CONTRACT_NUMBERS.filter(
+      (missionNumber) => missionShape(missionNumber).kind === whiteHatKind,
     );
     const suffixOf = (missionNumber: number): string => {
-      const machine = missionTerms(missionNumber).kind.replace(/^clean up (a|an internal) /, '');
+      const machine = missionTerms(missionNumber).kind.replace(
+        new RegExp(`^${verb} (a|an internal) `),
+        '',
+      );
       return suffixByMachine[machine] ?? `unknown machine ${machine}`;
     };
 
     expect(
-      new Set(cleanup.map((missionNumber) => missionShape(missionNumber).frontBox === null)),
+      new Set(targets.map((missionNumber) => missionShape(missionNumber).frontBox === null)),
     ).toEqual(new Set([true, false]));
-    expect(new Set(cleanup.map(suffixOf))).toEqual(new Set(Object.values(suffixByMachine)));
-    for (const missionNumber of cleanup) {
+    expect(new Set(targets.map(suffixOf))).toEqual(new Set(Object.values(suffixByMachine)));
+    for (const missionNumber of targets) {
       const lan = generateHomeLan(`mission-${missionNumber}`);
       const { stem, keyBox, frontBox } = missionShape(missionNumber);
       const hostnameAt = (octet: number) =>

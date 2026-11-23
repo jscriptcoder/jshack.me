@@ -90,7 +90,7 @@ import { SNMPD_LOG_PERMISSIONS } from '../logging/snmpdLog.js';
 import { REDIS_LOG_PERMISSIONS } from '../logging/redisLog.js';
 import { formatRedisConf, generateRedisStore } from './generateRedisStore.js';
 import { VSFTPD_LOG_PERMISSIONS } from '../logging/vsftpdLog.js';
-import { createPrng } from './prng.js';
+import { createPrng, type Prng } from './prng.js';
 import { CRACK_CHANCE, drawPasswordHash } from './passwordPools.js';
 import { formatSnmpdState, SNMPD_STATE_PERMISSIONS } from '../snmp/rwCommunity.js';
 import { SNMPD_CONF_PERMISSIONS } from '../snmp/conf.js';
@@ -100,7 +100,7 @@ import { generateHomeLan } from './generateHomeLan.js';
 import { MYSQL_USERNAMES } from './pools/database.js';
 import { usernamePool } from './pools/usernames.js';
 import { missionEssid } from '../missions/missionNetwork.js';
-import { cleanupJob } from '../missions/targetRoles.js';
+import { cleanupJob, lockoutJob } from '../missions/targetRoles.js';
 import {
   missionKind,
   missionShape,
@@ -199,16 +199,59 @@ const serviceAccountRow = (account: string): PasswdUser => ({
   shell: '/usr/sbin/nologin',
 });
 
+/** The account a lock-them-out target's intruder added with root's uid and root's word, the one
+ *  they already held: a second way in as root that a changed root password leaves open. */
+const addedAccountRow = (account: string, rootHash: string): PasswdUser => ({
+  username: account,
+  passwordHash: rootHash,
+  uid: 0,
+  gid: 0,
+  gecos: account,
+  home: `/var/lib/${account}`,
+  shell: SHELL,
+});
+
+/** What a target's `/etc/passwd` holds beyond root, the staff user and `guest`: the machine's
+ *  service account, and the account an intruder added at its place among the rows. */
+type ExtraAccounts = {
+  readonly serviceAccount: string | null;
+  readonly added: { readonly account: string; readonly place: number } | null;
+};
+
+const NO_EXTRA_ACCOUNTS: ExtraAccounts = { serviceAccount: null, added: null };
+
+/** `rows` with the intruder's row at its place, or as they are on a box nobody added one to. */
+const withAddedRow = (
+  rows: readonly PasswdUser[],
+  added: ExtraAccounts['added'],
+  rootHash: string,
+): readonly PasswdUser[] =>
+  added === null
+    ? rows
+    : [
+        ...rows.slice(0, added.place),
+        addedAccountRow(added.account, rootHash),
+        ...rows.slice(added.place),
+      ];
+
+/** The staff user's name, drawn again while it is the machine's service account's: a backup
+ *  server's staff user can be called `backup`, and of two rows with one name only the first ever
+ *  logs in. */
+const staffUsername = (prng: Prng, serviceAccount: string | null): string => {
+  const drawn = prng.pick(usernamePool(undefined));
+  return drawn === serviceAccount ? staffUsername(prng, serviceAccount) : drawn;
+};
+
 const buildMissionBoxFs = (
   missionNumber: number,
   box: MissionBox,
   streams: BoxStreams,
-  serviceAccount: string | null = null,
+  { serviceAccount, added }: ExtraAccounts = NO_EXTRA_ACCOUNTS,
 ): Directory => {
   const prng = createPrng(streams.accounts);
-  const username = prng.pick(usernamePool(undefined));
+  const username = staffUsername(prng, serviceAccount);
 
-  const passwd = generatePasswd([
+  const customerRows: readonly PasswdUser[] = [
     {
       username: 'root',
       passwordHash: box.rootHash,
@@ -237,7 +280,8 @@ const buildMissionBoxFs = (
       shell: SHELL,
     },
     ...(serviceAccount === null ? [] : [serviceAccountRow(serviceAccount)]),
-  ]);
+  ];
+  const passwd = generatePasswd(withAddedRow(customerRows, added, box.rootHash));
 
   // sshd always runs; the route's exposed service runs too on every route but hydra.
   const runningServices: readonly MissionService[] = box.services;
@@ -427,6 +471,21 @@ const buildMissionBoxFs = (
   return withPackageManifest(tree, { versions: box.versions });
 };
 
+/** The accounts a contract's target holds beyond the three every box has: a cleanup target's
+ *  service account, which its intruder's listener runs under, and a lock-them-out target's, beside
+ *  the account its intruder added. */
+const extraAccountsOf = (missionNumber: number): ExtraAccounts => {
+  const kind = missionKind(missionNumber);
+  if (kind === 'cleanup') {
+    return { serviceAccount: cleanupJob(missionNumber).role.serviceAccount, added: null };
+  }
+  if (kind === 'lockout') {
+    const { role, account, place } = lockoutJob(missionNumber);
+    return { serviceAccount: role.serviceAccount, added: { account, place } };
+  }
+  return NO_EXTRA_ACCOUNTS;
+};
+
 export const buildMissionKeyBoxFs = (missionNumber: number): Directory =>
   buildMissionBoxFs(
     missionNumber,
@@ -436,9 +495,7 @@ export const buildMissionKeyBoxFs = (missionNumber: number): Directory =>
       application: `mission-database-${missionNumber}`,
       cache: `mission-cache-${missionNumber}`,
     },
-    missionKind(missionNumber) === 'cleanup'
-      ? cleanupJob(missionNumber).role.serviceAccount
-      : null,
+    extraAccountsOf(missionNumber),
   );
 
 /** A two-hop contract's front box: built as the key box is, from its own record and on its own

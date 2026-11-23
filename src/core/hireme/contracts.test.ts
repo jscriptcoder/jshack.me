@@ -29,7 +29,7 @@ import {
   missionShape,
   type ChainFinal,
 } from '../missions/missionShape.js';
-import { backdoorJob, chainJob, cleanupJob } from '../missions/targetRoles.js';
+import { backdoorJob, chainJob, cleanupJob, lockoutJob } from '../missions/targetRoles.js';
 import { portforwardJob } from '../missions/portforwardJob.js';
 import { closeDoorJob } from '../missions/closeDoorJob.js';
 import {
@@ -138,6 +138,18 @@ const cleanupNumber = (twoHop: boolean): number => {
 
 const CLEANUP_SINGLE_HOP = cleanupNumber(false);
 const CLEANUP_TWO_HOP = cleanupNumber(true);
+
+/** The first lock-them-out contract from 70,000 up, on one hop or on two. */
+const lockoutNumber = (twoHop: boolean): number => {
+  for (let candidate = 70_000; candidate < 2_000_000; candidate++) {
+    if (!isMissionNumber(candidate) || missionKind(candidate) !== 'lockout') continue;
+    if ((missionShape(candidate).frontBox !== null) === twoHop) return candidate;
+  }
+  throw new Error('no lock-them-out contract');
+};
+
+const LOCKOUT_SINGLE_HOP = lockoutNumber(false);
+const LOCKOUT_TWO_HOP = lockoutNumber(true);
 
 /** The machine a backdoor contract wants a way into, read off the board's line. */
 const backdoorMachineOf = (missionNumber: number): string =>
@@ -1372,6 +1384,128 @@ describe('accepting an offer', () => {
       });
 
       expect(alertOf(await acceptWithoutPools('offer=bbb', store))).toMatch(/^Contract accepted\./);
+      expect(accepts).toHaveLength(1);
+    });
+  });
+
+  describe('on a lock-them-out job', () => {
+    const offeredLockout = () =>
+      boardStore({
+        offers: [
+          { number: LOCKOUT_SINGLE_HOP, ref: 'lll' },
+          { number: LOCKOUT_TWO_HOP, ref: 'mmm' },
+        ],
+      });
+
+    it('writes a single-hop briefing naming the machine, and handing over root with the word that leaked', async () => {
+      const { store, accepts } = offeredLockout();
+      const terms = missionTerms(LOCKOUT_SINGLE_HOP);
+      const { role } = lockoutJob(LOCKOUT_SINGLE_HOP);
+      const address = missionAddressForNumber(LOCKOUT_SINGLE_HOP);
+      const word = plaintextFor(missionShape(LOCKOUT_SINGLE_HOP).keyBox.rootHash);
+
+      await accept('offer=lll', store);
+
+      expect(accepts[0]!.briefing).toEqual({
+        sender: `${terms.client.handle}@emailit.io`,
+        subject: `Contract: ${terms.targetCompany}`,
+        body: [
+          terms.pitch,
+          '',
+          `Our customer is ${terms.targetCompany}. Their network is at ${address}.`,
+          '',
+          `Someone outside has root's password on their ${role.noun}, and nobody there gave it to them.`,
+          'Lock them out. Leave their own accounts as they are.',
+          '',
+          'This is the password they have. The customer has given you root with it:',
+          '',
+          `  ssh root@${address} -p 2222`,
+          `  password: ${word}`,
+          '',
+          'Leave the machine running. If it no longer boots, there is no money.',
+          'Write to this address with your wallet address once they are locked out.',
+          'Still open, no money. No wallet, no money.',
+          '',
+          `-- ${terms.client.company}`,
+          '',
+        ].join('\n'),
+      });
+    });
+
+    it('hands a two-hop contractor the edge machine, then the word that leaked for the machine inside', async () => {
+      const { store, accepts } = offeredLockout();
+      const terms = missionTerms(LOCKOUT_TWO_HOP);
+      const { role } = lockoutJob(LOCKOUT_TWO_HOP);
+      const { keyBox, frontBox } = missionShape(LOCKOUT_TWO_HOP);
+      const address = missionAddressForNumber(LOCKOUT_TWO_HOP);
+      const inside = `${lanSubnetPrefix(missionEssid(LOCKOUT_TWO_HOP))}.${keyBox.octet}`;
+
+      await accept('offer=mmm', store);
+
+      expect(accepts[0]!.briefing.body).toBe(
+        [
+          terms.pitch,
+          '',
+          `Our customer is ${terms.targetCompany}. Their network is at ${address}.`,
+          '',
+          `Someone outside has root's password on their ${role.noun}, and nobody there gave it to them.`,
+          'Lock them out. Leave their own accounts as they are.',
+          '',
+          'They have given you root on the machine on the edge of their network:',
+          '',
+          `  ssh root@${address} -p 2222`,
+          `  password: ${plaintextFor(frontBox!.rootHash)}`,
+          '',
+          `The ${role.noun} is inside their network, at ${inside}.`,
+          'This is the password they have. From the edge machine:',
+          '',
+          `  ssh root@${inside}`,
+          `  password: ${plaintextFor(keyBox.rootHash)}`,
+          '',
+          'Leave both machines running. If either no longer boots, there is no money.',
+          'Write to this address with your wallet address once they are locked out.',
+          'Still open, no money. No wallet, no money.',
+          '',
+          `-- ${terms.client.company}`,
+          '',
+        ].join('\n'),
+      );
+    });
+
+    // Changing root's password is not the whole lockout, and the briefing must not say so: the
+    // account the intruder added is the contractor's to find.
+    it('names no added account, no file and no tool', async () => {
+      for (const [missionNumber, ref] of [
+        [LOCKOUT_SINGLE_HOP, 'lll'],
+        [LOCKOUT_TWO_HOP, 'mmm'],
+      ] as const) {
+        const { store, accepts } = offeredLockout();
+        const { account } = lockoutJob(missionNumber);
+
+        await accept(`offer=${ref}`, store);
+        const { body } = accepts[0]!.briefing;
+
+        expect(body).not.toContain(account);
+        expect(body).not.toMatch(/\/etc|passwd|uid|nano|added|another account/i);
+      }
+    });
+
+    // The words are the server's, so a briefing that cannot carry them is no briefing.
+    it('answers nothing, asking the store nothing, when the password pools are unset', async () => {
+      const { store, accepts } = offeredLockout();
+
+      expect(await acceptWithoutPools('offer=mmm', store)).toBeNull();
+      expect(accepts).toEqual([]);
+    });
+
+    // Nothing is laid on a lock-them-out job's boxes by the server: the added account ships with
+    // the box.
+    it('takes the job without the mission secret', async () => {
+      const { store, accepts } = offeredLockout();
+
+      expect(alertOf(await acceptWithoutSecret('offer=lll', store))).toMatch(
+        /^Contract accepted\./,
+      );
       expect(accepts).toHaveLength(1);
     });
   });

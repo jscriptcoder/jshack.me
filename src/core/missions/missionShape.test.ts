@@ -11,6 +11,7 @@ import {
   type MissionForward,
   type MissionRoute,
   type MissionService,
+  type MissionKind,
   type MissionShape,
 } from './missionShape.js';
 import { liveCve } from '../cve/liveCve.js';
@@ -115,11 +116,14 @@ const SAMPLE_NUMBERS = Array.from({ length: 2000 }, (_unused, index) => index * 
 
 const ALL_SAMPLE_SHAPES: readonly MissionShape[] = SAMPLE_NUMBERS.map(missionShape);
 
+/** The kinds whose client hands over root, so no box of theirs is broken into. */
+const HANDED_OVER_KINDS: readonly MissionKind[] = ['cleanup', 'lockout'];
+
 /** The sample's contracts whose boxes each fall to a route: all but the portforward and
- *  close-the-door jobs, whose target nobody roots, and the cleanup jobs, whose client hands over
- *  root. */
+ *  close-the-door jobs, whose target nobody roots, and the cleanup and lock-them-out jobs, whose
+ *  client hands over root. */
 const SAMPLE_SHAPES: readonly MissionShape[] = ALL_SAMPLE_SHAPES.filter(
-  ({ kind }) => kind !== 'portforward' && kind !== 'cleanup' && kind !== 'closedoor',
+  ({ kind }) => kind !== 'portforward' && kind !== 'closedoor' && !HANDED_OVER_KINDS.includes(kind),
 );
 
 /** Every box in the sample on `route`, with the contract it belongs to. */
@@ -182,7 +186,7 @@ describe('missionShape', () => {
     }
   });
 
-  it('makes about a thirteenth of the contracts each of key, tamper, sabotage, file, backdoor, infiltrate, portforward, credential, destroy, wipe, chain, cleanup and close-the-door jobs', () => {
+  it('makes about a fourteenth of the contracts each of key, tamper, sabotage, file, backdoor, infiltrate, portforward, credential, destroy, wipe, chain, cleanup, close-the-door and lock-them-out jobs', () => {
     const counts = ALL_SAMPLE_SHAPES.reduce<Record<string, number>>(
       (tally, { kind }) => ({ ...tally, [kind]: (tally[kind] ?? 0) + 1 }),
       {},
@@ -198,6 +202,7 @@ describe('missionShape', () => {
       'file',
       'infiltrate',
       'key',
+      'lockout',
       'portforward',
       'sabotage',
       'tamper',
@@ -209,29 +214,35 @@ describe('missionShape', () => {
     }
   });
 
-  it('turns no contract from one older kind into another: each keeps its kind or becomes a close-the-door job', () => {
+  it('turns no contract from one older kind into another: each keeps its kind or becomes a lock-them-out job', () => {
     // The contracts drawn nearest the bottom and the top of every piece of the draw, with the kind
-    // each had before close-the-door jobs. Each older kind gave up the top of its largest piece,
-    // the lowest on a tie, so the top of the draw stays portforward.
+    // each had before lock-them-out jobs. Each older kind gave up the top of its largest piece,
+    // the lowest on a tie; portforward's is the top of the draw.
     const drawnAtTheEdges = [
       [50188, 'tamper', 'tamper'],
-      [382189, 'tamper', 'tamper'],
-      [103736, 'tamper', 'closedoor'],
-      [285493, 'tamper', 'closedoor'],
+      [377259, 'tamper', 'tamper'],
+      [334118, 'tamper', 'lockout'],
+      [382189, 'tamper', 'lockout'],
+      [103736, 'closedoor', 'closedoor'],
+      [371731, 'closedoor', 'closedoor'],
+      [307183, 'closedoor', 'lockout'],
+      [285493, 'closedoor', 'lockout'],
       [284749, 'cleanup', 'cleanup'],
       [19182, 'cleanup', 'cleanup'],
-      [19869, 'cleanup', 'closedoor'],
-      [1, 'cleanup', 'closedoor'],
+      [19869, 'closedoor', 'closedoor'],
+      [1, 'closedoor', 'closedoor'],
       [264480, 'chain', 'chain'],
       [221416, 'chain', 'chain'],
       [159517, 'cleanup', 'cleanup'],
-      [79015, 'cleanup', 'cleanup'],
+      [202071, 'cleanup', 'cleanup'],
+      [410340, 'cleanup', 'lockout'],
+      [79015, 'cleanup', 'lockout'],
       [289154, 'wipe', 'wipe'],
       [92958, 'wipe', 'wipe'],
       [258415, 'chain', 'chain'],
       [410333, 'chain', 'chain'],
-      [413609, 'chain', 'closedoor'],
-      [147445, 'chain', 'closedoor'],
+      [413609, 'closedoor', 'closedoor'],
+      [147445, 'closedoor', 'closedoor'],
       [38316, 'destroy', 'destroy'],
       [187051, 'destroy', 'destroy'],
       [142239, 'wipe', 'wipe'],
@@ -242,12 +253,14 @@ describe('missionShape', () => {
       [410321, 'credential', 'credential'],
       [164649, 'wipe', 'wipe'],
       [130215, 'wipe', 'wipe'],
-      [300222, 'wipe', 'closedoor'],
-      [159029, 'wipe', 'closedoor'],
+      [300222, 'closedoor', 'closedoor'],
+      [159029, 'closedoor', 'closedoor'],
       [65482, 'portforward', 'portforward'],
       [182042, 'portforward', 'portforward'],
       [122989, 'chain', 'chain'],
-      [342672, 'chain', 'chain'],
+      [298025, 'chain', 'chain'],
+      [255545, 'chain', 'lockout'],
+      [342672, 'chain', 'lockout'],
       [327384, 'destroy', 'destroy'],
       [283614, 'destroy', 'destroy'],
       [164172, 'chain', 'chain'],
@@ -270,24 +283,30 @@ describe('missionShape', () => {
       [197989, 'portforward', 'portforward'],
       [250014, 'credential', 'credential'],
       [222036, 'credential', 'credential'],
-      [413395, 'credential', 'closedoor'],
-      [178075, 'credential', 'closedoor'],
+      [413395, 'closedoor', 'closedoor'],
+      [178075, 'closedoor', 'closedoor'],
       [171959, 'file', 'file'],
       [102421, 'file', 'file'],
       [181423, 'chain', 'chain'],
       [53114, 'chain', 'chain'],
       [65058, 'wipe', 'wipe'],
-      [264492, 'wipe', 'wipe'],
+      [289745, 'wipe', 'wipe'],
+      [36921, 'wipe', 'lockout'],
+      [264492, 'wipe', 'lockout'],
       [201442, 'destroy', 'destroy'],
       [220076, 'destroy', 'destroy'],
       [396178, 'cleanup', 'cleanup'],
       [85176, 'cleanup', 'cleanup'],
       [357602, 'credential', 'credential'],
-      [122434, 'credential', 'credential'],
+      [387950, 'credential', 'credential'],
+      [57406, 'credential', 'lockout'],
+      [122434, 'credential', 'lockout'],
       [274029, 'sabotage', 'sabotage'],
-      [398852, 'sabotage', 'sabotage'],
-      [148879, 'sabotage', 'closedoor'],
-      [392944, 'sabotage', 'closedoor'],
+      [258523, 'sabotage', 'sabotage'],
+      [162304, 'sabotage', 'lockout'],
+      [398852, 'sabotage', 'lockout'],
+      [148879, 'closedoor', 'closedoor'],
+      [392944, 'closedoor', 'closedoor'],
       [255980, 'cleanup', 'cleanup'],
       [91152, 'cleanup', 'cleanup'],
       [319204, 'chain', 'chain'],
@@ -296,8 +315,8 @@ describe('missionShape', () => {
       [119597, 'wipe', 'wipe'],
       [106011, 'destroy', 'destroy'],
       [85724, 'destroy', 'destroy'],
-      [354605, 'destroy', 'closedoor'],
-      [113543, 'destroy', 'closedoor'],
+      [354605, 'closedoor', 'closedoor'],
+      [113543, 'closedoor', 'closedoor'],
       [191694, 'credential', 'credential'],
       [368933, 'credential', 'credential'],
       [67874, 'portforward', 'portforward'],
@@ -307,17 +326,23 @@ describe('missionShape', () => {
       [349488, 'infiltrate', 'infiltrate'],
       [162246, 'infiltrate', 'infiltrate'],
       [114746, 'destroy', 'destroy'],
-      [339062, 'destroy', 'destroy'],
+      [182940, 'destroy', 'destroy'],
+      [342419, 'destroy', 'lockout'],
+      [339062, 'destroy', 'lockout'],
       [314335, 'backdoor', 'backdoor'],
-      [179988, 'backdoor', 'backdoor'],
+      [247380, 'backdoor', 'backdoor'],
+      [155929, 'backdoor', 'lockout'],
+      [179988, 'backdoor', 'lockout'],
       [163361, 'chain', 'chain'],
       [52062, 'chain', 'chain'],
       [253581, 'destroy', 'destroy'],
       [159977, 'destroy', 'destroy'],
       [373540, 'file', 'file'],
-      [164779, 'file', 'file'],
-      [284184, 'file', 'closedoor'],
-      [212121, 'file', 'closedoor'],
+      [234786, 'file', 'file'],
+      [366133, 'file', 'lockout'],
+      [164779, 'file', 'lockout'],
+      [284184, 'closedoor', 'closedoor'],
+      [212121, 'closedoor', 'closedoor'],
       [82018, 'cleanup', 'cleanup'],
       [33426, 'cleanup', 'cleanup'],
       [351177, 'portforward', 'portforward'],
@@ -325,21 +350,25 @@ describe('missionShape', () => {
       [152823, 'cleanup', 'cleanup'],
       [98506, 'cleanup', 'cleanup'],
       [31807, 'infiltrate', 'infiltrate'],
-      [191315, 'infiltrate', 'infiltrate'],
+      [11177, 'infiltrate', 'infiltrate'],
+      [291464, 'infiltrate', 'lockout'],
+      [191315, 'infiltrate', 'lockout'],
       [414330, 'wipe', 'wipe'],
       [124259, 'wipe', 'wipe'],
       [414845, 'backdoor', 'backdoor'],
       [319327, 'backdoor', 'backdoor'],
-      [195095, 'backdoor', 'closedoor'],
-      [375582, 'backdoor', 'closedoor'],
+      [195095, 'closedoor', 'closedoor'],
+      [375582, 'closedoor', 'closedoor'],
       [138691, 'cleanup', 'cleanup'],
       [10449, 'cleanup', 'cleanup'],
       [147532, 'wipe', 'wipe'],
       [62849, 'wipe', 'wipe'],
       [205635, 'key', 'key'],
-      [386648, 'key', 'key'],
-      [13400, 'key', 'closedoor'],
-      [365748, 'key', 'closedoor'],
+      [295730, 'key', 'key'],
+      [38446, 'key', 'lockout'],
+      [386648, 'key', 'lockout'],
+      [13400, 'closedoor', 'closedoor'],
+      [365748, 'closedoor', 'closedoor'],
       [342722, 'cleanup', 'cleanup'],
       [318435, 'cleanup', 'cleanup'],
       [246170, 'chain', 'chain'],
@@ -354,12 +383,12 @@ describe('missionShape', () => {
       [76265, 'destroy', 'destroy'],
       [250139, 'portforward', 'portforward'],
       [125601, 'portforward', 'portforward'],
-      [386725, 'portforward', 'closedoor'],
-      [289215, 'portforward', 'closedoor'],
+      [386725, 'closedoor', 'closedoor'],
+      [289215, 'closedoor', 'closedoor'],
       [369810, 'infiltrate', 'infiltrate'],
       [27168, 'infiltrate', 'infiltrate'],
-      [58133, 'infiltrate', 'closedoor'],
-      [155082, 'infiltrate', 'closedoor'],
+      [58133, 'closedoor', 'closedoor'],
+      [155082, 'closedoor', 'closedoor'],
       [363109, 'cleanup', 'cleanup'],
       [4512, 'cleanup', 'cleanup'],
       [323218, 'backdoor', 'backdoor'],
@@ -367,7 +396,9 @@ describe('missionShape', () => {
       [74985, 'infiltrate', 'infiltrate'],
       [226749, 'infiltrate', 'infiltrate'],
       [106274, 'portforward', 'portforward'],
-      [318254, 'portforward', 'portforward'],
+      [119321, 'portforward', 'portforward'],
+      [332843, 'portforward', 'lockout'],
+      [318254, 'portforward', 'lockout'],
     ] as const;
 
     for (const [missionNumber, before, now] of drawnAtTheEdges) {
@@ -620,11 +651,11 @@ describe('missionShape', () => {
      *  taken from the generator before a contract could have two hops. Two hops draw on a
      *  stream of their own, so a contract that stays single-hop keeps its network to the byte.
      *  Only key jobs: a contract that became a tamper job keeps its records in its database.
-     *  Contracts that later turned file, backdoor, infiltrate, portforward, destroy, wipe or close-the-door jobs were swapped for key jobs alike,
+     *  Contracts that later turned file, backdoor, infiltrate, portforward, destroy, wipe, close-the-door or lock-them-out jobs were swapped for key jobs alike,
      *  digested on the generator before that kind. */
     const SINGLE_HOP_BEFORE: readonly (readonly [number, string])[] = [
       [16837, 'f27ddd33257d952bc4a6d15bf3649686'], // mysql, database
-      [3989358, '82a4a03274db6a08767bd9b788c6b0ca'], // snmp, file
+      [3989502, 'e306f3cf5d5db352328a7036dc6b5896'], // snmp, file
       [25, 'bc6079d753a35b0d2fbbc0d419866d9b'], // web, file
       [188, 'e22849bb6178062832ca21a15ac6ec26'], // snmp, database
       [26, 'bebc7e5d21c0cec1690d8cf632581e64'], // ftp, file
@@ -975,12 +1006,12 @@ describe('missionShape', () => {
 
     /** Single-hop key jobs across the routes and storages, and the digest of what each had
      *  before decoys, taken from the generator as it stood then. Contracts that later turned
-     *  sabotage, file, backdoor, infiltrate, portforward, credential, destroy, wipe or close-the-door jobs were swapped for key jobs alike, digested on the generator before
+     *  sabotage, file, backdoor, infiltrate, portforward, credential, destroy, wipe, close-the-door or lock-them-out jobs were swapped for key jobs alike, digested on the generator before
      *  that kind. */
     const BEFORE_DECOYS: readonly (readonly [number, string])[] = [
       [26, '529fc16f6500aaea7286d4b3f6457e5c'], // ftp, file
       [16837, '66ef50b38177d710035d491c3117101a'], // mysql, database
-      [3989358, '522716c66d0a298f6c790b504f8095be'], // snmp, file
+      [3989502, 'b3557e4acea05eb25ba8d79a01487a61'], // snmp, file
       [25, 'd6ab3acaa8ca2c0fb37bdd0aef86b65f'], // web, file
       [188, 'fa38e003de44240bca1b8067df439f9f'], // snmp, database
       [933, '1436b8c852232a355b50a275be14f5bc'], // msfconsole, file
@@ -1287,16 +1318,19 @@ describe('a credential contract', () => {
   });
 });
 
-describe('a cleanup contract', () => {
-  const cleanupShapes = ALL_SAMPLE_SHAPES.filter(({ kind }) => kind === 'cleanup');
-  const singleHop = cleanupShapes.filter(({ frontBox }) => frontBox === null);
-  const twoHop = cleanupShapes.filter(({ frontBox }) => frontBox !== null);
+describe.each([
+  { kind: 'cleanup', name: 'cleanup' },
+  { kind: 'lockout', name: 'lock-them-out' },
+] as const)('a $name contract', ({ kind: handedOverKind }) => {
+  const handedOverShapes = ALL_SAMPLE_SHAPES.filter(({ kind }) => kind === handedOverKind);
+  const singleHop = handedOverShapes.filter(({ frontBox }) => frontBox === null);
+  const twoHop = handedOverShapes.filter(({ frontBox }) => frontBox !== null);
 
   it('puts the target behind a front box about a third of the time', () => {
-    expect(cleanupShapes.length).toBeGreaterThan(100);
-    expect(twoHop.length / cleanupShapes.length).toBeGreaterThan(0.22);
-    expect(twoHop.length / cleanupShapes.length).toBeLessThan(0.45);
-    for (const shape of cleanupShapes) {
+    expect(handedOverShapes.length).toBeGreaterThan(100);
+    expect(twoHop.length / handedOverShapes.length).toBeGreaterThan(0.22);
+    expect(twoHop.length / handedOverShapes.length).toBeLessThan(0.45);
+    for (const shape of handedOverShapes) {
       expect(missionTopology(shape.missionNumber).frontBoxOctet).toBe(
         shape.frontBox?.octet ?? null,
       );
@@ -1306,7 +1340,7 @@ describe('a cleanup contract', () => {
   // The client lets the contractor in, so no box is broken into: each root is a word the
   // briefing hands over, drawn from the white-hat words no other door holds.
   it('gives every box a root the client hands over, and no other way in', () => {
-    for (const shape of cleanupShapes) {
+    for (const shape of handedOverShapes) {
       for (const box of boxesOf(shape)) {
         const label = `${box === shape.keyBox ? 'target' : 'front box'} of ${shape.missionNumber}`;
         expect(box.route, label).toBeNull();
@@ -1325,7 +1359,7 @@ describe('a cleanup contract', () => {
   });
 
   it('forwards the public :2222 onto the sshd of the box the login is for, decoys after it', () => {
-    for (const shape of cleanupShapes) {
+    for (const shape of handedOverShapes) {
       const label = `contract ${shape.missionNumber}`;
       const entry = entryBox(shape);
 
@@ -1347,6 +1381,16 @@ describe('a cleanup contract', () => {
       expect([2, 3], label).toContain(shape.keyBox.decoys.length);
     }
     expect(singleHop.length).toBeGreaterThan(0);
+  });
+});
+
+describe('a lock-them-out contract', () => {
+  const lockoutShapes = ALL_SAMPLE_SHAPES.filter(({ kind }) => kind === 'lockout');
+
+  it("draws each job's leaked word, so no two jobs read alike", () => {
+    expect(new Set(lockoutShapes.map(({ keyBox }) => keyBox.rootHash)).size).toBe(
+      WHITE_HAT_HASHES.length,
+    );
   });
 });
 

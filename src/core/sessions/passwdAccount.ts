@@ -23,10 +23,6 @@ export type PasswdAccount = { readonly hash: string; readonly userType: UserType
  *  tells it which accounts exist. */
 export type NamedPasswdAccount = PasswdAccount & { readonly username: string };
 
-/** The parsed rows of a regenerated host's `/etc/passwd`, or empty when the file
- *  is missing or is not a file. Blank lines are skipped — the file is written with
- *  a trailing newline, and an empty row would otherwise read as a nameless
- *  account with an empty password hash. */
 /** The credential file itself, or null when the box carries none — a rooted owner can
  *  delete it, or `mkdir` straight over it, and either is a box with nothing to say about
  *  who lives on it rather than a crash. */
@@ -37,7 +33,11 @@ const passwdFile = (fs: Directory): FileEntry | null => {
   return passwd !== undefined && passwd.kind === 'file' ? passwd : null;
 };
 
-const passwdFields = (fs: Directory): readonly (readonly string[])[] => {
+/** The parsed rows of a regenerated host's `/etc/passwd`, each split into its fields, or empty
+ *  when the file is missing or is not a file. Blank lines are skipped — the file is written
+ *  with a trailing newline, and an empty row would otherwise read as a nameless account with
+ *  an empty password hash. */
+export const passwdFields = (fs: Directory): readonly (readonly string[])[] => {
   const passwd = passwdFile(fs);
   if (passwd === null) return [];
   return passwd.content

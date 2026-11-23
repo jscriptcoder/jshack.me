@@ -19,7 +19,14 @@
 
 import { createPrng } from '../generation/prng.js';
 import { chainFinal, missionKind, missionTopology, type ChainFinal } from './missionShape.js';
-import { backdoorJob, chainJob, cleanupJob, credentialRole, sabotageRole } from './targetRoles.js';
+import {
+  backdoorJob,
+  chainJob,
+  cleanupJob,
+  credentialRole,
+  lockoutJob,
+  sabotageRole,
+} from './targetRoles.js';
 import { missionFileItem } from './missionFileItem.js';
 import { portforwardJob } from './portforwardJob.js';
 import { closeDoorJob } from './closeDoorJob.js';
@@ -67,7 +74,8 @@ export type MissionTerms =
   | ({ readonly job: 'wipe' } & CommonTerms)
   | ({ readonly job: 'chain' } & CommonTerms)
   | ({ readonly job: 'cleanup' } & CommonTerms)
-  | ({ readonly job: 'closedoor' } & CommonTerms);
+  | ({ readonly job: 'closedoor' } & CommonTerms)
+  | ({ readonly job: 'lockout' } & CommonTerms);
 
 const CLIENTS: readonly MissionClient[] = [
   { company: 'Copper Systems', handle: 'copper-ops' },
@@ -441,6 +449,17 @@ export const missionTerms = (missionNumber: number): MissionTerms => {
       targetCompany: `${capitalised(stem)} ${prng.pick(TARGET_TRADES)}`,
       kind: `clean up ${singleHop ? 'a' : 'an internal'} ${noun}`,
       pitch: prng.pick(cleanupPitches),
+      pay: payFrom(prng, WHITE_HAT_PAY[singleHop ? 'singleHop' : 'twoHop']),
+    };
+  }
+  if (missionKind(missionNumber) === 'lockout') {
+    const { noun, lockoutPitches } = lockoutJob(missionNumber).role;
+    return {
+      job: 'lockout',
+      client: prng.pick(CLIENTS),
+      targetCompany: `${capitalised(stem)} ${prng.pick(TARGET_TRADES)}`,
+      kind: `lock an intruder out of ${singleHop ? 'a' : 'an internal'} ${noun}`,
+      pitch: prng.pick(lockoutPitches),
       pay: payFrom(prng, WHITE_HAT_PAY[singleHop ? 'singleHop' : 'twoHop']),
     };
   }
