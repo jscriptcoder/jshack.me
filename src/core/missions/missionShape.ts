@@ -134,10 +134,12 @@ const TWO_HOP_SHARE = 1 / 3;
  *  listener left on it, the client's own file put on it, a port on the gateway forwarded onto
  *  it, the password of its root, a file on it destroyed, a table of its records wiped, or a
  *  listener left on the front box and the box behind it taken down, a file on it destroyed or a
- *  table of its records wiped. A tamper, sabotage,
- *  backdoor, infiltrate, credential, destroy or wipe job is proved by the box itself when the
- *  contractor mails in, a chain job by both its boxes, a portforward job by the gateway, a file
- *  job by the file the mail carries. */
+ *  table of its records wiped; or, for the client's customer, an intruder's implant cleaned off
+ *  it, a way in someone forwarded onto it shut, or an intruder holding its root password locked
+ *  out. A tamper, sabotage, backdoor, infiltrate, credential, destroy, wipe, cleanup or
+ *  lock-them-out job is proved by the box itself when the contractor mails in, a chain job by
+ *  both its boxes, a portforward or close-the-door job by the gateway, a file job by the file the
+ *  mail carries. */
 export type MissionKind =
   | 'key'
   | 'tamper'
@@ -151,9 +153,10 @@ export type MissionKind =
   | 'wipe'
   | 'chain'
   | 'cleanup'
-  | 'closedoor';
+  | 'closedoor'
+  | 'lockout';
 
-/** Where the one draw on a contract's kind changes, in 360360ths. Each kind takes a thirteenth.
+/** Where the one draw on a contract's kind changes, in 360360ths. Each kind takes a fourteenth.
  *  Every newer kind was carved from the edges of the ones before it, so a contract is the kind it was
  *  or has become the newer one, and none turned from one older kind into another: file jobs fill
  *  the gaps tamper, sabotage and key left as they shrank from thirds to quarters, backdoor jobs
@@ -166,17 +169,22 @@ export type MissionKind =
  *  the hundred-and-tenth each of the ten gave up the same way as they shrank to elevenths,
  *  cleanup jobs the hundred-and-thirty-second each of the eleven gave up at the top of its largest
  *  piece, the lowest on a tie (so the top of the draw stays portforward), as they shrank to
- *  twelfths, and close-the-door jobs the hundred-and-fifty-sixth each of the twelve gave up the
- *  same way as they shrank to thirteenths. 27720ths do not split into thirteenths, so the draw
- *  is in thirteen times as many. A draw past the last cut, the top forty-second, is a portforward
- *  job. */
+ *  twelfths, close-the-door jobs the hundred-and-fifty-sixth each of the twelve gave up the
+ *  same way as they shrank to thirteenths, and lock-them-out jobs the hundred-and-eighty-second
+ *  each of the thirteen gave up the same way as they shrank to fourteenths. 27720ths do not
+ *  split into thirteenths, so the draw is in thirteen times as many. Portforward's largest piece
+ *  was the top of the draw, so a draw past the last cut, the top hundred-and-eighty-second, is a
+ *  lock-them-out job. */
 const KIND_CUTS: readonly (readonly [below: number, kind: MissionKind])[] = [
-  [27720, 'tamper'],
-  [30030, 'closedoor'],
+  [25740, 'tamper'],
+  [27720, 'lockout'],
+  [28050, 'closedoor'],
+  [30030, 'lockout'],
   [30450, 'cleanup'],
   [32760, 'closedoor'],
   [33306, 'chain'],
-  [36036, 'cleanup'],
+  [34056, 'cleanup'],
+  [36036, 'lockout'],
   [36764, 'wipe'],
   [37730, 'chain'],
   [40040, 'closedoor'],
@@ -187,7 +195,8 @@ const KIND_CUTS: readonly (readonly [below: number, kind: MissionKind])[] = [
   [49170, 'wipe'],
   [51480, 'closedoor'],
   [51779, 'portforward'],
-  [55055, 'chain'],
+  [53075, 'chain'],
+  [55055, 'lockout'],
   [56784, 'destroy'],
   [60060, 'chain'],
   [62361, 'infiltrate'],
@@ -202,11 +211,14 @@ const KIND_CUTS: readonly (readonly [below: number, kind: MissionKind])[] = [
   [90090, 'closedoor'],
   [101400, 'file'],
   [104676, 'chain'],
-  [108680, 'wipe'],
+  [106700, 'wipe'],
+  [108680, 'lockout'],
   [110955, 'destroy'],
   [113685, 'cleanup'],
-  [120120, 'credential'],
-  [147840, 'sabotage'],
+  [118140, 'credential'],
+  [120120, 'lockout'],
+  [145860, 'sabotage'],
+  [147840, 'lockout'],
   [150150, 'closedoor'],
   [152880, 'cleanup'],
   [156156, 'chain'],
@@ -217,22 +229,27 @@ const KIND_CUTS: readonly (readonly [below: number, kind: MissionKind])[] = [
   [176176, 'portforward'],
   [180180, 'wipe'],
   [187187, 'infiltrate'],
-  [192192, 'destroy'],
-  [201929, 'backdoor'],
+  [190212, 'destroy'],
+  [192192, 'lockout'],
+  [199949, 'backdoor'],
+  [201929, 'lockout'],
   [205205, 'chain'],
   [210210, 'destroy'],
-  [226620, 'file'],
+  [224640, 'file'],
+  [226620, 'lockout'],
   [228930, 'closedoor'],
   [231660, 'cleanup'],
   [237510, 'portforward'],
   [240240, 'cleanup'],
-  [248248, 'infiltrate'],
+  [246268, 'infiltrate'],
+  [248248, 'lockout'],
   [252252, 'wipe'],
   [261226, 'backdoor'],
   [263536, 'closedoor'],
   [266266, 'cleanup'],
   [270270, 'wipe'],
-  [297990, 'key'],
+  [296010, 'key'],
+  [297990, 'lockout'],
   [300300, 'closedoor'],
   [303030, 'cleanup'],
   [306306, 'chain'],
@@ -247,6 +264,7 @@ const KIND_CUTS: readonly (readonly [below: number, kind: MissionKind])[] = [
   [342342, 'cleanup'],
   [348348, 'backdoor'],
   [351780, 'infiltrate'],
+  [358380, 'portforward'],
 ];
 
 /** Whether a contract asks for a key, a changed record, a machine taken down, a file brought
@@ -255,7 +273,7 @@ const KIND_CUTS: readonly (readonly [below: number, kind: MissionKind])[] = [
  *  keeps its network and its terms to the byte. */
 export const missionKind = (missionNumber: number): MissionKind => {
   const draw = createPrng(`mission-kind-${missionNumber}`).next() * 360360;
-  return KIND_CUTS.find(([below]) => draw < below)?.[1] ?? 'portforward';
+  return KIND_CUTS.find(([below]) => draw < below)?.[1] ?? 'lockout';
 };
 
 /** What a chain job's last step asks of the machine inside, each equally likely: a sabotage job's
@@ -848,13 +866,15 @@ const portforwardShape = ({
   };
 };
 
-/** A cleanup job's network: the client lets the contractor in, so no box is broken into. Every
- *  box's root is one of the white-hat words the briefing hands over, which no other door holds,
- *  and every box runs nothing but sshd, on safe releases, besides its decoys. The gateway forwards
- *  the public `:2222` onto the sshd of the box the first login is for: the target, or on two hops
- *  the front box, from which the target is reached on its own `:22`. The logins are drawn on a
- *  stream of their own, and the front box's base on its own as every two-hop contract's is. */
-const cleanupShape = ({
+/** A cleanup or lock-them-out job's network: the client lets the contractor in, so no box is
+ *  broken into. Every box's root is one of the white-hat words the briefing hands over, which no
+ *  other door holds, and every box runs nothing but sshd, on safe releases, besides its decoys.
+ *  The gateway forwards the public `:2222` onto the sshd of the box the first login is for: the
+ *  target, or on two hops the front box, from which the target is reached on its own `:22`. The
+ *  logins are drawn on a stream of each kind's own, the target's first (on a lock-them-out job,
+ *  the word that leaked), and the front box's base on its own as every two-hop contract's is. */
+const handedOverShape = ({
+  kind,
   missionNumber,
   stem,
   keyBoxOctet,
@@ -868,8 +888,9 @@ const cleanupShape = ({
   readonly keyBoxBase: Readonly<Record<string, string>>;
   readonly gatewayVersions: Readonly<Record<string, string>>;
   readonly frontDraw: { readonly prng: Prng; readonly octet: number } | null;
+  readonly kind: 'cleanup' | 'lockout';
 }): MissionShape => {
-  const loginPrng = createPrng(`mission-cleanup-login-${missionNumber}`);
+  const loginPrng = createPrng(`mission-${kind}-login-${missionNumber}`);
   const handedOver = (octet: number, versions: Readonly<Record<string, string>>): BareBox => ({
     octet,
     route: null,
@@ -883,7 +904,7 @@ const cleanupShape = ({
   const target = handedOver(keyBoxOctet, keyBoxBase);
   const common = {
     missionNumber,
-    kind: 'cleanup',
+    kind,
     stem,
     storage: null,
     gatewayAdminHash: loginPrng.pick(SHUT_HASHES),
@@ -974,14 +995,16 @@ export const missionShape = (missionNumber: number): MissionShape => {
     ...safeFirmwareVersions(versionPrng),
   };
 
-  if (missionKind(missionNumber) === 'portforward') {
+  const kind = missionKind(missionNumber);
+  if (kind === 'portforward') {
     return portforwardShape({ missionNumber, stem, keyBoxOctet, keyBoxBase, gatewayVersions });
   }
-  if (missionKind(missionNumber) === 'closedoor') {
+  if (kind === 'closedoor') {
     return closeDoorShape({ missionNumber, stem, keyBoxOctet, keyBoxBase, gatewayVersions });
   }
-  if (missionKind(missionNumber) === 'cleanup') {
-    return cleanupShape({
+  if (kind === 'cleanup' || kind === 'lockout') {
+    return handedOverShape({
+      kind,
       missionNumber,
       stem,
       keyBoxOctet,
@@ -997,7 +1020,6 @@ export const missionShape = (missionNumber: number): MissionShape => {
   // On a stream of its own, so adding it moved no contract's topology, route or hashes. A tamper
   // job's records in the box's database are then reached as a key kept in one is; in a file, by
   // the route's root.
-  const kind = missionKind(missionNumber);
   const storage = storageOf(keyBoxKind(missionNumber), missionNumber);
 
   // A key in the database is reached as a database user, so off the database route the key

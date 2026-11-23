@@ -70,6 +70,14 @@
  * port is a miss, since the client only knows the port answers, and the listener is read before
  * the implant.
  *
+ * A lock-them-out job is white-hat work too, and asks that the root password that leaked, and the
+ * account the intruder added with it, let nobody in: the client reads the target's `/etc/passwd`
+ * as it stands, after the same boot rule, and completes the job once root takes neither the word
+ * that leaked nor no word at all, every row stands under a name the customer had, once each, and
+ * every one of the customer's own rows reads as it was laid, root's hash aside. Anyone's change
+ * counts, and row order is nobody's business. A way still in answers before an account of theirs
+ * spoiled, and neither reply says which.
+ *
  * A chain job asks for two steps and pays for both or neither: the client reads the front box and
  * then the target as they stand, and completes the job once a listener holds the port the briefing
  * named on the front box and the target shows the last step done, as a sabotage, destroy or wipe
@@ -100,12 +108,13 @@ import {
   type ChainFinal,
 } from './missionShape.js';
 import { recordsLookRight, recordsWiped } from './missionRecords.js';
-import { backdoorJob, chainJob, cleanupJob, credentialRole } from './targetRoles.js';
+import { backdoorJob, chainJob, cleanupJob, credentialRole, lockoutJob } from './targetRoles.js';
 import { cleanupPlant } from './cleanupPlant.js';
 import { portforwardJob } from './portforwardJob.js';
 import { closeDoorJob } from './closeDoorJob.js';
 import { md5 } from '../generation/md5.js';
-import { accountIn } from '../sessions/passwdAccount.js';
+import { accountIn, passwdFields } from '../sessions/passwdAccount.js';
+import { buildMissionKeyBoxFs } from '../generation/missionKeyBoxFs.js';
 import { missionEssid } from './missionNetwork.js';
 import { machineServing } from '../network/machineServing.js';
 import { parseForwardRules, readRulesV4 } from '../network/iptablesRules.js';
@@ -141,9 +150,10 @@ export type ClientMailStore = {
   }) => StoreReply;
 };
 
-/** The box a tamper, sabotage, backdoor, infiltrate, credential, destroy, wipe, chain or cleanup
- *  job is about, a chain or two-hop cleanup job's front box, or a portforward job's router, as it
- *  stands: up with its tree, not up, or not readable. */
+/** The box a tamper, sabotage, backdoor, infiltrate, credential, destroy, wipe, chain, cleanup or
+ *  lock-them-out job is about, a chain or two-hop cleanup or lock-them-out job's front box, or a
+ *  portforward or close-the-door job's router, as it stands: up with its tree, not up, or not
+ *  readable. */
 export type TargetBoxRead =
   | { readonly kind: 'up'; readonly fs: Directory }
   | { readonly kind: 'absent' }
@@ -180,6 +190,7 @@ const LOGIN_WORKS = 'That login works.';
 const FILE_GONE = "It's gone.";
 const RECORDS_GONE = 'The records are gone.';
 const SHUT = "It's shut.";
+const LOCKED_OUT = "They're locked out.";
 const BOTH_DONE = 'Both done.';
 /** A white-hat client closes with thanks, not with the black-hat clients' sign-off. */
 const THANKS = 'Thank you for the help.';
@@ -213,6 +224,13 @@ const stillReachable = (noun: string): string =>
 /** Any forward the customer wants kept that no longer reaches where it did. Never which. */
 const NOT_ALL_CLOSED =
   "That's not all you closed. Something they use no longer answers from outside. No money.";
+/** Any way still in as the intruder: the word that leaked, an emptied root, or an account the
+ *  customer never had. Never which: finding the way in is the job. */
+const stillGetsIn = (noun: string): string =>
+  `Whoever has that password can still get into their ${noun}. Still open, no money.`;
+/** Any of the customer's own accounts that no longer reads as it did. Never which. */
+const NOT_ALL_CHANGED =
+  "That's not all you changed. One of their own accounts no longer works as it did. No money.";
 /** One reply for every miss: no password line, an empty or wrong password, or a target that no
  *  longer boots. */
 const loginRefused = (noun: string): string =>
@@ -280,13 +298,14 @@ type Decision =
   | { readonly kind: 'checkChain'; readonly number: number }
   | { readonly kind: 'checkCleanup'; readonly number: number }
   | { readonly kind: 'checkClosed'; readonly number: number }
+  | { readonly kind: 'checkLockout'; readonly number: number }
   | { readonly kind: 'reply'; readonly reply: ContractMail };
 
 /** How the client opens its reply to a job done: the key or the file it was sent, the records it
  *  read, the machine it found down, the listener it found, its own file found in place, the way
  *  in it found open, the login it found working, the company's file it found gone, the records
- *  it found emptied, both steps of a chain job found done, the intruder's implant found gone, or
- *  the way in someone opened found shut. */
+ *  it found emptied, both steps of a chain job found done, the intruder's implant found gone, the
+ *  way in someone opened found shut, or the intruder found locked out. */
 const RECEIVED: Readonly<Record<Exclude<Decision['kind'], 'reply'>, string>> = {
   complete: KEY_RECEIVED,
   completeFile: FILE_RECEIVED,
@@ -301,6 +320,7 @@ const RECEIVED: Readonly<Record<Exclude<Decision['kind'], 'reply'>, string>> = {
   checkChain: BOTH_DONE,
   checkCleanup: FILE_GONE,
   checkClosed: SHUT,
+  checkLockout: LOCKED_OUT,
 };
 
 /** What the client says on a job the mail itself proves: when the mail carries no proof, when it
@@ -356,6 +376,7 @@ const decide = ({
   if (acceptedKind === 'chain') return { kind: 'checkChain', number: accepted.number };
   if (acceptedKind === 'cleanup') return { kind: 'checkCleanup', number: accepted.number };
   if (acceptedKind === 'closedoor') return { kind: 'checkClosed', number: accepted.number };
+  if (acceptedKind === 'lockout') return { kind: 'checkLockout', number: accepted.number };
   const said = MAILED_PROOF[acceptedKind];
   if ((acceptedKind === 'file' ? file : key) === null) return reply(accepted.number, said.none);
   if (proves(accepted.number)) return { kind: said.done, number: accepted.number };
@@ -404,6 +425,33 @@ const closeDoorMiss = (routerFs: Directory, missionNumber: number): string | nul
     reaches(forward.publicPort, `${subnet}.${forward.boxOctet}`, forward.internalPort),
   );
   return allKept ? null : NOT_ALL_CLOSED;
+};
+
+/** What the client says of a lock-them-out target not yet locked: still open while root takes the
+ *  word that leaked or no word at all, or while any row stands under a name the customer never
+ *  had or a second row under one of theirs; then, the customer's own rows matched by name, any
+ *  gone or reading other than laid, root's hash aside. Null once locked, whoever did it. Row order
+ *  is nobody's business. */
+const lockoutMiss = (missionNumber: number, fs: Directory): string | null => {
+  const { role, account } = lockoutJob(missionNumber);
+  const theirs = passwdFields(buildMissionKeyBoxFs(missionNumber)).filter(
+    ([name]) => name !== account,
+  );
+  const theirNames = new Set(theirs.map(([name]) => name));
+  const rows = passwdFields(fs);
+  const names = rows.map(([name]) => name);
+  const strange = names.some(
+    (name, index) => !theirNames.has(name) || names.indexOf(name) !== index,
+  );
+  const rootHash = rows.find(([name]) => name === 'root')?.[1];
+  const leakedHash = missionShape(missionNumber).keyBox.rootHash;
+  if (strange || rootHash === leakedHash || rootHash === '') return stillGetsIn(role.noun);
+  const asLaid = theirs.every((laid) => {
+    const now = rows.find(([name]) => name === laid[0]);
+    if (now === undefined || now.length !== laid.length) return false;
+    return laid.every((field, index) => (laid[0] === 'root' && index === 1) || now[index] === field);
+  });
+  return asLaid ? null : NOT_ALL_CHANGED;
 };
 
 /** Whether the box holds exactly `content` at the job's file path. */
@@ -488,12 +536,13 @@ export const answerClientMail = async ({
   /** The deployment's mission secret, already checked present. */
   readonly secret: string;
   readonly store: ClientMailStore;
-  /** The box the tamper, sabotage, backdoor, infiltrate, credential, destroy, wipe, chain or
-   *  cleanup job numbered so is about, as it stands now. */
+  /** The box the tamper, sabotage, backdoor, infiltrate, credential, destroy, wipe, chain,
+   *  cleanup or lock-them-out job numbered so is about, as it stands now. */
   readonly readTargetBox: (missionNumber: number) => Promise<TargetBoxRead>;
   /** The router of the portforward job numbered so, as it stands now. */
   readonly readRouter: (missionNumber: number) => Promise<TargetBoxRead>;
-  /** The front box of the chain or two-hop cleanup job numbered so, as it stands now. */
+  /** The front box of the chain or two-hop cleanup or lock-them-out job numbered so, as it
+   *  stands now. */
   readonly readFrontBox: (missionNumber: number) => Promise<TargetBoxRead>;
 }): Promise<ClientMailAnswer | null> => {
   const opened = await store.open(login);
@@ -592,6 +641,20 @@ export const answerClientMail = async ({
     const miss = cleanupMiss(decision.number, box.fs, secret);
     if (miss !== null) return sendReply(store, login.handle, replyAbout(terms, miss));
   }
+  if (decision.kind === 'checkLockout') {
+    const box = await readTargetBox(decision.number);
+    if (box.kind === 'error') return null;
+    const front =
+      missionTopology(decision.number).frontBoxOctet === null
+        ? null
+        : await readFrontBox(decision.number);
+    if (front?.kind === 'error') return null;
+    if (box.kind === 'absent' || front?.kind === 'absent') {
+      return sendReply(store, login.handle, replyAbout(terms, TOOK_IT_DOWN));
+    }
+    const miss = lockoutMiss(decision.number, box.fs);
+    if (miss !== null) return sendReply(store, login.handle, replyAbout(terms, miss));
+  }
   if (decision.kind === 'checkClosed') {
     const router = await readRouter(decision.number);
     if (router.kind === 'error') return null;
@@ -603,7 +666,10 @@ export const answerClientMail = async ({
     if (miss !== null) return sendReply(store, login.handle, replyAbout(terms, miss));
   }
   const received = RECEIVED[decision.kind];
-  const signOff = terms.job === 'cleanup' || terms.job === 'closedoor' ? THANKS : PLEASURE;
+  const signOff =
+    terms.job === 'cleanup' || terms.job === 'closedoor' || terms.job === 'lockout'
+      ? THANKS
+      : PLEASURE;
   const wallet = firstMatch(text, WALLET_SHAPE)?.toLowerCase() ?? null;
   const completed = await store.complete({
     handle: login.handle,

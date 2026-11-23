@@ -12,7 +12,7 @@ import { missionAction, missionSetting, type RecordSetting } from './missionReco
 import { missionFileItem } from './missionFileItem.js';
 import { portforwardJob } from './portforwardJob.js';
 import { closeDoorJob } from './closeDoorJob.js';
-import { chainJob, cleanupJob } from './targetRoles.js';
+import { chainJob, cleanupJob, lockoutJob } from './targetRoles.js';
 import { md5 } from '../generation/md5.js';
 import { isMissionNumber } from './missionNetwork.js';
 import { validateUsername } from '../gameConfig/gameConfig.js';
@@ -156,23 +156,24 @@ describe('missionTerms', () => {
     // infiltrate jobs took a sixth, again when portforward jobs took a seventh, again when
     // credential jobs took an eighth, again when destroy jobs took a ninth, again when wipe jobs
     // took a tenth, again when chain jobs took an eleventh, again when cleanup jobs took a twelfth,
-    // and again when close-the-door jobs took a thirteenth, each time over the key jobs left,
-    // whose terms the earlier digest's own fixture held unchanged.
+    // again when close-the-door jobs took a thirteenth, and again when lock-them-out jobs took a
+    // fourteenth, each time over the key jobs left, whose terms the earlier digest's own fixture
+    // held unchanged.
     expect(md5(JSON.stringify(SINGLE_HOP_NUMBERS.map(missionTerms).map(withoutJob)))).toBe(
-      'e6a7d11f79f11a2e38efba815c99d725',
+      '3528f75025872c52177e09ba141d2b82',
     );
   });
 
-  // Retaken over the key jobs left when close-the-door jobs took a thirteenth of the numbers.
+  // Retaken over the key jobs left when lock-them-out jobs took a fourteenth of the numbers.
   it('keeps the client, target, pitch and key of a two-hop key job as they were', () => {
     const beside = TWO_HOP_NUMBERS.map(missionTerms)
       .map(withoutJob)
       .map(({ kind: _kind, pay: _pay, ...rest }) => rest);
 
-    expect(md5(JSON.stringify(beside))).toBe('83f160d13fe6116ea4733ac3874ae180');
+    expect(md5(JSON.stringify(beside))).toBe('fae7df9d95590db0db542090175cd6ef');
   });
 
-  it('marks each contract a key, tamper, sabotage, file, backdoor, infiltrate, portforward, credential, destroy, wipe, chain, cleanup or close-the-door job, as its shape does', () => {
+  it('marks each contract a key, tamper, sabotage, file, backdoor, infiltrate, portforward, credential, destroy, wipe, chain, cleanup, close-the-door or lock-them-out job, as its shape does', () => {
     for (const missionNumber of SAMPLE_NUMBERS) {
       expect(missionTerms(missionNumber).job).toBe(missionShape(missionNumber).kind);
     }
@@ -188,8 +189,11 @@ describe('missionTerms', () => {
     });
 
     it('offers every setting, altering on one hop and two, and erasing wherever it may', () => {
+      // The wider spread too: the sample alone holds a two-hop admissions erasure only by chance.
       const offered = new Set(
-        TAMPER_NUMBERS.map((missionNumber) => missionTerms(missionNumber).kind),
+        [...TAMPER_NUMBERS, ...widerJobsOf('tamper')].map(
+          (missionNumber) => missionTerms(missionNumber).kind,
+        ),
       );
 
       for (const [setting, { noun }] of Object.entries(SETTING_NAMES)) {
@@ -328,8 +332,8 @@ describe('missionTerms', () => {
         pay,
       }));
 
-      // Retaken over the sabotage jobs left when close-the-door jobs took a thirteenth.
-      expect(md5(JSON.stringify(kept))).toBe('09e5a26df3b81c99c652f2852ebaa8a7');
+      // Retaken over the sabotage jobs left when lock-them-out jobs took a fourteenth.
+      expect(md5(JSON.stringify(kept))).toBe('3c2379449638110594043fc8e194f01f');
     });
 
     // The work is a key job's, finding the way in and rooting the box, so the pay is too.
@@ -638,36 +642,49 @@ describe('missionTerms', () => {
     });
   });
 
-  describe('a cleanup job', () => {
-    const CLEANUP_NUMBERS = SAMPLE_NUMBERS.filter(
-      (missionNumber) => missionKind(missionNumber) === 'cleanup',
+  describe.each([
+    {
+      kind: 'cleanup',
+      name: 'cleanup',
+      verb: 'clean up',
+      roleOf: (missionNumber: number) => cleanupJob(missionNumber).role,
+    },
+    {
+      kind: 'lockout',
+      name: 'lock-them-out',
+      verb: 'lock an intruder out of',
+      roleOf: (missionNumber: number) => lockoutJob(missionNumber).role,
+    },
+  ] as const)('a $name job', ({ kind: whiteHatKind, verb, roleOf }) => {
+    const WHITE_HAT_NUMBERS = SAMPLE_NUMBERS.filter(
+      (missionNumber) => missionKind(missionNumber) === whiteHatKind,
     );
 
-    /** The machine a cleanup job is offered as cleaning up, read off the board's line. */
+    /** The machine the job is offered on, read off the board's line. */
     const machineOf = (missionNumber: number): string =>
-      missionTerms(missionNumber).kind.replace(/^clean up (a|an internal) /, '');
+      missionTerms(missionNumber).kind.replace(new RegExp(`^${verb} (a|an internal) `), '');
 
-    it('is offered as cleaning up one of the seven machines, an internal one on two hops', () => {
-      for (const missionNumber of CLEANUP_NUMBERS) {
+    it('is offered as its work on one of the seven machines, an internal one on two hops', () => {
+      for (const missionNumber of WHITE_HAT_NUMBERS) {
         const article = isTwoHop(missionNumber) ? 'an internal' : 'a';
         expect(missionTerms(missionNumber).kind).toBe(
-          `clean up ${article} ${machineOf(missionNumber)}`,
+          `${verb} ${article} ${machineOf(missionNumber)}`,
         );
         expect(missionTerms(missionNumber).kind).toBe(
-          `clean up ${article} ${cleanupJob(missionNumber).role.noun}`,
+          `${verb} ${article} ${roleOf(missionNumber).noun}`,
         );
       }
-      expect(CLEANUP_NUMBERS.some(isTwoHop)).toBe(true);
-      expect(CLEANUP_NUMBERS.some((missionNumber) => !isTwoHop(missionNumber))).toBe(true);
-      expect(new Set(CLEANUP_NUMBERS.map(machineOf))).toEqual(new Set(SABOTAGE_MACHINES));
+      expect(WHITE_HAT_NUMBERS.some(isTwoHop)).toBe(true);
+      expect(WHITE_HAT_NUMBERS.some((missionNumber) => !isTwoHop(missionNumber))).toBe(true);
+      expect(new Set(WHITE_HAT_NUMBERS.map(machineOf))).toEqual(new Set(SABOTAGE_MACHINES));
     });
 
     it('asks for each machine about a seventh of the time', () => {
-      const cleanupJobs = widerJobsOf('cleanup');
+      const whiteHatJobs = widerJobsOf(whiteHatKind);
       for (const machine of SABOTAGE_MACHINES) {
         const share =
-          cleanupJobs.filter((missionNumber) => machineOf(missionNumber) === machine).length /
-          cleanupJobs.length;
+          whiteHatJobs.filter((missionNumber) => machineOf(missionNumber) === machine).length /
+          whiteHatJobs.length;
         expect(share, machine).toBeGreaterThan(0.1);
         expect(share, machine).toBeLessThan(0.19);
       }
@@ -678,9 +695,9 @@ describe('missionTerms', () => {
     it('pays 300 to 1,200 JSC on one hop and 1,200 to 2,400 on two, in steps of 50', () => {
       const paysOf = (numbers: readonly number[]) =>
         numbers.map((missionNumber) => missionTerms(missionNumber).pay);
-      const cleanupJobs = widerJobsOf('cleanup');
-      const singleHop = paysOf(cleanupJobs.filter((missionNumber) => !isTwoHop(missionNumber)));
-      const twoHop = paysOf(cleanupJobs.filter(isTwoHop));
+      const whiteHatJobs = widerJobsOf(whiteHatKind);
+      const singleHop = paysOf(whiteHatJobs.filter((missionNumber) => !isTwoHop(missionNumber)));
+      const twoHop = paysOf(whiteHatJobs.filter(isTwoHop));
 
       for (const pay of [...singleHop, ...twoHop]) expect(pay % 50).toBe(0);
       expect([Math.min(...singleHop), Math.max(...singleHop)]).toEqual([300, 1200]);
@@ -692,7 +709,7 @@ describe('missionTerms', () => {
         KEY_NUMBERS.map((missionNumber) => missionTerms(missionNumber).targetCompany.split(' ')[1]),
       );
 
-      for (const missionNumber of CLEANUP_NUMBERS) {
+      for (const missionNumber of WHITE_HAT_NUMBERS) {
         const { stem } = missionShape(missionNumber);
         const [company, trade, ...rest] = missionTerms(missionNumber).targetCompany.split(' ');
         expect(company).toBe(capitalised(stem));
@@ -701,16 +718,16 @@ describe('missionTerms', () => {
       }
     });
 
-    it("draws every client, and pitches from three reasons of its machine's own, none a black-hat job's", () => {
-      const terms = CLEANUP_NUMBERS.map(missionTerms);
-      const blackHatPitches = new Set(
-        SAMPLE_NUMBERS.filter((missionNumber) => missionKind(missionNumber) !== 'cleanup').map(
+    it("draws every client, and pitches from three reasons of its machine's own, none another kind's", () => {
+      const terms = WHITE_HAT_NUMBERS.map(missionTerms);
+      const otherPitches = new Set(
+        SAMPLE_NUMBERS.filter((missionNumber) => missionKind(missionNumber) !== whiteHatKind).map(
           (missionNumber) => missionTerms(missionNumber).pitch,
         ),
       );
       const pitchesFor = (machine: string) =>
         new Set(
-          widerJobsOf('cleanup')
+          widerJobsOf(whiteHatKind)
             .filter((missionNumber) => machineOf(missionNumber) === machine)
             .map((missionNumber) => missionTerms(missionNumber).pitch),
         );
@@ -722,7 +739,7 @@ describe('missionTerms', () => {
         expect(pitches.size, machine).toBe(3);
         for (const pitch of pitches) {
           expect(pitch).toMatch(/^[A-Z].{20,}\.$/);
-          expect(blackHatPitches.has(pitch), pitch).toBe(false);
+          expect(otherPitches.has(pitch), pitch).toBe(false);
           expect(seen.has(pitch), pitch).toBe(false);
           seen.add(pitch);
         }
@@ -730,7 +747,7 @@ describe('missionTerms', () => {
     });
 
     it('promises no key', () => {
-      for (const missionNumber of CLEANUP_NUMBERS) {
+      for (const missionNumber of WHITE_HAT_NUMBERS) {
         expect('keyOpens' in missionTerms(missionNumber)).toBe(false);
       }
     });

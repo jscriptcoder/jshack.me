@@ -37,6 +37,7 @@ import {
   chainJob,
   cleanupJob,
   credentialRole,
+  lockoutJob,
   sabotageRole,
 } from '../missions/targetRoles.js';
 import { portforwardJob } from '../missions/portforwardJob.js';
@@ -271,7 +272,7 @@ const chainFinalLines = (missionNumber: number): readonly string[] => {
  *  never their table, file or box. */
 const jobLines = (
   missionNumber: number,
-  terms: Exclude<MissionTerms, { readonly job: 'cleanup' | 'closedoor' }>,
+  terms: Exclude<MissionTerms, { readonly job: 'cleanup' | 'closedoor' | 'lockout' }>,
   inside: boolean,
 ): readonly string[] => {
   if (terms.job === 'sabotage') {
@@ -410,26 +411,40 @@ const handedOverLogin = (sshTarget: string, word: string): readonly string[] => 
   '',
 ];
 
-/** The logins a cleanup job's client hands over, or null when the deployment cannot give the
- *  words: the edge machine's through the gateway's `:2222`, and on two hops the machine inside,
- *  named for what it is, on its own `:22` at its address on the contract's LAN. */
-const cleanupLoginLines = (
+/** The logins a cleanup or lock-them-out job's client hands over, or null when the deployment
+ *  cannot give the words: the edge machine's through the gateway's `:2222`, and on two hops the
+ *  machine inside, named for what it is, on its own `:22` at its address on the contract's LAN.
+ *  On a lock-them-out job the target's word is the one that leaked, and the briefing says so. */
+const handedOverLoginLines = (
   missionNumber: number,
   rawSecrets: string | undefined,
+  { noun, leaked }: { readonly noun: string; readonly leaked: boolean },
 ): readonly string[] | null => {
   const { keyBox, frontBox } = missionShape(missionNumber);
   const address = missionAddressForNumber(missionNumber);
   const edgeWord = whiteHatWord((frontBox ?? keyBox).rootHash, rawSecrets);
   if (edgeWord === null) return null;
   const edgeLogin = handedOverLogin(`${address} -p 2222`, edgeWord);
-  if (frontBox === null) return ['They have given you root:', ...edgeLogin];
+  if (frontBox === null) {
+    return [
+      leaked
+        ? 'This is the password they have. The customer has given you root with it:'
+        : 'They have given you root:',
+      ...edgeLogin,
+    ];
+  }
   const insideWord = whiteHatWord(keyBox.rootHash, rawSecrets);
   if (insideWord === null) return null;
   const inside = `${lanSubnetPrefix(missionEssid(missionNumber))}.${keyBox.octet}`;
   return [
     'They have given you root on the machine on the edge of their network:',
     ...edgeLogin,
-    `The ${cleanupJob(missionNumber).role.noun} is inside their network, at ${inside}. From the edge machine:`,
+    ...(leaked
+      ? [
+          `The ${noun} is inside their network, at ${inside}.`,
+          'This is the password they have. From the edge machine:',
+        ]
+      : [`The ${noun} is inside their network, at ${inside}. From the edge machine:`]),
     ...handedOverLogin(inside, insideWord),
   ];
 };
@@ -441,9 +456,12 @@ const cleanupLines = (
   missionNumber: number,
   rawSecrets: string | undefined,
 ): readonly string[] | null => {
-  const logins = cleanupLoginLines(missionNumber, rawSecrets);
-  if (logins === null) return null;
   const { role, port } = cleanupJob(missionNumber);
+  const logins = handedOverLoginLines(missionNumber, rawSecrets, {
+    noun: role.noun,
+    leaked: false,
+  });
+  if (logins === null) return null;
   const twoHop = missionTopology(missionNumber).frontBoxOctet !== null;
   return [
     `Something on their ${role.noun} answers on port ${port}, and nobody there put it there.`,
@@ -455,6 +473,30 @@ const cleanupLines = (
       : 'Leave the machine running. If it no longer boots, there is no money.',
     'Write to this address with your wallet address once it is gone.',
     'Still there, no money. No wallet, no money.',
+  ];
+};
+
+/** A lock-them-out job's briefing past its opening: the machine whose root password leaked, then
+ *  the logins, the target's with that very word, or null when the words cannot be given. Locking
+ *  the intruder out is the job, so it names no account, file or tool. */
+const lockoutLines = (
+  missionNumber: number,
+  rawSecrets: string | undefined,
+): readonly string[] | null => {
+  const { noun } = lockoutJob(missionNumber).role;
+  const logins = handedOverLoginLines(missionNumber, rawSecrets, { noun, leaked: true });
+  if (logins === null) return null;
+  const twoHop = missionTopology(missionNumber).frontBoxOctet !== null;
+  return [
+    `Someone outside has root's password on their ${noun}, and nobody there gave it to them.`,
+    'Lock them out. Leave their own accounts as they are.',
+    '',
+    ...logins,
+    twoHop
+      ? 'Leave both machines running. If either no longer boots, there is no money.'
+      : 'Leave the machine running. If it no longer boots, there is no money.',
+    'Write to this address with your wallet address once they are locked out.',
+    'Still open, no money. No wallet, no money.',
   ];
 };
 
@@ -490,13 +532,15 @@ const briefingOf = (
   rawSecrets: string | undefined,
 ): ContractMail | null => {
   const terms = missionTerms(missionNumber);
-  if (terms.job === 'cleanup' || terms.job === 'closedoor') {
+  if (terms.job === 'cleanup' || terms.job === 'closedoor' || terms.job === 'lockout') {
     const lines =
       terms.job === 'closedoor'
         ? closeDoorLines(missionNumber, rawSecrets)
-        : missionSecret === undefined
-          ? null
-          : cleanupLines(missionNumber, rawSecrets);
+        : terms.job === 'lockout'
+          ? lockoutLines(missionNumber, rawSecrets)
+          : missionSecret === undefined
+            ? null
+            : cleanupLines(missionNumber, rawSecrets);
     if (lines === null) return null;
     return {
       sender: clientAddress(terms),

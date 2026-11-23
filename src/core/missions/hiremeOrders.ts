@@ -30,6 +30,7 @@ import {
   cleanupJob,
   credentialRole,
   keyBoxSuffix,
+  lockoutJob,
   sabotageRole,
 } from './targetRoles.js';
 import { portforwardJob } from './portforwardJob.js';
@@ -37,6 +38,8 @@ import { closeDoorJob } from './closeDoorJob.js';
 import { firmwarePackageOf } from '../packages/packageVersions.js';
 import { EMAILIT_DOMAIN } from '../generation/fixedSites.js';
 import { missionKeyFilePath, missionLeakPath, missionLeakWord } from './missionLeak.js';
+import { buildMissionKeyBoxFs } from '../generation/missionKeyBoxFs.js';
+import { accountsIn } from '../sessions/passwdAccount.js';
 import { cleanupPlant } from './cleanupPlant.js';
 import { whiteHatWord } from './whiteHatLogin.js';
 import { missionKey, missionPassphrase } from './missionSecret.js';
@@ -119,21 +122,26 @@ const leakLines = (
 const handedOverLine = (hash: string, rawSecrets: string | undefined, indent: string): string =>
   `${indent}Login:    root / ${whiteHatWord(hash, rawSecrets) ?? '(JSHACK_SECRETS is not set)'}`;
 
-/** The root login a cleanup job's client hands over for a box, at `indent`: the word the
- *  briefing carries, read from the deployment's pools. */
+/** Whether a contract's client hands over root on every box it covers: a cleanup or lock-them-out
+ *  job's. */
+const handsOverRoot = (missionNumber: number): boolean => {
+  const kind = missionKind(missionNumber);
+  return kind === 'cleanup' || kind === 'lockout';
+};
+
+/** The root login a cleanup or lock-them-out job's client hands over for a box, at `indent`: the
+ *  word the briefing carries, read from the deployment's pools. */
 const loginLines = (
   missionNumber: number,
   box: MissionBox,
   rawSecrets: string | undefined,
   indent: string,
 ): readonly string[] =>
-  missionKind(missionNumber) === 'cleanup'
-    ? [handedOverLine(box.rootHash, rawSecrets, indent)]
-    : [];
+  handsOverRoot(missionNumber) ? [handedOverLine(box.rootHash, rawSecrets, indent)] : [];
 
-/** How a box is got into: its route, a cleanup box's login handed over, or no way at all. */
+/** How a box is got into: its route, a box whose login is handed over, or no way at all. */
 const routeOf = (missionNumber: number, box: MissionBox): string =>
-  box.route ?? (missionKind(missionNumber) === 'cleanup' ? 'none (handed over)' : 'none (sealed)');
+  box.route ?? (handsOverRoot(missionNumber) ? 'none (handed over)' : 'none (sealed)');
 
 /** A box's services as the report lists them, at `indent`: each with its release and port,
  *  a decoy's tagged. */
@@ -201,6 +209,7 @@ const kindLine = (missionNumber: number, kind: MissionKind): readonly string[] =
     return [`  Kind:     chain, ${final}, ${asked}`, `  Listener: :${port} on the front box`];
   }
   if (kind === 'cleanup') return [`  Kind:     cleanup, ${cleanupJob(missionNumber).role.noun}`];
+  if (kind === 'lockout') return [`  Kind:     lockout, ${lockoutJob(missionNumber).role.noun}`];
   if (kind === 'portforward') {
     const { machine, publicPort } = portforwardJob(missionNumber);
     return [
@@ -245,8 +254,9 @@ const recordLines = (missionNumber: number): readonly string[] => {
  *  a tamper job's records and the one change it asks, where a wipe job keeps the table it asks
  *  emptied, a file or destroy job's file and its size
  *  under the secret, the port a backdoor job's listener must hold, the path an infiltrate job's file goes
- *  to with the sizes of the company's file and the client's, and nothing for a sabotage,
- *  credential or portforward job, whose box is the job and keeps nothing. A chain job's target
+ *  to with the sizes of the company's file and the client's, a lock-them-out target's accounts
+ *  with the intruder's tagged, and nothing for a sabotage, credential or portforward job, whose
+ *  box is the job and keeps nothing. A chain job's target
  *  is reported as its last step's kind. */
 const jobLines = (
   missionNumber: number,
@@ -264,6 +274,15 @@ const jobLines = (
     return [];
   }
   if (kind === 'backdoor') return [`  Port:     ${backdoorJob(missionNumber).port}`];
+  if (kind === 'lockout') {
+    // The target's accounts as its `/etc/passwd` lists them, so the report shows where the
+    // intruder's row stands among the customer's.
+    const { account } = lockoutJob(missionNumber);
+    const tagged = accountsIn(buildMissionKeyBoxFs(missionNumber)).map(({ username }) =>
+      username === account ? `${username} (intruder)` : username,
+    );
+    return [`  Accounts: ${tagged.join(', ')}`];
+  }
   if (kind === 'cleanup') {
     const { implant, decoys } = cleanupPlant(missionNumber, secret);
     return [
@@ -323,8 +342,8 @@ export const showReport = (
   const insideDecoyPorts = keyBox.services
     .slice(keyBox.services.length - keyBox.decoys.length)
     .map(({ port }) => port);
-  // A sabotage, backdoor, infiltrate, credential, destroy, portforward or chain job's box is the
-  // job itself, so the report calls it the target, not a key box.
+  // A sabotage, backdoor, infiltrate, credential, destroy, portforward, chain or white-hat job's
+  // box is the job itself, so the report calls it the target, not a key box.
   const isTarget =
     shape.kind === 'sabotage' ||
     shape.kind === 'backdoor' ||
@@ -334,6 +353,7 @@ export const showReport = (
     shape.kind === 'portforward' ||
     shape.kind === 'chain' ||
     shape.kind === 'cleanup' ||
+    shape.kind === 'lockout' ||
     shape.kind === 'closedoor';
   const slotName = isTarget ? 'target' : 'key box';
   const reached = frontBox === null ? slotName : 'front box';

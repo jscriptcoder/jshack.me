@@ -19,7 +19,7 @@ import { DATADIR_FILE, PASSWD_FILE, ROOT_FILE, file, withFiles } from '../genera
 import { md5 } from '../generation/md5.js';
 import { PASSWD_PATH, withAccountHash } from '../sessions/passwdAccount.js';
 import type { Directory } from '../filesystem/types.js';
-import { backdoorJob, chainJob, cleanupJob, credentialRole } from './targetRoles.js';
+import { backdoorJob, chainJob, cleanupJob, credentialRole, lockoutJob } from './targetRoles.js';
 import { cleanupFiles, cleanupPlant } from './cleanupPlant.js';
 import { portforwardJob } from './portforwardJob.js';
 import { closeDoorJob } from './closeDoorJob.js';
@@ -1965,6 +1965,312 @@ describe('a mail on a cleanup job', () => {
     expect(box.reads).toEqual([]);
     expect(completes).toEqual([]);
     expect(replies).toEqual([fromCleanupClient(CLOSED_LINE)]);
+  });
+});
+
+describe('a mail on a lock-them-out job', () => {
+  const lockoutNumber = (twoHop: boolean): number =>
+    ALL_HOST_NUMBERS.find(
+      (missionNumber) =>
+        missionKind(missionNumber) === 'lockout' &&
+        (missionShape(missionNumber).frontBox !== null) === twoHop,
+    )!;
+  const LOCKOUT_JOB = lockoutNumber(false);
+  const TWO_HOP_JOB = lockoutNumber(true);
+  const LOCKOUT_TERMS = missionTerms(LOCKOUT_JOB);
+  const { role: ROLE, account: ADDED } = lockoutJob(LOCKOUT_JOB);
+  const FRESH_HASH = md5('a-word-only-the-contractor-knows');
+
+  /** A row of `/etc/passwd`, split into its seven fields. */
+  type Row = readonly string[];
+
+  /** The target's rows as the box is laid, the intruder's among them. */
+  const laidRows = (missionNumber: number): readonly Row[] => {
+    const fs = buildMissionKeyBoxFs(missionNumber);
+    const etc = fs.entries.get('etc');
+    const passwd = etc?.kind === 'directory' ? etc.entries.get('passwd') : undefined;
+    if (passwd?.kind !== 'file') throw new Error(`contract ${missionNumber} has no passwd`);
+    return passwd.content
+      .split('\n')
+      .filter((line) => line.length > 0)
+      .map((line) => line.split(':'));
+  };
+
+  /** The target up, its `/etc/passwd` holding `rows`. */
+  const withRows = (missionNumber: number, rows: readonly Row[]): TargetBoxRead => ({
+    kind: 'up',
+    fs: withFiles(buildMissionKeyBoxFs(missionNumber), [
+      [PASSWD_PATH, file(rows.map((row) => `${row.join(':')}\n`).join(''), PASSWD_FILE)],
+    ]),
+  });
+
+  /** `rows` with the row named `name` rewritten by `change`. */
+  const changing =
+    (name: string, change: (row: Row) => Row) =>
+    (rows: readonly Row[]): readonly Row[] =>
+      rows.map((row) => (row[0] === name ? change(row) : row));
+  const withField = (index: number, value: string) => (row: Row) =>
+    row.map((field, at) => (at === index ? value : field));
+  const rootChanged = changing('root', withField(1, FRESH_HASH));
+  const addedRemoved = (rows: readonly Row[]): readonly Row[] =>
+    rows.filter(([name]) => name !== ADDED);
+
+  /** The target after `steps`, each a change to its rows, applied in order. */
+  const after = (...steps: readonly ((rows: readonly Row[]) => readonly Row[])[]): TargetBoxRead =>
+    withRows(
+      LOCKOUT_JOB,
+      steps.reduce((rows, step) => step(rows), laidRows(LOCKOUT_JOB)),
+    );
+
+  /** The job done: root's password changed and the intruder's row gone. */
+  const lockedOut = (missionNumber: number): TargetBoxRead => {
+    const { account } = lockoutJob(missionNumber);
+    return withRows(
+      missionNumber,
+      laidRows(missionNumber)
+        .filter(([name]) => name !== account)
+        .map((row) => (row[0] === 'root' ? withField(1, FRESH_HASH)(row) : row)),
+    );
+  };
+
+  /** A box read answering with `read`, keeping every number it was asked for. */
+  const boxReader = (read: TargetBoxRead) => {
+    const reads: number[] = [];
+    return {
+      reads,
+      read: async (missionNumber: number): Promise<TargetBoxRead> => {
+        reads.push(missionNumber);
+        return read;
+      },
+    };
+  };
+
+  const fromLockoutClient = (line: string, terms = LOCKOUT_TERMS): ContractMail => ({
+    sender: `${terms.client.handle}@emailit.io`,
+    subject: `Contract: ${terms.targetCompany}`,
+    body: signed(line, terms.client.company),
+  });
+
+  const STILL_OPEN = `Whoever has that password can still get into their ${ROLE.noun}. Still open, no money.`;
+  const NOT_ALL_CHANGED =
+    "That's not all you changed. One of their own accounts no longer works as it did. No money.";
+  const TOOK_IT_DOWN = 'You took our machine down. No money.';
+
+  const acceptedStore = (number = LOCKOUT_JOB) =>
+    clientStore({ jobs: [{ number, state: 'accepted' }] });
+
+  const mailOnLockoutJob = (
+    store: ClientMailStore,
+    read: TargetBoxRead,
+    body = `locked out\n${WALLET}\n`,
+  ) => mailTo(store, { to: LOCKOUT_TERMS.client, body, readTargetBox: boxReader(read).read });
+
+  it("reads the target of the job held, and pays once root's word is changed and the added account is gone", async () => {
+    const { store, completes, replies } = acceptedStore();
+    const box = boxReader(lockedOut(LOCKOUT_JOB));
+
+    expect(
+      await mailTo(store, {
+        to: LOCKOUT_TERMS.client,
+        body: `locked out\n${WALLET}\n`,
+        readTargetBox: box.read,
+      }),
+    ).toBe('replied');
+    expect(box.reads).toEqual([LOCKOUT_JOB]);
+    expect(completes).toEqual([
+      {
+        number: LOCKOUT_JOB,
+        wallet: WALLET,
+        pay: LOCKOUT_TERMS.pay,
+        reply: fromLockoutClient(
+          `They're locked out. §${LOCKOUT_TERMS.pay.toLocaleString('en-US')} sent to ${WALLET}. Thank you for the help.`,
+        ),
+      },
+    ]);
+    expect(replies).toEqual([]);
+  });
+
+  it('completes and pays nothing when the mail names no wallet', async () => {
+    const { store, completes } = acceptedStore();
+
+    await mailOnLockoutJob(store, lockedOut(LOCKOUT_JOB), 'locked out\n');
+
+    expect(completes).toEqual([
+      {
+        number: LOCKOUT_JOB,
+        wallet: null,
+        pay: LOCKOUT_TERMS.pay,
+        reply: fromLockoutClient(
+          "They're locked out. You sent no wallet, so there is nothing to pay. No wallet, no money.",
+        ),
+      },
+    ]);
+  });
+
+  // Order is nobody's business: a file holding the same rows is the same file.
+  it('pays with the rows in another order', async () => {
+    const { store, completes, replies } = acceptedStore();
+
+    await mailOnLockoutJob(store, after(rootChanged, addedRemoved, (rows) => [...rows].reverse()));
+
+    expect(completes.map(({ number }) => number)).toEqual([LOCKOUT_JOB]);
+    expect(replies).toEqual([]);
+  });
+
+  // One reply for every way still in, so a mail never says which door is left.
+  it.each([
+    ['nothing has been touched', after()],
+    ["only root's password is changed", after(rootChanged)],
+    ['only the added account is removed', after(addedRemoved)],
+    // Root is found by name, so a file with another row first still answers for root's word.
+    [
+      'only the added account is removed, and the rows reordered',
+      after(addedRemoved, (rows) => [...rows].reverse()),
+    ],
+    [
+      "root's password and the added account's are both changed",
+      after(rootChanged, changing(ADDED, withField(1, FRESH_HASH))),
+    ],
+    [
+      'the added account is taken off root',
+      after(rootChanged, changing(ADDED, (row) => withField(3, '1002')(withField(2, '1002')(row)))),
+    ],
+    ['the added account is renamed', after(rootChanged, changing(ADDED, withField(0, 'ntp2')))],
+    ["root's password is emptied", after(addedRemoved, changing('root', withField(1, '')))],
+    [
+      'somebody adds an account of their own',
+      after(rootChanged, addedRemoved, (rows) => [
+        ...rows,
+        ['mallory', FRESH_HASH, '1003', '1003', 'mallory', '/home/mallory', '/bin/bash'],
+      ]),
+    ],
+    [
+      'a second root row is added',
+      after(rootChanged, addedRemoved, (rows) => [
+        ...rows,
+        ['root', FRESH_HASH, '0', '0', 'root', '/root', '/bin/bash'],
+      ]),
+    ],
+  ])('says it is still open when %s, and keeps the job open', async (_case, read) => {
+    const { store, completes, replies } = acceptedStore();
+
+    expect(await mailOnLockoutJob(store, read)).toBe('replied');
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromLockoutClient(STILL_OPEN)]);
+  });
+
+  it.each([
+    ["guest's password is changed", changing('guest', withField(1, FRESH_HASH))],
+    ['the staff user is removed', (rows: readonly Row[]) => rows.filter(([, , uid]) => uid !== '1000')],
+    [
+      "the service account's shell is changed",
+      changing(ROLE.serviceAccount, withField(6, '/bin/bash')),
+    ],
+    ["root's home is moved", changing('root', withField(5, '/home/root'))],
+    ["a field is added to guest's row", changing('guest', (row) => [...row, 'extra'])],
+    ['root is removed', (rows: readonly Row[]) => rows.filter(([name]) => name !== 'root')],
+  ])(
+    'says not all was changed as it should be when %s, and keeps the job open',
+    async (_case, damage) => {
+      const { store, completes, replies } = acceptedStore();
+
+      expect(await mailOnLockoutJob(store, after(rootChanged, addedRemoved, damage))).toBe(
+        'replied',
+      );
+      expect(completes).toEqual([]);
+      expect(replies).toEqual([fromLockoutClient(NOT_ALL_CHANGED)]);
+    },
+  );
+
+  it('says not all was changed when the file is emptied', async () => {
+    const { store, completes, replies } = acceptedStore();
+
+    await mailOnLockoutJob(store, withRows(LOCKOUT_JOB, []));
+
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromLockoutClient(NOT_ALL_CHANGED)]);
+  });
+
+  it('tells a contractor who bricked the target there is no money, and keeps the job open', async () => {
+    const { store, completes, replies } = acceptedStore();
+
+    expect(await mailOnLockoutJob(store, { kind: 'absent' })).toBe('replied');
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromLockoutClient(TOOK_IT_DOWN)]);
+  });
+
+  describe('on two hops', () => {
+    const TWO_HOP_TERMS = missionTerms(TWO_HOP_JOB);
+
+    const mailOnTwoHops = (target: TargetBoxRead, front: TargetBoxRead) => {
+      const { store, completes, replies } = acceptedStore(TWO_HOP_JOB);
+      const targetReads = boxReader(target);
+      const frontReads = boxReader(front);
+      const answer = mailTo(store, {
+        to: TWO_HOP_TERMS.client,
+        body: `locked out\n${WALLET}\n`,
+        readTargetBox: targetReads.read,
+        readFrontBox: frontReads.read,
+      });
+      return { answer, completes, replies, targetReads, frontReads };
+    };
+
+    it('reads both machines, and pays once the target is locked and the edge machine still boots', async () => {
+      const { answer, completes, targetReads, frontReads } = mailOnTwoHops(
+        lockedOut(TWO_HOP_JOB),
+        { kind: 'up', fs: buildMissionFrontBoxFs(TWO_HOP_JOB) },
+      );
+
+      expect(await answer).toBe('replied');
+      expect(targetReads.reads).toEqual([TWO_HOP_JOB]);
+      expect(frontReads.reads).toEqual([TWO_HOP_JOB]);
+      expect(completes.map(({ number }) => number)).toEqual([TWO_HOP_JOB]);
+    });
+
+    it('tells a contractor who bricked the edge machine there is no money', async () => {
+      const { answer, completes, replies } = mailOnTwoHops(lockedOut(TWO_HOP_JOB), {
+        kind: 'absent',
+      });
+
+      expect(await answer).toBe('replied');
+      expect(completes).toEqual([]);
+      expect(replies).toEqual([fromLockoutClient(TOOK_IT_DOWN, TWO_HOP_TERMS)]);
+    });
+
+    it('answers nothing when the edge machine could not be read', async () => {
+      const { answer, completes, replies } = mailOnTwoHops(lockedOut(TWO_HOP_JOB), {
+        kind: 'error',
+      });
+
+      expect(await answer).toBeNull();
+      expect(completes).toEqual([]);
+      expect(replies).toEqual([]);
+    });
+  });
+
+  it('answers nothing when the target could not be read', async () => {
+    const { store, completes, replies } = acceptedStore();
+
+    expect(await mailOnLockoutJob(store, { kind: 'error' })).toBeNull();
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([]);
+  });
+
+  it('says the job is already closed once it is completed, without reading the target', async () => {
+    const { store, completes, replies } = clientStore({
+      jobs: [{ number: LOCKOUT_JOB, state: 'completed' }],
+    });
+    const box = boxReader(lockedOut(LOCKOUT_JOB));
+
+    await mailTo(store, {
+      to: LOCKOUT_TERMS.client,
+      body: `locked out\n${WALLET}\n`,
+      readTargetBox: box.read,
+    });
+
+    expect(box.reads).toEqual([]);
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromLockoutClient(CLOSED_LINE)]);
   });
 });
 
