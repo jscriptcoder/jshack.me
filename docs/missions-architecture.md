@@ -13,7 +13,8 @@ credential job, by mailing them root's password on one of its machines, or, on a
 getting rid of one of its files, or, on a wipe job, by emptying one of its tables, or, on a chain
 job, by leaving a listener on its edge and then doing one of those last three things to the
 machine behind it, or, on a cleanup job, the first white-hat kind, by getting an intruder's
-listener and implant off one of its customer's machines. This is
+listener and implant off one of its customer's machines, or, on a close-the-door job, by
+shutting a forward someone laid on a customer's router into one of its machines. This is
 the shipped model of the missions epic, complete at **v0.441.0** (four slices, v0.438.0–v0.441.0,
 PRs #746–#749, 2026-11-01 to 2026-11-03), with the routes that leak a login added by the epic
 that followed (four slices, v0.442.0–v0.445.0, PRs #750–#753, 2026-11-03 to 2026-11-04), and a
@@ -27,7 +28,8 @@ a sixth, the client's own file put in place ("Infiltrate jobs", v0.465.0–v0.46
 seventh, a port forwarded into a machine ("Portforward jobs", v0.467.0), and four black-hat
 kinds, a root login stolen, a file destroyed, a table wiped and a two-step chain ("Four black-hat
 kinds", v0.471.0–v0.475.0, PRs #785–#789, 2026-11-18 to 2026-11-20), and the first white-hat
-kind, an intruder's work removed ("Cleanup jobs", v0.479.0, PR #801, 2026-11-22).
+kind, an intruder's work removed ("Cleanup jobs", v0.479.0, PR #801, 2026-11-22), and the
+second, a way in shut ("Close-the-door jobs", v0.480.0, PR #802, 2026-11-23).
 It sits
 on top of the contractor boards
 ([`hireme-architecture.md`](./hireme-architecture.md)), emailit.io
@@ -1269,8 +1271,9 @@ The twelfth kind and the first white-hat one (v0.479.0, PR #801, 2026-11-22): an
 implant on one of the client's customer's machines and a listener it holds open, and the client
 pays to have both gone. It is the backdoor job's mirror. Every kind before it has the contractor
 break in; on a white-hat job the client lets them in, so the difficulty moves from getting in to
-the hunt. Six more white-hat kinds are grilled but not yet built (close the door, lock them out,
-patch it, restore the record, forensics, incident response), each its own story, in
+the hunt. Close the door followed (below); five more white-hat kinds are grilled but not yet
+built (lock them out, patch it, restore the record, forensics, incident response), each its
+own story, in
 `plans/white-hat-jobs.md` while the white-hat work is in flight. The rules every white-hat kind
 shares are below with cleanup, the first to use them.
 
@@ -1365,6 +1368,93 @@ shares are below with cleanup, the first to use them.
   (`, binary` on a compiled one), the decoys' paths, and each box's `Login: root / <word>` with its
   route as `none (handed over)`.
 
+## Close-the-door jobs
+
+The thirteenth kind and the second white-hat one (v0.480.0, PR #802, 2026-11-23): someone laid a
+forward on the router of one of the client's customers, so one of its machines answers from
+outside, and the client pays to have that way in shut while every other forward stays. It is the
+portforward job's mirror, on the rules cleanup set: root handed over in the briefing, the same
+clients posting as a middleman, white-hat pay, and no money for a machine that no longer boots.
+
+- **A thirteenth of the draw.** Each of the twelve older kinds gave up a hundred-and-fifty-sixth
+  of `mission-kind-<n>` at the top of its largest piece, the lowest on a tie, as cleanup's split
+  did, so no number turned from one older kind into another. 27,720ths do not split into
+  thirteenths, so `KIND_CUTS` moved to 360,360ths, every older cut times 13, 27,720 for each
+  kind. Always single-hop: the door is on the router, so `drawTopology` never gives one a front
+  box, as for portforward jobs.
+- **The job** (`closeDoorJob`, `core/missions/closeDoorJob.ts`, on `mission-closedoor-<n>`): one
+  of the portforward job's four machines, then a public port from its list. The two kinds read
+  one table (`EXPOSABLE_MACHINES` in `portforwardJob.ts`), so a machine looks and answers the same
+  whether a client wants a way into it or one shut:
+
+  | Machine            | Service | Public port  | Inside port |
+  | ------------------ | ------- | ------------ | ----------- |
+  | customer database  | mysql   | 13306        | 3306        |
+  | cache server       | redis   | 16379        | 6379        |
+  | staff intranet     | web     | 8080 or 8443 | 80          |
+  | development server | ssh     | 2022 or 8022 | 22          |
+
+  Each machine has three close-the-door pitches of its own, in the client's voice as a middleman.
+
+- **The shape** (`closeDoorShape`, `missionShape.ts`). The target sits sealed in the key box's
+  slot as on a portforward job, its service on a safe release and its decoys never of its kind (a
+  cache server has none). The router's root hash is drawn from `WHITE_HAT_HASHES` on
+  `mission-closedoor-login-<n>`. Its `routerRoute` and `routerVendor` are `null` and its firmware
+  stays on safe versions, so the handed-over word is the only way on. Its forwards are the
+  decoys' onto the target plus the rogue one, `:<public>` to the machine's inside port, three or
+  four lines in all. The rogue line's place among them is drawn on `mission-closedoor-place-<n>`:
+  a mission router writes its real forwards first, so a rogue line laid as one would always top
+  `rules.v4`.
+- **The terms**: `<Client> — close a way into a <machine> — §<pay>`, 300–1,200 to the nearest
+  50, the single-hop white-hat pay.
+- **The briefing names the machine and hands over the router's login**, never the port, the rules
+  file or a tool, since which forward reaches the machine is the job:
+
+  ```text
+  Our customer's development server takes logins from outside, and nobody there set that up.
+
+  Our customer is Meridian Logistics. Their network is at 195.108.91.238.
+
+  Someone opened a way into their development server from outside, and nobody there did it.
+  Shut it. Leave the rest of what their router forwards as it is.
+
+  They have given you root on their router:
+
+    ssh root@195.108.91.238
+    password: <word>
+
+  Leave the router running. If it no longer boots, there is no money.
+  Write to this address with your wallet address once it is shut.
+  Still open, no money. No wallet, no money.
+  ```
+
+- **Any mail from the contractor reads the router** (`readRouter`, then `closeDoorMiss` in
+  `core/missions/clientMail.ts`). The router's own routing decides, through `machineServing` as on
+  a portforward job. The first row that fits answers, and anyone's edit counts, since the word is
+  in every briefing of the job:
+
+  | The mail                                                     | The reply                                                                                 | What changes                   |
+  | ------------------------------------------------------------ | ----------------------------------------------------------------------------------------- | ------------------------------ |
+  | No accepted job with this client                             | "We have no contract with you."                                                           | nothing                        |
+  | A completed job                                              | "That job is already closed." (nothing read)                                              | nothing                        |
+  | The router no longer boots                                   | "You took our machine down. No money."                                                    | nothing; the job can never pay |
+  | Any forward in the rules still reaches the machine's service | "Their development server still answers from outside. Still open, no money."              | nothing                        |
+  | A forward the customer keeps no longer reaches where it did  | "That's not all you closed. Something they use no longer answers from outside. No money." | nothing                        |
+  | Shut, with a wallet                                          | "It's shut. §950 sent to jsc…. Thank you for the help."                                   | completed, the pay minted      |
+  | Shut, no wallet                                              | "It's shut. You sent no wallet, so there is nothing to pay. No wallet, no money."         | completed, nothing minted      |
+
+  "Still open" asks of every forward in the file, not only the one laid, so a fresh forward onto
+  the machine's service from any port is still open. A router `deny` on the port stops no
+  forward, so it is still open too. The rogue line removed, pointed at another machine or another
+  port, or shadowed by a router listener answering first on its port, shuts it. A kept forward is
+  checked against where it reached: removed, re-pointed or shadowed is the collateral miss, and
+  put back it pays.
+
+- `hireme.ts show` prints `Kind: closedoor, <machine>, :<public> -> :<inside>`, then
+  `Router: none (handed over)` with the router's `Login: root / <word>`, and every forward in
+  the order the rules hold them, tagged `(rogue)` or `(keep)`, so the report shows where the
+  rogue line sits.
+
 ## 7. What a root finds
 
 On the boards' server, beside `/etc/hireme/boards`, **`/etc/hireme/contracts`**: one
@@ -1415,6 +1505,8 @@ their shares of the draw, the chain job's port and last step, and the credential
 each machine's other pitches; at v0.475.0 the chunk is 304,564 B against a ceiling of 304,675 B.
 Cleanup jobs added the kind's shape, terms and replies and the white-hat hashes; the implant
 catalog is the server's. At v0.479.0 the chunk is 309,469 B against a ceiling of 309,575 B.
+Close-the-door jobs added the kind's shape, terms and replies and the router read the client
+does, 587 B; at v0.480.0 the chunk is 310,162 B against a ceiling of 310,175 B.
 
 ## 10. Proving it
 
@@ -1499,7 +1591,14 @@ catalog is the server's. At v0.479.0 the chunk is 309,469 B against a ceiling of
   a rival's `kill` and `rm` with the leaked word paying the contractor, a listener started again
   a miss, an overwritten implant gone, no wallet completing unpaid, a bricked target and a
   bricked edge machine told they were taken down, and on two hops the inside word from the edge
-  machine and the inside machine cleaned paid). The
+  machine and the inside machine cleaned paid); `testMissionCloseDoor.ts` (19: four single-hop
+  jobs, one per machine, each rogue port scanning as its machine's service; a customer database
+  accepted through a board's `/accept`, the briefing and `show` naming the machine and no port,
+  a mail before anything told it is still open, the word opening root on the router's `:22`, a
+  `deny` and a fresh forward onto the machine each still open, a kept forward taken with the
+  rogue one the collateral miss, put back and paid once then closed; a rival with the word
+  closing a cache server and the contractor paid; a bricked router told it was taken down; and
+  no wallet completing unpaid). The
   board and pay checks each post a two-hop offer on a chosen number (21 and 17 checks at
   v0.452.0). The decoys' doors are also proven in `decoyMissionDoors.test.ts`.
 - **Mutation**: every slice's scoped run left no survivor but equivalents.
@@ -1606,6 +1705,17 @@ catalog is the server's. At v0.479.0 the chunk is 309,469 B against a ceiling of
   7777 /etc` found `/etc/cron.d/.invoice-replica`, which a plain `ls` missed and `ls -la` showed
   beside `.placeholder`, and after `kill`, `rm` and two `exit`s the mail paid. A later mail on
   each was told the job is closed, with no second mint. No defect.
+- **One browser run at the close-the-door close-out** (2026-11-23, v0.480.0), one fresh player
+  on STONEBRIDGE-CAFE, the board turned over by a script, which matched on round 2. A development
+  server (contract 7101422): "Redfern Media — close a way into a development server — §950",
+  the briefing naming Meridian Logistics, the router's address and its login. A mail before
+  anything got "Their development server still answers from outside. Still open, no money."
+  `ssh root@<address>` with the word landed on `ap-gw`, whose `rules.v4` held `forward 80`,
+  `forward 21` and the rogue `forward 2022` to the machine's `:22`, last of the three. With
+  both the `2022` and the `21` lines removed in `nano`, `nmap` from home showed only 22 and 80
+  and the mail got "That's not all you closed."; with `forward 21` put back, `nmap` showed 21
+  again and the mail paid §950, the wallet reading §950. A later mail was told the job is
+  closed, with no second mint. No defect.
 
 ## What follows
 
@@ -1636,8 +1746,10 @@ The white-hat kinds still to come are in `plans/white-hat-jobs.md`; set aside fr
   and the port, and `keyBoxSuffix`); `missionFileItem.ts` (a file or infiltrate job's item and its pitches,
   its file's name and place, and the bytes of the company's file and the client's, server only);
   `portforwardJob.ts` (a portforward job's machine, its public and inside ports, and its
-  pitches); `cleanupPlant.ts` (a cleanup target's implant, decoys, listener and placeholders,
-  server only) and `whiteHatLogin.ts` (a white-hat hash back to its word, server only).
+  pitches); `closeDoorJob.ts` (a close-the-door job's machine and its rogue public port, from
+  the portforward job's table); `cleanupPlant.ts` (a cleanup target's implant, decoys, listener
+  and placeholders, server only) and `whiteHatLogin.ts` (a white-hat hash back to its word,
+  server only).
 - **The lay-in and the doors**: `core/network/missionBoxFiles.ts`, `core/sessions/doorAdmission.ts`,
   `core/generation/missionKeyBoxFs.ts`, `core/crypto/gpgCodec.ts` (the cipher the server seals a
   gpg contract's key with).

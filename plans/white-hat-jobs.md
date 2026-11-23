@@ -1,6 +1,6 @@
 # Plan: White-hat jobs
 
-**Status:** Grilled 2026-11-22 (the shared rules and cleanup). **Cleanup shipped** at v0.479.0 (PR #801, merged 2026-11-22) and closed out with a browser run the same day; as-built: "Cleanup jobs" in `docs/missions-architecture.md`. **Close the door grilled and planned** 2026-11-22 (decisions 13–24, "Slice plan: Close-the-door jobs"); next: confirm its acceptance criteria, then RED on `feat/white-hat-closedoor`. This plan is retired once the last white-hat kind closes out.
+**Status:** Grilled 2026-11-22 (the shared rules and cleanup). **Cleanup shipped** at v0.479.0 (PR #801, merged 2026-11-22) and closed out with a browser run the same day; as-built: "Cleanup jobs" in `docs/missions-architecture.md`. **Close the door shipped** at v0.480.0 (PR #802, merged 2026-11-23) and closed out with a browser run the same day; as-built: "Close-the-door jobs" in `docs/missions-architecture.md`. Next: lock them out, grilled on top of decisions 1–3, 6, 7, 10 and 12. This plan is retired once the last white-hat kind closes out.
 
 Every contract kind v2 ships is black-hat: the contractor breaks into the target's network and
 does something to it. Legacy also had defender contracts (`malware`, `forensics`, `db_fix`,
@@ -635,7 +635,7 @@ one collateral miss put right; a "Close-the-door jobs" section in `missions-arch
 
 1. ✅ **The rogue forward sits at a drawn position among the kept ones (2026-11-22).** A mission
    router writes its real forwards first, so a rogue forward laid as the real one would always be
-   the top line of `rules.v4`, a tell. Its index is drawn on `mission-closedoor-<n>` after the
-   public port, uniform over the 3 or 4 slots. Taken on the owner's standing instruction to adopt
-   the recommendation; reversible before RED. Rejected: always first, the tell; always last, the
-   same tell the other way round.
+   the top line of `rules.v4`, a tell. Its index is drawn on a stream of its own,
+   `mission-closedoor-place-<n>`, uniform over the 3 or 4 slots. Taken on the owner's standing
+   instruction to adopt the recommendation; reversible before RED. Rejected: always first, the
+   tell; always last, the same tell the other way round.

@@ -1820,7 +1820,29 @@ agreed order:
     implant a dot-named cron file `ls` missed and `ls -la` showed, and paid. A later mail on each
     was told the job is closed. No defect. The white-hat plan stays in flight for the six kinds
     still to come.
-    **Pick up here (2026-11-22):** the next white-hat kind, close the door (the portforward job's
+57. ✅ **Close-the-door jobs, the second white-hat contract (v0.480.0, PR #802, merged
+    2026-11-23).** One slice; as-built: "Close-the-door jobs" in
+    [`missions-architecture.md`](./missions-architecture.md). The portforward job's mirror and a
+    thirteenth of the contracts (`KIND_CUTS` moved to 360,360ths): someone laid a forward on a
+    customer's router that makes one of the portforward job's four machines answer from outside,
+    at a drawn place among the forwards the customer keeps. The briefing names the machine, never
+    the port, and hands over root on the router from `WHITE_HAT_HASHES`. The client reads the
+    router on every mail and pays once no forward reaches the machine's service and every kept
+    forward still reaches where it did; a router `deny` stops no forward, so it is still open,
+    and a kept forward broken with it is the collateral miss. The full suite caught one bug: the
+    topology draw still gave close-the-door contracts a front box, so they are now single-hop as
+    portforward jobs are. Evidence: unit tests (11,449), `testMissionCloseDoor` 19/19 and every
+    other mission, hireme and wallet wire-check green except `testMissions.ts` (2 of 25 failing,
+    as on `main`); mutation on the changed lines 388 of 406 killed plus one timeout, fifteen
+    survivors killed by new tests, one refactored away, two equivalent; the bundle ceiling raised
+    600 B for 587 B of growth.
+    **Close-out (2026-11-23, v0.480.0):** one browser run on a fresh player on STONEBRIDGE-CAFE,
+    the board turned over by a script. A development server (§950), the rogue `forward 2022` last
+    of three lines on the router: told it is still open before anything, then the rogue line and
+    the kept `forward 21` removed together and told "That's not all you closed.", then
+    `forward 21` put back and paid; a later mail was told the job is closed. No defect. The
+    white-hat plan stays in flight for the five kinds still to come.
+    **Pick up here (2026-11-23):** the next white-hat kind, lock them out (the credential job's
     mirror), which starts with its own grill on top of the shared decisions in
     `plans/white-hat-jobs.md`. Also open: `scripts/testMissions.ts` still expects root-only files
     in full where v0.477.4 serves other users empty stubs.
