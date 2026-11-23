@@ -1840,8 +1840,9 @@ agreed order:
     the board turned over by a script. A development server (§950), the rogue `forward 2022` last
     of three lines on the router: told it is still open before anything, then the rogue line and
     the kept `forward 21` removed together and told "That's not all you closed.", then
-    `forward 21` put back and paid; a later mail was told the job is closed. No defect. The
-    white-hat plan stays in flight for the five kinds still to come.
+    `forward 21` put back and paid; a later mail was told the job is closed. No defect.
+    Announced on valleynews.io `/dev` (story 26). The white-hat plan stays in flight for the
+    five kinds still to come.
     **Pick up here (2026-11-23):** the next white-hat kind, lock them out (the credential job's
     mirror), which starts with its own grill on top of the shared decisions in
     `plans/white-hat-jobs.md`. Also open: `scripts/testMissions.ts` still expects root-only files

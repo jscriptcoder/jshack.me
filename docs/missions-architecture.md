@@ -1715,7 +1715,7 @@ does, 587 B; at v0.480.0 the chunk is 310,162 B against a ceiling of 310,175 B.
   both the `2022` and the `21` lines removed in `nano`, `nmap` from home showed only 22 and 80
   and the mail got "That's not all you closed."; with `forward 21` put back, `nmap` showed 21
   again and the mail paid §950, the wallet reading §950. A later mail was told the job is
-  closed, with no second mint. No defect.
+  closed, with no second mint. No defect. Announced on valleynews.io `/dev` (story 26).
 
 ## What follows
 
