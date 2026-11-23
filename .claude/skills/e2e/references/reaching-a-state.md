@@ -706,3 +706,25 @@ hunt against afterwards. The run matched on rounds 1 and 4.
 | 5 | `grep -r <port> /etc` | Finds the implant by its `--listen <port>`. The binary it names (`/usr/local/lib/...`) doesn't exist: the implant is the unit or cron file itself, beside two to four decoys. **A dot-named implant is missed by a plain `ls`**; `ls -la` shows it beside the stock `.placeholder` |
 | 6 | Optional: `exit`, mail | "It has stopped, but it is still on the machine. Still there, no money." The killed listener stays down over the logout |
 | 7 | `rm <implant>`, `exit` (twice on two-hop), then `mail reply <briefing n>` with the wallet | "It's gone. §<pay> sent to jsc…. Thank you for the help."; a later mail gets "That job is already closed." and no second mint |
+
+### Then: a close-the-door job, a rogue forward shut on the router, to a payout
+
+Verified 2026-11-23 (v0.480.0), the close-the-door close-out: a development server (contract
+7101422) paid §950 after one collateral miss. A thirteenth of the contracts are close-the-door
+jobs, always single-hop; the board names one `close a way into a <machine>`. Nobody roots the
+target and nothing needs cracking: the briefing hands over root on the router. Turn the board over
+with a script, as for a file job, matching `missionShape(n).kind === 'closedoor'`. It can write
+`closeDoorJob(n)` (`machine.noun`, `publicPort`, `machine.insidePort`), the LAN address of each of
+`missionShape(n).forwards` (`generateHomeLan(missionEssid(n)).subnet` and `boxOctet`), and
+`whiteHatWord(missionShape(n).gatewayAdminHash, process.env.JSHACK_SECRETS)` to a scratch file
+the screen reads mask with. About one offer in thirteen matches; the run matched on round 2.
+
+| # | Command | Trap |
+| --- | --- | --- |
+| 1 | `curl -d "offer=<ref>" http://<board>/accept`, then `mail read <n>` | **The briefing prints the router's word**, as a cleanup job's does: mask it on every later read of the screen. It names the machine, never the port |
+| 2 | `mail reply <briefing n>` with the wallet, before anything | "Their <machine> still answers from outside. Still open, no money." |
+| 3 | `ssh root@<address>` (no `-p`) and the word | The router's own `:22`. The prompt becomes `root@ap-gw`. The word is the only way on: the router's releases are safe, and the word is in no list a player can read |
+| 4 | `cat /etc/iptables/rules.v4` | Three or four `forward` lines, all onto the one machine. The rogue one is the line onto the machine's service port (`:22` for a development server, `:3306` a database, `:6379` a cache, `:80` an intranet), **anywhere among them, not always first**. `cat` is paced: read a few seconds later |
+| 5 | `nano /etc/iptables/rules.v4`, delete the rogue line, `^O`, `close-nano.sh` | A `deny <port>` line instead is still open: a deny stops no forward. Deleting a kept line too gets "That's not all you closed. Something they use no longer answers from outside. No money." on the next mail; put the line back exactly as it was and mail again |
+| 6 | `exit`, `nmap <address>` | The rogue public port is gone; every kept one still shows (`21/tcp ftp`, `80/tcp http`) beside the router's own `22/tcp ssh` |
+| 7 | `mail reply <briefing n>` with the wallet | "It's shut. §<pay> sent to jsc…. Thank you for the help."; a later mail gets "That job is already closed." and no second mint |
