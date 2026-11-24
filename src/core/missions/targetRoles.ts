@@ -34,6 +34,9 @@ export type TargetRole = {
   /** Why a client, speaking for the customer who owns it, wants whoever holds its leaked root
    *  password locked out: a white-hat job, one of which opens a lock-them-out job's briefing. */
   readonly lockoutPitches: readonly string[];
+  /** Why a client, speaking for the customer who owns it, wants the hole in its software patched: a
+   *  white-hat job, one of which opens a patch-it job's briefing. Never naming the package. */
+  readonly patchPitches: readonly string[];
   /** The account the machine's own service runs under, which the intruder's listener runs as on a
    *  cleanup target: an account like that running `nc` is out of place, a clue for a sharp eye. */
   readonly serviceAccount: string;
@@ -72,6 +75,11 @@ const TARGET_ROLES: readonly TargetRole[] = [
       "Our customer's recorder login turned up somewhere it should not be. They need whoever has it kept out.",
       "Somebody has been logging in to our customer's recorder as root, and it is nobody who works there.",
     ],
+    patchPitches: [
+      "Our customer's CCTV recorder runs something with a known hole in it. They want it patched before someone walks in through it.",
+      "A scan of our customer's network says their camera recorder can be taken over from outside. They want that fixed.",
+      "Our customer's CCTV recorder missed the one update that matters. They need it applied.",
+    ],
   },
   {
     noun: 'backup server',
@@ -101,6 +109,11 @@ const TARGET_ROLES: readonly TargetRole[] = [
       "The root password to our customer's backup server has leaked. They want the person holding it locked out.",
       "Someone outside can log in to our customer's backups as root. They want that door closed for good.",
       "Our customer's backup server has had root logins from nobody they know. They want them stopped.",
+    ],
+    patchPitches: [
+      "Our customer's backup server runs software with a hole anyone can use. They want it patched before it is used.",
+      "An advisory came out that covers our customer's backup server. They want the fix on it this week.",
+      "Our customer's backups sit on a machine with a known way in. They need that way closed with a patch.",
     ],
   },
   {
@@ -132,6 +145,11 @@ const TARGET_ROLES: readonly TargetRole[] = [
       "The root login to our customer's monitoring station was passed around outside. They need it to stop working.",
       "Our customer's monitoring station shows a root login nobody there made. They want the intruder locked out.",
     ],
+    patchPitches: [
+      "Our customer's monitoring station runs a release with a public exploit. They want it patched.",
+      "Someone posted how to take over the software on our customer's monitoring station. They need the fix applied.",
+      "Our customer's monitoring station would hand root to anyone who asked it the right way. They want that patched.",
+    ],
   },
   {
     noun: 'build server',
@@ -161,6 +179,11 @@ const TARGET_ROLES: readonly TargetRole[] = [
       "A root password for our customer's build server has been posted somewhere public. They want it worthless.",
       "Someone outside has been logging in to our customer's build server as root. They want them kept out.",
       "Our customer thinks a former contractor still has root on their build server. They want that ended.",
+    ],
+    patchPitches: [
+      "Our customer's build server runs something with a published hole. They want it patched before their next release.",
+      "An auditor flagged our customer's build server as open to anyone. They need it fixed without breaking their builds.",
+      "Our customer's build server is behind on the one update that matters. They want it applied.",
     ],
   },
   {
@@ -192,6 +215,11 @@ const TARGET_ROLES: readonly TargetRole[] = [
       "Someone outside keeps logging in to our customer's licence server as root. They want it to stop.",
       "The root login to our customer's licence server has leaked. They need the intruder shut out of it.",
     ],
+    patchPitches: [
+      "Our customer's licence server runs a release anyone can take root on. They want it patched.",
+      "A scan says our customer's licence server has a hole that hands over the whole machine. They need it closed.",
+      "Our customer's licence server missed a security update. They want that one applied and nothing else touched.",
+    ],
   },
   {
     noun: 'door-access controller',
@@ -222,6 +250,11 @@ const TARGET_ROLES: readonly TargetRole[] = [
       "The root password to our customer's door-access controller leaked. They want the person holding it locked out.",
       "Our customer's door controller has had root logins nobody there made. They need them stopped.",
     ],
+    patchPitches: [
+      "Our customer's door controller runs software with a known hole. They want it patched before someone opens a door with it.",
+      "An advisory says the software on our customer's door-access controller can be taken over. They need the fix on it.",
+      "Our customer's door controller would let anyone in as root. They want that patched today.",
+    ],
   },
   {
     noun: 'billing server',
@@ -251,6 +284,11 @@ const TARGET_ROLES: readonly TargetRole[] = [
       "Someone has the root password to our customer's billing server. They want them locked out of it today.",
       "Our customer's billing server takes root logins from someone outside. They want that door shut.",
       "The root login to our customer's billing server was sold on. They need it to open nothing.",
+    ],
+    patchPitches: [
+      "Our customer's billing server runs a release with a hole anyone can use. They want it patched before month end.",
+      "A scan flagged our customer's billing server as open to a known exploit. They need the fix applied.",
+      "Our customer's billing server is running something that hands over root. They want it patched without touching their billing software.",
     ],
   },
 ];
@@ -337,6 +375,18 @@ export const lockoutJob = (missionNumber: number): LockoutJob => {
   return { role, account, place: prng.nextInt(1, CUSTOMER_ROWS) };
 };
 
+/** What a patch-it job is about: the machine running a release that lets anyone in as root. The
+ *  hole itself, the service and its release, is the shape's (`patchHole`). */
+export type PatchJob = {
+  readonly role: TargetRole;
+};
+
+/** The machine a patch-it job's client wants patched, drawn on a stream of its own so nothing the
+ *  contract drew before it moves. */
+export const patchJob = (missionNumber: number): PatchJob => ({
+  role: createPrng(`mission-patch-${missionNumber}`).pick(TARGET_ROLES),
+});
+
 /** What a chain job asks for: a listener left on the front box, on one port, and, when its last
  *  step takes it down, the machine behind it. */
 export type ChainJob = {
@@ -355,7 +405,7 @@ export const chainJob = (missionNumber: number): ChainJob => {
 
 /** The suffix on the hostname of the box in a contract's key-box slot: the box holding the key,
  *  the file or the records, or on a sabotage, backdoor, credential, cleanup, lock-them-out,
- *  portforward or close-the-door job, or a chain
+ *  patch-it, portforward or close-the-door job, or a chain
  *  job whose last step takes it down, the machine the job is about, named for what it is. */
 export const keyBoxSuffix = (missionNumber: number): string => {
   const kind = missionKind(missionNumber);
@@ -364,6 +414,7 @@ export const keyBoxSuffix = (missionNumber: number): string => {
   if (kind === 'credential') return credentialRole(missionNumber).suffix;
   if (kind === 'cleanup') return cleanupJob(missionNumber).role.suffix;
   if (kind === 'lockout') return lockoutJob(missionNumber).role.suffix;
+  if (kind === 'patch') return patchJob(missionNumber).role.suffix;
   if (kind === 'chain') {
     // A chain job's file or records sit where a destroy or wipe job's do.
     return chainFinal(missionNumber) === 'sabotage'

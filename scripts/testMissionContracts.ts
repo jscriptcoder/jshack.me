@@ -163,11 +163,11 @@ const acceptedOf = async (handle: string): Promise<number> => {
   return (data as { number: number }).number;
 };
 
-/** The ref of a key job on the handle's board. Two offers in three ask for a record changed
- *  or a machine taken down, which no key pays, so a board offering none is burned and read
- *  again to top up. */
+/** The ref of a key job on the handle's board. Only about one offer in fifteen is a key job,
+ *  so a board offering none is burned and read again to top up, often enough that a board
+ *  never offering one is no longer a chance worth a failed run. */
 const keyOfferRef = async (handle: string, board: string): Promise<string> => {
-  for (let attempt = 0; attempt < 10; attempt += 1) {
+  for (let attempt = 0; attempt < 40; attempt += 1) {
     await fetchAt(board, '/');
     const { data, error } = await sr
       .from('hireme_missions')

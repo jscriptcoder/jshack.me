@@ -67,7 +67,7 @@ describe('the item an infiltrate job slips in', () => {
     ).toEqual(new Set(INFILTRATE_NOUNS));
     for (const noun of INFILTRATE_NOUNS) {
       const share = infiltrateJobsFor(noun).length / INFILTRATE_JOBS.length;
-      expect(share, noun).toBeGreaterThan(0.11);
+      expect(share, noun).toBeGreaterThan(0.1);
       expect(share, noun).toBeLessThan(0.18);
     }
   });

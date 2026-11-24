@@ -92,8 +92,9 @@ import {
  *  white-hat reasons, and the router read the client does) added 587 B, rounded up to 600; then
  *  lock-them-out jobs (the fourteenth kind's shape and cuts, its machines' white-hat reasons,
  *  the intruder's names, and the accounts read the client does) added 914 B, rounded up to
- *  1,000. */
-const BUNDLE_CEILING_BYTES = 311_175;
+ *  1,000; then patch-it jobs (the fifteenth kind's shape and cuts, its machines' white-hat
+ *  reasons, and the manifest read the client does) added 833 B, rounded up to 900. */
+const BUNDLE_CEILING_BYTES = 312_075;
 
 /** About a tenth of that before world content, so a loaded machine's noise cannot fail
  *  the check while a content change that makes boxes ten times dearer still does. */

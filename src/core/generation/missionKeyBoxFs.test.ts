@@ -3,6 +3,7 @@ import { buildMissionFrontBoxFs, buildMissionKeyBoxFs } from './missionKeyBoxFs.
 import {
   missionKind,
   missionShape,
+  patchHole,
   MISSION_ROUTE_DAY,
   type MissionDecoy,
   type MissionRoute,
@@ -10,6 +11,7 @@ import {
 import { readOpenPorts } from '../services/pidfile.js';
 import { parseDpkgVersions } from '../packages/dpkgStatus.js';
 import { liveCve } from '../cve/liveCve.js';
+import { packageTimeline } from '../cve/packageTimeline.js';
 import { UNCRACKABLE_HASHES } from './passwordPools.js';
 import { MYSQL_USERNAMES } from './pools/database.js';
 import { databaseIn, DATADIR_OWNER } from '../mysql/datadir.js';
@@ -756,5 +758,59 @@ describe("a lock-them-out job's target", () => {
     );
 
     expect([...slots].sort()).toEqual([1, 2, 3, 4]);
+  });
+});
+
+describe("a patch-it job's target", () => {
+  /** The first patch-it contract whose hole is in `holePackage`. */
+  const numberHoledIn = (holePackage: string): number => {
+    for (let missionNumber = 2; missionNumber < 20000; missionNumber += 1) {
+      if (!isMissionNumber(missionNumber)) continue;
+      if (missionKind(missionNumber) !== 'patch') continue;
+      if (patchHole(missionNumber).package === holePackage) return missionNumber;
+    }
+    throw new Error(`no patch-it contract holed in ${holePackage} in range`);
+  };
+
+  const manifestOf = (missionNumber: number): ReadonlyMap<string, string> =>
+    parseDpkgVersions(
+      fileAt(buildMissionKeyBoxFs(missionNumber), ['var', 'lib', 'dpkg', 'status']),
+    );
+
+  it.each(['nginx', 'redis', 'mysql', 'vsftpd'])(
+    'runs %s on its critical release and listens on its port',
+    (holePackage) => {
+      const missionNumber = numberHoledIn(holePackage);
+      const hole = patchHole(missionNumber);
+
+      expect(manifestOf(missionNumber).get(holePackage)).toBe(hole.version);
+      expect(liveCve(holePackage, hole.version, MISSION_ROUTE_DAY)?.severity).toBe('critical');
+      expect(readOpenPorts(buildMissionKeyBoxFs(missionNumber))).toContainEqual(
+        expect.objectContaining({ port: hole.port }),
+      );
+    },
+  );
+
+  it.each(['nginx', 'redis', 'mysql', 'vsftpd'])(
+    'keeps every package but %s on a release whose hole grants a guest at most',
+    (holePackage) => {
+      const missionNumber = numberHoledIn(holePackage);
+      for (const [key, version] of manifestOf(missionNumber)) {
+        if (key === holePackage) continue;
+        const release = packageTimeline(key, MISSION_ROUTE_DAY).find(
+          (candidate) => candidate.version === version,
+        );
+        expect(['low', 'medium'], `${key} ${version}`).toContain(release?.severity);
+      }
+    },
+  );
+
+  it("guards a holed database's application and root accounts with shut words", () => {
+    const database = databaseIn(buildMissionKeyBoxFs(numberHoledIn('mysql')));
+
+    expect(database?.credentials).toHaveLength(2);
+    for (const credential of database?.credentials ?? []) {
+      expect(SHUT_HASHES).toContain(credential.passwordHash);
+    }
   });
 });

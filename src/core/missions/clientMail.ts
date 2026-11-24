@@ -101,14 +101,25 @@ import { writeAmount } from '../wallet/amount.js';
 import { missionKey } from './missionSecret.js';
 import { missionFileContent, missionFilePath, missionPlantContent } from './missionFileItem.js';
 import {
+  MISSION_ROUTE_DAY,
   chainFinal,
   missionKind,
   missionShape,
   missionTopology,
+  patchHole,
   type ChainFinal,
 } from './missionShape.js';
 import { recordsLookRight, recordsWiped } from './missionRecords.js';
-import { backdoorJob, chainJob, cleanupJob, credentialRole, lockoutJob } from './targetRoles.js';
+import {
+  backdoorJob,
+  chainJob,
+  cleanupJob,
+  credentialRole,
+  lockoutJob,
+  patchJob,
+} from './targetRoles.js';
+import { parseDpkgVersions, readDpkgStatus } from '../packages/dpkgStatus.js';
+import { installedRelease } from '../cve/packageTimeline.js';
 import { cleanupPlant } from './cleanupPlant.js';
 import { portforwardJob } from './portforwardJob.js';
 import { closeDoorJob } from './closeDoorJob.js';
@@ -191,6 +202,7 @@ const FILE_GONE = "It's gone.";
 const RECORDS_GONE = 'The records are gone.';
 const SHUT = "It's shut.";
 const LOCKED_OUT = "They're locked out.";
+const PATCHED = "It's patched.";
 const BOTH_DONE = 'Both done.';
 /** A white-hat client closes with thanks, not with the black-hat clients' sign-off. */
 const THANKS = 'Thank you for the help.';
@@ -231,6 +243,13 @@ const stillGetsIn = (noun: string): string =>
 /** Any of the customer's own accounts that no longer reads as it did. Never which. */
 const NOT_ALL_CHANGED =
   "That's not all you changed. One of their own accounts no longer works as it did. No money.";
+/** The holed package still on its release or an earlier one, or gone from the manifest. Never
+ *  which package: finding the hole is the job. */
+const stillHoled = (noun: string): string =>
+  `Their ${noun} still runs the release with that hole. Still open, no money.`;
+/** Any other package the customer runs no longer on its version, or gone. Never which. */
+const notAllMoved = (noun: string): string =>
+  `That's not all you moved. Something else on their ${noun} is no longer on the version they run. No money.`;
 /** One reply for every miss: no password line, an empty or wrong password, or a target that no
  *  longer boots. */
 const loginRefused = (noun: string): string =>
@@ -299,13 +318,14 @@ type Decision =
   | { readonly kind: 'checkCleanup'; readonly number: number }
   | { readonly kind: 'checkClosed'; readonly number: number }
   | { readonly kind: 'checkLockout'; readonly number: number }
+  | { readonly kind: 'checkPatch'; readonly number: number }
   | { readonly kind: 'reply'; readonly reply: ContractMail };
 
 /** How the client opens its reply to a job done: the key or the file it was sent, the records it
  *  read, the machine it found down, the listener it found, its own file found in place, the way
  *  in it found open, the login it found working, the company's file it found gone, the records
  *  it found emptied, both steps of a chain job found done, the intruder's implant found gone, the
- *  way in someone opened found shut, or the intruder found locked out. */
+ *  way in someone opened found shut, the intruder found locked out, or the hole found patched. */
 const RECEIVED: Readonly<Record<Exclude<Decision['kind'], 'reply'>, string>> = {
   complete: KEY_RECEIVED,
   completeFile: FILE_RECEIVED,
@@ -321,6 +341,7 @@ const RECEIVED: Readonly<Record<Exclude<Decision['kind'], 'reply'>, string>> = {
   checkCleanup: FILE_GONE,
   checkClosed: SHUT,
   checkLockout: LOCKED_OUT,
+  checkPatch: PATCHED,
 };
 
 /** What the client says on a job the mail itself proves: when the mail carries no proof, when it
@@ -377,6 +398,7 @@ const decide = ({
   if (acceptedKind === 'cleanup') return { kind: 'checkCleanup', number: accepted.number };
   if (acceptedKind === 'closedoor') return { kind: 'checkClosed', number: accepted.number };
   if (acceptedKind === 'lockout') return { kind: 'checkLockout', number: accepted.number };
+  if (acceptedKind === 'patch') return { kind: 'checkPatch', number: accepted.number };
   const said = MAILED_PROOF[acceptedKind];
   if ((acceptedKind === 'file' ? file : key) === null) return reply(accepted.number, said.none);
   if (proves(accepted.number)) return { kind: said.done, number: accepted.number };
@@ -452,6 +474,31 @@ const lockoutMiss = (missionNumber: number, fs: Directory): string | null => {
     return laid.every((field, index) => (laid[0] === 'root' && index === 1) || now[index] === field);
   });
   return asLaid ? null : NOT_ALL_CHANGED;
+};
+
+/** What the client says of a patch-it target not yet right: still open while the holed package
+ *  has no row or sits on its laid release or an earlier one, a version read as every reader of a
+ *  box's exposure reads it (the newest release at or below it); then any other package the box was
+ *  laid with gone or on another version. A package installed since is the customer's business.
+ *  Null once patched, whoever did it.
+ *
+ *  Resolved on the route day: the hole's next release is on the timeline by then, so a later day
+ *  gives every version the same answer, and the check needs no clock. */
+const patchMiss = (missionNumber: number, fs: Directory): string | null => {
+  const { noun } = patchJob(missionNumber).role;
+  const hole = patchHole(missionNumber);
+  const laid = parseDpkgVersions(readDpkgStatus(buildMissionKeyBoxFs(missionNumber)));
+  const now = parseDpkgVersions(readDpkgStatus(fs));
+  const holeNow = now.get(hole.package);
+  const releaseOf = (version: string) =>
+    installedRelease(hole.package, version, MISSION_ROUTE_DAY)?.index ?? -1;
+  if (holeNow === undefined || releaseOf(holeNow) <= releaseOf(hole.version)) {
+    return stillHoled(noun);
+  }
+  const othersAsLaid = [...laid].every(
+    ([pkg, version]) => pkg === hole.package || now.get(pkg) === version,
+  );
+  return othersAsLaid ? null : notAllMoved(noun);
 };
 
 /** Whether the box holds exactly `content` at the job's file path. */
@@ -655,6 +702,20 @@ export const answerClientMail = async ({
     const miss = lockoutMiss(decision.number, box.fs);
     if (miss !== null) return sendReply(store, login.handle, replyAbout(terms, miss));
   }
+  if (decision.kind === 'checkPatch') {
+    const box = await readTargetBox(decision.number);
+    if (box.kind === 'error') return null;
+    const front =
+      missionTopology(decision.number).frontBoxOctet === null
+        ? null
+        : await readFrontBox(decision.number);
+    if (front?.kind === 'error') return null;
+    if (box.kind === 'absent' || front?.kind === 'absent') {
+      return sendReply(store, login.handle, replyAbout(terms, TOOK_IT_DOWN));
+    }
+    const miss = patchMiss(decision.number, box.fs);
+    if (miss !== null) return sendReply(store, login.handle, replyAbout(terms, miss));
+  }
   if (decision.kind === 'checkClosed') {
     const router = await readRouter(decision.number);
     if (router.kind === 'error') return null;
@@ -667,7 +728,10 @@ export const answerClientMail = async ({
   }
   const received = RECEIVED[decision.kind];
   const signOff =
-    terms.job === 'cleanup' || terms.job === 'closedoor' || terms.job === 'lockout'
+    terms.job === 'cleanup' ||
+    terms.job === 'closedoor' ||
+    terms.job === 'lockout' ||
+    terms.job === 'patch'
       ? THANKS
       : PLEASURE;
   const wallet = firstMatch(text, WALLET_SHAPE)?.toLowerCase() ?? null;
