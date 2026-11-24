@@ -1892,8 +1892,8 @@ agreed order:
     `redis 7.2.5`, the only `critical` row of thirteen in `apt list --upgradable`: told it is still
     open before anything; a bare `apt upgrade` moved eleven packages and drew the collateral miss;
     with the other ten put back by `apt install <package>=<version>` it paid, and a later mail was
-    told the job is closed. No defect. The white-hat plan stays in flight for the three kinds still
-    to come.
+    told the job is closed. No defect. Announced on valleynews.io `/dev` (story 28). The white-hat
+    plan stays in flight for the three kinds still to come.
     **Pick up here (2026-11-24):** the next white-hat kind, restore the record, which starts with
     its own grill on top of the shared decisions in `plans/white-hat-jobs.md`. Also open:
     `scripts/testMissions.ts` still expects root-only files in full where v0.477.4 serves other

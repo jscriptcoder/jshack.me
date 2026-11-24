@@ -1917,6 +1917,7 @@ client does, 932 B; at v0.482.0 the chunk is 312,008 B against a ceiling of 312,
   bare `apt upgrade` moved eleven, and the mail got "That's not all you moved."; with the other
   ten put back one each by `apt install <package>=<version>`, the mail paid §800, the wallet
   reading §800. A later mail was told the job is closed, with no second mint. No defect.
+  Announced on valleynews.io `/dev` (story 28).
 
 ## What follows
 
