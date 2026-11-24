@@ -1,6 +1,6 @@
 # Plan: White-hat jobs
 
-**Status:** Grilled 2026-11-22 (the shared rules and cleanup). **Cleanup shipped** at v0.479.0 (PR #801, merged 2026-11-22) and closed out with a browser run the same day; as-built: "Cleanup jobs" in `docs/missions-architecture.md`. **Close the door shipped** at v0.480.0 (PR #802, merged 2026-11-23) and closed out with a browser run the same day; as-built: "Close-the-door jobs" in `docs/missions-architecture.md`. **Lock them out shipped** at v0.481.0 (PR #803, merged 2026-11-23) and closed out with a browser run the same day; as-built: "Lock-them-out jobs" in `docs/missions-architecture.md`. **Patch it shipped** at v0.482.0 (PR #804, merged 2026-11-24) and closed out with a browser run the same day; as-built: "Patch-it jobs" in `docs/missions-architecture.md`. Next: restore the record, the next white-hat kind, with its own grill on top of the shared decisions. This plan is retired once the last white-hat kind closes out.
+**Status:** Grilled 2026-11-22 (the shared rules and cleanup). **Cleanup shipped** at v0.479.0 (PR #801, merged 2026-11-22) and closed out with a browser run the same day; as-built: "Cleanup jobs" in `docs/missions-architecture.md`. **Close the door shipped** at v0.480.0 (PR #802, merged 2026-11-23) and closed out with a browser run the same day; as-built: "Close-the-door jobs" in `docs/missions-architecture.md`. **Lock them out shipped** at v0.481.0 (PR #803, merged 2026-11-23) and closed out with a browser run the same day; as-built: "Lock-them-out jobs" in `docs/missions-architecture.md`. **Patch it shipped** at v0.482.0 (PR #804, merged 2026-11-24) and closed out with a browser run the same day; as-built: "Patch-it jobs" in `docs/missions-architecture.md`. **Restore the record grilled** 2026-11-24 (decisions 48–58); next: its slice plan. This plan is retired once the last white-hat kind closes out.
 
 Every contract kind v2 ships is black-hat: the contractor breaks into the target's network and
 does something to it. Legacy also had defender contracts (`malware`, `forensics`, `db_fix`,
@@ -398,6 +398,88 @@ has always shipped by the time a job is played.
     To measure while planning: that `apt upgrade <package>` from a root shell on a mission box
     writes the manifest under the network's key and moves no other row, libraries included; and
     that every target role can carry each of the five services beside its decoys.
+
+### Restore the record (grilled 2026-11-24)
+
+The tamper job's mirror (legacy `db_fix`): someone got into a customer's records and changed one,
+the true value sits in a backup on the same machine, and the client pays once the table reads as
+it did. Measured first:
+
+- The game's `mysql` has no `INSERT` (`SHOW`, `DESCRIBE`, `SELECT`, `UPDATE`, `DELETE`, `DROP`),
+  and the datadir is one minified JSON line (`/var/lib/mysql/data.json`), so no row can be retyped
+  by hand.
+- A white-hat target's database accounts are shut (`shutStores`), and the database's accounts are
+  its own, not the box's, so a handed-over root alone cannot `UPDATE`.
+- No `diff`, `gzip` or `tar` ships; the text tools are `cat`, `grep`, `head`, `tail`, `wc`,
+  `nano`, `cp` and `mv`.
+- A tamper change already draws the true value (`from`), the changed one (`to`), the rows and the
+  check (`recordsLookRight`). No mission box has a `/var/backups`.
+
+48. **One value in the target table was changed, never a row erased (2026-11-24).** The tamper
+    change reversed: the box is laid with the change's `to`, and the truth is `from`, the row as
+    generated, so the change carries a motive (a failing grade raised to an A, a warrant
+    cleared). Rejected: erased rows too, which only CSV storage could restore without `INSERT`, a
+    carve-out; and a garbled value (`#ERR`), which a `SELECT` shows without the backup.
+
+49. **The records are a tamper job's (2026-11-24):** the records box (`<stem>-files`), the
+    setting, the storage (half database, half CSV) and the rows on tamper's streams, the action
+    always a change. The box is handed over as every white-hat target is: the router forwards
+    `:2222` to `:22`, nothing else is forwarded, and there is no route. Two hops on one contract in
+    three, the records on the box behind the front box, a login for each.
+
+50. **On database storage the briefing hands over the database login too (2026-11-24):** the
+    application account, its hash drawn from the white-hat list as root's is, its word turned back
+    by `whiteHatWord`. Rejected: cracking its hash out of the datadir, which is breaking in
+    (decision 1); retyping the one-line datadir; and CSV storage only, which drops the SQL half.
+
+51. **The backup is on the same box under `/var/backups`, root-only (2026-11-24).** It holds the
+    three tables as they stood before the change and before the target table's newest 1–3 rows
+    were added. On database storage it is a dump, `CREATE TABLE` and one `INSERT` per row, so
+    `grep` finds a row; on CSV storage, a copy of the three CSVs. Rejected: a backup on another
+    machine, a second login and hop; several dated backups to choose among; and a backup equal to
+    the table but for the one value, which makes CSV storage a `cp`.
+
+52. **The briefing describes the table, never the record (2026-11-24),** in the wipe job's words
+    (`WIPE_DESCRIPTIONS`): someone got in and changed one of those records, their backup from
+    before it is on the machine, and records have been added since that must stay. Never who, the
+    value, the table's name or the backup's path. The hunt is comparing the table with the
+    backup, and it cannot mislead: the change sits in a row both hold, the additions only in the
+    live table. Rejected: naming the person, which makes the job a `grep`.
+
+53. **Paid when the target table reads exactly as generated (2026-11-24):** every row in order,
+    each value equal as text, the restored one after trimming. The two tables beside it are never
+    read, as on a tamper job.
+
+54. **The replies, in lock them out's order (2026-11-24):**
+
+    | The state                                              | The reply                                                                                            |
+    | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+    | A machine in scope no longer boots                     | "You took our machine down. No money."                                                               |
+    | The changed value is still there, or the table is gone | "Their records still hold the change. Not restored, no money."                                       |
+    | Restored, and anything else in the table differs       | "That's not all you changed. Other records on their <machine> no longer read as they did. No money." |
+    | Restored, with a wallet                                | "The records are back. §<pay> sent to jsc…. Thank you for the help."                                 |
+    | Restored, no wallet                                    | the no-wallet form; completed, nothing minted                                                        |
+
+    The traps follow with no rule of their own. On CSV storage, copying the backup over the live
+    file loses the rows added since for good, unless the player kept a copy first, so that job can
+    never pay. On database storage, a loose `WHERE` (`WHERE student='…'` at a school) moves the
+    student's other rows, which can be put back.
+
+55. **The white-hat pay (2026-11-24):** 300–1,200 JSC single-hop and 1,200–2,400 two-hop
+    (decision 6).
+
+56. **A sixteenth of the draw (2026-11-24).** 360,360 does not split by sixteen, so the draw is
+    taken in 720,720ths, every cut doubled, which is exact and moves no number. Each kind gets
+    45,045; each of the fifteen older kinds gives up 3,003 at the top of its largest piece, the
+    lowest on a tie, so no number turns from one older kind into another.
+
+57. **The terms (2026-11-24):** `<Client> — restore a school record — §<pay>`,
+    `restore an internal school record` on two-hop, the target `<Stem> <institution>`, and three
+    pitches a setting, the client writing for its customer ("our customer Halden Academy …").
+
+58. **`hireme.ts show` (2026-11-24)** prints `Kind: restore, <setting>`, the storage, the logins
+    (root's, and the database's on database storage),
+    `Restore: <names>: <column> <laid> -> <true>`, the backup's path and the rows added since.
 
 ## Facts the plan rests on (measured 2026-11-22)
 
