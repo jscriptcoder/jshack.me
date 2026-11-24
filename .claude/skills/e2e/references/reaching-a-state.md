@@ -750,3 +750,26 @@ About one offer in fourteen matches; the run matched on round 3.
 | 5 | `passwd root`, the new word twice, `exit`, mail | **Still open**, the same reply: the leaked word still logs in as the added account (`ssh <name>@<address> -p 2222`), and the prompt ends in `#` because uid 0 is root |
 | 6 | `nano /etc/passwd`, delete the intruder's row, `^O`, `close-nano.sh` | A blank line left where the row was is fine: the client skips blank lines. Deleting or changing a customer's row too gets "That's not all you changed. One of their own accounts no longer works as it did. No money."; put it back exactly and mail again. Changing the added account's word, its uid or its name instead is still open |
 | 7 | `exit`, then `mail reply <briefing n>` with the wallet | "They're locked out. §<pay> sent to jsc…. Thank you for the help."; the leaked word is now refused, and a later mail gets "That job is already closed." and no second mint |
+
+### Then: a patch-it job, one package moved off its hole, to a payout
+
+Verified 2026-11-24 (v0.482.0), the patch-it close-out: a single-hop licence server (contract
+4850610, redis) paid §800 after one collateral miss. A fifteenth of the contracts are patch-it
+jobs; the board names one `patch a <machine>` (`an internal <machine>` on two-hop). Nothing needs
+cracking: the briefing hands over root. Turn the board over with a script, as for a file job,
+matching `missionShape(n).kind === 'patch'` and `frontBox` (null on single-hop). It can write
+`patchJob(n).role.noun` and `patchHole(n)` (`package`, `version`, `port`) to a scratch file, and
+`whiteHatWord(missionShape(n).keyBox.rootHash, process.env.JSHACK_SECRETS)` to another that the
+screen reads mask with and the login types from. About one offer in fifteen matches; the run
+matched on round 18.
+
+| # | Command | Trap |
+| --- | --- | --- |
+| 1 | `curl -d "offer=<ref>" http://<board>/accept`, then `mail read <n>` | **The briefing prints root's word**, as a cleanup job's does: mask it on every later read of the screen. It names the machine, never the package or port |
+| 2 | `mail reply <briefing n>` with the wallet, before anything | "Their <machine> still runs the release with that hole. Still open, no money." |
+| 3 | Single-hop: `nmap <address>` from home | The hole's port shows as its service (`6379/tcp redis`) beside the router's `22`, `2222` and the decoys' forwards |
+| 4 | `ssh root@<address> -p 2222` and the word; two-hop: then `ssh root@<inside ip>` and the second word | The prompt names the box for its machine (`<stem>-lic`, …) |
+| 5 | `apt list --upgradable` | **`apt list --installed` shows no versions**: this is the list that does. About a dozen rows, each with a CVE; the hole is the only `critical` one |
+| 6 | Optional: `apt upgrade` (bare), `exit`, mail | Moves eleven or so packages; the mail gets "That's not all you moved. Something else on their <machine> is no longer on the version they run. No money." The repair is `apt install <package>=<version>` for each moved row but the hole, one command each, back to the version step 5 printed; each takes several seconds, so a loop of ten outlasts a 2-minute tool timeout |
+| 7 | `apt upgrade <package>` (the hole's alone), `exit` (twice on two-hop) | Wait for the home prompt after each `exit` before typing the next command. The run skipped this step: after step 6 the hole was already moved, so putting the rest back was enough. `apt upgrade <package>` alone is proven by the unit tests and `testMissionPatch` |
+| 8 | `mail reply <briefing n>` with the wallet | "It's patched. §<pay> sent to jsc…. Thank you for the help."; a later mail gets "That job is already closed." and no second mint |

@@ -16,7 +16,8 @@ machine behind it, or, on a cleanup job, the first white-hat kind, by getting an
 listener and implant off one of its customer's machines, or, on a close-the-door job, by
 shutting a forward someone laid on a customer's router into one of its machines, or, on a
 lock-them-out job, by locking someone out of a customer's machine they hold root's password
-on. This is
+on, or, on a patch-it job, by moving one package off the release that lets anyone in as root on
+a customer's machine. This is
 the shipped model of the missions epic, complete at **v0.441.0** (four slices, v0.438.0–v0.441.0,
 PRs #746–#749, 2026-11-01 to 2026-11-03), with the routes that leak a login added by the epic
 that followed (four slices, v0.442.0–v0.445.0, PRs #750–#753, 2026-11-03 to 2026-11-04), and a
@@ -32,7 +33,8 @@ kinds, a root login stolen, a file destroyed, a table wiped and a two-step chain
 kinds", v0.471.0–v0.475.0, PRs #785–#789, 2026-11-18 to 2026-11-20), and the first white-hat
 kind, an intruder's work removed ("Cleanup jobs", v0.479.0, PR #801, 2026-11-22), and the
 second, a way in shut ("Close-the-door jobs", v0.480.0, PR #802, 2026-11-23), and the third,
-an intruder locked out ("Lock-them-out jobs", v0.481.0, PR #803, 2026-11-23).
+an intruder locked out ("Lock-them-out jobs", v0.481.0, PR #803, 2026-11-23), and the fourth,
+a hole patched ("Patch-it jobs", v0.482.0, PR #804, 2026-11-24).
 It sits
 on top of the contractor boards
 ([`hireme-architecture.md`](./hireme-architecture.md)), emailit.io
@@ -1274,8 +1276,8 @@ The twelfth kind and the first white-hat one (v0.479.0, PR #801, 2026-11-22): an
 implant on one of the client's customer's machines and a listener it holds open, and the client
 pays to have both gone. It is the backdoor job's mirror. Every kind before it has the contractor
 break in; on a white-hat job the client lets them in, so the difficulty moves from getting in to
-the hunt. Close the door and lock them out followed (below); four more white-hat kinds are
-grilled but not yet built (patch it, restore the record, forensics, incident response), each
+the hunt. Close the door, lock them out and patch it followed (below); three more white-hat
+kinds are grilled but not yet built (restore the record, forensics, incident response), each
 its own story, in
 `plans/white-hat-jobs.md` while the white-hat work is in flight. The rules every white-hat kind
 shares are below with cleanup, the first to use them.
@@ -1535,6 +1537,84 @@ whatever the account is called.
   route `none (handed over)`, the target's services, and `Accounts:` with the target's rows in
   file order, the added one tagged `(intruder)`.
 
+## Patch-it jobs
+
+The fifteenth kind and the fourth white-hat one (v0.482.0, PR #804, 2026-11-24): one of the
+client's customer's machines runs a release with a hole that lets anyone in as root, and the
+client pays to have that one package moved off it while everything else the customer runs stays
+on the version it is certified on. It stands on the CVE system rather than on a file or an
+account, with the rules cleanup set: root handed over in the briefing, the same clients posting
+as a middleman, white-hat pay, and no money for a machine that no longer boots. Its lesson is
+reading severity: `apt list --upgradable` on the target lists a dozen packages with a hole, and
+only one of them is `critical`.
+
+- **A fifteenth of the draw.** Each of the fourteen older kinds gave up 1,716 of the 360,360ths
+  of `mission-kind-<n>` at the top of its largest piece, the lowest on a tie, as the splits before
+  it did, so no number turned from one older kind into another. The top of the draw stays
+  lock-them-out's, so a draw past the last cut is unchanged. Two hops on the usual
+  `mission-template-<n>` draw, about one in three.
+- **The job** (`patchJob`, `core/missions/targetRoles.ts`, on `mission-patch-<n>`): one of the
+  credential job's seven machines (`TARGET_ROLES`), each with three patch-it pitches of its own.
+- **The hole** (`patchHole`, `missionShape.ts`, on `mission-patch-hole-<n>`): one of `nginx`,
+  `redis`, `mysql` and `vsftpd`, on `criticalRouteVersion`, its newest `critical` release by
+  `MISSION_ROUTE_DAY` (111): nginx 1.28.7, redis 7.2.5, mysql 8.0.39, vsftpd 4.0.1. The plan drew
+  it after the machine on `mission-patch-<n>`; it has a stream of its own, so the hole and the
+  machine are independent draws and adding a hole package never moves a job's machine.
+- **The shape** (`handedOverShape` with `kind: 'patch'`, shared with cleanup and lock them out):
+  every box in scope gets a root drawn from `WHITE_HAT_HASHES` on `mission-patch-login-<n>`, the
+  target's first, route `null`, and every package but the hole on a safe release. The hole's
+  service runs on the target behind shut stores (`shutStores`, shared with the portforward job's
+  `sealedTarget`: a `mysql` box's accounts and root shut, a `redis` box's lock shut), so the hole
+  is the only way through it, and no decoy runs the same service. On a single hop the router
+  forwards the hole's port beside `:2222` and the decoys' ports, so a scan from home finds it; on
+  two hops it is reached only from the edge machine.
+- **The terms**: `<Client> — patch a <machine> — §<pay>`, `… an internal <machine>` on two hops,
+  at the white-hat pay.
+- **The briefing says anyone can get in as root and hands over root**, never the package, the
+  port, the release or a tool, since finding the hole is the job. On two hops the edge machine's
+  login comes first, then the inside address and the target's login from the edge machine:
+
+  ```text
+  Our customer's licence server missed a security update. They want that one applied and nothing else touched.
+  Our customer is Corva Telecom. Their network is at 195.74.3.178.
+  Something on their licence server lets anyone in as root. It needs patching.
+  Move only what has to move. The rest of their software is certified on the versions it runs.
+  They have given you root:
+    ssh root@195.74.3.178 -p 2222
+    password: <word>
+  Leave the machine running. If it no longer boots, there is no money.
+  Write to this address with your wallet address once it is patched.
+  Still open, no money. No wallet, no money.
+  ```
+
+- **Any mail from the contractor reads the target's `/var/lib/dpkg/status`** (`checkPatch`, then
+  `patchMiss` in `core/missions/clientMail.ts`), and on two hops the edge machine for the boot
+  rule only. It compares against the manifest the server laid (`buildMissionKeyBoxFs`), and the
+  first row of the table that fits answers:
+
+  | The mail                           | The reply                                                                                                          | What changes                   |
+  | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------ |
+  | No accepted job with this client   | "We have no contract with you."                                                                                    | nothing                        |
+  | A completed job                    | "That job is already closed." (nothing read)                                                                       | nothing                        |
+  | A machine in scope no longer boots | "You took our machine down. No money."                                                                             | nothing; the job can never pay |
+  | Still open                         | "Their licence server still runs the release with that hole. Still open, no money."                                | nothing                        |
+  | Another package moved or gone      | "That's not all you moved. Something else on their licence server is no longer on the version they run. No money." | nothing                        |
+  | Patched, with a wallet             | "It's patched. §800 sent to jsc…. Thank you for the help."                                                         | completed, the pay minted      |
+  | Patched, no wallet                 | "It's patched. You sent no wallet, so there is nothing to pay. No wallet, no money."                               | completed, nothing minted      |
+
+  "Still open" is the hole's package with no row, or a row whose release, resolved with
+  `installedRelease` at `MISSION_ROUTE_DAY` so the check needs no clock, is at or below the laid
+  one's: a downgrade, the same release, or a string that is no release at all. So is the hole's
+  service stopped, its pidfile gone from `/var/run`, since a stopped service is not a fix. Any
+  later release pays, `apt upgrade <package>` or a hand edit alike. "Moved or gone" is any other
+  row of the laid manifest missing or reading another version string; a row the laid manifest
+  never had is free. So a bare `apt upgrade` is the collateral miss, and putting each row it
+  moved back with `apt install <package>=<version>` pays.
+
+- `hireme.ts show` prints `Kind: patch, <machine>, <package> <version>`, each box's
+  `Login: root / <word>` with its route `none (handed over)`, the target's services, and
+  `Packages:` with the target's rows in manifest order, the hole tagged `(hole)`.
+
 ## 7. What a root finds
 
 On the boards' server, beside `/etc/hireme/boards`, **`/etc/hireme/contracts`**: one
@@ -1589,6 +1669,8 @@ Close-the-door jobs added the kind's shape, terms and replies and the router rea
 does, 587 B; at v0.480.0 the chunk is 310,162 B against a ceiling of 310,175 B. Lock-them-out
 jobs added the kind's shape and cuts, its machines' pitches, the intruder's names and the accounts
 read the client does, 914 B; at v0.481.0 the chunk is 311,076 B against a ceiling of 311,175 B.
+Patch-it jobs added the kind's shape and cuts, its machines' pitches and the manifest read the
+client does, 932 B; at v0.482.0 the chunk is 312,008 B against a ceiling of 312,075 B.
 
 ## 10. Proving it
 
@@ -1689,8 +1771,14 @@ read the client does, 914 B; at v0.481.0 the chunk is 311,076 B against a ceilin
   uid 0 each still open; the row removed before `passwd root` still open, then paid with the rows
   reordered; `guest` removed with the intruder the collateral miss, put back and paid; no wallet
   completing unpaid; a bricked target and a bricked edge machine told they were taken down; and
-  on two hops the leaked word from the edge machine and the inside machine locked paid). The
-  board and pay checks each post a two-hop offer on a chosen number (21 and 17 checks at
+  on two hops the leaked word from the edge machine and the inside machine locked paid);
+  `testMissionPatch.ts` (14: a job accepted through a board's `/accept`, the briefing naming the
+  machine and no package, port, release or tool, `show` tagging the hole, a mail before anything
+  told it is still open, the hole downgraded through a real manifest write still open, moved
+  forward paid once then closed; a bare upgrade the collateral miss, the rest put back and paid;
+  no wallet completing unpaid; a bricked target told it was taken down even patched first; and on
+  two hops both logins handed over, the inside machine patched paid, and a bricked edge machine
+  told it was taken down). The board and pay checks each post a two-hop offer on a chosen number (21 and 17 checks at
   v0.452.0). The decoys' doors are also proven in `decoyMissionDoors.test.ts`.
 - **Mutation**: every slice's scoped run left no survivor but equivalents.
 - **One browser run at the epic's close-out** (2026-11-03, v0.441.0), two players in headed
@@ -1819,6 +1907,16 @@ read the client does, 914 B; at v0.481.0 the chunk is 311,076 B against a ceilin
   the wallet reading §450. The leaked word was then refused as root, and a later mail was told
   the job is closed, with no second mint. No defect. Announced on valleynews.io `/dev` (story
   27).
+- **One browser run at the patch-it close-out** (2026-11-24, v0.482.0), one fresh player in
+  Kingsford on TRIDENT-ELECTRONICS, the board turned over by a script, which matched on round 18.
+  A licence server (contract 4850610, §800, Bellwether Group for Corva Telecom): the briefing
+  handed over root over `:2222` and named no package. A mail before anything got "Their licence
+  server still runs the release with that hole. Still open, no money." `nmap` from home showed
+  `6379/tcp redis` beside `22`, `2222`, `80` and `161/udp`. On `corva-lic`,
+  `apt list --upgradable` listed thirteen packages, `redis 7.2.5` the only `critical` one. A
+  bare `apt upgrade` moved eleven, and the mail got "That's not all you moved."; with the other
+  ten put back one each by `apt install <package>=<version>`, the mail paid §800, the wallet
+  reading §800. A later mail was told the job is closed, with no second mint. No defect.
 
 ## What follows
 
@@ -1845,10 +1943,11 @@ The white-hat kinds still to come are in `plans/white-hat-jobs.md`; set aside fr
   (a tamper job's setting, records and the check) and `recordSettings.ts` (the eight settings'
   tables, and `recordsWiped`, a wipe job's check); `targetRoles.ts` (the seven machines a
   sabotage job can ask down, a backdoor job a way into, a credential job the root login of, a
-  cleanup job an implant off or a lock-them-out job an intruder out of: each target's hostname,
-  noun and five kinds' pitches, a
+  cleanup job an implant off, a lock-them-out job an intruder out of or a patch-it job a hole
+  off: each target's hostname, noun and six kinds' pitches, a
   backdoor or chain job's draw of the machine and the port, a lock-them-out job's draw of the
-  machine, the intruder's account and its place, and `keyBoxSuffix`); `missionFileItem.ts` (a file or infiltrate job's item and its pitches,
+  machine, the intruder's account and its place, a patch-it job's draw of the machine, and
+  `keyBoxSuffix`); `missionFileItem.ts` (a file or infiltrate job's item and its pitches,
   its file's name and place, and the bytes of the company's file and the client's, server only);
   `portforwardJob.ts` (a portforward job's machine, its public and inside ports, and its
   pitches); `closeDoorJob.ts` (a close-the-door job's machine and its rogue public port, from

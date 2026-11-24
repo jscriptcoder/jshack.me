@@ -1869,10 +1869,37 @@ agreed order:
     the leaked word was refused as root, and a later mail was told the job is closed. No defect.
     Announced on valleynews.io `/dev` (story 27). The white-hat plan stays in flight for the four
     kinds still to come.
-    **Pick up here (2026-11-23):** the next white-hat kind, patch it (a box on a release with a
-    root-level CVE, on the CVE system), which starts with its own grill on top of the shared
-    decisions in `plans/white-hat-jobs.md`. Also open: `scripts/testMissions.ts` still expects
-    root-only files in full where v0.477.4 serves other users empty stubs.
+59. ✅ **Patch-it jobs, the fourth white-hat contract (v0.482.0, PR #804, merged 2026-11-24).**
+    One slice; as-built: "Patch-it jobs" in [`missions-architecture.md`](./missions-architecture.md).
+    A fifteenth of the contracts (each older kind gave up 1,716 of the 360,360ths at the top of its
+    largest piece): one of the credential job's seven machines runs `nginx`, `redis`, `mysql` or
+    `vsftpd` on its newest `critical` release by the route day, every other package on a safe one,
+    and on a single hop the router forwards the hole's port. The briefing hands over root and asks
+    to move only what has to move, never naming the package, port, release or tool. The client
+    reads the target's `/var/lib/dpkg/status` on every mail and pays once the hole's package sits
+    on a later release than the one laid; a downgrade, a missing row or a stopped service is still
+    open, and any other laid package moved or removed is the collateral miss, so a bare
+    `apt upgrade` does not pay. The hole is drawn on a stream of its own, `mission-patch-hole-<n>`,
+    where the plan had it after the machine. A running service behind shut stores is now one
+    helper, `shutStores`, shared with the portforward job's target. Evidence: unit tests (11,566),
+    `testMissionPatch` 14/14 and every other mission, hireme and wallet wire-check green except
+    `testMissions.ts` (2 of 25 failing, as on `main`); the key-offer retry in `testMissionPay` and
+    `testMissionContracts` widened from 10 rounds to 40 now that a key job is one offer in fifteen;
+    mutation on the changed lines 279 killed, 5 equivalent (98.2%); the bundle ceiling raised 900 B
+    for 932 B of growth.
+    **Close-out (2026-11-24, v0.482.0):** one browser run on a fresh player in Kingsford on
+    TRIDENT-ELECTRONICS, the board turned over by a script. A licence server (§800) holed on
+    `redis 7.2.5`, the only `critical` row of thirteen in `apt list --upgradable`: told it is still
+    open before anything; a bare `apt upgrade` moved eleven packages and drew the collateral miss;
+    with the other ten put back by `apt install <package>=<version>` it paid, and a later mail was
+    told the job is closed. No defect. The white-hat plan stays in flight for the three kinds still
+    to come.
+    **Pick up here (2026-11-24):** the next white-hat kind, restore the record, which starts with
+    its own grill on top of the shared decisions in `plans/white-hat-jobs.md`. Also open:
+    `scripts/testMissions.ts` still expects root-only files in full where v0.477.4 serves other
+    users empty stubs; and the world build-time budgets in `checkBudgets` failed on a loaded
+    machine at this close-out (another project's Stryker run), so re-measure them idle before
+    trusting a FAIL.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

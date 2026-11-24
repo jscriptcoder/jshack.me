@@ -93,7 +93,8 @@ import {
  *  lock-them-out jobs (the fourteenth kind's shape and cuts, its machines' white-hat reasons,
  *  the intruder's names, and the accounts read the client does) added 914 B, rounded up to
  *  1,000; then patch-it jobs (the fifteenth kind's shape and cuts, its machines' white-hat
- *  reasons, and the manifest read the client does) added 833 B, rounded up to 900. */
+ *  reasons, and the manifest read the client does) added 932 B, 833 B past the old ceiling,
+ *  which rose 900. */
 const BUNDLE_CEILING_BYTES = 312_075;
 
 /** About a tenth of that before world content, so a loaded machine's noise cannot fail
