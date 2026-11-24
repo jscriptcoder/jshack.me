@@ -1,6 +1,6 @@
 # Plan: White-hat jobs
 
-**Status:** Grilled 2026-11-22 (the shared rules and cleanup). **Cleanup shipped** at v0.479.0 (PR #801, merged 2026-11-22) and closed out with a browser run the same day; as-built: "Cleanup jobs" in `docs/missions-architecture.md`. **Close the door shipped** at v0.480.0 (PR #802, merged 2026-11-23) and closed out with a browser run the same day; as-built: "Close-the-door jobs" in `docs/missions-architecture.md`. **Lock them out shipped** at v0.481.0 (PR #803, merged 2026-11-23) and closed out with a browser run the same day; as-built: "Lock-them-out jobs" in `docs/missions-architecture.md`. **Patch it shipped** at v0.482.0 (PR #804, merged 2026-11-24) and closed out with a browser run the same day; as-built: "Patch-it jobs" in `docs/missions-architecture.md`. **Restore the record grilled** 2026-11-24 (decisions 48–58); next: its slice plan. This plan is retired once the last white-hat kind closes out.
+**Status:** Grilled 2026-11-22 (the shared rules and cleanup). **Cleanup shipped** at v0.479.0 (PR #801, merged 2026-11-22) and closed out with a browser run the same day; as-built: "Cleanup jobs" in `docs/missions-architecture.md`. **Close the door shipped** at v0.480.0 (PR #802, merged 2026-11-23) and closed out with a browser run the same day; as-built: "Close-the-door jobs" in `docs/missions-architecture.md`. **Lock them out shipped** at v0.481.0 (PR #803, merged 2026-11-23) and closed out with a browser run the same day; as-built: "Lock-them-out jobs" in `docs/missions-architecture.md`. **Patch it shipped** at v0.482.0 (PR #804, merged 2026-11-24) and closed out with a browser run the same day; as-built: "Patch-it jobs" in `docs/missions-architecture.md`. **Restore the record grilled** 2026-11-24 (decisions 48–58) and planned ("Slice plan: Restore-the-record jobs"); next: the owner confirms its acceptance criteria and settled items, then RED on `feat/white-hat-restore`. This plan is retired once the last white-hat kind closes out.
 
 Every contract kind v2 ships is black-hat: the contractor breaks into the target's network and
 does something to it. Legacy also had defender contracts (`malware`, `forensics`, `db_fix`,
@@ -1260,3 +1260,214 @@ collateral miss after a bare `apt upgrade`; a "Patch-it jobs" section in
    Rejected: comparing version strings, which calls `9.9.9` and `1.28.10` by their characters.
 4. ✅ **No decoy runs the hole's service (2026-11-23),** as `EXPOSING_DECOYS` keeps one off a
    portforward target: two daemons cannot share a port.
+
+## Slice plan: Restore-the-record jobs
+
+**Branch:** `feat/white-hat-restore` · **Delivery:** one independent PR against `main` ·
+**Version:** v0.483.0 (minor, a new kind).
+
+### Goal
+
+A contractor accepts a restore-the-record job on their hireme.io board, logs in to the customer's
+records machine as root with the login the briefing hands over, finds the backup under
+`/var/backups`, compares it with the live table to find the one record someone changed, puts that
+value back and nothing else, and is paid when they mail the client.
+
+### Facts this slice rests on (measured 2026-11-24)
+
+- **Patch it is the template.** `handedOverShape` (`missionShape.ts`) takes the kinds
+  `cleanup`, `lockout` and `patch`, draws every root in scope from `WHITE_HAT_HASHES` on
+  `mission-<kind>-login-<n>` (the target's first, the front box's after it), and forwards `:2222`
+  onto the first box's `:22`. `withHole` shows how a target gains a running service and its
+  stores. `checkPatch` (`clientMail.ts`) reads the target and on two hops the front box, the boot
+  rule first, then the kind's miss.
+- **The records are drawn and laid already.** `missionRecords(n)` draws the setting, the three
+  tables and the target on tamper's streams; its action comes from `missionAction(n)`, half erase
+  where the setting erases, so a restore job needs the change draw whatever that stream says. The
+  server lays a records box's datadir (`datadirFile`) or root-only CSVs (`recordsFilesLaid`) in
+  `missionFiles` (`missionLeak.ts`), keyed on `keyBoxKind` being `tamper` or `wipe`, and lists the
+  paths in `missionFilePaths` for the write gate. `recordsStorage(n)` is the storage, on its own
+  stream. `keyBoxSuffix` already falls through to `files`, so the box is `<stem>-files`.
+- **The database login.** A database's credentials are `root` (shut) and an application account
+  named from `MYSQL_USERNAMES` in `buildMissionKeyBoxFs`, with `database.accountHash` from the
+  shape; on a white-hat target both come from `shutStores` today. `whiteHatWord` turns any
+  white-hat hash into its word, so the application account's can be handed over as root's is. From
+  a shell on the box the login is `mysql localhost <account>`, which prompts for the word.
+- **Decoys.** `withDecoys(box, forwards, n, barred)` may add a database decoy on a single hop,
+  which forwards `:3306`; a target running its own `mysqld` bars it, as a patch-it target bars
+  its hole's service. `withInsideDecoys` already skips a door the box runs.
+- **Where the changed row sits** (measured over 4,000 change draws): the target is the table's
+  last row in 138 (3.5%), second to last in 127, third to last in 133; 3,602 have three or more
+  rows after it.
+- **The game's `mysql` has no `INSERT`,** the datadir is one minified JSON line, and no `diff`,
+  `gzip` or `tar` ships (decisions 48–52).
+- **`KIND_CUTS`** holds 107 pieces in 360,360ths, 24,024 per kind. Taken in 720,720ths each kind
+  holds 48,048 and a sixteenth is 45,045, so each of the fifteen gives up 3,003 at the top of its
+  largest piece, the lowest on a tie (720,720ths): tamper 45,045–48,048, patch 48,477–51,480,
+  lockout 57,057–60,060, closedoor 77,077–80,080, chain 128,271–131,274, cleanup
+  160,017–163,020, sabotage 285,285–288,288, credential 336,765–339,768, wipe 357,357–360,360,
+  backdoor 396,895–399,898, file 442,845–445,848, key 585,585–588,588, destroy 627,627–630,630,
+  portforward 653,037–656,040, infiltrate 671,601–674,604. Lockout's top piece, 716,760–720,720,
+  ties its 56,100–60,060 and is the higher, so the fallback past the last cut stays lockout.
+
+### Slice 1: a sixteenth kind, restore the record, paid once the changed value is back and nothing else in the table has moved
+
+**Value:** a fifth defender job, whose challenge is comparing: the backup and the live table differ
+in more than one place, and only one of those is the intruder's.
+**Path:** board offer → accept → briefing mail with root's login (and the database's) →
+`ssh root@<address> -p 2222` (on to the inside box on two hops) → `ls /var/backups`, `cat` the
+backup and the table (`mysql localhost <account>` and `SELECT`, or the CSV) → `UPDATE … WHERE …`
+or `nano` → `mail` to the client → `answerClientMail` reads the boxes → reply, pay minted.
+**Class:** behavior change. **Required skills:** `tdd`, `testing`, `functional`, `refactoring`;
+`mutation-testing` at PR readiness.
+
+**What it builds:**
+
+- **The kind.** `restore` joins `MissionKind` and takes a sixteenth of `mission-kind-<n>`, the
+  draw taken in 720,720ths with every cut doubled and the fifteen pieces above. No number turns
+  from one older kind into another.
+- **The records** are a tamper change's (`missionRecords` with the change forced for a restore
+  number): the setting, the three tables, the target row and its `from` (the truth) and `to` (what
+  the intruder wrote). On `mission-restore-<n>`: how many of the target table's last rows were
+  added since the backup, drawn 1–3 and capped at the rows after the target (settled item 1).
+- **The shape** (`handedOverShape` with `kind: 'restore'`): the target's root the first draw on
+  `mission-restore-login-<n>`; on database storage the target runs `mysqld` on a safe release, its
+  application account the next white-hat draw and its database root shut, and a database decoy is
+  barred; the front box's root after them on two hops. Route `null`, safe releases, `:2222` only
+  besides the decoys. Two hops on the usual `mission-template-<n>` draw, about one in three.
+- **What the server lays** on the target, root-only and in `missionFilePaths`:
+  - the live table as generated with the target's cell set to `to`, in the datadir beside the two
+    tables, or in the three CSVs at tamper's paths;
+  - the backup: every table as generated less the target table's rows added since, the target's
+    cell holding `from`. Database storage: `/var/backups/<stem>-records.sql`, a `-- MySQL dump`
+    header, then for each table a `CREATE TABLE` naming its columns and one
+    ``INSERT INTO `<table>` VALUES (…);`` per row, text quoted, numbers bare. File storage:
+    the three CSVs under `/var/backups/records/` (settled item 2).
+- **The terms:** `<Client> — restore a school record — §<pay>`,
+  `restore an internal school record` on two hops (`a`/`an` by the setting's noun, as
+  tamper's), the target `<Stem> <institution>`, pay 300–1,200 single-hop and 1,200–2,400
+  two-hop to the nearest 50, and three restore pitches per setting, 24 in all, in the client's
+  voice as a middleman.
+- **The briefing** names the company and the address, describes the table in the wipe job's words,
+  says one record was changed and the backup from before is on the machine, says records added
+  since must stay, and hands over the logins. Draft (single hop, database storage):
+
+  ```text
+  Our customer is Halden Academy. Their network is at 195.85.65.53.
+
+  Someone got into their records of what each student scored in each subject and changed one.
+  Their backup from before it happened is on the machine. Put that record back as it was.
+  They have added records since the backup. Those stay as they are.
+
+  They have given you root:
+    ssh root@195.85.65.53 -p 2222
+    password: <word>
+  Their database login, from that machine:
+    mysql localhost <account>
+    password: <word>
+  Leave the machine running. If it no longer boots, there is no money.
+  Write to this address with your wallet address once it is put back.
+  Not restored, no money. No wallet, no money.
+  ```
+
+  On file storage the database lines are left out. On two hops the edge machine's login comes
+  first, then the inside address and the target's login from the edge machine, then the database
+  login from the inside machine, and the warning names both machines.
+
+- **The client's check** (`checkRestore`, reading the target and on two hops the front box), the
+  first row that fits:
+
+  | The mail                                         | The reply                                                                                          | What changes                   |
+  | ------------------------------------------------ | -------------------------------------------------------------------------------------------------- | ------------------------------ |
+  | No accepted job with this client                 | "We have no contract with you."                                                                    | nothing                        |
+  | A completed job                                  | "That job is already closed." (nothing read)                                                       | nothing                        |
+  | A machine in scope no longer boots               | "You took our machine down. No money."                                                             | nothing; the job can never pay |
+  | No row reads as the changed one did, or no table | "Their records still hold the change. Not restored, no money."                                     | nothing                        |
+  | Restored, and the table differs anywhere else    | "That's not all you changed. Other records on their machine no longer read as they did. No money." | nothing                        |
+  | Restored, with a wallet                          | "The records are back. §650 sent to jsc…. Thank you for the help."                                 | completed, the pay minted      |
+  | Restored, no wallet                              | "The records are back. You sent no wallet, so there is nothing to pay. …"                          | completed, nothing minted      |
+
+  "Restored" is some row of the live table equal to the generated target row, each value equal as
+  text and the restored one after trimming. "Anywhere else" is the live table not holding exactly
+  the generated rows in order, as `recordsLookRight` reads a change. The CSV is read as tamper's
+  is. The two tables beside it are never read.
+
+- **`hireme.ts show`** prints `Kind: restore, <setting>`, the storage and the table (or its CSV
+  path), each box's `Login: root / <word>` with its route as `none (handed over)`, the database
+  login on database storage, `Restore: <names>: <column> <to> -> <from>`, the backup's path, and
+  `Added since: <n> rows`.
+
+**Acceptance criteria** (to confirm with the owner before RED):
+
+- [ ] A sixteenth of numbers are restore-the-record jobs; every other number keeps its kind,
+      shape, terms and LAN exactly (a sweep against `main` outside the new share).
+- [ ] A restore offer reads `<Client> — restore a <setting> record — §<pay>`, pays in the
+      white-hat bands to the nearest 50 and carries one of its setting's three pitches; about one
+      in three is two-hop; each of the eight settings and both storages are drawn over 2,000
+      numbers.
+- [ ] The briefing gives root's login on the target (and on two hops the edge machine's first)
+      and on database storage the database login, describes the table, and never names the
+      person, the value, the table, the file or the backup's path; nothing in the bundle yields
+      any of the words.
+- [ ] On the target, root reads the backup under `/var/backups` and the live table; the two differ
+      in the target's one value and in the rows added since, and nowhere else. On database
+      storage `mysql localhost <account>` with the handed-over word opens the database, and no
+      decoy answers on `:3306`.
+- [ ] The client answers each row of the table above: still changed before anything and after the
+      table is deleted or dropped; the collateral miss after the backup is copied over the live
+      CSV, and after an `UPDATE` with a loose `WHERE`, paid once the other rows are put back where
+      they can be; paid after `UPDATE … WHERE` the one row, and after a `nano` edit of the one
+      value, with spaces around it.
+- [ ] A bricked target, or front box on two hops, gets the boot-rule reply on every later mail.
+- [ ] With `JSHACK_SECRETS` lacking the white-hat list, accepting fails whole, as a cleanup accept
+      does.
+- [ ] `show` prints the report above.
+
+**RED:** unit tests through the public surfaces: the kind sweep and the new share of
+`missionKind`; `missionShape` and `buildMissionKeyBoxFs` for a restore number (the logins, the
+database and its accounts, the barred decoy, null routes); `missionFiles` for the live table and
+the backup on both storages; `answerClientMail` for each row over a target built from the shape
+and the laid files with the table edited as `UPDATE`, `cp` or `nano` would leave it; the terms and
+briefing text; `show`.
+**GREEN:** the minimum per row. **REFACTOR:** whether the restore check and `recordsLookRight`
+share one reading of "the generated rows, one cell asked for"; assess the rest after each green.
+**Wire-check:** `scripts/testMissionRestore.ts` against `vercel dev` + local supabase, one
+database-storage and one file-storage number: accept with `scripts/hireme.ts`; root over
+`:2222`; the backup readable at its path; a mail before anything still changed; the database
+login and a real `UPDATE` through the statement door, or a real CSV write, and the paid reply and
+mint, once, then closed; the backup copied over the live CSV and its collateral miss; a loose
+`UPDATE` and its miss; no wallet completing unpaid; a two-hop job's front login and the inside
+records restored; a bricked target's and a bricked edge machine's reply; and every other mission,
+hireme and wallet wire-check still green.
+**Pre-PR:** mutation on the changed lines; `npm run typecheck`, `npm run lint`, the full unit
+suite, `npm run build` (raise the bundle ceiling: 67 B of headroom is left).
+**Close-out:** one browser run on a fresh player, a restore job worked end to end on database
+storage through the loose-`WHERE` miss; a "Restore-the-record jobs" section in
+`missions-architecture.md`; a `project-status.md` entry; a valleynews story if the owner asks.
+
+### Risks
+
+- **Accepted contracts move.** A sixteenth of numbers become restore jobs, so some accepted prod
+  contracts change kind. Only test accounts and a bot play on prod.
+- **A copy over the live CSV is for good.** The rows added since exist nowhere else, so a player
+  who copies the backup without keeping the live file first can never be paid (decision 54).
+- **Comparing is by eye.** With no `diff`, the player reads 20–40 rows twice, across a dump and a
+  `SELECT` on database storage. `grep` on a name narrows it once the player suspects a row.
+- **The handed-over database login** opens the records to whoever reads the briefing, as root's
+  login already does.
+
+### Settled while planning (to confirm with the owner)
+
+1. **No rows added since when the target is the table's last row (2026-11-24).** The count is
+   drawn 1–3 and capped at the rows after the target, since a row added after the backup has no
+   true value in it. About 3.5% of jobs end with none added, where copying the backup over the
+   live CSV pays. Rejected: moving the added rows before the target, which puts newer ids ahead of
+   an older row; and redrawing the target, which leaves tamper's records draw.
+2. **The backup's paths (2026-11-24):** `/var/backups/<stem>-records.sql` on database storage, the
+   three CSVs under `/var/backups/records/` on file storage, both undated. Rejected: a dated name,
+   with no calendar a mission box keeps.
+3. **The collateral reply says "on their machine" (2026-11-24),** since a records box has no role
+   noun: "That's not all you changed. Other records on their machine no longer read as they did.
+   No money."
+4. **The database decoy is barred only on database storage (2026-11-24);** on file storage the
+   target runs no `mysqld`, so a database decoy is a decoy as anywhere else.
