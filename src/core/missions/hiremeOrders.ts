@@ -19,6 +19,7 @@ import {
   keyBoxKind,
   missionKind,
   missionShape,
+  patchHole,
   type MissionBox,
   type MissionBoxRef,
   type MissionKind,
@@ -31,8 +32,10 @@ import {
   credentialRole,
   keyBoxSuffix,
   lockoutJob,
+  patchJob,
   sabotageRole,
 } from './targetRoles.js';
+import { parseDpkgVersions, readDpkgStatus } from '../packages/dpkgStatus.js';
 import { portforwardJob } from './portforwardJob.js';
 import { closeDoorJob } from './closeDoorJob.js';
 import { firmwarePackageOf } from '../packages/packageVersions.js';
@@ -122,11 +125,11 @@ const leakLines = (
 const handedOverLine = (hash: string, rawSecrets: string | undefined, indent: string): string =>
   `${indent}Login:    root / ${whiteHatWord(hash, rawSecrets) ?? '(JSHACK_SECRETS is not set)'}`;
 
-/** Whether a contract's client hands over root on every box it covers: a cleanup or lock-them-out
- *  job's. */
+/** Whether a contract's client hands over root on every box it covers: a cleanup, lock-them-out
+ *  or patch-it job's. */
 const handsOverRoot = (missionNumber: number): boolean => {
   const kind = missionKind(missionNumber);
-  return kind === 'cleanup' || kind === 'lockout';
+  return kind === 'cleanup' || kind === 'lockout' || kind === 'patch';
 };
 
 /** The root login a cleanup or lock-them-out job's client hands over for a box, at `indent`: the
@@ -210,6 +213,10 @@ const kindLine = (missionNumber: number, kind: MissionKind): readonly string[] =
   }
   if (kind === 'cleanup') return [`  Kind:     cleanup, ${cleanupJob(missionNumber).role.noun}`];
   if (kind === 'lockout') return [`  Kind:     lockout, ${lockoutJob(missionNumber).role.noun}`];
+  if (kind === 'patch') {
+    const hole = patchHole(missionNumber);
+    return [`  Kind:     patch, ${patchJob(missionNumber).role.noun}, ${hole.package} ${hole.version}`];
+  }
   if (kind === 'portforward') {
     const { machine, publicPort } = portforwardJob(missionNumber);
     return [
@@ -283,6 +290,18 @@ const jobLines = (
     );
     return [`  Accounts: ${tagged.join(', ')}`];
   }
+  if (kind === 'patch') {
+    // The target's packages as its manifest lists them, so the report shows the release a
+    // contractor must move beside the ones they must leave.
+    const hole = patchHole(missionNumber);
+    const rows = parseDpkgVersions(readDpkgStatus(buildMissionKeyBoxFs(missionNumber)));
+    return [
+      '  Packages:',
+      ...[...rows].map(
+        ([pkg, version]) => `    ${pkg} ${version}${pkg === hole.package ? ' (hole)' : ''}`,
+      ),
+    ];
+  }
   if (kind === 'cleanup') {
     const { implant, decoys } = cleanupPlant(missionNumber, secret);
     return [
@@ -354,6 +373,7 @@ export const showReport = (
     shape.kind === 'chain' ||
     shape.kind === 'cleanup' ||
     shape.kind === 'lockout' ||
+    shape.kind === 'patch' ||
     shape.kind === 'closedoor';
   const slotName = isTarget ? 'target' : 'key box';
   const reached = frontBox === null ? slotName : 'front box';

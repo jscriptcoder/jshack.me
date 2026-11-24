@@ -1163,7 +1163,7 @@ describe("a portforward job's target", () => {
   // The job is the router's forward onto the machine, not anything inside it, so the server
   // lays no key, records, file or leak there, whatever the machine runs.
   it('has nothing laid on it: no key, records, file, leak or datadir', () => {
-    expect(PORTFORWARD_NUMBERS.length).toBeGreaterThan(150);
+    expect(PORTFORWARD_NUMBERS.length).toBeGreaterThan(120);
     for (const missionNumber of PORTFORWARD_NUMBERS) {
       expect(missionFilePaths(keyOf(missionNumber)), `contract ${missionNumber}`).toEqual([]);
       expect(missionFiles(keyOf(missionNumber), HOLDING_BOTH), `contract ${missionNumber}`).toEqual(
@@ -1661,10 +1661,10 @@ describe("a tamper job's records kept in a file", () => {
 describe("a wipe job's records box", () => {
   const NO_SECRETS = { keySecret: undefined, rawSecrets: undefined };
 
-  /** The first wipe job in a wide spread that `wanted` accepts: wipe jobs are a tenth of it. */
+  /** The first wipe job in a wide spread that `wanted` accepts: wipe jobs are a fifteenth of it. */
   const firstWipeJob = (wanted: (shape: MissionShape) => boolean): number => {
-    for (let index = 0; index < 6000; index++) {
-      const missionNumber = index * 2741 + 2;
+    for (let index = 0; index < 12000; index++) {
+      const missionNumber = index * 1373 + 2;
       if (!isMissionNumber(missionNumber) || missionKind(missionNumber) !== 'wipe') continue;
       if (wanted(missionShape(missionNumber))) return missionNumber;
     }

@@ -595,7 +595,7 @@ describe('generateHomeLan for a contract network', () => {
   });
 
   it('stands a front box beside the key box on a two-hop contract, where the shape says', () => {
-    for (const missionNumber of [8383, 66056, 134098, 326876]) {
+    for (const missionNumber of [8383, 66056, 134098, 326015]) {
       const lan = generateHomeLan(`mission-${missionNumber}`);
       const { stem, keyBox, frontBox } = missionShape(missionNumber);
 
@@ -610,7 +610,7 @@ describe('generateHomeLan for a contract network', () => {
     }
   });
 
-  it('names a sabotage target for the machine the client wants down, and every key box but a backdoor, portforward, credential, chain, cleanup, lock-them-out or close-the-door target as before', () => {
+  it('names a sabotage target for the machine the client wants down, and every key box but a backdoor, portforward, credential, chain, cleanup, lock-them-out, patch-it or close-the-door target as before', () => {
     // The board names the machine; the box the contractor lands on carries the name to match.
     const suffixByMachine: Readonly<Record<string, string>> = {
       'CCTV recorder': 'nvr',
@@ -642,6 +642,7 @@ describe('generateHomeLan for a contract network', () => {
         kind !== 'chain' &&
         kind !== 'cleanup' &&
         kind !== 'lockout' &&
+        kind !== 'patch' &&
         kind !== 'closedoor'
       );
     });

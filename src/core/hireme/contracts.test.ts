@@ -27,9 +27,10 @@ import {
   chainFinal,
   missionKind,
   missionShape,
+  patchHole,
   type ChainFinal,
 } from '../missions/missionShape.js';
-import { backdoorJob, chainJob, cleanupJob, lockoutJob } from '../missions/targetRoles.js';
+import { backdoorJob, chainJob, cleanupJob, lockoutJob, patchJob } from '../missions/targetRoles.js';
 import { portforwardJob } from '../missions/portforwardJob.js';
 import { closeDoorJob } from '../missions/closeDoorJob.js';
 import {
@@ -150,6 +151,18 @@ const lockoutNumber = (twoHop: boolean): number => {
 
 const LOCKOUT_SINGLE_HOP = lockoutNumber(false);
 const LOCKOUT_TWO_HOP = lockoutNumber(true);
+
+/** The first patch-it contract from 70,000 up, on one hop or on two. */
+const patchNumber = (twoHop: boolean): number => {
+  for (let candidate = 70_000; candidate < 2_000_000; candidate++) {
+    if (!isMissionNumber(candidate) || missionKind(candidate) !== 'patch') continue;
+    if ((missionShape(candidate).frontBox !== null) === twoHop) return candidate;
+  }
+  throw new Error('no patch-it contract');
+};
+
+const PATCH_SINGLE_HOP = patchNumber(false);
+const PATCH_TWO_HOP = patchNumber(true);
 
 /** The machine a backdoor contract wants a way into, read off the board's line. */
 const backdoorMachineOf = (missionNumber: number): string =>
@@ -1504,6 +1517,128 @@ describe('accepting an offer', () => {
       const { store, accepts } = offeredLockout();
 
       expect(alertOf(await acceptWithoutSecret('offer=lll', store))).toMatch(
+        /^Contract accepted\./,
+      );
+      expect(accepts).toHaveLength(1);
+    });
+  });
+
+  describe('on a patch-it job', () => {
+    const offeredPatch = () =>
+      boardStore({
+        offers: [
+          { number: PATCH_SINGLE_HOP, ref: 'ppp' },
+          { number: PATCH_TWO_HOP, ref: 'qqq' },
+        ],
+      });
+
+    it('writes a single-hop briefing naming the machine, and handing over root on it', async () => {
+      const { store, accepts } = offeredPatch();
+      const terms = missionTerms(PATCH_SINGLE_HOP);
+      const { role } = patchJob(PATCH_SINGLE_HOP);
+      const address = missionAddressForNumber(PATCH_SINGLE_HOP);
+      const word = plaintextFor(missionShape(PATCH_SINGLE_HOP).keyBox.rootHash);
+
+      await accept('offer=ppp', store);
+
+      expect(accepts[0]!.briefing).toEqual({
+        sender: `${terms.client.handle}@emailit.io`,
+        subject: `Contract: ${terms.targetCompany}`,
+        body: [
+          terms.pitch,
+          '',
+          `Our customer is ${terms.targetCompany}. Their network is at ${address}.`,
+          '',
+          `Something on their ${role.noun} lets anyone in as root. It needs patching.`,
+          'Move only what has to move. The rest of their software is certified on the versions it runs.',
+          '',
+          'They have given you root:',
+          '',
+          `  ssh root@${address} -p 2222`,
+          `  password: ${word}`,
+          '',
+          'Leave the machine running. If it no longer boots, there is no money.',
+          'Write to this address with your wallet address once it is patched.',
+          'Still open, no money. No wallet, no money.',
+          '',
+          `-- ${terms.client.company}`,
+          '',
+        ].join('\n'),
+      });
+    });
+
+    it('hands a two-hop contractor the edge machine, then the machine inside', async () => {
+      const { store, accepts } = offeredPatch();
+      const terms = missionTerms(PATCH_TWO_HOP);
+      const { role } = patchJob(PATCH_TWO_HOP);
+      const { keyBox, frontBox } = missionShape(PATCH_TWO_HOP);
+      const address = missionAddressForNumber(PATCH_TWO_HOP);
+      const inside = `${lanSubnetPrefix(missionEssid(PATCH_TWO_HOP))}.${keyBox.octet}`;
+
+      await accept('offer=qqq', store);
+
+      expect(accepts[0]!.briefing.body).toBe(
+        [
+          terms.pitch,
+          '',
+          `Our customer is ${terms.targetCompany}. Their network is at ${address}.`,
+          '',
+          `Something on their ${role.noun} lets anyone in as root. It needs patching.`,
+          'Move only what has to move. The rest of their software is certified on the versions it runs.',
+          '',
+          'They have given you root on the machine on the edge of their network:',
+          '',
+          `  ssh root@${address} -p 2222`,
+          `  password: ${plaintextFor(frontBox!.rootHash)}`,
+          '',
+          `The ${role.noun} is inside their network, at ${inside}. From the edge machine:`,
+          '',
+          `  ssh root@${inside}`,
+          `  password: ${plaintextFor(keyBox.rootHash)}`,
+          '',
+          'Leave both machines running. If either no longer boots, there is no money.',
+          'Write to this address with your wallet address once it is patched.',
+          'Still open, no money. No wallet, no money.',
+          '',
+          `-- ${terms.client.company}`,
+          '',
+        ].join('\n'),
+      );
+    });
+
+    // Reading which package is holed is the job, so the briefing names no package, port, release
+    // or CVE, and no tool.
+    it('names no package, port, release, CVE or tool', async () => {
+      for (const [missionNumber, ref] of [
+        [PATCH_SINGLE_HOP, 'ppp'],
+        [PATCH_TWO_HOP, 'qqq'],
+      ] as const) {
+        const { store, accepts } = offeredPatch();
+        const hole = patchHole(missionNumber);
+
+        await accept(`offer=${ref}`, store);
+        const { body } = accepts[0]!.briefing;
+
+        expect(body).not.toContain(hole.package);
+        expect(body).not.toContain(hole.program);
+        expect(body).not.toContain(hole.version);
+        expect(body).not.toMatch(new RegExp(`\\b${hole.port}\\b`));
+        expect(body).not.toMatch(/\b(CVE|apt|nmap|critical|upgrade)\b/i);
+      }
+    });
+
+    it('answers nothing, asking the store nothing, when the password pools are unset', async () => {
+      const { store, accepts } = offeredPatch();
+
+      expect(await acceptWithoutPools('offer=qqq', store)).toBeNull();
+      expect(accepts).toEqual([]);
+    });
+
+    // Nothing is laid on a patch-it job's boxes by the server: the hole ships with the box.
+    it('takes the job without the mission secret', async () => {
+      const { store, accepts } = offeredPatch();
+
+      expect(alertOf(await acceptWithoutSecret('offer=ppp', store))).toMatch(
         /^Contract accepted\./,
       );
       expect(accepts).toHaveLength(1);

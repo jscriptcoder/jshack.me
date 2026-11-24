@@ -3,7 +3,13 @@ import { answerClientMail, type ClientMailStore, type TargetBoxRead } from './cl
 import type { ContractMail } from '../hireme/contracts.js';
 import { missionKey } from './missionSecret.js';
 import { missionTerms, type MissionClient } from './missionTerms.js';
-import { chainFinal, missionKind, missionShape } from './missionShape.js';
+import {
+  MISSION_ROUTE_DAY,
+  chainFinal,
+  missionKind,
+  missionShape,
+  patchHole,
+} from './missionShape.js';
 import { missionFiles } from './missionLeak.js';
 import { missionAction, missionRecords } from './missionRecords.js';
 import {
@@ -19,7 +25,27 @@ import { DATADIR_FILE, PASSWD_FILE, ROOT_FILE, file, withFiles } from '../genera
 import { md5 } from '../generation/md5.js';
 import { PASSWD_PATH, withAccountHash } from '../sessions/passwdAccount.js';
 import type { Directory } from '../filesystem/types.js';
-import { backdoorJob, chainJob, cleanupJob, credentialRole, lockoutJob } from './targetRoles.js';
+import {
+  backdoorJob,
+  chainJob,
+  cleanupJob,
+  credentialRole,
+  lockoutJob,
+  patchJob,
+} from './targetRoles.js';
+import {
+  DPKG_STATUS_PATH,
+  DPKG_STATUS_PERMISSIONS,
+  buildEntry,
+  formatDpkgStatus,
+  parseDpkgStatus,
+  parseDpkgVersions,
+  readDpkgStatus,
+  withPackageVersion,
+} from '../packages/dpkgStatus.js';
+import { planUpgrade } from '../cve/planUpgrade.js';
+import { packageTimeline } from '../cve/packageTimeline.js';
+import { readOpenPorts } from '../services/pidfile.js';
 import { cleanupFiles, cleanupPlant } from './cleanupPlant.js';
 import { portforwardJob } from './portforwardJob.js';
 import { closeDoorJob } from './closeDoorJob.js';
@@ -2271,6 +2297,354 @@ describe('a mail on a lock-them-out job', () => {
     expect(box.reads).toEqual([]);
     expect(completes).toEqual([]);
     expect(replies).toEqual([fromLockoutClient(CLOSED_LINE)]);
+  });
+});
+
+describe('a mail on a patch-it job', () => {
+  const patchNumber = (twoHop: boolean): number =>
+    ALL_HOST_NUMBERS.find(
+      (missionNumber) =>
+        missionKind(missionNumber) === 'patch' &&
+        (missionShape(missionNumber).frontBox !== null) === twoHop,
+    )!;
+  const PATCH_JOB = patchNumber(false);
+  const TWO_HOP_JOB = patchNumber(true);
+  const PATCH_TERMS = missionTerms(PATCH_JOB);
+  const { role: ROLE } = patchJob(PATCH_JOB);
+  const HOLE = patchHole(PATCH_JOB);
+  /** A day every hole's fix has long shipped by, for the upgrades the tests make. */
+  const LATER_DAY = MISSION_ROUTE_DAY + 30;
+
+  /** The target's manifest as the box is laid. */
+  const laidManifest = (missionNumber: number): string =>
+    readDpkgStatus(buildMissionKeyBoxFs(missionNumber));
+
+  /** The target up, its manifest reading `content`. */
+  const withManifest = (missionNumber: number, content: string): TargetBoxRead => ({
+    kind: 'up',
+    fs: withFiles(buildMissionKeyBoxFs(missionNumber), [
+      [DPKG_STATUS_PATH, file(content, DPKG_STATUS_PERMISSIONS)],
+    ]),
+  });
+
+  /** `fs` with `program` stopped, as `systemctl stop` leaves it: no pidfile under `/var/run`. */
+  const withStopped = (fs: Directory, program: string): Directory => {
+    const at = (directory: Directory, name: string): Directory => {
+      const entry = directory.entries.get(name);
+      if (entry?.kind !== 'directory') throw new Error(`no ${name} directory`);
+      return entry;
+    };
+    const replaced = (directory: Directory, name: string, entry: Directory): Directory => ({
+      ...directory,
+      entries: new Map([...directory.entries, [name, entry]]),
+    });
+    const varDir = at(fs, 'var');
+    const runDir = at(varDir, 'run');
+    const stoppedRun: Directory = {
+      ...runDir,
+      entries: new Map([...runDir.entries].filter(([name]) => name !== `${program}.pid`)),
+    };
+    return replaced(fs, 'var', replaced(varDir, 'run', stoppedRun));
+  };
+
+  type Step = (content: string) => string;
+
+  /** The target after `steps`, each a change to its manifest, applied in order. */
+  const after = (...steps: readonly Step[]): TargetBoxRead =>
+    withManifest(
+      PATCH_JOB,
+      steps.reduce((content, step) => step(content), laidManifest(PATCH_JOB)),
+    );
+
+  /** `apt upgrade <package>` on the day the tests play. */
+  const upgraded =
+    (pkg: string): Step =>
+    (content) =>
+      planUpgrade(content, LATER_DAY, pkg).manifest;
+  /** A bare `apt upgrade`: every package a fix has shipped for. */
+  const upgradedAll: Step = (content) => planUpgrade(content, LATER_DAY).manifest;
+  const pinned =
+    (pkg: string, version: string): Step =>
+    (content) =>
+      withPackageVersion(content, pkg, version);
+  const removed =
+    (pkg: string): Step =>
+    (content) =>
+      formatDpkgStatus([...parseDpkgStatus(content).values()].filter((entry) => entry.pkg !== pkg));
+
+  /** The job done: the holed package moved forward and nothing else. */
+  const patched = (missionNumber: number): TargetBoxRead => {
+    const { package: holePackage } = patchHole(missionNumber);
+    return withManifest(
+      missionNumber,
+      planUpgrade(laidManifest(missionNumber), LATER_DAY, holePackage).manifest,
+    );
+  };
+
+  /** The release just before the hole's, which a downgrade lands on. */
+  const releaseBefore = (pkg: string, version: string): string => {
+    const timeline = packageTimeline(pkg, MISSION_ROUTE_DAY);
+    const index = timeline.findIndex((release) => release.version === version);
+    return timeline[index - 1]!.version;
+  };
+
+  /** A package on the target other than the hole, whose fix has shipped. */
+  const OTHER = [...parseDpkgVersions(laidManifest(PATCH_JOB)).keys()].find(
+    (pkg) =>
+      pkg !== HOLE.package &&
+      planUpgrade(laidManifest(PATCH_JOB), LATER_DAY, pkg).upgrades.length === 1,
+  )!;
+
+  /** A box read answering with `read`, keeping every number it was asked for. */
+  const boxReader = (read: TargetBoxRead) => {
+    const reads: number[] = [];
+    return {
+      reads,
+      read: async (missionNumber: number): Promise<TargetBoxRead> => {
+        reads.push(missionNumber);
+        return read;
+      },
+    };
+  };
+
+  const fromPatchClient = (line: string, terms = PATCH_TERMS): ContractMail => ({
+    sender: `${terms.client.handle}@emailit.io`,
+    subject: `Contract: ${terms.targetCompany}`,
+    body: signed(line, terms.client.company),
+  });
+
+  const STILL_OPEN = `Their ${ROLE.noun} still runs the release with that hole. Still open, no money.`;
+  const NOT_ALL_MOVED = `That's not all you moved. Something else on their ${ROLE.noun} is no longer on the version they run. No money.`;
+  const TOOK_IT_DOWN = 'You took our machine down. No money.';
+
+  const acceptedStore = (number = PATCH_JOB) =>
+    clientStore({ jobs: [{ number, state: 'accepted' }] });
+
+  const mailOnPatchJob = (
+    store: ClientMailStore,
+    read: TargetBoxRead,
+    body = `patched\n${WALLET}\n`,
+  ) => mailTo(store, { to: PATCH_TERMS.client, body, readTargetBox: boxReader(read).read });
+
+  it('reads the target of the job held, and pays once the holed package has moved forward', async () => {
+    const { store, completes, replies } = acceptedStore();
+    const box = boxReader(patched(PATCH_JOB));
+
+    expect(
+      await mailTo(store, {
+        to: PATCH_TERMS.client,
+        body: `patched\n${WALLET}\n`,
+        readTargetBox: box.read,
+      }),
+    ).toBe('replied');
+    expect(box.reads).toEqual([PATCH_JOB]);
+    expect(completes).toEqual([
+      {
+        number: PATCH_JOB,
+        wallet: WALLET,
+        pay: PATCH_TERMS.pay,
+        reply: fromPatchClient(
+          `It's patched. §${PATCH_TERMS.pay.toLocaleString('en-US')} sent to ${WALLET}. Thank you for the help.`,
+        ),
+      },
+    ]);
+    expect(replies).toEqual([]);
+  });
+
+  it('completes and pays nothing when the mail names no wallet', async () => {
+    const { store, completes } = acceptedStore();
+
+    await mailOnPatchJob(store, patched(PATCH_JOB), 'patched\n');
+
+    expect(completes).toEqual([
+      {
+        number: PATCH_JOB,
+        wallet: null,
+        pay: PATCH_TERMS.pay,
+        reply: fromPatchClient(
+          "It's patched. You sent no wallet, so there is nothing to pay. No wallet, no money.",
+        ),
+      },
+    ]);
+  });
+
+  // A version is read as every reader of a box's exposure reads it: the newest release at or
+  // below it. Past the newest is the newest, so a hand edit buys what an upgrade buys.
+  it('pays when the holed version is hand-edited past the newest release', async () => {
+    const { store, completes, replies } = acceptedStore();
+
+    await mailOnPatchJob(store, after(pinned(HOLE.package, '99.0.0')));
+
+    expect(completes.map(({ number }) => number)).toEqual([PATCH_JOB]);
+    expect(replies).toEqual([]);
+  });
+
+  // A package the box never had is the customer's business, not a change to what they run.
+  it('pays with a package installed since beside the rest', async () => {
+    const { store, completes, replies } = acceptedStore();
+    const installed: Step = (content) =>
+      formatDpkgStatus([...parseDpkgStatus(content).values(), buildEntry('nmap', '7.95.0')]);
+
+    await mailOnPatchJob(store, after(upgraded(HOLE.package), installed));
+
+    expect(completes.map(({ number }) => number)).toEqual([PATCH_JOB]);
+    expect(replies).toEqual([]);
+  });
+
+  it('pays once a package moved by mistake is pinned back to the version they run', async () => {
+    const { store, completes, replies } = acceptedStore();
+    const laidVersion = parseDpkgVersions(laidManifest(PATCH_JOB)).get(OTHER)!;
+
+    await mailOnPatchJob(
+      store,
+      after(upgraded(HOLE.package), upgraded(OTHER), pinned(OTHER, laidVersion)),
+    );
+
+    expect(completes.map(({ number }) => number)).toEqual([PATCH_JOB]);
+    expect(replies).toEqual([]);
+  });
+
+  // One reply for every way the hole is still there, so a mail never says which package it is.
+  it.each([
+    ['nothing has been touched', after()],
+    ['the hole is downgraded', after(pinned(HOLE.package, releaseBefore(HOLE.package, HOLE.version)))],
+    // The newest release at or below a version between two is the lower one: still the hole.
+    ['the hole is edited to a version just past it', after(pinned(HOLE.package, `${HOLE.version}.1`))],
+    ['the hole is edited to something that is no version', after(pinned(HOLE.package, 'banana'))],
+    ["the hole's row is removed", after(removed(HOLE.package))],
+    ['only another package is upgraded', after(upgraded(OTHER))],
+  ])('says it is still open when %s, and keeps the job open', async (_case, read) => {
+    const { store, completes, replies } = acceptedStore();
+
+    expect(await mailOnPatchJob(store, read)).toBe('replied');
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromPatchClient(STILL_OPEN)]);
+  });
+
+  it("says it is still open when the hole's service is stopped, which closes nothing", async () => {
+    const { store, completes, replies } = acceptedStore();
+    const stopped = withStopped(buildMissionKeyBoxFs(PATCH_JOB), HOLE.program);
+
+    expect(readOpenPorts(stopped).map(({ port }) => port)).not.toContain(HOLE.port);
+    await mailOnPatchJob(store, { kind: 'up', fs: stopped });
+
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromPatchClient(STILL_OPEN)]);
+  });
+
+  it.each([
+    ['everything is upgraded at once', [upgradedAll]],
+    ['another package is upgraded beside the hole', [upgraded(HOLE.package), upgraded(OTHER)]],
+    ['another package is downgraded', [upgraded(HOLE.package), pinned(OTHER, '0.0.1')]],
+    ['another package is removed', [upgraded(HOLE.package), removed(OTHER)]],
+  ] as const)(
+    'says not all was left as it was when %s, and keeps the job open',
+    async (_case, steps) => {
+      const { store, completes, replies } = acceptedStore();
+
+      expect(await mailOnPatchJob(store, after(...steps))).toBe('replied');
+      expect(completes).toEqual([]);
+      expect(replies).toEqual([fromPatchClient(NOT_ALL_MOVED)]);
+    },
+  );
+
+  it('tells a contractor who bricked the target there is no money, and keeps the job open', async () => {
+    const { store, completes, replies } = acceptedStore();
+
+    expect(await mailOnPatchJob(store, { kind: 'absent' })).toBe('replied');
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromPatchClient(TOOK_IT_DOWN)]);
+  });
+
+  describe('on two hops', () => {
+    const TWO_HOP_TERMS = missionTerms(TWO_HOP_JOB);
+
+    const mailOnTwoHops = (target: TargetBoxRead, front: TargetBoxRead) => {
+      const { store, completes, replies } = acceptedStore(TWO_HOP_JOB);
+      const targetReads = boxReader(target);
+      const frontReads = boxReader(front);
+      const answer = mailTo(store, {
+        to: TWO_HOP_TERMS.client,
+        body: `patched\n${WALLET}\n`,
+        readTargetBox: targetReads.read,
+        readFrontBox: frontReads.read,
+      });
+      return { answer, completes, replies, targetReads, frontReads };
+    };
+
+    it('reads both machines, and pays once the target is patched and the edge machine still boots', async () => {
+      const { answer, completes, targetReads, frontReads } = mailOnTwoHops(
+        patched(TWO_HOP_JOB),
+        { kind: 'up', fs: buildMissionFrontBoxFs(TWO_HOP_JOB) },
+      );
+
+      expect(await answer).toBe('replied');
+      expect(targetReads.reads).toEqual([TWO_HOP_JOB]);
+      expect(frontReads.reads).toEqual([TWO_HOP_JOB]);
+      expect(completes.map(({ number }) => number)).toEqual([TWO_HOP_JOB]);
+    });
+
+    // Only the boot rule reads the edge machine: what it runs is nobody's business here.
+    it('pays with every package on the edge machine upgraded', async () => {
+      const front = buildMissionFrontBoxFs(TWO_HOP_JOB);
+      const { answer, completes } = mailOnTwoHops(patched(TWO_HOP_JOB), {
+        kind: 'up',
+        fs: withFiles(front, [
+          [
+            DPKG_STATUS_PATH,
+            file(planUpgrade(readDpkgStatus(front), LATER_DAY).manifest, DPKG_STATUS_PERMISSIONS),
+          ],
+        ]),
+      });
+
+      expect(await answer).toBe('replied');
+      expect(completes.map(({ number }) => number)).toEqual([TWO_HOP_JOB]);
+    });
+
+    it('tells a contractor who bricked the edge machine there is no money', async () => {
+      const { answer, completes, replies } = mailOnTwoHops(patched(TWO_HOP_JOB), {
+        kind: 'absent',
+      });
+
+      expect(await answer).toBe('replied');
+      expect(completes).toEqual([]);
+      expect(replies).toEqual([fromPatchClient(TOOK_IT_DOWN, TWO_HOP_TERMS)]);
+    });
+
+    it('answers nothing when the edge machine could not be read', async () => {
+      const { answer, completes, replies } = mailOnTwoHops(patched(TWO_HOP_JOB), {
+        kind: 'error',
+      });
+
+      expect(await answer).toBeNull();
+      expect(completes).toEqual([]);
+      expect(replies).toEqual([]);
+    });
+  });
+
+  it('answers nothing when the target could not be read', async () => {
+    const { store, completes, replies } = acceptedStore();
+
+    expect(await mailOnPatchJob(store, { kind: 'error' })).toBeNull();
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([]);
+  });
+
+  it('says the job is already closed once it is completed, without reading the target', async () => {
+    const { store, completes, replies } = clientStore({
+      jobs: [{ number: PATCH_JOB, state: 'completed' }],
+    });
+    const box = boxReader(patched(PATCH_JOB));
+
+    await mailTo(store, {
+      to: PATCH_TERMS.client,
+      body: `patched\n${WALLET}\n`,
+      readTargetBox: box.read,
+    });
+
+    expect(box.reads).toEqual([]);
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromPatchClient(CLOSED_LINE)]);
   });
 });
 

@@ -38,6 +38,7 @@ import {
   cleanupJob,
   credentialRole,
   lockoutJob,
+  patchJob,
   sabotageRole,
 } from '../missions/targetRoles.js';
 import { portforwardJob } from '../missions/portforwardJob.js';
@@ -272,7 +273,7 @@ const chainFinalLines = (missionNumber: number): readonly string[] => {
  *  never their table, file or box. */
 const jobLines = (
   missionNumber: number,
-  terms: Exclude<MissionTerms, { readonly job: 'cleanup' | 'closedoor' | 'lockout' }>,
+  terms: Exclude<MissionTerms, { readonly job: 'cleanup' | 'closedoor' | 'lockout' | 'patch' }>,
   inside: boolean,
 ): readonly string[] => {
   if (terms.job === 'sabotage') {
@@ -500,6 +501,30 @@ const lockoutLines = (
   ];
 };
 
+/** A patch-it job's briefing past its opening: the machine anyone can get into as root, then the
+ *  logins, or null when the words cannot be given. Reading which package is holed is the job, so
+ *  it names no package, port, release or tool. */
+const patchLines = (
+  missionNumber: number,
+  rawSecrets: string | undefined,
+): readonly string[] | null => {
+  const { noun } = patchJob(missionNumber).role;
+  const logins = handedOverLoginLines(missionNumber, rawSecrets, { noun, leaked: false });
+  if (logins === null) return null;
+  const twoHop = missionTopology(missionNumber).frontBoxOctet !== null;
+  return [
+    `Something on their ${noun} lets anyone in as root. It needs patching.`,
+    'Move only what has to move. The rest of their software is certified on the versions it runs.',
+    '',
+    ...logins,
+    twoHop
+      ? 'Leave both machines running. If either no longer boots, there is no money.'
+      : 'Leave the machine running. If it no longer boots, there is no money.',
+    'Write to this address with your wallet address once it is patched.',
+    'Still open, no money. No wallet, no money.',
+  ];
+};
+
 /** A close-the-door job's briefing past its opening: the machine someone made reachable from
  *  outside, never the port or the forward, then the router's login, or null when the word cannot
  *  be given. Which forward reaches the machine is the job, so it names no port, file or tool. */
@@ -532,15 +557,22 @@ const briefingOf = (
   rawSecrets: string | undefined,
 ): ContractMail | null => {
   const terms = missionTerms(missionNumber);
-  if (terms.job === 'cleanup' || terms.job === 'closedoor' || terms.job === 'lockout') {
+  if (
+    terms.job === 'cleanup' ||
+    terms.job === 'closedoor' ||
+    terms.job === 'lockout' ||
+    terms.job === 'patch'
+  ) {
     const lines =
       terms.job === 'closedoor'
         ? closeDoorLines(missionNumber, rawSecrets)
         : terms.job === 'lockout'
           ? lockoutLines(missionNumber, rawSecrets)
-          : missionSecret === undefined
-            ? null
-            : cleanupLines(missionNumber, rawSecrets);
+          : terms.job === 'patch'
+            ? patchLines(missionNumber, rawSecrets)
+            : missionSecret === undefined
+              ? null
+              : cleanupLines(missionNumber, rawSecrets);
     if (lines === null) return null;
     return {
       sender: clientAddress(terms),
