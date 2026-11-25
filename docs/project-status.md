@@ -1894,12 +1894,34 @@ agreed order:
     with the other ten put back by `apt install <package>=<version>` it paid, and a later mail was
     told the job is closed. No defect. Announced on valleynews.io `/dev` (story 28). The white-hat
     plan stays in flight for the three kinds still to come.
-    **Pick up here (2026-11-24):** the next white-hat kind, restore the record, which starts with
-    its own grill on top of the shared decisions in `plans/white-hat-jobs.md`. Also open:
+60. ✅ **Restore-the-record jobs, the fifth white-hat contract (v0.483.0, PR #805, merged
+    2026-11-25).** One slice; as-built: "Restore-the-record jobs" in
+    [`missions-architecture.md`](./missions-architecture.md). A sixteenth of the contracts (each
+    older kind gave up 3,003 of 720,720 at the top of its largest piece; the 360,360ths do not
+    split into sixteenths, so the draw doubled): a tamper job's records with one value changed by
+    an intruder, and a root-only backup from before it under `/var/backups`, a dump on database
+    storage or a copy of the CSVs on file storage, missing the target table's one to three newest
+    rows. The briefing hands over root, and on database storage a white-hat database login used as
+    `mysql localhost <account>` from the target, and never names the person, value, table or path.
+    The client reads only the target table and pays once it reads exactly as generated, the
+    restored value trimmed; the change still there or no records is still changed, and any other
+    row touched, gone or added is the collateral miss, so copying the backup over the live table
+    does not pay. Evidence: unit tests (11,624), `testMissionRestore` 16/16, `testMissionBoard`
+    22/22, `testMissionTamper` 38/38 and `testMissionWipe` 25/25; mutation on the changed lines
+    380 killed and 52 survived of 440 (86.4%), nine real survivors killed by new tests and two dead
+    branches removed, the rest equivalent; the bundle ceiling raised 200 B for 191 B of growth.
+    **Close-out (2026-11-25, v0.483.0):** one browser run on a fresh player on BRAMBLE-HOUSE, the
+    board turned over by a script (round 16). A school record on database storage (§1,200): told it
+    still holds the change before anything; the dump's `INSERT` and a `SELECT … WHERE` found the
+    grade changed C to A; set back with a neighbour changed too drew the collateral miss; with the
+    neighbour put back it paid, and a later mail was told the job is closed. No defect; three rough
+    edges went to `backlog.md` under "missions — deferred". The white-hat plan stays in flight for
+    the two kinds still to come.
+    **Pick up here (2026-11-25):** the next white-hat kind, forensics, which starts with its own
+    grill on top of the shared decisions in `plans/white-hat-jobs.md`. Also open:
     `scripts/testMissions.ts` still expects root-only files in full where v0.477.4 serves other
-    users empty stubs; and the world build-time budgets in `checkBudgets` failed on a loaded
-    machine at this close-out (another project's Stryker run), so re-measure them idle before
-    trusting a FAIL.
+    users empty stubs; and the world build-time budgets in `checkBudgets` fail on a loaded machine
+    (main too, measured again at this close-out), so re-measure them idle before trusting a FAIL.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan

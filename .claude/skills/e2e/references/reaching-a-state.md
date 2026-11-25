@@ -773,3 +773,27 @@ matched on round 18.
 | 6 | Optional: `apt upgrade` (bare), `exit`, mail | Moves eleven or so packages; the mail gets "That's not all you moved. Something else on their <machine> is no longer on the version they run. No money." The repair is `apt install <package>=<version>` for each moved row but the hole, one command each, back to the version step 5 printed; each takes several seconds, so a loop of ten outlasts a 2-minute tool timeout |
 | 7 | `apt upgrade <package>` (the hole's alone), `exit` (twice on two-hop) | Wait for the home prompt after each `exit` before typing the next command. The run skipped this step: after step 6 the hole was already moved, so putting the rest back was enough. `apt upgrade <package>` alone is proven by the unit tests and `testMissionPatch` |
 | 8 | `mail reply <briefing n>` with the wallet | "It's patched. §<pay> sent to jsc…. Thank you for the help."; a later mail gets "That job is already closed." and no second mint |
+
+### Then: a restore-the-record job, one changed value put back from the backup, to a payout
+
+Verified 2026-11-25 (v0.483.0), the restore close-out: a single-hop school record on database
+storage (contract 390563) paid §1,200 after a still-changed and a collateral miss. A sixteenth of
+the contracts are restore jobs; the board names one `restore a/an <setting> record` (`an internal
+<setting> record` on two hops). Nothing needs cracking: the briefing hands over root and, on
+database storage, the database login. Turn the board over with a script, as for a file job,
+matching `missionShape(n).kind === 'restore'`, `frontBox` (null on single-hop) and
+`recordsStorage(n)`. It can print `missionRecords(n).target` (`namedBy`, `column`, `from`, `to`),
+`recordsBackupFiles(n)[0].path` and `rowsAddedSince(n)`, which are game values and safe to show.
+Write `whiteHatWord(missionShape(n).keyBox.rootHash, process.env.JSHACK_SECRETS)` and the same of
+`keyBox.database.accountHash` to scratch files, one of which the screen reads mask with. About one
+round in sixteen matches a single-hop database job; the run matched on round 16.
+
+| # | Command | Trap |
+| --- | --- | --- |
+| 1 | `curl -d "offer=<ref>" http://<board>/accept`, then `mail read <n>` | **The briefing prints both words**, root's and the database account's: mask both on every later read. It names the customer and the kind of records, never the person, value, table or path |
+| 2 | `mail reply <briefing n>` with the wallet, before anything | "Their records still hold the change. Not restored, no money." |
+| 3 | `ssh root@<address> -p 2222` and root's word | The prompt is `root@<stem>-files`. A single-hop database job forwards no `:3306`: the login is for `localhost` on the box itself |
+| 4 | `ls -l /var/backups`, then `grep <table> /var/backups/<stem>-records.sql` or `grep <name> …` | One `-rw-------` root file: a dump with a `CREATE TABLE` per table and one `INSERT` a row. On file storage the backup is `/var/backups/records/<table>.csv`, beside the live `/srv/<stem>/records/` |
+| 5 | `mysql localhost <account>`, the word at `Enter password:`, then `SELECT * FROM <table> WHERE <col> = '<name>'` | **Every value in a `WHERE` is quoted, ids too** (`WHERE id = '26'`): a bare number is a syntax error. **`SELECT COUNT(*)` answers `ERROR 1054`**: the SQL takes no functions, so compare with `grep` and `SELECT … WHERE` |
+| 6 | `UPDATE <table> SET <column> = '<from>' WHERE id = '<id>'`, `exit` twice | Change only the one cell. Optional: change a neighbour too and mail, for "That's not all you changed. Other records on their machine no longer read as they did. No money."; putting the neighbour back then pays. Copying the backup over the live table is the same miss, since it loses the rows added since |
+| 7 | `mail reply <briefing n>` with the wallet | "The records are back. §<pay> sent to jsc…. Thank you for the help."; a later mail gets "That job is already closed." and no second mint |

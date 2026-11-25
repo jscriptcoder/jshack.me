@@ -262,6 +262,25 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
   - **Look-alike offers.** An offer's line shows only client, kind, pay and pitch, so two jobs read
     alike about once in 620 boards (seen in the close-out run). Showing the target company would
     tell them apart, if it matters.
+  - **Restore-the-record close-out findings (2026-11-25, v0.483.0), to fix later.** Seen in the
+    browser run and while writing its close-out; none stopped the job paying.
+    - **The briefing says rows were added when none were.** `rowsAddedSince` caps the one to three
+      added rows at the rows after the changed one, so a job whose changed row is the table's last
+      has none: 83 of 2,488 restore jobs sampled, about 3%. The briefing still says "They have added
+      records since the backup. Those stay as they are." (`restoreLines`,
+      `core/hireme/contracts.ts`). Fix: drop that line when `rowsAddedSince(n)` is 0, or draw the
+      changed row so at least one row always follows it.
+    - **The pitch and the briefing both say "someone changed".** Nine of the 24 restore pitches
+      (`restorePitches`, `core/missions/missionTerms.ts`) open "Someone changed …" or "Someone
+      outside changed …", and the briefing's next line is "Someone got into their records of … and
+      changed one.", so about three briefings in eight say it twice in a row. Fix: reword those pitches
+      to the customer's side ("Our customer found …", "Our customer's … no longer reads …"), and
+      add a test that no pitch opens on "Someone".
+    - **`SELECT COUNT(*)` answers `ERROR 1054 (42S22): Unknown column 'COUNT(*)'`.** The game's
+      SQL takes no functions, so a player checking how many rows the live table has against the
+      backup gets a column error. Older than this kind; the job is still workable with `grep` on
+      the dump and `SELECT … WHERE`. Fix: support `COUNT(*)` (at least bare, and with a `WHERE`),
+      or answer an unsupported function with its own error rather than an unknown column.
 
 - **valleynews — follow-ups deferred.** The paper shipped at v0.424.0 (as-built:
   [`valleynews-architecture.md`](./valleynews-architecture.md)), every story hand-written and

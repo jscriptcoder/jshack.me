@@ -17,7 +17,8 @@ listener and implant off one of its customer's machines, or, on a close-the-door
 shutting a forward someone laid on a customer's router into one of its machines, or, on a
 lock-them-out job, by locking someone out of a customer's machine they hold root's password
 on, or, on a patch-it job, by moving one package off the release that lets anyone in as root on
-a customer's machine. This is
+a customer's machine, or, on a restore-the-record job, by putting back the one record someone
+changed on a customer's machine, from the backup taken before. This is
 the shipped model of the missions epic, complete at **v0.441.0** (four slices, v0.438.0–v0.441.0,
 PRs #746–#749, 2026-11-01 to 2026-11-03), with the routes that leak a login added by the epic
 that followed (four slices, v0.442.0–v0.445.0, PRs #750–#753, 2026-11-03 to 2026-11-04), and a
@@ -34,7 +35,8 @@ kinds", v0.471.0–v0.475.0, PRs #785–#789, 2026-11-18 to 2026-11-20), and the
 kind, an intruder's work removed ("Cleanup jobs", v0.479.0, PR #801, 2026-11-22), and the
 second, a way in shut ("Close-the-door jobs", v0.480.0, PR #802, 2026-11-23), and the third,
 an intruder locked out ("Lock-them-out jobs", v0.481.0, PR #803, 2026-11-23), and the fourth,
-a hole patched ("Patch-it jobs", v0.482.0, PR #804, 2026-11-24).
+a hole patched ("Patch-it jobs", v0.482.0, PR #804, 2026-11-24), and the fifth, a changed
+record put back ("Restore-the-record jobs", v0.483.0, PR #805, 2026-11-25).
 It sits
 on top of the contractor boards
 ([`hireme-architecture.md`](./hireme-architecture.md)), emailit.io
@@ -1276,8 +1278,8 @@ The twelfth kind and the first white-hat one (v0.479.0, PR #801, 2026-11-22): an
 implant on one of the client's customer's machines and a listener it holds open, and the client
 pays to have both gone. It is the backdoor job's mirror. Every kind before it has the contractor
 break in; on a white-hat job the client lets them in, so the difficulty moves from getting in to
-the hunt. Close the door, lock them out and patch it followed (below); three more white-hat
-kinds are grilled but not yet built (restore the record, forensics, incident response), each
+the hunt. Close the door, lock them out, patch it and restore the record followed (below); two
+more white-hat kinds are grilled but not yet built (forensics, incident response), each
 its own story, in
 `plans/white-hat-jobs.md` while the white-hat work is in flight. The rules every white-hat kind
 shares are below with cleanup, the first to use them.
@@ -1615,6 +1617,89 @@ only one of them is `critical`.
   `Login: root / <word>` with its route `none (handed over)`, the target's services, and
   `Packages:` with the target's rows in manifest order, the hole tagged `(hole)`.
 
+## Restore-the-record jobs
+
+The sixteenth kind and the fifth white-hat one (v0.483.0, PR #805, 2026-11-25): someone got into
+one of the client's customer's records machines and changed one value, and the client pays to
+have it put back from the backup taken before, while the rows the customer added since stay. It
+is the tamper job's mirror, on the same eight settings, tables and storage, with the rules cleanup
+set: root handed over in the briefing, the same clients posting as a middleman, white-hat pay,
+and no money for a machine that no longer boots. Its lesson is comparing a backup with the live
+table and changing one value, not restoring the whole table.
+
+- **A sixteenth of the draw.** Each of the fifteen older kinds gave up 3,003 of the 720,720ths of
+  `mission-kind-<n>` at the top of its largest piece, the lowest on a tie. The 360,360ths do not
+  split into sixteenths, so the draw went to twice as many, and no number turned from one older
+  kind into another. Two hops on the usual `mission-template-<n>` draw, about one in three.
+- **The records** (`missionRecords`, `core/missions/missionRecords.ts`): a tamper job's draw,
+  always a change (`missionAction` never draws an erase for a restore job), kept in a database or
+  in files on `recordsStorage`, half each. `laidRecords` lays the tables with the change made;
+  the box is `<stem>-files`, as a key job's key box.
+- **The backup** (`recordsBackupFiles`, laid by `missionLeak.ts` on the target alone, root-only):
+  the tables as generated, before the change, and missing the target table's newest
+  `rowsAddedSince` rows, one to three on `mission-restore-<n>` but never the changed row or one
+  before it. On database storage it is one dump, `/var/backups/<stem>-records.sql`, a
+  `CREATE TABLE` per table (every column `NOT NULL`, its `PRIMARY KEY`) and one `INSERT` a row, so
+  `grep` finds a row by its line. On file storage it is a copy of each CSV under
+  `/var/backups/records/<table>.csv`.
+- **The shape** (`handedOverShape` with `kind: 'restore'`, shared with cleanup, lock them out and
+  patch it): every box's root drawn from `WHITE_HAT_HASHES` on `mission-restore-login-<n>`, the
+  target's first. On database storage the target also runs `mysqld` on a safe release
+  (`withRecordsDatabase`), its application account one of the white-hat words and its root shut,
+  and no decoy beside it is a database. The database is not forwarded: it is reached as
+  `mysql localhost <account>` from the target. On file storage a decoy may still run `mysql`,
+  which holds nothing of theirs and whose login is never handed over.
+- **The terms**: `<Client> — restore a/an <setting> record — §<pay>`, or on two hops
+  `… an internal <setting> record`, at the white-hat pay (§300–1,200 on one hop, §1,200–2,400 on
+  two). Each setting has three restore pitches of its own.
+- **The briefing** describes the records in the wipe job's words for the setting and never names
+  the person, the value, the table or a path, since finding the change is the job. It hands over
+  root and, on database storage, the database login; on two hops the edge machine's login comes
+  first:
+
+  ```text
+  Someone changed a student's mark on our customer's records. They want the record to say what it said before.
+  Our customer is Lumen Academy. Their network is at 195.5.245.163.
+  Someone got into their records of what each student scored in each subject and changed one.
+  Their backup from before it happened is on the machine. Put that record back as it was.
+  They have added records since the backup. Those stay as they are.
+  They have given you root:
+    ssh root@195.5.245.163 -p 2222
+    password: <word>
+  Their database login, from that machine:
+    mysql localhost app_rw
+    password: <word>
+  Leave the machine running. If it no longer boots, there is no money.
+  Write to this address with your wallet address once it is put back.
+  Not restored, no money. No wallet, no money.
+  ```
+
+- **Any mail from the contractor reads the target's table** (`checkRestore` in
+  `core/missions/clientMail.ts`, then `recordsRestored`), and on two hops the edge machine for the
+  boot rule only. The tables beside it are never read. The first row of the table that fits
+  answers:
+
+  | The mail                           | The reply                                                                                          | What changes                   |
+  | ---------------------------------- | -------------------------------------------------------------------------------------------------- | ------------------------------ |
+  | No accepted job with this client   | "We have no contract with you."                                                                    | nothing                        |
+  | A completed job                    | "That job is already closed." (nothing read)                                                       | nothing                        |
+  | A machine in scope no longer boots | "You took our machine down. No money."                                                             | nothing; the job can never pay |
+  | Still changed                      | "Their records still hold the change. Not restored, no money."                                     | nothing                        |
+  | Another row touched, gone or added | "That's not all you changed. Other records on their machine no longer read as they did. No money." | nothing                        |
+  | Put back, with a wallet            | "The records are back. §1,200 sent to jsc…. Thank you for the help."                               | completed, the pay minted      |
+  | Put back, no wallet                | "The records are back. You sent no wallet, so there is nothing to pay. No wallet, no money."       | completed, nothing minted      |
+
+  "Still changed" is no row anywhere that reads as the generated target with the value trimmed: the
+  table untouched, a third value, the row deleted, or no table or file to read. "Put back" is the
+  table reading exactly as generated, in order, nothing added, the target row's value trimmed.
+  Anything else, with the right value somewhere, is the collateral miss: so copying the backup over
+  the live table loses the rows added since and does not pay, and nor does an `UPDATE` with no
+  `WHERE` until every row is put back by hand.
+
+- `hireme.ts show` prints `Kind: restore, <setting>`, each box's `Login: root / <word>`, on
+  database storage `Database: <account> / <word>` after the target's, then `Storage:`,
+  `Restore: <names>: <column> <to> -> <from>`, `Backup: <path>` and `Added since: <n> row(s)`.
+
 ## 7. What a root finds
 
 On the boards' server, beside `/etc/hireme/boards`, **`/etc/hireme/contracts`**: one
@@ -1671,6 +1756,8 @@ jobs added the kind's shape and cuts, its machines' pitches, the intruder's name
 read the client does, 914 B; at v0.481.0 the chunk is 311,076 B against a ceiling of 311,175 B.
 Patch-it jobs added the kind's shape and cuts, its machines' pitches and the manifest read the
 client does, 932 B; at v0.482.0 the chunk is 312,008 B against a ceiling of 312,075 B.
+Restore-the-record jobs added the kind's cuts, its pitches, the backup it lays and the table read
+the client does, 191 B; at v0.483.0 the chunk is 312,199 B against a ceiling of 312,275 B.
 
 ## 10. Proving it
 
@@ -1778,7 +1865,14 @@ client does, 932 B; at v0.482.0 the chunk is 312,008 B against a ceiling of 312,
   forward paid once then closed; a bare upgrade the collateral miss, the rest put back and paid;
   no wallet completing unpaid; a bricked target told it was taken down even patched first; and on
   two hops both logins handed over, the inside machine patched paid, and a bricked edge machine
-  told it was taken down). The board and pay checks each post a two-hop offer on a chosen number (21 and 17 checks at
+  told it was taken down); `testMissionRestore.ts` (16 over seven jobs: the briefing naming no
+  person, value, table or path, `show` giving the change and the backup, a mail before anything
+  still changed, the dump read as root, the database login on `localhost` reading the change, a
+  third value still changed, the right `UPDATE` paid once then closed, another row deleted the
+  collateral miss, a bricked target told it was taken down; on file storage no database login, the
+  backup copied over the live CSV the collateral miss, the one cell put back paid, no wallet
+  completing unpaid; and on two hops three logins handed over, the inside database put right paid,
+  and a bricked edge machine told it was taken down). The board and pay checks each post a two-hop offer on a chosen number (21 and 17 checks at
   v0.452.0). The decoys' doors are also proven in `decoyMissionDoors.test.ts`.
 - **Mutation**: every slice's scoped run left no survivor but equivalents.
 - **One browser run at the epic's close-out** (2026-11-03, v0.441.0), two players in headed
@@ -1918,6 +2012,17 @@ client does, 932 B; at v0.482.0 the chunk is 312,008 B against a ceiling of 312,
   ten put back one each by `apt install <package>=<version>`, the mail paid §800, the wallet
   reading §800. A later mail was told the job is closed, with no second mint. No defect.
   Announced on valleynews.io `/dev` (story 28).
+- **One browser run at the restore-the-record close-out** (2026-11-25, v0.483.0), one fresh
+  player on BRAMBLE-HOUSE, the board turned over by a script, which matched on round 16. A school
+  record on database storage (contract 390563, §1,200, Ashgrove Capital for Lumen Academy): the
+  briefing handed over root over `:2222` and `mysql localhost app_rw`, and named no student, grade,
+  table or path. A mail before anything got "Their records still hold the change." On
+  `lumen-files`, `/var/backups` held one `-rw-------` root file, `lumen-records.sql`, whose
+  `INSERT` for row 26 read History `'C'`; `SELECT … WHERE student = 'Olivia Mendel'` read `A`. Row
+  26 set back with a neighbour changed too got "That's not all you changed."; with the neighbour
+  put back the mail paid §1,200, the wallet reading §1,200, and a later mail was told the job is
+  closed. No defect; three rough edges went to `backlog.md` (`COUNT(*)`, the pitches' repeated
+  "someone changed", and the briefing's "added since" on a job with none added).
 
 ## What follows
 
@@ -1941,7 +2046,8 @@ The white-hat kinds still to come are in `plans/white-hat-jobs.md`; set aside fr
 - **missions** (`core/missions/`): `missionNetwork.ts`, `missionShape.ts`, `pools.ts`,
   `leakablePool.ts` (bundle); `missionSecret.ts`, `missionLeak.ts`, `missionTerms.ts`,
   `clientMail.ts`, `contractsList.ts`, `hiremeOrders.ts` (server and scripts); `missionRecords.ts`
-  (a tamper job's setting, records and the check) and `recordSettings.ts` (the eight settings'
+  (a tamper job's setting, records and the check, and a restore job's laid change, backup, rows
+  added since and its check) and `recordSettings.ts` (the eight settings'
   tables, and `recordsWiped`, a wipe job's check); `targetRoles.ts` (the seven machines a
   sabotage job can ask down, a backdoor job a way into, a credential job the root login of, a
   cleanup job an implant off, a lock-them-out job an intruder out of or a patch-it job a hole
