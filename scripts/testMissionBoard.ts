@@ -324,6 +324,7 @@ const main = async () => {
     closedoor: 'Still open, no money.',
     lockout: 'Still open, no money.',
     patch: 'Still open, no money.',
+    restore: 'Not restored, no money.',
   } as const;
   const offered = inState(turnedRows, 'offered');
   const taken = offered[1]!;

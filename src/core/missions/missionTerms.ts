@@ -77,7 +77,8 @@ export type MissionTerms =
   | ({ readonly job: 'cleanup' } & CommonTerms)
   | ({ readonly job: 'closedoor' } & CommonTerms)
   | ({ readonly job: 'lockout' } & CommonTerms)
-  | ({ readonly job: 'patch' } & CommonTerms);
+  | ({ readonly job: 'patch' } & CommonTerms)
+  | ({ readonly job: 'restore' } & CommonTerms);
 
 const CLIENTS: readonly MissionClient[] = [
   { company: 'Copper Systems', handle: 'copper-ops' },
@@ -155,6 +156,7 @@ type SettingTerms = {
   readonly noun: string;
   readonly pitches: Readonly<Record<RecordAction, readonly string[]>>;
   readonly wipePitches: readonly string[];
+  readonly restorePitches: readonly string[];
 };
 
 const SETTING_TERMS: Readonly<Record<RecordSetting, SettingTerms>> = {
@@ -182,6 +184,11 @@ const SETTING_TERMS: Readonly<Record<RecordSetting, SettingTerms>> = {
       'Our client wants the school to lose a whole term of marks and have to start again.',
       'A grading scandal is about to break, and the proof is in their gradebook. Empty it.',
     ],
+    restorePitches: [
+      "Our customer's gradebook was broken into, and one mark no longer reads as the teacher gave it. They want it put back.",
+      'Our customer found a grade on their system that nobody at the school entered. They need the real one back before reports go out.',
+      "Someone changed a student's mark on our customer's records. They want the record to say what it said before.",
+    ],
   },
   police: {
     institution: 'Police Dept',
@@ -204,6 +211,11 @@ const SETTING_TERMS: Readonly<Record<RecordSetting, SettingTerms>> = {
       'A raid is planned for the end of the month. Without their list, it does not happen.',
       'Our client wants the department to spend a year rebuilding its list from paper.',
     ],
+    restorePitches: [
+      "Our customer's warrant records were tampered with from outside. They want the one that was changed put back.",
+      "Someone outside changed a warrant on our customer's system. They need it to read as it did before the break-in.",
+      "Our customer's warrant list no longer matches their paper files. One record was changed, and they want it restored.",
+    ],
   },
   payroll: {
     institution: 'Holdings',
@@ -221,6 +233,11 @@ const SETTING_TERMS: Readonly<Record<RecordSetting, SettingTerms>> = {
       'Payday is on Friday. Our client wants nobody at that company to be paid.',
       'A takeover goes through cheaper if their staff walk out over missing wages.',
       'The salaries on file prove what the owners have been hiding. Make them disappear.',
+    ],
+    restorePitches: [
+      "Our customer's books show a salary nobody in their office set. They want it back to what they agreed.",
+      "Someone changed a salary on our customer's books after breaking in. They need the real figure back before payday.",
+      "Our customer's accounts will not reconcile, because one salary was changed from outside. They want it put right.",
     ],
   },
   dmv: {
@@ -243,6 +260,11 @@ const SETTING_TERMS: Readonly<Record<RecordSetting, SettingTerms>> = {
       'A rival registry wins the contract if this one loses its records. Make it lose them.',
       'Nobody looks for one offence when every offence is gone. Our client is counting on that.',
     ],
+    restorePitches: [
+      "Our customer's registry has a driving record nobody there changed. They want the real one back.",
+      "Someone changed a driving record on our customer's system. They need it to read as it did before.",
+      'Our customer found an offence record altered after a break-in. They want it restored before it is used in court.',
+    ],
   },
   tournament: {
     institution: 'Esports League',
@@ -263,6 +285,11 @@ const SETTING_TERMS: Readonly<Record<RecordSetting, SettingTerms>> = {
       'The season was rigged, and our client wants it voided. Leave nothing on the ladder.',
       'A rival league wants this one to lose a season of results the week before the final.',
       'Our client bet heavily against the standings. With nothing on the ladder, there are none.',
+    ],
+    restorePitches: [
+      "Our customer's league table was tampered with overnight. They want the real score back.",
+      "Someone changed a score on our customer's ladder after getting into their system. They need it restored before the finals.",
+      "Our customer's players are complaining about a score that makes no sense. One record was changed, and they want it put back.",
     ],
   },
   admissions: {
@@ -285,6 +312,11 @@ const SETTING_TERMS: Readonly<Record<RecordSetting, SettingTerms>> = {
       'Our client was told the list was full. Empty it, and they are first on the new one.',
       'The places were sold to the highest bidders. Our client wants every one of them open again.',
     ],
+    restorePitches: [
+      "Our customer's admissions list has a decision nobody on their panel made. They want the record back as it was.",
+      "Someone changed an applicant's status on our customer's system. They need it restored before letters go out.",
+      'Our customer found an application decision altered after a break-in. They want the real decision back.',
+    ],
   },
   club: {
     institution: 'Members Club',
@@ -306,6 +338,11 @@ const SETTING_TERMS: Readonly<Record<RecordSetting, SettingTerms>> = {
       'Everyone who belongs gets a vote on who runs the club next. Leave nobody to vote.',
       'Their list proves who was in the room that night. Our client wants no list.',
     ],
+    restorePitches: [
+      "Our customer's membership list has a record their staff never touched. They want it back as it was.",
+      "Someone changed a member's record on our customer's system. They need it to read as it did before.",
+      "Our customer's door staff were let down by a record someone altered from outside. They want it put right.",
+    ],
   },
   registry: {
     institution: 'Vehicle Registry',
@@ -326,6 +363,11 @@ const SETTING_TERMS: Readonly<Record<RecordSetting, SettingTerms>> = {
       'Our client runs a yard full of cars with the wrong owners on file. Clear every owner.',
       'A rival dealer wants the registry out of action for a month. Wipe who owns what.',
       'Without the registry, nobody can prove whose car is whose. That suits our client.',
+    ],
+    restorePitches: [
+      "Our customer's registry shows a car under an owner nobody there recorded. They want the real owner back.",
+      "Someone changed who owns a vehicle on our customer's system. They need the record restored before the car is sold on.",
+      'Our customer found an ownership record altered after a break-in. They want it put back as it was.',
     ],
   },
 };
@@ -462,6 +504,18 @@ export const missionTerms = (missionNumber: number): MissionTerms => {
       targetCompany: `${capitalised(stem)} ${prng.pick(TARGET_TRADES)}`,
       kind: `lock an intruder out of ${singleHop ? 'a' : 'an internal'} ${noun}`,
       pitch: prng.pick(lockoutPitches),
+      pay: payFrom(prng, WHITE_HAT_PAY[singleHop ? 'singleHop' : 'twoHop']),
+    };
+  }
+  if (missionKind(missionNumber) === 'restore') {
+    const { institution, noun, restorePitches } = SETTING_TERMS[missionSetting(missionNumber)];
+    const article = singleHop ? (/^[aeiou]/.test(noun) ? 'an' : 'a') : 'an internal';
+    return {
+      job: 'restore',
+      client: prng.pick(CLIENTS),
+      targetCompany: `${capitalised(stem)} ${institution}`,
+      kind: `restore ${article} ${noun} record`,
+      pitch: prng.pick(restorePitches),
       pay: payFrom(prng, WHITE_HAT_PAY[singleHop ? 'singleHop' : 'twoHop']),
     };
   }

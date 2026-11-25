@@ -2,16 +2,17 @@ import { describe, expect, it } from 'vitest';
 import { answerClientMail, type ClientMailStore, type TargetBoxRead } from './clientMail.js';
 import type { ContractMail } from '../hireme/contracts.js';
 import { missionKey } from './missionSecret.js';
-import { missionTerms, type MissionClient } from './missionTerms.js';
+import { missionTerms, type MissionClient, type MissionTerms } from './missionTerms.js';
 import {
   MISSION_ROUTE_DAY,
   chainFinal,
   missionKind,
   missionShape,
   patchHole,
+  recordsStorage,
 } from './missionShape.js';
 import { missionFiles } from './missionLeak.js';
-import { missionAction, missionRecords } from './missionRecords.js';
+import { missionAction, missionRecords, rowsAddedSince } from './missionRecords.js';
 import {
   missionFileContent,
   missionFileItem,
@@ -25,6 +26,7 @@ import { DATADIR_FILE, PASSWD_FILE, ROOT_FILE, file, withFiles } from '../genera
 import { md5 } from '../generation/md5.js';
 import { PASSWD_PATH, withAccountHash } from '../sessions/passwdAccount.js';
 import type { Directory } from '../filesystem/types.js';
+import { materializeMachineFs } from '../network/materializeMachineFs.js';
 import {
   backdoorJob,
   chainJob,
@@ -3513,6 +3515,419 @@ describe('a mail on a chain job', () => {
           `Nothing is listening on port ${WIPING_PORT} on the edge. No listener, no money.`,
         ),
       ]);
+    });
+  });
+});
+
+describe('a mail on a restore-the-record job', () => {
+  const restoreNumber = (storage: 'database' | 'file', twoHop: boolean): number =>
+    ALL_HOST_NUMBERS.find(
+      (missionNumber) =>
+        missionKind(missionNumber) === 'restore' &&
+        recordsStorage(missionNumber) === storage &&
+        (missionShape(missionNumber).frontBox !== null) === twoHop &&
+        // A job with rows added since, and rows keyed by an id the repairs can name them by.
+        rowsAddedSince(missionNumber) > 0 &&
+        missionRecords(missionNumber).tables[0]?.table.columns[0]?.name === 'id',
+    )!;
+  const DATABASE_JOB = restoreNumber('database', false);
+  const FILE_JOB = restoreNumber('file', false);
+  const TWO_HOP_JOB = restoreNumber('database', true);
+
+  /** The change a job asks to have undone: where it sits, and the value before and after. */
+  const changeOf = (missionNumber: number) => {
+    const { target } = missionRecords(missionNumber);
+    if (target.action !== 'change') throw new Error(`contract ${missionNumber} is not a change`);
+    return target;
+  };
+
+  /** The target as the server lays it: the records with the change in them, and the backup. */
+  const laidBox = (missionNumber: number): Directory =>
+    withFiles(
+      buildMissionKeyBoxFs(missionNumber),
+      missionFiles(
+        { missionNumber, role: 'key' },
+        { keySecret: undefined, rawSecrets: undefined },
+      ).map(({ path, content, perms }) => [path, file(content, perms)] as const),
+    );
+
+  /** The target after the application account ran each statement, each one landing. */
+  const afterStatements = (missionNumber: number, ...lines: readonly string[]): TargetBoxRead => {
+    const box = laidBox(missionNumber);
+    const database = lines.reduce((current, line) => {
+      const result = runStatement({
+        database: current,
+        line,
+        username: current.credentials.find(({ userType }) => userType === 'user')?.username ?? '',
+        userType: 'user',
+        sourceIp: '198.51.100.7',
+      });
+      if (result.database === undefined) throw new Error(`did not land: ${line}`);
+      return result.database;
+    }, databaseIn(box)!);
+    return {
+      kind: 'up',
+      fs: withFiles(box, [[DATADIR_PATH, file(JSON.stringify(database), DATADIR_FILE)]]),
+    };
+  };
+
+  /** The statement that puts the one value back, naming its row by the columns that fit it. */
+  const restoring = (missionNumber: number, value = changeOf(missionNumber).from): string => {
+    const { table, column, namedBy } = changeOf(missionNumber);
+    const where = Object.entries(namedBy)
+      .map(([name, named]) => `${name} = '${named}'`)
+      .join(' AND ');
+    return `UPDATE ${table} SET ${column} = '${value}' WHERE ${where}`;
+  };
+
+  /** Where a job keeping its records in files keeps the target table, and its backup's copy. */
+  const livePathOf = (missionNumber: number): string =>
+    `/srv/${missionShape(missionNumber).stem}/records/${changeOf(missionNumber).table}.csv`;
+  const backupPathOf = (missionNumber: number): string =>
+    `/var/backups/records/${changeOf(missionNumber).table}.csv`;
+
+  const laidContent = (missionNumber: number, path: string): string =>
+    missionFiles(
+      { missionNumber, role: 'key' },
+      { keySecret: undefined, rawSecrets: undefined },
+    ).find((laid) => laid.path === path)!.content;
+
+  /** The target after a root saved `path` with `content`, or deleted it. */
+  const savedAs = (missionNumber: number, path: string, content: string | null): TargetBoxRead => ({
+    kind: 'up',
+    fs: materializeMachineFs(laidBox(missionNumber), [
+      {
+        path,
+        content,
+        owner: 'root',
+        permissions: null,
+        node_type: null,
+        updated_at: '2026-11-24T12:00:00Z',
+        writer_key: 'a-root-on-the-box',
+      },
+    ]),
+  });
+
+  /** The live CSV with the changed row's value set to `value`, as a `nano` edit leaves it. */
+  const csvRestored = (missionNumber: number, value: string): string => {
+    const { rowIndex, column, to } = changeOf(missionNumber);
+    const lines = laidContent(missionNumber, livePathOf(missionNumber)).split('\n');
+    const at = (lines[0] ?? '').split(',').indexOf(column);
+    return lines
+      .map((line, index) => {
+        if (index !== rowIndex + 1) return line;
+        const values = line.split(',');
+        if (values[at] !== `${to}`) throw new Error('the changed value is not where it was laid');
+        return values.map((each, place) => (place === at ? value : each)).join(',');
+      })
+      .join('\n');
+  };
+
+  const boxReader = (read: TargetBoxRead) => {
+    const reads: number[] = [];
+    return {
+      reads,
+      read: async (missionNumber: number): Promise<TargetBoxRead> => {
+        reads.push(missionNumber);
+        return read;
+      },
+    };
+  };
+
+  const fromRestoreClient = (line: string, terms: MissionTerms): ContractMail => ({
+    sender: `${terms.client.handle}@emailit.io`,
+    subject: `Contract: ${terms.targetCompany}`,
+    body: signed(line, terms.client.company),
+  });
+
+  const STILL_CHANGED = 'Their records still hold the change. Not restored, no money.';
+  const NOT_ALL_CHANGED =
+    "That's not all you changed. Other records on their machine no longer read as they did. No money.";
+  const TOOK_IT_DOWN = 'You took our machine down. No money.';
+
+  const mailOnRestoreJob = (
+    missionNumber: number,
+    read: TargetBoxRead,
+    body = `done\n${WALLET}\n`,
+  ) => {
+    const { store, completes, replies } = clientStore({
+      jobs: [{ number: missionNumber, state: 'accepted' }],
+    });
+    const box = boxReader(read);
+    const answer = mailTo(store, {
+      to: missionTerms(missionNumber).client,
+      body,
+      readTargetBox: box.read,
+    });
+    return { answer, completes, replies, box };
+  };
+
+  describe('keeping its records in a database', () => {
+    const TERMS = missionTerms(DATABASE_JOB);
+    const { table, column, from, to } = changeOf(DATABASE_JOB);
+    const ROWS = missionRecords(DATABASE_JOB).tables[0]!.table.rows;
+
+    it('reads the target, and pays once the changed value is put back and nothing else moved', async () => {
+      const { answer, completes, replies, box } = mailOnRestoreJob(
+        DATABASE_JOB,
+        afterStatements(DATABASE_JOB, restoring(DATABASE_JOB)),
+      );
+
+      expect(await answer).toBe('replied');
+      expect(box.reads).toEqual([DATABASE_JOB]);
+      expect(completes).toEqual([
+        {
+          number: DATABASE_JOB,
+          wallet: WALLET,
+          pay: TERMS.pay,
+          reply: fromRestoreClient(
+            `The records are back. §${TERMS.pay.toLocaleString('en-US')} sent to ${WALLET}. Thank you for the help.`,
+            TERMS,
+          ),
+        },
+      ]);
+      expect(replies).toEqual([]);
+    });
+
+    it('pays with the value put back padded, since the client reads it trimmed', async () => {
+      const { answer, completes } = mailOnRestoreJob(
+        DATABASE_JOB,
+        afterStatements(DATABASE_JOB, restoring(DATABASE_JOB, `  ${from} `)),
+      );
+
+      expect(await answer).toBe('replied');
+      expect(completes.map(({ number }) => number)).toEqual([DATABASE_JOB]);
+    });
+
+    it('completes and pays nothing when the mail names no wallet', async () => {
+      const { answer, completes } = mailOnRestoreJob(
+        DATABASE_JOB,
+        afterStatements(DATABASE_JOB, restoring(DATABASE_JOB)),
+        'done\n',
+      );
+
+      expect(await answer).toBe('replied');
+      expect(completes).toEqual([
+        {
+          number: DATABASE_JOB,
+          wallet: null,
+          pay: TERMS.pay,
+          reply: fromRestoreClient(
+            'The records are back. You sent no wallet, so there is nothing to pay. No wallet, no money.',
+            TERMS,
+          ),
+        },
+      ]);
+    });
+
+    // The client reads only the table the job is about, as a tamper job's client does.
+    it('pays with the tables beside it emptied', async () => {
+      const beside = missionRecords(DATABASE_JOB)
+        .tables.slice(1)
+        .map(({ name }) => `DELETE FROM ${name}`);
+      const { answer, completes } = mailOnRestoreJob(
+        DATABASE_JOB,
+        afterStatements(DATABASE_JOB, restoring(DATABASE_JOB), ...beside),
+      );
+
+      expect(await answer).toBe('replied');
+      expect(completes.map(({ number }) => number)).toEqual([DATABASE_JOB]);
+    });
+
+    // A third value is as wrong as the intruder's, so the miss never tells which row it is.
+    it.each([
+      ['nothing has been touched', () => afterStatements(DATABASE_JOB)],
+      [
+        'the value is set to a third one',
+        () => afterStatements(DATABASE_JOB, restoring(DATABASE_JOB, `${to}${from}`)),
+      ],
+      ['the table is emptied', () => afterStatements(DATABASE_JOB, `DELETE FROM ${table}`)],
+    ])(
+      'says the records still hold the change when %s, and keeps the job open',
+      async (_case, read) => {
+        const { answer, completes, replies } = mailOnRestoreJob(DATABASE_JOB, read());
+
+        expect(await answer).toBe('replied');
+        expect(completes).toEqual([]);
+        expect(replies).toEqual([fromRestoreClient(STILL_CHANGED, TERMS)]);
+      },
+    );
+
+    it('says not all was left as it was after an UPDATE with no WHERE, and pays once each row is put back', async () => {
+      const loose = `UPDATE ${table} SET ${column} = '${from}'`;
+      const putBack = ROWS.filter((row) => `${row[column]}` !== from).map(
+        (row) => `UPDATE ${table} SET ${column} = '${row[column]}' WHERE id = '${row['id']}'`,
+      );
+      const missed = mailOnRestoreJob(DATABASE_JOB, afterStatements(DATABASE_JOB, loose));
+
+      expect(putBack.length).toBeGreaterThan(0);
+      expect(await missed.answer).toBe('replied');
+      expect(missed.completes).toEqual([]);
+      expect(missed.replies).toEqual([fromRestoreClient(NOT_ALL_CHANGED, TERMS)]);
+
+      const repaired = mailOnRestoreJob(
+        DATABASE_JOB,
+        afterStatements(DATABASE_JOB, loose, ...putBack),
+      );
+      expect(await repaired.answer).toBe('replied');
+      expect(repaired.completes.map(({ number }) => number)).toEqual([DATABASE_JOB]);
+    });
+
+    it('says not all was left as it was when another row was deleted beside the value put back', async () => {
+      const other = ROWS.find((_row, index) => index !== changeOf(DATABASE_JOB).rowIndex)!;
+      const { answer, completes, replies } = mailOnRestoreJob(
+        DATABASE_JOB,
+        afterStatements(
+          DATABASE_JOB,
+          restoring(DATABASE_JOB),
+          `DELETE FROM ${table} WHERE id = '${other['id']}'`,
+        ),
+      );
+
+      expect(await answer).toBe('replied');
+      expect(completes).toEqual([]);
+      expect(replies).toEqual([fromRestoreClient(NOT_ALL_CHANGED, TERMS)]);
+    });
+
+    it('tells a contractor who bricked the target there is no money, and keeps the job open', async () => {
+      const { answer, completes, replies } = mailOnRestoreJob(DATABASE_JOB, { kind: 'absent' });
+
+      expect(await answer).toBe('replied');
+      expect(completes).toEqual([]);
+      expect(replies).toEqual([fromRestoreClient(TOOK_IT_DOWN, TERMS)]);
+    });
+
+    it('answers nothing when the target could not be read', async () => {
+      const { answer, completes, replies } = mailOnRestoreJob(DATABASE_JOB, { kind: 'error' });
+
+      expect(await answer).toBeNull();
+      expect(completes).toEqual([]);
+      expect(replies).toEqual([]);
+    });
+
+    it('says the job is already closed once it is completed, without reading the target', async () => {
+      const { store, completes, replies } = clientStore({
+        jobs: [{ number: DATABASE_JOB, state: 'completed' }],
+      });
+      const box = boxReader(afterStatements(DATABASE_JOB, restoring(DATABASE_JOB)));
+
+      await mailTo(store, { to: TERMS.client, body: `done\n${WALLET}\n`, readTargetBox: box.read });
+
+      expect(box.reads).toEqual([]);
+      expect(completes).toEqual([]);
+      expect(replies).toEqual([fromRestoreClient('That job is already closed.', TERMS)]);
+    });
+  });
+
+  describe('keeping its records in files', () => {
+    const TERMS = missionTerms(FILE_JOB);
+    const { from } = changeOf(FILE_JOB);
+
+    it('pays once a root puts the value back in the CSV, and nothing else moved', async () => {
+      const { answer, completes, replies } = mailOnRestoreJob(
+        FILE_JOB,
+        savedAs(FILE_JOB, livePathOf(FILE_JOB), csvRestored(FILE_JOB, from)),
+      );
+
+      expect(await answer).toBe('replied');
+      expect(completes.map(({ number }) => number)).toEqual([FILE_JOB]);
+      expect(replies).toEqual([]);
+    });
+
+    it('pays with the value put back with spaces around it', async () => {
+      const { answer, completes } = mailOnRestoreJob(
+        FILE_JOB,
+        savedAs(FILE_JOB, livePathOf(FILE_JOB), csvRestored(FILE_JOB, ` ${from}  `)),
+      );
+
+      expect(await answer).toBe('replied');
+      expect(completes.map(({ number }) => number)).toEqual([FILE_JOB]);
+    });
+
+    // The backup was taken before the newest rows were added, so a copy of it loses them.
+    it('says not all was left as it was once the backup is copied over the live CSV', async () => {
+      const { answer, completes, replies } = mailOnRestoreJob(
+        FILE_JOB,
+        savedAs(FILE_JOB, livePathOf(FILE_JOB), laidContent(FILE_JOB, backupPathOf(FILE_JOB))),
+      );
+
+      expect(await answer).toBe('replied');
+      expect(completes).toEqual([]);
+      expect(replies).toEqual([fromRestoreClient(NOT_ALL_CHANGED, TERMS)]);
+    });
+
+    it('says not all was left as it was with a row added after the rest, the value put back', async () => {
+      const [header, ...rows] = csvRestored(FILE_JOB, from).trimEnd().split('\n');
+      const withRowAdded = `${[header, ...rows, rows.at(-1)].join('\n')}\n`;
+      const { answer, completes, replies } = mailOnRestoreJob(
+        FILE_JOB,
+        savedAs(FILE_JOB, livePathOf(FILE_JOB), withRowAdded),
+      );
+
+      expect(await answer).toBe('replied');
+      expect(completes).toEqual([]);
+      expect(replies).toEqual([fromRestoreClient(NOT_ALL_CHANGED, TERMS)]);
+    });
+
+    it.each([
+      [
+        'nothing has been touched',
+        () => savedAs(FILE_JOB, livePathOf(FILE_JOB), laidContent(FILE_JOB, livePathOf(FILE_JOB))),
+      ],
+      ['the CSV is deleted', () => savedAs(FILE_JOB, livePathOf(FILE_JOB), null)],
+    ])('says the records still hold the change when %s', async (_case, read) => {
+      const { answer, completes, replies } = mailOnRestoreJob(FILE_JOB, read());
+
+      expect(await answer).toBe('replied');
+      expect(completes).toEqual([]);
+      expect(replies).toEqual([fromRestoreClient(STILL_CHANGED, TERMS)]);
+    });
+  });
+
+  describe('on two hops', () => {
+    const TERMS = missionTerms(TWO_HOP_JOB);
+
+    const mailOnTwoHops = (front: TargetBoxRead) => {
+      const { store, completes, replies } = clientStore({
+        jobs: [{ number: TWO_HOP_JOB, state: 'accepted' }],
+      });
+      const targetReads = boxReader(afterStatements(TWO_HOP_JOB, restoring(TWO_HOP_JOB)));
+      const frontReads = boxReader(front);
+      const answer = mailTo(store, {
+        to: TERMS.client,
+        body: `done\n${WALLET}\n`,
+        readTargetBox: targetReads.read,
+        readFrontBox: frontReads.read,
+      });
+      return { answer, completes, replies, targetReads, frontReads };
+    };
+
+    it('reads both machines, and pays once the records are back and the edge machine still boots', async () => {
+      const { answer, completes, targetReads, frontReads } = mailOnTwoHops({
+        kind: 'up',
+        fs: buildMissionFrontBoxFs(TWO_HOP_JOB),
+      });
+
+      expect(await answer).toBe('replied');
+      expect(targetReads.reads).toEqual([TWO_HOP_JOB]);
+      expect(frontReads.reads).toEqual([TWO_HOP_JOB]);
+      expect(completes.map(({ number }) => number)).toEqual([TWO_HOP_JOB]);
+    });
+
+    it('tells a contractor who bricked the edge machine there is no money', async () => {
+      const { answer, completes, replies } = mailOnTwoHops({ kind: 'absent' });
+
+      expect(await answer).toBe('replied');
+      expect(completes).toEqual([]);
+      expect(replies).toEqual([fromRestoreClient(TOOK_IT_DOWN, TERMS)]);
+    });
+
+    it('answers nothing when the edge machine could not be read', async () => {
+      const { answer, completes, replies } = mailOnTwoHops({ kind: 'error' });
+
+      expect(await answer).toBeNull();
+      expect(completes).toEqual([]);
+      expect(replies).toEqual([]);
     });
   });
 });

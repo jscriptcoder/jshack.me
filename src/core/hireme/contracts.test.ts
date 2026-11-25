@@ -28,6 +28,7 @@ import {
   missionKind,
   missionShape,
   patchHole,
+  recordsStorage,
   type ChainFinal,
 } from '../missions/missionShape.js';
 import { backdoorJob, chainJob, cleanupJob, lockoutJob, patchJob } from '../missions/targetRoles.js';
@@ -43,7 +44,8 @@ import {
   type RecordTarget,
 } from '../missions/missionRecords.js';
 import { isMissionNumber } from '../missions/missionNetwork.js';
-import { DATADIR_PATH } from '../mysql/datadir.js';
+import { DATADIR_PATH, databaseIn } from '../mysql/datadir.js';
+import { buildMissionKeyBoxFs } from '../generation/missionKeyBoxFs.js';
 import { writeAmount } from '../wallet/amount.js';
 import { FRONT_BOX_SUFFIX, GATEWAY_SUFFIX, KEY_BOX_SUFFIX } from '../missions/pools.js';
 
@@ -163,6 +165,46 @@ const patchNumber = (twoHop: boolean): number => {
 
 const PATCH_SINGLE_HOP = patchNumber(false);
 const PATCH_TWO_HOP = patchNumber(true);
+
+/** The first restore-the-record contract from 70,000 up keeping its records as `storage` says,
+ *  on one hop or on two. */
+const restoreNumber = (storage: 'database' | 'file', twoHop: boolean): number => {
+  for (let candidate = 70_000; candidate < 2_000_000; candidate++) {
+    if (!isMissionNumber(candidate) || missionKind(candidate) !== 'restore') continue;
+    if (recordsStorage(candidate) !== storage) continue;
+    if ((missionShape(candidate).frontBox !== null) === twoHop) return candidate;
+  }
+  throw new Error('no restore-the-record contract');
+};
+
+const RESTORE_IN_DATABASE = restoreNumber('database', false);
+const RESTORE_IN_FILES = restoreNumber('file', false);
+const RESTORE_TWO_HOP = restoreNumber('database', true);
+
+/** The application account a restore target's database answers to, as the box generates it. */
+const restoreAccountOf = (missionNumber: number): string =>
+  databaseIn(buildMissionKeyBoxFs(missionNumber))?.credentials.find(
+    ({ userType }) => userType === 'user',
+  )?.username ?? '';
+
+/** What a restore briefing says the records hold, in the wipe job's words for its setting. */
+const RESTORE_DESCRIPTIONS: Readonly<Record<RecordSetting, string>> = {
+  school: 'what each student scored in each subject',
+  police: 'everyone they want arrested',
+  payroll: 'what they pay each of their people',
+  dmv: 'the points held against each driver',
+  tournament: 'what each player has racked up',
+  admissions: 'everyone waiting on a place',
+  club: 'everyone who belongs to the club',
+  registry: 'who owns which car',
+};
+
+/** The opening of a restore briefing's work: the change, the backup, and the rows that stay. */
+const restoreAsk = (missionNumber: number): readonly string[] => [
+  `Someone got into their records of ${RESTORE_DESCRIPTIONS[missionSetting(missionNumber)]} and changed one.`,
+  'Their backup from before it happened is on the machine. Put that record back as it was.',
+  'They have added records since the backup. Those stay as they are.',
+];
 
 /** The machine a backdoor contract wants a way into, read off the board's line. */
 const backdoorMachineOf = (missionNumber: number): string =>
@@ -1639,6 +1681,169 @@ describe('accepting an offer', () => {
       const { store, accepts } = offeredPatch();
 
       expect(alertOf(await acceptWithoutSecret('offer=ppp', store))).toMatch(
+        /^Contract accepted\./,
+      );
+      expect(accepts).toHaveLength(1);
+    });
+  });
+
+  describe('on a restore-the-record job', () => {
+    const offeredRestore = () =>
+      boardStore({
+        offers: [
+          { number: RESTORE_IN_DATABASE, ref: 'rrr' },
+          { number: RESTORE_IN_FILES, ref: 'sss' },
+          { number: RESTORE_TWO_HOP, ref: 'ttt' },
+        ],
+      });
+
+    it('writes a single-hop briefing handing over root and the database login', async () => {
+      const { store, accepts } = offeredRestore();
+      const terms = missionTerms(RESTORE_IN_DATABASE);
+      const { keyBox } = missionShape(RESTORE_IN_DATABASE);
+      const address = missionAddressForNumber(RESTORE_IN_DATABASE);
+
+      await accept('offer=rrr', store);
+
+      expect(accepts[0]!.briefing).toEqual({
+        sender: `${terms.client.handle}@emailit.io`,
+        subject: `Contract: ${terms.targetCompany}`,
+        body: [
+          terms.pitch,
+          '',
+          `Our customer is ${terms.targetCompany}. Their network is at ${address}.`,
+          '',
+          ...restoreAsk(RESTORE_IN_DATABASE),
+          '',
+          'They have given you root:',
+          '',
+          `  ssh root@${address} -p 2222`,
+          `  password: ${plaintextFor(keyBox.rootHash)}`,
+          '',
+          'Their database login, from that machine:',
+          '',
+          `  mysql localhost ${restoreAccountOf(RESTORE_IN_DATABASE)}`,
+          `  password: ${plaintextFor(keyBox.database!.accountHash)}`,
+          '',
+          'Leave the machine running. If it no longer boots, there is no money.',
+          'Write to this address with your wallet address once it is put back.',
+          'Not restored, no money. No wallet, no money.',
+          '',
+          `-- ${terms.client.company}`,
+          '',
+        ].join('\n'),
+      });
+    });
+
+    it('hands over root alone where the records are kept in files', async () => {
+      const { store, accepts } = offeredRestore();
+      const terms = missionTerms(RESTORE_IN_FILES);
+      const address = missionAddressForNumber(RESTORE_IN_FILES);
+
+      await accept('offer=sss', store);
+
+      expect(accepts[0]!.briefing.body).toBe(
+        [
+          terms.pitch,
+          '',
+          `Our customer is ${terms.targetCompany}. Their network is at ${address}.`,
+          '',
+          ...restoreAsk(RESTORE_IN_FILES),
+          '',
+          'They have given you root:',
+          '',
+          `  ssh root@${address} -p 2222`,
+          `  password: ${plaintextFor(missionShape(RESTORE_IN_FILES).keyBox.rootHash)}`,
+          '',
+          'Leave the machine running. If it no longer boots, there is no money.',
+          'Write to this address with your wallet address once it is put back.',
+          'Not restored, no money. No wallet, no money.',
+          '',
+          `-- ${terms.client.company}`,
+          '',
+        ].join('\n'),
+      );
+    });
+
+    it('hands a two-hop contractor the edge machine, then the records machine and its database', async () => {
+      const { store, accepts } = offeredRestore();
+      const terms = missionTerms(RESTORE_TWO_HOP);
+      const { keyBox, frontBox } = missionShape(RESTORE_TWO_HOP);
+      const address = missionAddressForNumber(RESTORE_TWO_HOP);
+      const inside = `${lanSubnetPrefix(missionEssid(RESTORE_TWO_HOP))}.${keyBox.octet}`;
+
+      await accept('offer=ttt', store);
+
+      expect(accepts[0]!.briefing.body).toBe(
+        [
+          terms.pitch,
+          '',
+          `Our customer is ${terms.targetCompany}. Their network is at ${address}.`,
+          '',
+          ...restoreAsk(RESTORE_TWO_HOP),
+          '',
+          'They have given you root on the machine on the edge of their network:',
+          '',
+          `  ssh root@${address} -p 2222`,
+          `  password: ${plaintextFor(frontBox!.rootHash)}`,
+          '',
+          `The machine with their records is inside their network, at ${inside}. From the edge machine:`,
+          '',
+          `  ssh root@${inside}`,
+          `  password: ${plaintextFor(keyBox.rootHash)}`,
+          '',
+          'Their database login, from the machine inside:',
+          '',
+          `  mysql localhost ${restoreAccountOf(RESTORE_TWO_HOP)}`,
+          `  password: ${plaintextFor(keyBox.database!.accountHash)}`,
+          '',
+          'Leave both machines running. If either no longer boots, there is no money.',
+          'Write to this address with your wallet address once it is put back.',
+          'Not restored, no money. No wallet, no money.',
+          '',
+          `-- ${terms.client.company}`,
+          '',
+        ].join('\n'),
+      );
+    });
+
+    // Comparing the table with the backup is the job, so the briefing names nobody, no value, no
+    // table and no file.
+    it('names no person, value, table, file or path', async () => {
+      for (const [missionNumber, ref] of [
+        [RESTORE_IN_DATABASE, 'rrr'],
+        [RESTORE_IN_FILES, 'sss'],
+        [RESTORE_TWO_HOP, 'ttt'],
+      ] as const) {
+        const { store, accepts } = offeredRestore();
+        const { target } = missionRecords(missionNumber);
+
+        await accept(`offer=${ref}`, store);
+        const { body } = accepts[0]!.briefing;
+
+        for (const value of Object.values(target.namedBy)) expect(body).not.toContain(value);
+        // A number could sit inside an address, so only a value in words is looked for.
+        const values = target.action === 'change' ? [target.from, target.to] : [];
+        for (const value of values.filter((each) => !/^\d+$/.test(each))) {
+          expect(body).not.toMatch(new RegExp(`\\b${value}\\b`));
+        }
+        expect(body).not.toMatch(new RegExp(`\\b${target.table}\\b`));
+        expect(body).not.toMatch(/\/var|\/srv|\.csv|\.sql|backups/);
+      }
+    });
+
+    it('answers nothing, asking the store nothing, when the password pools are unset', async () => {
+      const { store, accepts } = offeredRestore();
+
+      expect(await acceptWithoutPools('offer=rrr', store)).toBeNull();
+      expect(accepts).toEqual([]);
+    });
+
+    // The records and the backup hold nothing secret, so laying them needs no mission secret.
+    it('takes the job without the mission secret', async () => {
+      const { store, accepts } = offeredRestore();
+
+      expect(alertOf(await acceptWithoutSecret('offer=sss', store))).toMatch(
         /^Contract accepted\./,
       );
       expect(accepts).toHaveLength(1);

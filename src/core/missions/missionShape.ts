@@ -155,9 +155,10 @@ export type MissionKind =
   | 'cleanup'
   | 'closedoor'
   | 'lockout'
-  | 'patch';
+  | 'patch'
+  | 'restore';
 
-/** Where the one draw on a contract's kind changes, in 360360ths. Each kind takes a fifteenth.
+/** Where the one draw on a contract's kind changes, in 720720ths. Each kind takes a sixteenth.
  *  Every newer kind was carved from the edges of the ones before it, so a contract is the kind it was
  *  or has become the newer one, and none turned from one older kind into another: file jobs fill
  *  the gaps tamper, sabotage and key left as they shrank from thirds to quarters, backdoor jobs
@@ -172,115 +173,132 @@ export type MissionKind =
  *  piece, the lowest on a tie (so the top of the draw stays portforward), as they shrank to
  *  twelfths, close-the-door jobs the hundred-and-fifty-sixth each of the twelve gave up the
  *  same way as they shrank to thirteenths, lock-them-out jobs the hundred-and-eighty-second each
- *  of the thirteen gave up the same way as they shrank to fourteenths, and patch-it jobs the
- *  two-hundred-and-tenth each of the fourteen gave up the same way as they shrank to fifteenths.
- *  27720ths do not split into thirteenths, so the draw is in thirteen times as many. Portforward's
- *  largest piece was the top of the draw when lock-them-out jobs took it, so a draw past the last
- *  cut, the top hundred-and-eighty-second, is a lock-them-out job. */
+ *  of the thirteen gave up the same way as they shrank to fourteenths, patch-it jobs the
+ *  two-hundred-and-tenth each of the fourteen gave up the same way as they shrank to fifteenths,
+ *  and restore-the-record jobs the two-hundred-and-fortieth each of the fifteen gave up the same
+ *  way as they shrank to sixteenths. 27720ths do not split into thirteenths, so the draw went to
+ *  thirteen times as many, and those do not split into sixteenths, so it went to twice that.
+ *  Portforward's largest piece was the top of the draw when lock-them-out jobs took it, so a draw
+ *  past the last cut, what is left of the top hundred-and-eighty-second, is a lock-them-out job. */
 const KIND_CUTS: readonly (readonly [below: number, kind: MissionKind])[] = [
-  [24024, 'tamper'],
-  [25740, 'patch'],
-  [26004, 'lockout'],
-  [27720, 'patch'],
-  [28050, 'closedoor'],
-  [30030, 'lockout'],
-  [30450, 'cleanup'],
-  [31044, 'closedoor'],
-  [32760, 'patch'],
-  [33306, 'chain'],
-  [34056, 'cleanup'],
-  [36036, 'lockout'],
-  [36764, 'wipe'],
-  [37730, 'chain'],
-  [40040, 'closedoor'],
-  [41041, 'destroy'],
-  [42315, 'wipe'],
-  [43329, 'cleanup'],
-  [45045, 'patch'],
-  [47476, 'credential'],
-  [49170, 'wipe'],
-  [51480, 'closedoor'],
-  [51779, 'portforward'],
-  [53075, 'chain'],
-  [55055, 'lockout'],
-  [56784, 'destroy'],
-  [58344, 'chain'],
-  [60060, 'patch'],
-  [62361, 'infiltrate'],
-  [65637, 'chain'],
-  [68796, 'credential'],
-  [72072, 'chain'],
-  [75075, 'backdoor'],
-  [78780, 'credential'],
-  [81510, 'cleanup'],
-  [83655, 'portforward'],
-  [87780, 'credential'],
-  [90090, 'closedoor'],
-  [101400, 'file'],
-  [104676, 'chain'],
-  [106700, 'wipe'],
-  [108680, 'lockout'],
-  [110955, 'destroy'],
-  [113685, 'cleanup'],
-  [118140, 'credential'],
-  [120120, 'lockout'],
-  [144144, 'sabotage'],
-  [145860, 'patch'],
-  [147840, 'lockout'],
-  [150150, 'closedoor'],
-  [152880, 'cleanup'],
-  [156156, 'chain'],
-  [158444, 'wipe'],
-  [160160, 'patch'],
-  [162855, 'destroy'],
-  [165165, 'closedoor'],
-  [169884, 'credential'],
-  [171600, 'patch'],
-  [176176, 'portforward'],
-  [180180, 'wipe'],
-  [185471, 'infiltrate'],
-  [187187, 'patch'],
-  [190212, 'destroy'],
-  [192192, 'lockout'],
-  [199949, 'backdoor'],
-  [201929, 'lockout'],
-  [205205, 'chain'],
-  [208494, 'destroy'],
-  [210210, 'patch'],
-  [222924, 'file'],
-  [224640, 'patch'],
-  [226620, 'lockout'],
-  [228930, 'closedoor'],
-  [231660, 'cleanup'],
-  [237510, 'portforward'],
-  [240240, 'cleanup'],
-  [246268, 'infiltrate'],
-  [248248, 'lockout'],
-  [252252, 'wipe'],
-  [259510, 'backdoor'],
-  [261226, 'patch'],
-  [263536, 'closedoor'],
-  [266266, 'cleanup'],
-  [270270, 'wipe'],
-  [294294, 'key'],
-  [296010, 'patch'],
-  [297990, 'lockout'],
+  [45045, 'tamper'],
+  [48048, 'restore'],
+  [48477, 'patch'],
+  [51480, 'restore'],
+  [52008, 'lockout'],
+  [55440, 'patch'],
+  [56100, 'closedoor'],
+  [57057, 'lockout'],
+  [60060, 'restore'],
+  [60900, 'cleanup'],
+  [62088, 'closedoor'],
+  [65520, 'patch'],
+  [66612, 'chain'],
+  [68112, 'cleanup'],
+  [72072, 'lockout'],
+  [73528, 'wipe'],
+  [75460, 'chain'],
+  [77077, 'closedoor'],
+  [80080, 'restore'],
+  [82082, 'destroy'],
+  [84630, 'wipe'],
+  [86658, 'cleanup'],
+  [90090, 'patch'],
+  [94952, 'credential'],
+  [98340, 'wipe'],
+  [102960, 'closedoor'],
+  [103558, 'portforward'],
+  [106150, 'chain'],
+  [110110, 'lockout'],
+  [113568, 'destroy'],
+  [116688, 'chain'],
+  [120120, 'patch'],
+  [124722, 'infiltrate'],
+  [128271, 'chain'],
+  [131274, 'restore'],
+  [137592, 'credential'],
+  [144144, 'chain'],
+  [150150, 'backdoor'],
+  [157560, 'credential'],
+  [160017, 'cleanup'],
+  [163020, 'restore'],
+  [167310, 'portforward'],
+  [175560, 'credential'],
+  [180180, 'closedoor'],
+  [202800, 'file'],
+  [209352, 'chain'],
+  [213400, 'wipe'],
+  [217360, 'lockout'],
+  [221910, 'destroy'],
+  [227370, 'cleanup'],
+  [236280, 'credential'],
+  [240240, 'lockout'],
+  [285285, 'sabotage'],
+  [288288, 'restore'],
+  [291720, 'patch'],
+  [295680, 'lockout'],
   [300300, 'closedoor'],
-  [303030, 'cleanup'],
-  [306306, 'chain'],
-  [310310, 'wipe'],
-  [315315, 'destroy'],
-  [316745, 'credential'],
-  [321750, 'destroy'],
-  [328020, 'portforward'],
+  [305760, 'cleanup'],
+  [312312, 'chain'],
+  [316888, 'wipe'],
+  [320320, 'patch'],
+  [325710, 'destroy'],
   [330330, 'closedoor'],
-  [337302, 'infiltrate'],
-  [339612, 'closedoor'],
-  [342342, 'cleanup'],
-  [348348, 'backdoor'],
-  [351780, 'infiltrate'],
-  [356664, 'portforward'],
-  [358380, 'patch'],
+  [336765, 'credential'],
+  [339768, 'restore'],
+  [343200, 'patch'],
+  [352352, 'portforward'],
+  [357357, 'wipe'],
+  [360360, 'restore'],
+  [370942, 'infiltrate'],
+  [374374, 'patch'],
+  [380424, 'destroy'],
+  [384384, 'lockout'],
+  [396895, 'backdoor'],
+  [399898, 'restore'],
+  [403858, 'lockout'],
+  [410410, 'chain'],
+  [416988, 'destroy'],
+  [420420, 'patch'],
+  [442845, 'file'],
+  [445848, 'restore'],
+  [449280, 'patch'],
+  [453240, 'lockout'],
+  [457860, 'closedoor'],
+  [463320, 'cleanup'],
+  [475020, 'portforward'],
+  [480480, 'cleanup'],
+  [492536, 'infiltrate'],
+  [496496, 'lockout'],
+  [504504, 'wipe'],
+  [519020, 'backdoor'],
+  [522452, 'patch'],
+  [527072, 'closedoor'],
+  [532532, 'cleanup'],
+  [540540, 'wipe'],
+  [585585, 'key'],
+  [588588, 'restore'],
+  [592020, 'patch'],
+  [595980, 'lockout'],
+  [600600, 'closedoor'],
+  [606060, 'cleanup'],
+  [612612, 'chain'],
+  [620620, 'wipe'],
+  [627627, 'destroy'],
+  [630630, 'restore'],
+  [633490, 'credential'],
+  [643500, 'destroy'],
+  [653037, 'portforward'],
+  [656040, 'restore'],
+  [660660, 'closedoor'],
+  [671601, 'infiltrate'],
+  [674604, 'restore'],
+  [679224, 'closedoor'],
+  [684684, 'cleanup'],
+  [696696, 'backdoor'],
+  [703560, 'infiltrate'],
+  [713328, 'portforward'],
+  [716760, 'patch'],
 ];
 
 /** Whether a contract asks for a key, a changed record, a machine taken down, a file brought
@@ -288,7 +306,7 @@ const KIND_CUTS: readonly (readonly [below: number, kind: MissionKind])[] = [
  *  destroyed, a table wiped, or a listener left and a machine taken down. Drawn on a stream of its own, so a contract that keeps its kind
  *  keeps its network and its terms to the byte. */
 export const missionKind = (missionNumber: number): MissionKind => {
-  const draw = createPrng(`mission-kind-${missionNumber}`).next() * 360360;
+  const draw = createPrng(`mission-kind-${missionNumber}`).next() * 720720;
   return KIND_CUTS.find(([below]) => draw < below)?.[1] ?? 'lockout';
 };
 
@@ -925,11 +943,25 @@ const withHole = (box: BareBox, hole: MissionService, prng: Prng): BareBox => ({
   versions: { ...box.versions, [hole.package]: hole.version },
 });
 
-/** A cleanup, lock-them-out or patch-it job's network: the client lets the contractor in, so no
- *  box is broken into. Every box's root is one of the white-hat words the briefing hands over,
- *  which no other door holds, and every box runs nothing but sshd, on safe releases, besides its
- *  decoys; a patch-it target runs its hole beside them, which a single hop's gateway forwards
- *  too. The gateway forwards the public `:2222` onto the sshd of the box the first login is for:
+/** A restore target keeping its records in a database: the database on a safe release, its
+ *  application account one of the white-hat words, so the briefing can hand it over with root's,
+ *  and its root shut, as every mission database's is. */
+const withRecordsDatabase = (box: BareBox, prng: Prng): BareBox => {
+  const version = safeVersionOf(DATABASE_SERVER.package, prng);
+  return {
+    ...box,
+    database: { accountHash: prng.pick(WHITE_HAT_HASHES), rootHash: prng.pick(SHUT_HASHES) },
+    services: [{ ...DATABASE_SERVER, version }],
+    versions: { ...box.versions, [DATABASE_SERVER.package]: version },
+  };
+};
+
+/** A cleanup, lock-them-out, patch-it or restore-the-record job's network: the client lets the
+ *  contractor in, so no box is broken into. Every box's root is one of the white-hat words the
+ *  briefing hands over, which no other door holds, and every box runs nothing but sshd, on safe
+ *  releases, besides its decoys; a patch-it target runs its hole beside them, which a single
+ *  hop's gateway forwards too, and a restore target keeping its records in a database runs the
+ *  database, its application account handed over as root is and no decoy database beside it. The gateway forwards the public `:2222` onto the sshd of the box the first login is for:
  *  the target, or on two hops the front box, from which the target is reached on its own `:22`.
  *  The logins are drawn on a stream of each kind's own, the target's first (on a lock-them-out
  *  job, the word that leaked), and the front box's base on its own as every two-hop contract's
@@ -949,7 +981,7 @@ const handedOverShape = ({
   readonly keyBoxBase: Readonly<Record<string, string>>;
   readonly gatewayVersions: Readonly<Record<string, string>>;
   readonly frontDraw: { readonly prng: Prng; readonly octet: number } | null;
-  readonly kind: 'cleanup' | 'lockout' | 'patch';
+  readonly kind: 'cleanup' | 'lockout' | 'patch' | 'restore';
 }): MissionShape => {
   const loginPrng = createPrng(`mission-${kind}-login-${missionNumber}`);
   const handedOver = (octet: number, versions: Readonly<Record<string, string>>): BareBox => ({
@@ -964,7 +996,13 @@ const handedOverShape = ({
   });
   const handedOverTarget = handedOver(keyBoxOctet, keyBoxBase);
   const hole = kind === 'patch' ? patchHole(missionNumber) : null;
-  const target = hole === null ? handedOverTarget : withHole(handedOverTarget, hole, loginPrng);
+  const storage = kind === 'restore' ? recordsStorage(missionNumber) : null;
+  const target =
+    hole !== null
+      ? withHole(handedOverTarget, hole, loginPrng)
+      : storage === 'database'
+        ? withRecordsDatabase(handedOverTarget, loginPrng)
+        : handedOverTarget;
   // A patch-it target's hole answers from outside on a single hop, as a scan finds it.
   const entryForwards =
     hole === null ? [SSH_FORWARD] : [SSH_FORWARD, { publicPort: hole.port, internalPort: hole.port }];
@@ -972,14 +1010,19 @@ const handedOverShape = ({
     missionNumber,
     kind,
     stem,
-    storage: null,
+    storage,
     gatewayAdminHash: loginPrng.pick(SHUT_HASHES),
     routerRoute: null,
     routerVendor: null,
     gatewayVersions,
   } as const;
   if (frontDraw === null) {
-    const entry = withDecoys(target, entryForwards, missionNumber);
+    const entry = withDecoys(
+      target,
+      entryForwards,
+      missionNumber,
+      storage === 'database' ? 'mysql' : null,
+    );
     return {
       ...common,
       keyBox: entry.box,
@@ -1068,7 +1111,7 @@ export const missionShape = (missionNumber: number): MissionShape => {
   if (kind === 'closedoor') {
     return closeDoorShape({ missionNumber, stem, keyBoxOctet, keyBoxBase, gatewayVersions });
   }
-  if (kind === 'cleanup' || kind === 'lockout' || kind === 'patch') {
+  if (kind === 'cleanup' || kind === 'lockout' || kind === 'patch' || kind === 'restore') {
     return handedOverShape({
       kind,
       missionNumber,

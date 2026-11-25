@@ -58,8 +58,11 @@ import {
   missionAction,
   missionRecords,
   missionSetting,
+  recordsBackupFiles,
   recordsFilePath,
+  rowsAddedSince,
 } from './missionRecords.js';
+import { databaseIn } from '../mysql/datadir.js';
 import { DATADIR_PATH } from '../mysql/datadir.js';
 import { writeAmount } from '../wallet/amount.js';
 
@@ -125,11 +128,29 @@ const leakLines = (
 const handedOverLine = (hash: string, rawSecrets: string | undefined, indent: string): string =>
   `${indent}Login:    root / ${whiteHatWord(hash, rawSecrets) ?? '(JSHACK_SECRETS is not set)'}`;
 
-/** Whether a contract's client hands over root on every box it covers: a cleanup, lock-them-out
- *  or patch-it job's. */
+/** Whether a contract's client hands over root on every box it covers: a cleanup, lock-them-out,
+ *  patch-it or restore-the-record job's. */
 const handsOverRoot = (missionNumber: number): boolean => {
   const kind = missionKind(missionNumber);
-  return kind === 'cleanup' || kind === 'lockout' || kind === 'patch';
+  return kind === 'cleanup' || kind === 'lockout' || kind === 'patch' || kind === 'restore';
+};
+
+/** The database login a restore job's client hands over beside root's on the target, at
+ *  `indent`, where the records are kept in a database. A database decoy keeps nothing of
+ *  theirs, so none is handed over for one. */
+const databaseLoginLines = (
+  missionNumber: number,
+  rawSecrets: string | undefined,
+  indent: string,
+): readonly string[] => {
+  const { kind, storage, keyBox } = missionShape(missionNumber);
+  if (kind !== 'restore' || storage !== 'database' || keyBox.database === null) return [];
+  const account = databaseIn(buildMissionKeyBoxFs(missionNumber))?.credentials.find(
+    ({ userType }) => userType === 'user',
+  );
+  const word =
+    whiteHatWord(keyBox.database.accountHash, rawSecrets) ?? '(JSHACK_SECRETS is not set)';
+  return [`${indent}Database: ${account?.username ?? '(none)'} / ${word}`];
 };
 
 /** The root login a cleanup or lock-them-out job's client hands over for a box, at `indent`: the
@@ -189,6 +210,7 @@ const kindLine = (missionNumber: number, kind: MissionKind): readonly string[] =
     ];
   }
   if (kind === 'wipe') return [`  Kind:     wipe, ${missionSetting(missionNumber)}`];
+  if (kind === 'restore') return [`  Kind:     restore, ${missionSetting(missionNumber)}`];
   if (kind === 'sabotage') return [`  Kind:     sabotage, ${sabotageRole(missionNumber).noun}`];
   if (kind === 'file') return [`  Kind:     file, ${missionFileItem(missionNumber).noun}`];
   if (kind === 'destroy') return [`  Kind:     destroy, ${missionFileItem(missionNumber).noun}`];
@@ -257,6 +279,24 @@ const recordLines = (missionNumber: number): readonly string[] => {
   ];
 };
 
+/** Where a restore job's records are kept, the one change it asks undone, the backup of the
+ *  table it is about, and how many rows the customer has added since that backup. */
+const restoreLines = (missionNumber: number): readonly string[] => {
+  const { target } = missionRecords(missionNumber);
+  const names = Object.values(target.namedBy).join(', ');
+  const undone =
+    target.action === 'change' ? `${target.column} ${target.to} -> ${target.from}` : '';
+  // The target table is the first backed up, as it is the first of the records.
+  const [backup] = recordsBackupFiles(missionNumber);
+  const added = rowsAddedSince(missionNumber);
+  return [
+    ...recordsStorageLines(missionNumber),
+    `  Restore:  ${names}: ${undone}`,
+    `  Backup:   ${backup?.path ?? '(none)'}`,
+    `  Added since: ${added} ${added === 1 ? 'row' : 'rows'}`,
+  ];
+};
+
 /** What the report says of the job in the key-box slot: a key job's storage, key path and key,
  *  a tamper job's records and the one change it asks, where a wipe job keeps the table it asks
  *  emptied, a file or destroy job's file and its size
@@ -272,6 +312,7 @@ const jobLines = (
 ): readonly string[] => {
   if (kind === 'tamper') return recordLines(missionNumber);
   if (kind === 'wipe') return recordsStorageLines(missionNumber);
+  if (kind === 'restore') return restoreLines(missionNumber);
   if (
     kind === 'sabotage' ||
     kind === 'credential' ||
@@ -374,6 +415,7 @@ export const showReport = (
     shape.kind === 'cleanup' ||
     shape.kind === 'lockout' ||
     shape.kind === 'patch' ||
+    shape.kind === 'restore' ||
     shape.kind === 'closedoor';
   const slotName = isTarget ? 'target' : 'key box';
   const reached = frontBox === null ? slotName : 'front box';
@@ -384,6 +426,7 @@ export const showReport = (
       ? [
           ...serviceLines(keyBox, decoyPorts, '  '),
           ...loginLines(missionNumber, keyBox, rawSecrets, '  '),
+          ...databaseLoginLines(missionNumber, rawSecrets, '  '),
           ...keyLines,
           ...leakLines(keyRef, rawSecrets, '  '),
         ]
@@ -399,6 +442,7 @@ export const showReport = (
           `    Route:    ${routeOf(missionNumber, keyBox)}`,
           ...serviceLines(keyBox, insideDecoyPorts, '    '),
           ...loginLines(missionNumber, keyBox, rawSecrets, '    '),
+          ...databaseLoginLines(missionNumber, rawSecrets, '    '),
           ...leakLines(keyRef, rawSecrets, '    '),
           ...keyLines,
         ];

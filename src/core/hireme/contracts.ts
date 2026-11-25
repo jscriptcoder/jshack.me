@@ -22,7 +22,14 @@
 import { z } from 'zod';
 import { EMAILIT_DOMAIN } from '../generation/fixedSites.js';
 import { missionAddressForNumber, missionEssid } from '../missions/missionNetwork.js';
-import { chainFinal, missionShape, missionTopology } from '../missions/missionShape.js';
+import {
+  chainFinal,
+  missionShape,
+  missionTopology,
+  recordsStorage,
+} from '../missions/missionShape.js';
+import { databaseIn } from '../mysql/datadir.js';
+import { buildMissionKeyBoxFs } from '../generation/missionKeyBoxFs.js';
 import { lanSubnetPrefix } from '../network/lanAddress.js';
 import { whiteHatWord } from '../missions/whiteHatLogin.js';
 import {
@@ -273,7 +280,10 @@ const chainFinalLines = (missionNumber: number): readonly string[] => {
  *  never their table, file or box. */
 const jobLines = (
   missionNumber: number,
-  terms: Exclude<MissionTerms, { readonly job: 'cleanup' | 'closedoor' | 'lockout' | 'patch' }>,
+  terms: Exclude<
+    MissionTerms,
+    { readonly job: 'cleanup' | 'closedoor' | 'lockout' | 'patch' | 'restore' }
+  >,
   inside: boolean,
 ): readonly string[] => {
   if (terms.job === 'sabotage') {
@@ -525,6 +535,62 @@ const patchLines = (
   ];
 };
 
+/** The database login a restore job's client hands over beside root's, from the shell on the
+ *  records machine, or null when the word cannot be given. None where the records are kept in
+ *  files: a database decoy there keeps nothing of theirs. */
+const restoreDatabaseLines = (
+  missionNumber: number,
+  rawSecrets: string | undefined,
+): readonly string[] | null => {
+  if (recordsStorage(missionNumber) !== 'database') return [];
+  const { keyBox, frontBox } = missionShape(missionNumber);
+  const word =
+    keyBox.database === null ? null : whiteHatWord(keyBox.database.accountHash, rawSecrets);
+  const account = databaseIn(buildMissionKeyBoxFs(missionNumber))?.credentials.find(
+    ({ userType }) => userType === 'user',
+  );
+  if (word === null || account === undefined) return null;
+  return [
+    frontBox === null
+      ? 'Their database login, from that machine:'
+      : 'Their database login, from the machine inside:',
+    '',
+    `  mysql localhost ${account.username}`,
+    `  password: ${word}`,
+    '',
+  ];
+};
+
+/** A restore-the-record job's briefing past its opening: the records someone changed one of, in
+ *  the wipe job's words, the backup it can be put back from and the rows added since, then the
+ *  logins, or null when the words cannot be given. Comparing the table with the backup is the
+ *  job, so it names no person, value, table, file or path. */
+const restoreLines = (
+  missionNumber: number,
+  rawSecrets: string | undefined,
+): readonly string[] | null => {
+  const logins = handedOverLoginLines(missionNumber, rawSecrets, {
+    noun: 'machine with their records',
+    leaked: false,
+  });
+  const database = restoreDatabaseLines(missionNumber, rawSecrets);
+  if (logins === null || database === null) return null;
+  const twoHop = missionTopology(missionNumber).frontBoxOctet !== null;
+  return [
+    `Someone got into their records of ${WIPE_DESCRIPTIONS[missionSetting(missionNumber)]} and changed one.`,
+    'Their backup from before it happened is on the machine. Put that record back as it was.',
+    'They have added records since the backup. Those stay as they are.',
+    '',
+    ...logins,
+    ...database,
+    twoHop
+      ? 'Leave both machines running. If either no longer boots, there is no money.'
+      : 'Leave the machine running. If it no longer boots, there is no money.',
+    'Write to this address with your wallet address once it is put back.',
+    'Not restored, no money. No wallet, no money.',
+  ];
+};
+
 /** A close-the-door job's briefing past its opening: the machine someone made reachable from
  *  outside, never the port or the forward, then the router's login, or null when the word cannot
  *  be given. Which forward reaches the machine is the job, so it names no port, file or tool. */
@@ -561,7 +627,8 @@ const briefingOf = (
     terms.job === 'cleanup' ||
     terms.job === 'closedoor' ||
     terms.job === 'lockout' ||
-    terms.job === 'patch'
+    terms.job === 'patch' ||
+    terms.job === 'restore'
   ) {
     const lines =
       terms.job === 'closedoor'
@@ -570,9 +637,11 @@ const briefingOf = (
           ? lockoutLines(missionNumber, rawSecrets)
           : terms.job === 'patch'
             ? patchLines(missionNumber, rawSecrets)
-            : missionSecret === undefined
-              ? null
-              : cleanupLines(missionNumber, rawSecrets);
+            : terms.job === 'restore'
+              ? restoreLines(missionNumber, rawSecrets)
+              : missionSecret === undefined
+                ? null
+                : cleanupLines(missionNumber, rawSecrets);
     if (lines === null) return null;
     return {
       sender: clientAddress(terms),
