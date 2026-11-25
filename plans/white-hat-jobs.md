@@ -1,6 +1,6 @@
 # Plan: White-hat jobs
 
-**Status:** Grilled 2026-11-22 (the shared rules and cleanup). **Cleanup shipped** at v0.479.0 (PR #801, merged 2026-11-22) and closed out with a browser run the same day; as-built: "Cleanup jobs" in `docs/missions-architecture.md`. **Close the door shipped** at v0.480.0 (PR #802, merged 2026-11-23) and closed out with a browser run the same day; as-built: "Close-the-door jobs" in `docs/missions-architecture.md`. **Lock them out shipped** at v0.481.0 (PR #803, merged 2026-11-23) and closed out with a browser run the same day; as-built: "Lock-them-out jobs" in `docs/missions-architecture.md`. **Patch it shipped** at v0.482.0 (PR #804, merged 2026-11-24) and closed out with a browser run the same day; as-built: "Patch-it jobs" in `docs/missions-architecture.md`. **Restore the record shipped** at v0.483.0 (PR #805, merged 2026-11-25) and closed out with a browser run the same day; as-built: "Restore-the-record jobs" in `docs/missions-architecture.md`. Next: forensics, the next white-hat kind, with its own grill on top of the shared decisions. This plan is retired once the last white-hat kind closes out.
+**Status:** Grilled 2026-11-22 (the shared rules and cleanup). **Cleanup shipped** at v0.479.0 (PR #801, merged 2026-11-22) and closed out with a browser run the same day; as-built: "Cleanup jobs" in `docs/missions-architecture.md`. **Close the door shipped** at v0.480.0 (PR #802, merged 2026-11-23) and closed out with a browser run the same day; as-built: "Close-the-door jobs" in `docs/missions-architecture.md`. **Lock them out shipped** at v0.481.0 (PR #803, merged 2026-11-23) and closed out with a browser run the same day; as-built: "Lock-them-out jobs" in `docs/missions-architecture.md`. **Patch it shipped** at v0.482.0 (PR #804, merged 2026-11-24) and closed out with a browser run the same day; as-built: "Patch-it jobs" in `docs/missions-architecture.md`. **Restore the record shipped** at v0.483.0 (PR #805, merged 2026-11-25) and closed out with a browser run the same day; as-built: "Restore-the-record jobs" in `docs/missions-architecture.md`. **Forensics grilled** 2026-11-25 (decisions 59–73); next: its slice plan. This plan is retired once the last white-hat kind closes out.
 
 Every contract kind v2 ships is black-hat: the contractor breaks into the target's network and
 does something to it. Legacy also had defender contracts (`malware`, `forensics`, `db_fix`,
@@ -480,6 +480,113 @@ it did. Measured first:
 58. **`hireme.ts show` (2026-11-24)** prints `Kind: restore, <setting>`, the storage, the logins
     (root's, and the database's on database storage),
     `Restore: <names>: <column> <laid> -> <true>`, the backup's path and the rows added since.
+
+### Forensics (grilled 2026-11-25)
+
+Legacy's job: someone broke into one of the client's customer's machines, and the client pays for
+a mail naming the intruder's handle and the address they came in from (decision 4). Measured
+first:
+
+- A mission box's live logs (`auth.log`, `kern.log`, `access.log` and the service logs) start
+  empty, and it has no rotated `.1` history as a world box does, so every line of evidence is
+  laid.
+- Real play already writes there: an `ssh` login lays an `Accepted` or `Failed password … from
+  <address>` line on the box it reaches, and `su` a line of its own, so the contractor's own login
+  lands in the log the trail is in.
+- The reading tools ship (`cat`, `grep`, `head`, `tail`, `wc`, `whois`); `ls -l` shows no time,
+  since v2 files have none to show.
+- Cleanup already draws a public address no network holds (`outsideHostOf`,
+  `core/missions/cleanupPlant.ts`).
+- Game time is real time (`worldClock.ts`), so a laid line needs a stored moment to be dated
+  from; the number alone has none.
+- Credential jobs set the proof's rule: a labelled line outside the quote, one guess per mail,
+  every proof mail counted toward the 20-an-hour send limit.
+
+59. **The trail is laid when the job is made (2026-11-25),** drawn from the number, as every other
+    white-hat kind lays its problem. Rejected: a trail built from what a real player did on a
+    network they broke into, which shows a stranger a real player's address and identity, needs a
+    black-hat job to have happened first and cannot be tested with fixed data; it goes to
+    `backlog.md`.
+
+60. **Only `auth.log` carries the trail, and the intruder came in over `ssh` (2026-11-25).** A
+    white-hat target runs nothing but sshd besides its decoys, and how they got in is incident
+    response's question, so legacy's `vsftpd.log` and `access.log` trails wait for that grill.
+
+61. **The target is one of the seven machines (2026-11-25)** (`TARGET_ROLES`), with three forensics
+    pitches each in the client's voice writing for its customer. Two hops on about one contract in
+    three, the target on the inside box, as cleanup, lock them out and the rest.
+
+62. **The trail (2026-11-25).** Single-hop: the target's `auth.log` holds the intruder's 1–3
+    failed root logins and then an accepted one, all from the origin. Two-hop: the inside box's log
+    shows the intruder arriving from the edge machine's inside address at night, and the edge
+    machine's log shows them arriving from the origin a few minutes before, so the job is matching
+    times across machines, as legacy's walk backwards was. Naming the edge machine's inside address
+    is the natural mistake, and it draws the ordinary miss.
+
+63. **The noise (2026-11-25),** in the line formats that exist (`formatSshdAuthLine`,
+    `formatRootSessionLine`): scanners, 3–6 outside addresses with 1–4 failed logins each, never
+    one accepted; staff, root logins at the first try from 1–2 home addresses on several days in
+    working hours, with their session lines; and on two hops, staff hopping to the inside box from
+    the edge machine in working hours. The pattern alone gives the intruder away: failures and
+    then a success, at night, from an address seen once. Every outside address is drawn as
+    cleanup's outside host is, all distinct, so none answers anything.
+
+64. **Dated over the few days before the offer was posted (2026-11-25),** the break-in in the last
+    night of them, from `posted_at`, the moment the row already stores. The server has to carry
+    `posted_at` to where it lays the log, which is measured while planning. The contractor's login,
+    and anyone else's, still lays its real lines after the laid ones. Rejected: dating from the
+    moment of reading, which moves the trail every day.
+
+65. **The handle is on a calling card on the target (2026-11-25),** one of about twelve adapted
+    from legacy's fifteen, in `/tmp`, `/var/tmp`, `/opt`, `/root`, `/etc/cron.d`,
+    `/etc/systemd/system` and `/var/log`, mostly dot-named. Legacy's `/etc/ld.so.preload` and root's
+    crontab go, since each replaces a real file. The handles are a pool of about 24 of their own,
+    none a client handle, a username or a service account, and not reserved on emailit, so whoever
+    registers one gets the mail sent to it. No card names the origin; about a third name a drop
+    host the intruder reports to, another address, so taking a card's address instead of reading
+    the logs draws the miss.
+
+66. **Drawn under `MISSION_KEY_SECRET` (2026-11-25):** the handle, the origin, the card and the
+    trail, as cleanup's implant is, so nobody works the answer out from the bundle.
+
+67. **The proof is credential's rule (2026-11-25):** two labelled lines outside the quote,
+    `handle:` and `address:`, the first of each. The handle is compared in any case, the address
+    exactly, each trimmed. One mail is one guess, and the 20-an-hour send limit is the only guard
+    against trying each address in turn. Rejected: one report per job, which needs a stored state
+    the mail path does not keep.
+
+68. **The truth is the draw, not the machine (2026-11-25).** Clearing the log or removing the
+    card changes nothing that pays; it only makes the job unsolvable for whoever comes next. The
+    machines are read for the boot rule alone, which applies (decision 10).
+
+69. **The replies, the first row that fits (2026-11-25):**
+
+    | The state                             | The reply                                                   |
+    | ------------------------------------- | ----------------------------------------------------------- |
+    | A machine in scope no longer boots    | "You took our machine down. No money."                      |
+    | A line missing, or either value wrong | "That's not who broke in. Wrong, no money."                 |
+    | Both right, with a wallet             | "That's them. §<pay> sent to jsc…. Thank you for the help." |
+    | Both right, no wallet                 | the no-wallet form; completed, nothing minted               |
+
+    The miss never says which half is wrong.
+
+70. **The briefing (2026-11-25):** "Someone broke into their billing server, and they want to know
+    who. Find the name they go by and the address they came in from." Then the login (both on two
+    hops), the two labelled lines as they are to be sent, and the boot warning. Never a time, a
+    log, a path or a tool.
+
+71. **The terms (2026-11-25):** `<Client> — trace an intruder on a billing server — §<pay>`,
+    `… on an internal billing server` on two hops, at the white-hat pay: 300–1,200 JSC single-hop
+    and 1,200–2,400 two-hop (decision 6).
+
+72. **A seventeenth of the draw (2026-11-25).** 720,720 does not split by seventeen, so the draw is
+    taken in 12,252,240ths, every cut times seventeen, which is exact and moves no number. Each
+    kind gets 720,720; each of the sixteen older kinds gives up 45,045 at the top of its largest
+    piece, the lowest on a tie.
+
+73. **`hireme.ts show` (2026-11-25)** prints `Kind: forensics, <machine>`,
+    `Intruder: <handle> from <origin>`, the card's path and its drop host if it names one, the
+    break-in's time, and each box's login.
 
 ## Facts the plan rests on (measured 2026-11-22)
 

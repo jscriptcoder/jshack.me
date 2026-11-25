@@ -255,6 +255,10 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
     boxes in the shape. Set aside in the lock-them-out grill: **Debian's stock system accounts**
     (`daemon`, `bin`, `www-data` and the rest) in every box's `/etc/passwd`, so an intruder's
     added uid-0 row has something to hide among, where today a mission box holds four or five.
+    Set aside in the forensics grill (2026-11-25): **a trail from real play**, a forensics job
+    posted on a network another player really broke into, its evidence the lines their actions
+    left; it shows a stranger a real player's address and identity, needs a black-hat job first
+    and cannot be tested with fixed data, so it needs a grill of its own, privacy first.
   - **Recognition for completed jobs**, the other half of a mission reward; completions are only
     in `hireme_missions` today.
   - **Places posting vacancies** that say how they run (the old `hireit.io` idea), and a second,
