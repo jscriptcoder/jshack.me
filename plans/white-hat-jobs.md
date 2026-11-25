@@ -1,6 +1,6 @@
 # Plan: White-hat jobs
 
-**Status:** Grilled 2026-11-22 (the shared rules and cleanup). **Cleanup shipped** at v0.479.0 (PR #801, merged 2026-11-22) and closed out with a browser run the same day; as-built: "Cleanup jobs" in `docs/missions-architecture.md`. **Close the door shipped** at v0.480.0 (PR #802, merged 2026-11-23) and closed out with a browser run the same day; as-built: "Close-the-door jobs" in `docs/missions-architecture.md`. **Lock them out shipped** at v0.481.0 (PR #803, merged 2026-11-23) and closed out with a browser run the same day; as-built: "Lock-them-out jobs" in `docs/missions-architecture.md`. **Patch it shipped** at v0.482.0 (PR #804, merged 2026-11-24) and closed out with a browser run the same day; as-built: "Patch-it jobs" in `docs/missions-architecture.md`. **Restore the record shipped** at v0.483.0 (PR #805, merged 2026-11-25) and closed out with a browser run the same day; as-built: "Restore-the-record jobs" in `docs/missions-architecture.md`. **Forensics grilled** 2026-11-25 (decisions 59–73); next: its slice plan. This plan is retired once the last white-hat kind closes out.
+**Status:** Grilled 2026-11-22 (the shared rules and cleanup). **Cleanup shipped** at v0.479.0 (PR #801, merged 2026-11-22) and closed out with a browser run the same day; as-built: "Cleanup jobs" in `docs/missions-architecture.md`. **Close the door shipped** at v0.480.0 (PR #802, merged 2026-11-23) and closed out with a browser run the same day; as-built: "Close-the-door jobs" in `docs/missions-architecture.md`. **Lock them out shipped** at v0.481.0 (PR #803, merged 2026-11-23) and closed out with a browser run the same day; as-built: "Lock-them-out jobs" in `docs/missions-architecture.md`. **Patch it shipped** at v0.482.0 (PR #804, merged 2026-11-24) and closed out with a browser run the same day; as-built: "Patch-it jobs" in `docs/missions-architecture.md`. **Restore the record shipped** at v0.483.0 (PR #805, merged 2026-11-25) and closed out with a browser run the same day; as-built: "Restore-the-record jobs" in `docs/missions-architecture.md`. **Forensics grilled** 2026-11-25 (decisions 59–73) and planned ("Slice plan: Forensics jobs"); next: the owner confirms its acceptance criteria and settled items, then RED on `feat/white-hat-forensics`. This plan is retired once the last white-hat kind closes out.
 
 Every contract kind v2 ships is black-hat: the contractor breaks into the target's network and
 does something to it. Legacy also had defender contracts (`malware`, `forensics`, `db_fix`,
@@ -1578,3 +1578,233 @@ storage through the loose-`WHERE` miss; a "Restore-the-record jobs" section in
    No money."
 4. **The database decoy is barred only on database storage (2026-11-24);** on file storage the
    target runs no `mysqld`, so a database decoy is a decoy as anywhere else.
+
+## Slice plan: Forensics jobs
+
+**Branch:** `feat/white-hat-forensics` · **Delivery:** one independent PR against `main` ·
+**Version:** v0.484.0 (minor, a new kind).
+
+### Goal
+
+A contractor accepts a forensics job on their hireme.io board, logs in to the customer's machine
+as root with the login the briefing hands over, finds the intruder's calling card and their trail
+in the rotated `auth.log`, follows it back across the edge machine on two hops to the address they
+came in from, and is paid when they mail the client the handle and that address.
+
+### Facts this slice rests on (measured 2026-11-25)
+
+- **A laid live log does not survive the first real line.** `append_machine_log` (migration
+  `20261030000000`) appends to the journal's newest row for the path, or to `''` when there is
+  none; it never sees what the server lays over the base (`withMissionFiles`,
+  `core/network/missionBoxFiles.ts`). A laid `/var/log/auth.log` would be replaced by the first
+  real line, and the contractor's own `ssh` login is that line. A rotated `auth.log.1` is
+  appended to by nothing.
+- **The laid files take no table today.** `findMissionFiles` is defined once in `api/network.ts`
+  and once in `api/sessions.ts`, wired into nine doors, and reads only the two secrets
+  (`missionFilesForBox`, `core/missions/missionLeak.ts`). `findMissionStateVia` reads the row's
+  `state` alone; `posted_at` is on the row (`hireme_missions`).
+- **Restore is the template.** `handedOverShape` (`missionShape.ts`) takes `cleanup`, `lockout`,
+  `patch` and `restore`, draws every root in scope from `WHITE_HAT_HASHES` on
+  `mission-<kind>-login-<n>` and forwards `:2222` onto the first box's `:22`. `checkRestore`
+  (`clientMail.ts`) reads the target and on two hops the front box, the boot rule first.
+  `mailedPassword` reads the first labelled line outside the quote.
+- **Cleanup draws the secret's half.** `cleanupPlant` seeds its streams with an HMAC of the label
+  under `MISSION_KEY_SECRET` (`streamUnder`) and draws its outside host with `outsideHostOf`, a
+  region-block address no network holds, both private to `cleanupPlant.ts`.
+  `cleanupFilePaths` lists the laid paths for the write gate only when given the secret.
+- **The formats exist:** `formatSshdAuthLine` (`Accepted` / `Failed password for <user> from
+  <address>`) and `formatRootSessionLine` (`pam_unix(sshd:session): session opened|closed for
+  user root`), as world boxes' `auth.log.1` uses them (`logHistory.ts`). `ls -l` shows no time.
+- **`TARGET_ROLES`** holds the seven machines, each with a noun, a hostname suffix, a service
+  account and pitches per kind (`targetRoles.ts`).
+- **`KIND_CUTS`** holds 118 cuts in 720,720ths, each kind 45,045, the fallback past the last cut
+  lockout. Times seventeen, in 12,252,240ths, each kind holds 765,765 and a seventeenth is
+  720,720, so each of the sixteen gives up 45,045 at the top of its largest piece, the lowest on
+  a tie: tamper 720,720–765,765, restore 771,771–816,816, patch 897,435–942,480, lockout
+  1,180,179–1,225,224 (tied with the fallback piece 12,184,920–12,252,240 and the lower, so the
+  fallback stays lockout), closedoor 1,705,275–1,750,320, chain 2,405,403–2,450,448, file
+  3,402,555–3,447,600, cleanup 3,820,245–3,865,290, credential 3,971,715–4,016,760, sabotage
+  4,804,800–4,849,845, portforward 8,030,295–8,075,340, infiltrate 8,328,067–8,373,112, wipe
+  8,531,523–8,576,568, backdoor 8,778,295–8,823,340, key 9,909,900–9,954,945, destroy
+  10,894,455–10,939,500.
+- **The bundle** is 312,199 B against a ceiling of 312,275 B, 76 B of headroom.
+
+### Slice 1: a seventeenth kind, forensics, paid on a mail naming the intruder's handle and the address they came in from
+
+**Value:** a sixth defender job, whose challenge is reading: telling one intruder from the
+scanners and the staff in a log, and on two hops matching times across two machines.
+**Path:** board offer → accept → briefing mail with root's login (both on two hops) →
+`ssh root@<address> -p 2222` (on to the inside box on two hops) → `ls -a` for the card,
+`cat`/`grep` of `/var/log/auth.log.1` on each machine → `mail` to the client with `handle:` and
+`address:` → `answerClientMail` → reply, pay minted.
+**Class:** behavior change. **Required skills:** `tdd`, `testing`, `functional`, `refactoring`;
+`mutation-testing` at PR readiness.
+
+**What it builds:**
+
+- **The kind.** `forensics` joins `MissionKind` and takes a seventeenth of `mission-kind-<n>`,
+  the draw taken in 12,252,240ths with every cut times seventeen and the sixteen pieces above. No
+  number turns from one older kind into another.
+- **The job** (`forensicsJob`, `targetRoles.ts`, on `mission-forensics-<n>`): one of the seven
+  machines, with three forensics pitches each, 21 in all, in the client's voice writing for its
+  customer.
+- **The shape** (`handedOverShape` with `kind: 'forensics'`): the target's root the first draw on
+  `mission-forensics-login-<n>`, the front box's after it on two hops; route `null`, safe
+  releases, sshd and its decoys only, `:2222` besides the decoys. Two hops on the usual
+  `mission-template-<n>` draw, about one in three, the target on the inside box.
+- **What the intruder did** (`forensicsTrail`, `core/missions/forensicsTrail.ts`, on streams under
+  `MISSION_KEY_SECRET` as cleanup's are): the handle from a pool of about 24 of its own; the
+  origin, every scanner's address and the staff's 1–2 home addresses drawn by `outsideHostOf`,
+  all distinct; the calling card from the catalog (settled item 4) and, where it names one, a drop
+  host drawn the same way and distinct from the rest.
+- **What the server lays**, given the secret and the offer's `posted_at` (settled item 3):
+  - `/var/log/auth.log.1` on each box in scope (settled item 1), readable by anyone and written by
+    root as `auth.log` is, spanning 3–5 days that end at the posting (settled item 2), in time
+    order, at the box's hostname:
+    - scanners, on the box facing the internet only: 3–6 addresses, 1–4 failed root logins
+      each, at any hour, never one accepted;
+    - staff: root logins at the first try from their home addresses on 2–4 of the days between
+      09:00 and 18:00, each with its session's opened and closed lines; on two hops the same
+      sessions hop on to the inside box a few minutes later from the edge machine's inside
+      address;
+    - the intruder: 1–3 failed root logins and then an accepted one from the origin, between
+      01:00 and 05:00 on the last night before the posting, with its session lines; on two hops
+      the box facing the internet holds those, and the inside box holds the hop 2–9 minutes
+      later from the edge machine's inside address, after 0–1 failed try;
+  - the calling card on the target, root-only, at its path.
+
+  `missionFilePaths` lists both, the card only when given the secret, as `cleanupFilePaths`.
+- **The terms:** `<Client> — trace an intruder on a billing server — §<pay>`,
+  `trace an intruder on an internal billing server` on two hops, pay 300–1,200 single-hop and
+  1,200–2,400 two-hop to the nearest 50, as the last draw on `mission-terms-<n>`.
+- **The briefing** opens with the pitch, names the company and the address, says someone broke in
+  and the customer wants to know who, hands over the logins and shows the two lines to send. Never
+  a time, a log, a path or a tool. Draft (single hop):
+
+  ```text
+  Our customer is Corva Holdings. Their network is at 195.105.40.165.
+  Someone broke into their billing server, and they want to know who.
+  Find the name they go by and the address they came in from.
+  They have given you root:
+    ssh root@195.105.40.165 -p 2222
+    password: <word>
+  Leave the machine running. If it no longer boots, there is no money.
+  Write to this address with your wallet address and what you found, each on a line of its own:
+    handle: <the name they go by>
+    address: <the address they came in from>
+  Wrong, no money. No wallet, no money.
+  ```
+
+  On two hops the edge machine's login comes first, then "The billing server is inside their
+  network, at <address>. From the edge machine:" and the target's login, and the warning names
+  both machines.
+
+- **The client's check** (`checkForensics`, reading the target and on two hops the front box for
+  the boot rule only), the first row that fits:
+
+  | The mail                              | The reply                                                        | What changes                   |
+  | ------------------------------------- | ---------------------------------------------------------------- | ------------------------------ |
+  | No accepted job with this client      | "We have no contract with you."                                  | nothing                        |
+  | A completed job                       | "That job is already closed." (nothing read)                     | nothing                        |
+  | A machine in scope no longer boots    | "You took our machine down. No money."                           | nothing; the job can never pay |
+  | A line missing, or either value wrong | "That's not who broke in. Wrong, no money."                      | nothing                        |
+  | Both right, with a wallet             | "That's them. §450 sent to jsc…. Thank you for the help."        | completed, the pay minted      |
+  | Both right, no wallet                 | "That's them. You sent no wallet, so there is nothing to pay. …" | completed, nothing minted      |
+
+  The first `handle:` and the first `address:` line outside the quote are read, each trimmed; the
+  handle matches in any case, the address exactly. The answer is the draw, never the boxes, so a
+  cleared log or a removed card changes nothing that pays.
+
+- **`hireme.ts show`** prints `Kind: forensics, <machine>`, `Intruder: <handle> from <origin>`,
+  `Card: <path>` with `, drop <host>` where it names one, `Break-in: <time>` from the row's
+  `posted_at`, and each box's `Login: root / <word>` with its route as `none (handed over)`.
+
+**Acceptance criteria** (to confirm with the owner before RED):
+
+- [ ] A seventeenth of numbers are forensics jobs; every other number keeps its kind, shape,
+      terms and LAN exactly (a sweep against `main` outside the new share).
+- [ ] A forensics offer reads `<Client> — trace an intruder on a <machine> — §<pay>`, pays in the
+      white-hat bands to the nearest 50 and carries one of its machine's three pitches; about one
+      in three is two-hop; each of the seven machines is drawn over 2,000 numbers.
+- [ ] The briefing gives root's login on the target (and on two hops the edge machine's first)
+      and the two lines to send, and never names a time, a log, a path, a tool, the handle or the
+      origin; nothing in the bundle yields the handle, the origin or the card's path.
+- [ ] On the target root finds the card, which names the handle and never the origin; on each box
+      in scope `auth.log.1` holds the trail and its noise, every line dated before the posting
+      and in time order, and survives the contractor's own login, which lands in `auth.log`.
+- [ ] On the box facing the internet exactly one outside address has failed logins followed by an
+      accepted one; on two hops the inside box's lines all come from the edge machine's inside
+      address, and exactly one of them falls at night, minutes after the intruder's accepted login
+      on the edge.
+- [ ] The client answers each row of the table above: the miss with no lines, a wrong handle, the
+      edge machine's inside address on two hops, the card's drop host, a scanner's address; paid
+      with the handle in another case and spaces around both values, once, then closed.
+- [ ] A bricked target, or front box on two hops, gets the boot-rule reply on every later mail.
+- [ ] With `MISSION_KEY_SECRET` unset, a forensics box's doors answer 500 as a cleanup target's do,
+      and with `JSHACK_SECRETS` lacking the white-hat list accepting fails whole.
+- [ ] `show` prints the report above.
+
+**RED:** unit tests through the public surfaces: the kind sweep and the new share of
+`missionKind`; `missionShape` and `buildMissionKeyBoxFs` for a forensics number (the logins, null
+routes, nothing laid without the secret); `missionFiles` for the trail and the card on one and two
+hops given a `posted_at`, read as a player would (the one outside address with failures then a
+success, the night hop, every date before the posting); `missionFilePaths` with and without the
+secret; `missionFilesForBox` asking for `posted_at` only on a forensics box and passing a failed
+read on; `answerClientMail` for each row; the terms and briefing text; `show`.
+**GREEN:** the minimum per row. **REFACTOR:** `outsideHostOf` and `streamUnder` move to a module
+both kinds import, with cleanup's draws unmoved (settled item 5); whether the two labelled-line
+readers share one; assess the rest after each green.
+**Wire-check:** `scripts/testMissionForensics.ts` against `vercel dev` + local supabase, one
+single-hop and one two-hop number: accept with `scripts/hireme.ts`; root over `:2222`; the card
+at its path and `auth.log.1` readable, every line dated before the row's `posted_at`; the
+contractor's login in `auth.log` with `auth.log.1` intact after it; a mail with each miss above,
+then the right lines paid and minted once, then closed; no wallet completing unpaid; on two hops
+the edge's inside address missing and the inside box's night hop matching the edge's login; a
+non-root write to either laid path refused; a bricked target's and a bricked edge machine's reply;
+and every other mission, hireme and wallet wire-check still green.
+**Pre-PR:** mutation on the changed lines; `npm run typecheck`, `npm run lint`, the full unit
+suite, `npm run build` (raise the bundle ceiling: 76 B of headroom is left).
+**Close-out:** one browser run on a fresh player, a two-hop forensics job worked end to end
+through the edge-address miss to the payout; a "Forensics jobs" section in
+`missions-architecture.md`; a `project-status.md` entry; a valleynews story if the owner asks.
+
+### Risks
+
+- **Accepted contracts move.** A seventeenth of numbers become forensics jobs, so some accepted
+  prod contracts change kind. Only test accounts and a bot play on prod.
+- **Guessing is limited only by rate.** A player can mail each outside address in the log in
+  turn, 20 an hour (decision 67); a log holds about 5–9.
+- **The evidence can be wiped.** Whoever holds the briefing can clear `auth.log.1` or remove the
+  card before the contractor reads them, and the job becomes unsolvable (decision 68).
+- **One more read per door on a forensics box.** Every door that lays files on a forensics box
+  reads the row's `posted_at`; no other box reads anything new.
+- **The dates follow `posted_at`.** A board turned over by a script, with `posted_at` moved back,
+  moves the trail with it, which is what a test wants.
+
+### Settled while planning (to confirm with the owner)
+
+1. **The trail lies in `/var/log/auth.log.1` (2026-11-25),** where decisions 62 and 64 said
+   `auth.log`: a laid live log is replaced by the first real line, and the contractor's own login
+   is that line (measured above). The live `auth.log` stays the box's own, holding the logins
+   since the posting. Rejected: writing the trail into the journal at accept, a write inside the
+   accept transaction and a migration; and handing `append_machine_log` the laid text to start
+   from, a migration and a new argument at every caller.
+2. **The window (2026-11-25):** `auth.log.1` starts 3–5 days before the posting and ends at it.
+   The break-in's night is the posting's own day when the offer was posted after 05:00 UTC, the
+   day before otherwise, so the break-in, between 01:00 and 05:00, is always before the posting.
+3. **`posted_at` reaches the laid files through the row (2026-11-25).** `missionFilesForBox`
+   takes a reader of the contract's `posted_at` and calls it only for a forensics number's boxes;
+   `findMissionFiles` becomes `findMissionFilesVia(spec)` in `api/network.ts` and
+   `api/sessions.ts`. A failed read is the door's lookup error, as a failed state read is.
+4. **The calling cards (2026-11-25),** twelve adapted from legacy, each naming the handle:
+   `/tmp/.<handle>` ("<handle> was here"), `/var/tmp/.<handle>.log` (a progress log),
+   `/etc/cron.d/.<handle>` (a reconnect line running a script under `/var/tmp`),
+   `/tmp/.session_<handle>` (the handle and the break-in's time), `/var/log/.cleanup_<handle>.sh`
+   (a script that empties `auth.log`, which is why the trail survives only in the rotation),
+   `/tmp/.<handle>_exfil.tar.gz.part`, `/opt/.<handle>_pivot.conf`,
+   `/tmp/.<handle>_tools/recon.sh`, `/var/tmp/.<handle>_keylog`, `/root/.<handle>_note`,
+   `/tmp/.rev.sh` and `/etc/systemd/system/.<handle>.service`. Four name the drop host: the exfil
+   stub, the pivot config, the call-home loop and its unit. Story, never working code.
+5. **`outsideHostOf` and `streamUnder` move to a module of their own (2026-11-25),** imported by
+   cleanup and forensics, with cleanup's streams and draw order unchanged, so no cleanup contract
+   moves.
