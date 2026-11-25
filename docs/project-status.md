@@ -1915,8 +1915,8 @@ agreed order:
     still holds the change before anything; the dump's `INSERT` and a `SELECT … WHERE` found the
     grade changed C to A; set back with a neighbour changed too drew the collateral miss; with the
     neighbour put back it paid, and a later mail was told the job is closed. No defect; three rough
-    edges went to `backlog.md` under "missions — deferred". The white-hat plan stays in flight for
-    the two kinds still to come.
+    edges went to `backlog.md` under "missions — deferred". Announced on valleynews.io `/dev`
+    (story 29). The white-hat plan stays in flight for the two kinds still to come.
     **Pick up here (2026-11-25):** the next white-hat kind, forensics, which starts with its own
     grill on top of the shared decisions in `plans/white-hat-jobs.md`. Also open:
     `scripts/testMissions.ts` still expects root-only files in full where v0.477.4 serves other

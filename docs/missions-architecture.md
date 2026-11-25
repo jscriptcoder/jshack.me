@@ -2022,7 +2022,8 @@ the client does, 191 B; at v0.483.0 the chunk is 312,199 B against a ceiling of 
   26 set back with a neighbour changed too got "That's not all you changed."; with the neighbour
   put back the mail paid §1,200, the wallet reading §1,200, and a later mail was told the job is
   closed. No defect; three rough edges went to `backlog.md` (`COUNT(*)`, the pitches' repeated
-  "someone changed", and the briefing's "added since" on a job with none added).
+  "someone changed", and the briefing's "added since" on a job with none added). Announced on
+  valleynews.io `/dev` (story 29).
 
 ## What follows
 
