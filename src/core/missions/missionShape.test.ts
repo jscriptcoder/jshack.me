@@ -118,11 +118,11 @@ const SAMPLE_NUMBERS = Array.from({ length: 2000 }, (_unused, index) => index * 
 const ALL_SAMPLE_SHAPES: readonly MissionShape[] = SAMPLE_NUMBERS.map(missionShape);
 
 /** The kinds whose client hands over root, so no box of theirs is broken into. */
-const HANDED_OVER_KINDS: readonly MissionKind[] = ['cleanup', 'lockout', 'patch'];
+const HANDED_OVER_KINDS: readonly MissionKind[] = ['cleanup', 'lockout', 'patch', 'restore'];
 
 /** The sample's contracts whose boxes each fall to a route: all but the portforward and
- *  close-the-door jobs, whose target nobody roots, and the cleanup, lock-them-out and patch-it
- *  jobs, whose client hands over root. */
+ *  close-the-door jobs, whose target nobody roots, and the cleanup, lock-them-out, patch-it and
+ *  restore-the-record jobs, whose client hands over root. */
 const SAMPLE_SHAPES: readonly MissionShape[] = ALL_SAMPLE_SHAPES.filter(
   ({ kind }) => kind !== 'portforward' && kind !== 'closedoor' && !HANDED_OVER_KINDS.includes(kind),
 );
@@ -187,7 +187,7 @@ describe('missionShape', () => {
     }
   });
 
-  it('makes about a fifteenth of the contracts each of key, tamper, sabotage, file, backdoor, infiltrate, portforward, credential, destroy, wipe, chain, cleanup, close-the-door, lock-them-out and patch-it jobs', () => {
+  it('makes about a sixteenth of the contracts each of key, tamper, sabotage, file, backdoor, infiltrate, portforward, credential, destroy, wipe, chain, cleanup, close-the-door, lock-them-out, patch-it and restore-the-record jobs', () => {
     const counts = ALL_SAMPLE_SHAPES.reduce<Record<string, number>>(
       (tally, { kind }) => ({ ...tally, [kind]: (tally[kind] ?? 0) + 1 }),
       {},
@@ -206,236 +206,49 @@ describe('missionShape', () => {
       'lockout',
       'patch',
       'portforward',
+      'restore',
       'sabotage',
       'tamper',
       'wipe',
     ]);
     for (const [kind, count] of Object.entries(counts)) {
-      expect(count / ALL_SAMPLE_SHAPES.length, kind).toBeGreaterThan(0.05);
-      expect(count / ALL_SAMPLE_SHAPES.length, kind).toBeLessThan(0.105);
+      expect(count / ALL_SAMPLE_SHAPES.length, kind).toBeGreaterThan(0.04);
+      expect(count / ALL_SAMPLE_SHAPES.length, kind).toBeLessThan(0.095);
     }
   });
 
-  it('turns no contract from one older kind into another: each keeps its kind or becomes a patch-it job', () => {
-    // The contracts drawn nearest the bottom and the top of every piece of the draw, with the kind
-    // each had before patch-it jobs. Each older kind gave up the top of its largest piece, the
-    // lowest on a tie; the top of the draw stays lock-them-out's.
+  it('turns no contract from one older kind into another: each keeps its kind or becomes a restore-the-record job', () => {
+    // For each older kind, the contract drawn just below the piece it gave up, which keeps its
+    // kind, and the two drawn nearest the bottom and the top of that piece, which become
+    // restore-the-record jobs. Each gave up the top of its largest piece, the lowest on a tie, so
+    // the top of the draw stays lock-them-out's.
     const drawnAtTheEdges = [
-      [50188, 'tamper', 'tamper'],
-      [178764, 'tamper', 'tamper'],
-      [45425, 'tamper', 'patch'],
-      [377259, 'tamper', 'patch'],
-      [334118, 'lockout', 'lockout'],
-      [77718, 'lockout', 'lockout'],
-      [258704, 'lockout', 'patch'],
-      [382189, 'lockout', 'patch'],
-      [103736, 'closedoor', 'closedoor'],
-      [371731, 'closedoor', 'closedoor'],
-      [307183, 'lockout', 'lockout'],
-      [285493, 'lockout', 'lockout'],
-      [284749, 'cleanup', 'cleanup'],
-      [19182, 'cleanup', 'cleanup'],
-      [19869, 'closedoor', 'closedoor'],
-      [16254, 'closedoor', 'closedoor'],
-      [117186, 'closedoor', 'patch'],
-      [1, 'closedoor', 'patch'],
-      [264480, 'chain', 'chain'],
-      [221416, 'chain', 'chain'],
-      [159517, 'cleanup', 'cleanup'],
-      [202071, 'cleanup', 'cleanup'],
-      [410340, 'lockout', 'lockout'],
-      [79015, 'lockout', 'lockout'],
-      [289154, 'wipe', 'wipe'],
-      [92958, 'wipe', 'wipe'],
-      [258415, 'chain', 'chain'],
-      [410333, 'chain', 'chain'],
-      [413609, 'closedoor', 'closedoor'],
-      [147445, 'closedoor', 'closedoor'],
-      [38316, 'destroy', 'destroy'],
-      [187051, 'destroy', 'destroy'],
-      [142239, 'wipe', 'wipe'],
-      [27031, 'wipe', 'wipe'],
-      [309428, 'cleanup', 'cleanup'],
-      [192076, 'cleanup', 'cleanup'],
-      [354224, 'cleanup', 'patch'],
-      [111531, 'cleanup', 'patch'],
-      [394474, 'credential', 'credential'],
-      [410321, 'credential', 'credential'],
-      [164649, 'wipe', 'wipe'],
-      [130215, 'wipe', 'wipe'],
-      [300222, 'closedoor', 'closedoor'],
-      [159029, 'closedoor', 'closedoor'],
-      [65482, 'portforward', 'portforward'],
-      [182042, 'portforward', 'portforward'],
-      [122989, 'chain', 'chain'],
-      [298025, 'chain', 'chain'],
-      [255545, 'lockout', 'lockout'],
-      [342672, 'lockout', 'lockout'],
-      [327384, 'destroy', 'destroy'],
-      [283614, 'destroy', 'destroy'],
-      [164172, 'chain', 'chain'],
-      [202187, 'chain', 'chain'],
-      [54101, 'chain', 'patch'],
-      [150704, 'chain', 'patch'],
-      [4238, 'infiltrate', 'infiltrate'],
-      [381984, 'infiltrate', 'infiltrate'],
-      [133932, 'chain', 'chain'],
-      [247387, 'chain', 'chain'],
-      [299480, 'credential', 'credential'],
-      [368717, 'credential', 'credential'],
-      [311770, 'chain', 'chain'],
-      [412821, 'chain', 'chain'],
-      [379538, 'backdoor', 'backdoor'],
-      [8680, 'backdoor', 'backdoor'],
-      [307488, 'credential', 'credential'],
-      [56418, 'credential', 'credential'],
-      [271153, 'cleanup', 'cleanup'],
-      [85779, 'cleanup', 'cleanup'],
-      [98011, 'portforward', 'portforward'],
-      [197989, 'portforward', 'portforward'],
-      [250014, 'credential', 'credential'],
-      [222036, 'credential', 'credential'],
-      [413395, 'closedoor', 'closedoor'],
-      [178075, 'closedoor', 'closedoor'],
-      [171959, 'file', 'file'],
-      [102421, 'file', 'file'],
-      [181423, 'chain', 'chain'],
-      [53114, 'chain', 'chain'],
-      [65058, 'wipe', 'wipe'],
-      [289745, 'wipe', 'wipe'],
-      [36921, 'lockout', 'lockout'],
-      [264492, 'lockout', 'lockout'],
-      [201442, 'destroy', 'destroy'],
-      [220076, 'destroy', 'destroy'],
-      [396178, 'cleanup', 'cleanup'],
-      [85176, 'cleanup', 'cleanup'],
-      [357602, 'credential', 'credential'],
-      [387950, 'credential', 'credential'],
-      [57406, 'lockout', 'lockout'],
-      [122434, 'lockout', 'lockout'],
-      [274029, 'sabotage', 'sabotage'],
-      [351208, 'sabotage', 'sabotage'],
-      [23271, 'sabotage', 'patch'],
-      [258523, 'sabotage', 'patch'],
-      [162304, 'lockout', 'lockout'],
-      [398852, 'lockout', 'lockout'],
-      [148879, 'closedoor', 'closedoor'],
-      [392944, 'closedoor', 'closedoor'],
-      [255980, 'cleanup', 'cleanup'],
-      [91152, 'cleanup', 'cleanup'],
-      [319204, 'chain', 'chain'],
-      [173917, 'chain', 'chain'],
-      [205855, 'wipe', 'wipe'],
-      [29050, 'wipe', 'wipe'],
-      [221403, 'wipe', 'patch'],
-      [119597, 'wipe', 'patch'],
-      [106011, 'destroy', 'destroy'],
-      [85724, 'destroy', 'destroy'],
-      [354605, 'closedoor', 'closedoor'],
-      [113543, 'closedoor', 'closedoor'],
-      [191694, 'credential', 'credential'],
-      [298819, 'credential', 'credential'],
-      [217439, 'credential', 'patch'],
-      [368933, 'credential', 'patch'],
-      [67874, 'portforward', 'portforward'],
-      [296702, 'portforward', 'portforward'],
-      [41737, 'wipe', 'wipe'],
-      [249111, 'wipe', 'wipe'],
-      [349488, 'infiltrate', 'infiltrate'],
-      [17161, 'infiltrate', 'infiltrate'],
-      [322338, 'infiltrate', 'patch'],
-      [162246, 'infiltrate', 'patch'],
-      [114746, 'destroy', 'destroy'],
-      [182940, 'destroy', 'destroy'],
-      [342419, 'lockout', 'lockout'],
-      [339062, 'lockout', 'lockout'],
-      [314335, 'backdoor', 'backdoor'],
-      [247380, 'backdoor', 'backdoor'],
-      [155929, 'lockout', 'lockout'],
-      [179988, 'lockout', 'lockout'],
-      [163361, 'chain', 'chain'],
-      [52062, 'chain', 'chain'],
-      [253581, 'destroy', 'destroy'],
-      [147583, 'destroy', 'destroy'],
-      [120056, 'destroy', 'patch'],
-      [159977, 'destroy', 'patch'],
-      [373540, 'file', 'file'],
-      [236379, 'file', 'file'],
-      [99660, 'file', 'patch'],
-      [234786, 'file', 'patch'],
-      [366133, 'lockout', 'lockout'],
-      [164779, 'lockout', 'lockout'],
-      [284184, 'closedoor', 'closedoor'],
-      [212121, 'closedoor', 'closedoor'],
-      [82018, 'cleanup', 'cleanup'],
-      [33426, 'cleanup', 'cleanup'],
-      [351177, 'portforward', 'portforward'],
-      [182231, 'portforward', 'portforward'],
-      [152823, 'cleanup', 'cleanup'],
-      [98506, 'cleanup', 'cleanup'],
-      [31807, 'infiltrate', 'infiltrate'],
-      [11177, 'infiltrate', 'infiltrate'],
-      [291464, 'lockout', 'lockout'],
-      [191315, 'lockout', 'lockout'],
-      [414330, 'wipe', 'wipe'],
-      [124259, 'wipe', 'wipe'],
-      [414845, 'backdoor', 'backdoor'],
-      [155978, 'backdoor', 'backdoor'],
-      [247332, 'backdoor', 'patch'],
-      [319327, 'backdoor', 'patch'],
-      [195095, 'closedoor', 'closedoor'],
-      [375582, 'closedoor', 'closedoor'],
-      [138691, 'cleanup', 'cleanup'],
-      [10449, 'cleanup', 'cleanup'],
-      [147532, 'wipe', 'wipe'],
-      [62849, 'wipe', 'wipe'],
-      [205635, 'key', 'key'],
-      [83669, 'key', 'key'],
-      [117052, 'key', 'patch'],
-      [295730, 'key', 'patch'],
-      [38446, 'lockout', 'lockout'],
-      [386648, 'lockout', 'lockout'],
-      [13400, 'closedoor', 'closedoor'],
-      [365748, 'closedoor', 'closedoor'],
-      [342722, 'cleanup', 'cleanup'],
-      [318435, 'cleanup', 'cleanup'],
-      [246170, 'chain', 'chain'],
-      [70378, 'chain', 'chain'],
-      [359893, 'wipe', 'wipe'],
-      [287980, 'wipe', 'wipe'],
-      [266303, 'destroy', 'destroy'],
-      [415248, 'destroy', 'destroy'],
-      [12571, 'credential', 'credential'],
-      [41914, 'credential', 'credential'],
-      [337672, 'destroy', 'destroy'],
-      [76265, 'destroy', 'destroy'],
-      [250139, 'portforward', 'portforward'],
-      [125601, 'portforward', 'portforward'],
-      [386725, 'closedoor', 'closedoor'],
-      [289215, 'closedoor', 'closedoor'],
-      [369810, 'infiltrate', 'infiltrate'],
-      [27168, 'infiltrate', 'infiltrate'],
-      [58133, 'closedoor', 'closedoor'],
-      [155082, 'closedoor', 'closedoor'],
-      [363109, 'cleanup', 'cleanup'],
-      [4512, 'cleanup', 'cleanup'],
-      [323218, 'backdoor', 'backdoor'],
-      [269448, 'backdoor', 'backdoor'],
-      [74985, 'infiltrate', 'infiltrate'],
-      [226749, 'infiltrate', 'infiltrate'],
-      [106274, 'portforward', 'portforward'],
-      [177837, 'portforward', 'portforward'],
-      [277639, 'portforward', 'patch'],
-      [119321, 'portforward', 'patch'],
-      [332843, 'lockout', 'lockout'],
-      [318254, 'lockout', 'lockout'],
+      [296276, 'tamper', 244633, 178764],
+      [202339, 'patch', 17776, 377259],
+      [47997, 'lockout', 293590, 285493],
+      [4593, 'closedoor', 309540, 147445],
+      [146536, 'chain', 67694, 247387],
+      [115426, 'cleanup', 97675, 85779],
+      [207790, 'sabotage', 368908, 351208],
+      [190092, 'credential', 332123, 298819],
+      [376923, 'wipe', 391901, 249111],
+      [6960, 'backdoor', 129512, 247380],
+      [63198, 'file', 127725, 236379],
+      [270204, 'key', 327434, 83669],
+      [229001, 'destroy', 356208, 244565],
+      [88500, 'portforward', 393622, 125601],
+      [280075, 'infiltrate', 52785, 27168],
     ] as const;
 
-    for (const [missionNumber, before, now] of drawnAtTheEdges) {
-      expect(missionKind(missionNumber), `contract ${missionNumber}, a ${before} job before`).toBe(
-        now,
-      );
+    for (const [kept, kind, ...taken] of drawnAtTheEdges) {
+      expect(missionKind(kept), `contract ${kept}, a ${kind} job before`).toBe(kind);
+      for (const missionNumber of taken) {
+        expect(missionKind(missionNumber), `contract ${missionNumber}, a ${kind} job before`).toBe(
+          'restore',
+        );
+      }
     }
+    expect(missionKind(332843), 'the top of the draw').toBe('lockout');
   });
 
   it('always puts a front box before a chain job target, keeping nothing in storage unless its last step wipes a table', () => {
@@ -697,11 +510,11 @@ describe('missionShape', () => {
     /** Two-hop key jobs across the routes and storages, and the digest of each key box as it
      *  stood before the contract had two hops, its forwards and decoys aside: its names, route,
      *  hashes and the doors it ran for its route and its storage. Contracts that later turned
-     *  sabotage, file, backdoor, infiltrate, portforward, credential, destroy, wipe, chain, cleanup or close-the-door jobs were swapped for key jobs alike, digested on the generator before
+     *  sabotage, file, backdoor, infiltrate, portforward, credential, destroy, wipe, chain, cleanup, close-the-door or restore-the-record jobs were swapped for key jobs alike, digested on the generator before
      *  that kind. */
     const KEY_BOX_BEFORE: readonly (readonly [number, string])[] = [
       [3123, '03a899a0dd25fdf05107be461c2533ec'], // ftp, file
-      [134098, 'dcbef343e36fdf2840eedb351fc86040'], // mysql, file
+      [4374, 'e6128bdf22e5d29efc08ce5832c6cf5a'], // mysql, file
       [107, '07e6b06a5f7a03c022308311f9773111'], // web, database
       [1131, '0e675fc551df9bd38209c346974f729e'], // snmp, file
       [8064, 'ecc1c1f4d60a0bb5de51a6e65cfa4cf3'], // msfconsole, gpg
@@ -773,11 +586,11 @@ describe('missionShape', () => {
 
     /** Two-hop key jobs across the routes on each box, and the digest of everything but the key
      *  box, taken from the generator before the key box ran decoys of its own. Contracts that later turned
-     *  sabotage, file, backdoor, infiltrate, portforward, credential, destroy, wipe, chain, cleanup or close-the-door jobs were swapped for key jobs alike, digested on the generator before
+     *  sabotage, file, backdoor, infiltrate, portforward, credential, destroy, wipe, chain, cleanup, close-the-door or restore-the-record jobs were swapped for key jobs alike, digested on the generator before
      *  that kind. */
     const BESIDE_KEY_BOX_BEFORE: readonly (readonly [number, string])[] = [
       [3123, 'ffdeeae469845a328fc5eb6f048093c2'], // ftp, front msfconsole
-      [134098, '3d8cd43ac152027f6eb3e5a142dec083'], // mysql, front hydra
+      [4374, '32451e6aca45762e61bd60466eb99e71'], // mysql, front hydra
       [107, '710e67a04a3478676b7959999df01141'], // web, front hydra
       [1131, 'bb02faef930af04f3b737dd7647a8978'], // snmp, front hydra
       [8064, 'b6ac6f1b16c2d14a428475b0bf322b05'], // msfconsole, front web
@@ -1352,6 +1165,7 @@ describe.each([
   { kind: 'cleanup', name: 'cleanup' },
   { kind: 'lockout', name: 'lock-them-out' },
   { kind: 'patch', name: 'patch-it' },
+  { kind: 'restore', name: 'restore-the-record' },
 ] as const)('a $name contract', ({ kind: handedOverKind }) => {
   const handedOverShapes = ALL_SAMPLE_SHAPES.filter(({ kind }) => kind === handedOverKind);
   const singleHop = handedOverShapes.filter(({ frontBox }) => frontBox === null);
@@ -1377,7 +1191,10 @@ describe.each([
         expect(box.route, label).toBeNull();
         expect(WHITE_HAT_HASHES, label).toContain(box.rootHash);
       }
-      expect(shape.storage, `contract ${shape.missionNumber}`).toBeNull();
+      // Only a restore job keeps anything: its records, kept as a tamper job's are.
+      expect(shape.storage, `contract ${shape.missionNumber}`).toBe(
+        handedOverKind === 'restore' ? recordsStorage(shape.missionNumber) : null,
+      );
       expect(SHUT_HASHES, `contract ${shape.missionNumber}`).toContain(shape.gatewayAdminHash);
       for (const severity of pinnedSeverities(shape.gatewayVersions)) {
         expect(['low', 'medium'], `gateway of ${shape.missionNumber}`).toContain(severity);
@@ -1537,6 +1354,80 @@ describe('a patch-it contract', () => {
   });
 });
 
+describe('a restore-the-record contract', () => {
+  const restoreShapes = ALL_SAMPLE_SHAPES.filter(({ kind }) => kind === 'restore');
+  const inDatabase = restoreShapes.filter(({ storage }) => storage === 'database');
+  const inFiles = restoreShapes.filter(({ storage }) => storage === 'file');
+
+  it('keeps the records in a database about half the time, and in files the rest', () => {
+    expect(inDatabase.length / restoreShapes.length).toBeGreaterThan(0.35);
+    expect(inFiles.length / restoreShapes.length).toBeGreaterThan(0.35);
+    expect(inDatabase.length + inFiles.length).toBe(restoreShapes.length);
+  });
+
+  it('runs mysqld on a safe release on a target keeping its records in a database, and nothing on one keeping them in files', () => {
+    for (const shape of restoreShapes) {
+      const label = `target of ${shape.missionNumber}`;
+      expect(
+        realServices(shape.keyBox).map(({ program }) => program),
+        label,
+      ).toEqual(shape.storage === 'database' ? ['mysqld'] : []);
+      for (const severity of pinnedSeverities(shape.keyBox.versions)) {
+        expect(['low', 'medium'], label).toContain(severity);
+      }
+    }
+  });
+
+  // The briefing hands over the application account as it hands over root, so the contractor can
+  // put the record back through the database; its root stays shut, as on every mission box.
+  it("gives the records' database an application account the client hands over, its root shut", () => {
+    for (const { missionNumber, keyBox } of inDatabase) {
+      const label = `target of ${missionNumber}`;
+      expect(WHITE_HAT_HASHES, label).toContain(keyBox.database?.accountHash);
+      expect(SHUT_HASHES, label).toContain(keyBox.database?.rootHash);
+    }
+    expect(
+      new Set(inDatabase.map(({ keyBox }) => keyBox.database?.accountHash)).size,
+    ).toBeGreaterThan(10);
+  });
+
+  it("keeps no database on a target keeping its records in files, but a decoy's", () => {
+    for (const { missionNumber, keyBox } of inFiles) {
+      if (keyBox.decoys.includes('mysql')) continue;
+      expect(keyBox.database, `target of ${missionNumber}`).toBeNull();
+    }
+    // A single-hop target's decoys follow its forwards, and nothing bars a database decoy there
+    // when the records are kept in files.
+    expect(
+      inFiles.some(({ frontBox, keyBox }) => frontBox === null && keyBox.decoys.includes('mysql')),
+    ).toBe(true);
+  });
+
+  it("lists the database server's release among the target's packages, as the service runs it", () => {
+    for (const { missionNumber, keyBox } of inDatabase) {
+      const [service] = realServices(keyBox);
+      expect(service, `target of ${missionNumber}`).toBeDefined();
+      expect(keyBox.versions[service!.package], `target of ${missionNumber}`).toBe(
+        service!.version,
+      );
+    }
+  });
+
+  it("runs no database decoy beside the records' own database: two daemons cannot share a port", () => {
+    for (const { missionNumber, keyBox } of inDatabase) {
+      expect(keyBox.decoys, `target of ${missionNumber}`).not.toContain('mysql');
+      const ports = keyBox.services.map(({ port }) => port);
+      expect(new Set(ports).size, `target of ${missionNumber}`).toBe(ports.length);
+    }
+  });
+
+  it('forwards nothing but :2222 and decoys, so the database is reached from a shell on the box', () => {
+    for (const shape of restoreShapes) {
+      expect(realForwards(shape), `contract ${shape.missionNumber}`).toEqual([SSH]);
+    }
+  });
+});
+
 describe('a lock-them-out contract', () => {
   const lockoutShapes = ALL_SAMPLE_SHAPES.filter(({ kind }) => kind === 'lockout');
 
@@ -1636,11 +1527,11 @@ describe('a portforward contract', () => {
   it('draws the same network for a number every time, on streams of its own', () => {
     // Captured from the generator: one contract per machine, the first on the msfconsole route.
     expect(
-      [5, 37, 13, 94].map((missionNumber) => md5(JSON.stringify(missionShape(missionNumber)))),
+      [201, 37, 47, 94].map((missionNumber) => md5(JSON.stringify(missionShape(missionNumber)))),
     ).toEqual([
-      'd3f5bef71294baf5e5ecc66a27fd834e',
+      '42ce5452373ec829d43ec09cf708d292',
       '913a6b18d96fe2eb57032dc1ae019c64',
-      '783f38f65c0c870640c5ec3a367c5249',
+      '35d2b566cc21833e54c1ce33f2fd330f',
       '4919a4efe3de4a00b0444a085831a779',
     ]);
   });

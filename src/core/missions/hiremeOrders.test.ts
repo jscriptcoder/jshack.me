@@ -9,6 +9,7 @@ import { missionLeakPath } from './missionLeak.js';
 import { backdoorJob, chainJob, cleanupJob, lockoutJob, patchJob } from './targetRoles.js';
 import { cleanupPlant } from './cleanupPlant.js';
 import { buildMissionKeyBoxFs } from '../generation/missionKeyBoxFs.js';
+import { databaseIn } from '../mysql/datadir.js';
 import { portforwardJob } from './portforwardJob.js';
 import { closeDoorJob } from './closeDoorJob.js';
 import { firmwarePackageOf } from '../packages/packageVersions.js';
@@ -34,6 +35,7 @@ import {
   missionAction,
   missionRecords,
   missionSetting,
+  rowsAddedSince,
   type RecordAction,
   type RecordSetting,
 } from './missionRecords.js';
@@ -1248,6 +1250,130 @@ describe('showReport on a patch-it job', () => {
     expect(report.split('\n')).toContain('  Login:    root / (JSHACK_SECRETS is not set)');
     expect(report).not.toContain('Key');
     expect(report).not.toContain('Storage:');
+  });
+});
+
+describe('showReport on a restore-the-record job', () => {
+  const SECRET = 'operator-test-secret';
+  const restoreWhere = (
+    storage: 'database' | 'file',
+    twoHop: boolean,
+    wanted: (shape: MissionShape) => boolean = () => true,
+  ): number =>
+    Array.from({ length: 8000 }, (_unused, index) => index * 256 + 2).find((candidate) => {
+      const shape = missionShape(candidate);
+      return (
+        shape.kind === 'restore' &&
+        shape.storage === storage &&
+        (shape.frontBox !== null) === twoHop &&
+        wanted(shape)
+      );
+    })!;
+  const IN_DATABASE = restoreWhere('database', false);
+  // A database decoy beside records kept in files keeps nothing of theirs, so its login is never
+  // handed over.
+  const IN_FILES = restoreWhere('file', false, ({ keyBox }) => keyBox.decoys.includes('mysql'));
+  const TWO_HOP = restoreWhere('database', true);
+
+  /** The application account a restore target's database answers to, as the box generates it. */
+  const accountOf = (missionNumber: number): string =>
+    databaseIn(buildMissionKeyBoxFs(missionNumber))!.credentials.find(
+      ({ userType }) => userType === 'user',
+    )!.username;
+
+  /** The one change to undo, as the report sets it out: the row, then the value back to front. */
+  const restoreLine = (missionNumber: number): string => {
+    const { target } = missionRecords(missionNumber);
+    if (target.action !== 'change') throw new Error('a restore job undoes a change');
+    const names = Object.values(target.namedBy).join(', ');
+    return `  Restore:  ${names}: ${target.column} ${target.to} -> ${target.from}`;
+  };
+
+  const addedLine = (missionNumber: number): string => {
+    const count = rowsAddedSince(missionNumber);
+    return `  Added since: ${count} ${count === 1 ? 'row' : 'rows'}`;
+  };
+
+  it('prints the report line by line: the setting, both logins handed over, the records, the change to undo, the backup and the rows added since', () => {
+    const shape = missionShape(IN_DATABASE);
+    const terms = missionTerms(IN_DATABASE);
+    const { table } = missionRecords(IN_DATABASE).target;
+    const decoyPorts = shape.forwards
+      .slice(shape.forwards.length - shape.keyBox.decoys.length)
+      .map(({ internalPort }) => internalPort);
+
+    expect(showReport(IN_DATABASE, SECRET, DEPLOYMENT_SECRETS)).toBe(
+      [
+        `Contract ${IN_DATABASE} at ${missionAddressForNumber(IN_DATABASE)} (essid ${missionEssid(IN_DATABASE)})`,
+        `  Client:   ${terms.client.company} (${terms.client.handle}@emailit.io)`,
+        `  Target:   ${terms.targetCompany}, ${shape.stem}-gw / ${shape.stem}-files`,
+        `  Pay:      §${terms.pay.toLocaleString('en-US')}`,
+        '  Template: single-hop',
+        `  Kind:     restore, ${missionSetting(IN_DATABASE)}`,
+        '  Route:    none (handed over)',
+        ...shape.forwards.map(
+          (forward, index) =>
+            `  Forward:  :${forward.publicPort} -> target :${forward.internalPort}` +
+            (index >= shape.forwards.length - shape.keyBox.decoys.length ? ' (decoy)' : ''),
+        ),
+        '  Services:',
+        ...shape.keyBox.services.map(
+          (service) =>
+            `    ${service.service} (${service.package} ${service.version}) :${service.port}` +
+            (decoyPorts.includes(service.port) ? ' (decoy)' : ''),
+        ),
+        `  Login:    root / ${plaintextFor(shape.keyBox.rootHash)}`,
+        `  Database: ${accountOf(IN_DATABASE)} / ${plaintextFor(shape.keyBox.database!.accountHash)}`,
+        `  Storage:  database, table ${table}`,
+        '  Records:  /var/lib/mysql/data.json',
+        restoreLine(IN_DATABASE),
+        `  Backup:   /var/backups/${shape.stem}-records.sql`,
+        addedLine(IN_DATABASE),
+      ].join('\n'),
+    );
+  });
+
+  it('hands over root alone where the records are kept in files, and points at the backup of the table', () => {
+    const { stem } = missionShape(IN_FILES);
+    const { table } = missionRecords(IN_FILES).target;
+    const lines = showReport(IN_FILES, SECRET, DEPLOYMENT_SECRETS).split('\n');
+
+    expect(lines.filter((line) => line.includes('Database:'))).toEqual([]);
+    expect(lines.slice(-4)).toEqual([
+      `  Storage:  file, /srv/${stem}/records/${table}.csv`,
+      restoreLine(IN_FILES),
+      `  Backup:   /var/backups/records/${table}.csv`,
+      addedLine(IN_FILES),
+    ]);
+  });
+
+  it('hands over root on each box of a two-hop job, the database login under the target box', () => {
+    const { stem, frontBox, keyBox } = missionShape(TWO_HOP);
+    const lines = showReport(TWO_HOP, SECRET, DEPLOYMENT_SECRETS).split('\n');
+    const frontAt = lines.indexOf(`  Front box: ${stem}-web`);
+    const targetAt = lines.indexOf(`  Target box: ${stem}-files`);
+    const targetLoginAt = lines.indexOf(`    Login:    root / ${plaintextFor(keyBox.rootHash)}`);
+
+    expect(frontAt).toBeGreaterThan(-1);
+    expect(targetAt).toBeGreaterThan(frontAt);
+    expect(lines.filter((line) => line === '    Route:    none (handed over)')).toHaveLength(2);
+    expect(
+      lines.indexOf(`    Login:    root / ${plaintextFor(frontBox!.rootHash)}`),
+    ).toBeGreaterThan(frontAt);
+    expect(targetLoginAt).toBeGreaterThan(targetAt);
+    expect(lines[targetLoginAt + 1]).toBe(
+      `    Database: ${accountOf(TWO_HOP)} / ${plaintextFor(keyBox.database!.accountHash)}`,
+    );
+    expect(lines.filter((line) => line.includes('Database:'))).toHaveLength(1);
+    expect(lines.at(-1)).toBe(addedLine(TWO_HOP));
+  });
+
+  it('says the login words cannot be read without the pools, and prints no key', () => {
+    const lines = showReport(IN_DATABASE, SECRET, undefined).split('\n');
+
+    expect(lines).toContain('  Login:    root / (JSHACK_SECRETS is not set)');
+    expect(lines).toContain(`  Database: ${accountOf(IN_DATABASE)} / (JSHACK_SECRETS is not set)`);
+    expect(lines.join('\n')).not.toContain('Key');
   });
 });
 

@@ -25,7 +25,7 @@ const SAMPLE_NUMBERS = Array.from({ length: 2000 }, (_unused, index) => index * 
 /** The jobs of one kind across a wider spread than the sample, for the checks that must reach
  *  every share or both ends of a pay range: a tenth of the sample is too few to. */
 const widerJobsOf = (kind: MissionKind): readonly number[] =>
-  Array.from({ length: 6000 }, (_unused, index) => index * 2741 + 2).filter(
+  Array.from({ length: 12000 }, (_unused, index) => index * 1371 + 2).filter(
     (missionNumber) => isMissionNumber(missionNumber) && missionKind(missionNumber) === kind,
   );
 
@@ -157,23 +157,24 @@ describe('missionTerms', () => {
     // credential jobs took an eighth, again when destroy jobs took a ninth, again when wipe jobs
     // took a tenth, again when chain jobs took an eleventh, again when cleanup jobs took a twelfth,
     // again when close-the-door jobs took a thirteenth, again when lock-them-out jobs took a
-    // fourteenth, and again when patch-it jobs took a fifteenth, each time over the key jobs left,
-    // whose terms the earlier digest's own fixture held unchanged.
+    // fourteenth, again when patch-it jobs took a fifteenth, and again when restore-the-record
+    // jobs took a sixteenth, each time over the key jobs left, whose terms the earlier digest's own
+    // fixture held unchanged.
     expect(md5(JSON.stringify(SINGLE_HOP_NUMBERS.map(missionTerms).map(withoutJob)))).toBe(
-      'b8fcaa6c188f95524ea6be581ba67b80',
+      'e9d46ca14ae6096231bd0704db6f9072',
     );
   });
 
-  // Retaken over the key jobs left when patch-it jobs took a fifteenth of the numbers.
+  // Retaken over the key jobs left when restore-the-record jobs took a sixteenth of the numbers.
   it('keeps the client, target, pitch and key of a two-hop key job as they were', () => {
     const beside = TWO_HOP_NUMBERS.map(missionTerms)
       .map(withoutJob)
       .map(({ kind: _kind, pay: _pay, ...rest }) => rest);
 
-    expect(md5(JSON.stringify(beside))).toBe('a63f54713542f8b89efd90eb17050623');
+    expect(md5(JSON.stringify(beside))).toBe('5480d543ce34c1ffc2efe329ad2fb49c');
   });
 
-  it('marks each contract a key, tamper, sabotage, file, backdoor, infiltrate, portforward, credential, destroy, wipe, chain, cleanup, close-the-door, lock-them-out or patch-it job, as its shape does', () => {
+  it('marks each contract a key, tamper, sabotage, file, backdoor, infiltrate, portforward, credential, destroy, wipe, chain, cleanup, close-the-door, lock-them-out, patch-it or restore-the-record job, as its shape does', () => {
     for (const missionNumber of SAMPLE_NUMBERS) {
       expect(missionTerms(missionNumber).job).toBe(missionShape(missionNumber).kind);
     }
@@ -332,8 +333,8 @@ describe('missionTerms', () => {
         pay,
       }));
 
-      // Retaken over the sabotage jobs left when patch-it jobs took a fifteenth.
-      expect(md5(JSON.stringify(kept))).toBe('05d1873b53ce1e7c6fbdc6d5652fab5b');
+      // Retaken over the sabotage jobs left when restore-the-record jobs took a sixteenth.
+      expect(md5(JSON.stringify(kept))).toBe('8e9e51205d2c12ca5a95f492543eea6b');
     });
 
     // The work is a key job's, finding the way in and rooting the box, so the pay is too.
@@ -930,6 +931,100 @@ describe('missionTerms', () => {
 
     it('promises no key', () => {
       for (const missionNumber of WIPE_NUMBERS) {
+        expect('keyOpens' in missionTerms(missionNumber)).toBe(false);
+      }
+    });
+  });
+
+  describe('a restore-the-record job', () => {
+    // Wider again: a two-hop pay has twenty-five steps, and restore jobs are a sixteenth.
+    const RESTORE_NUMBERS = Array.from(
+      { length: 15000 },
+      (_unused, index) => index * 1097 + 2,
+    ).filter(
+      (missionNumber) => isMissionNumber(missionNumber) && missionKind(missionNumber) === 'restore',
+    );
+    const TWO_HOP_RESTORE_NUMBERS = RESTORE_NUMBERS.filter(isTwoHop);
+
+    it("is offered as restoring one of its setting's records, an internal one on two hops", () => {
+      for (const missionNumber of RESTORE_NUMBERS) {
+        const { noun } = SETTING_NAMES[missionSetting(missionNumber)];
+        const article = isTwoHop(missionNumber)
+          ? 'an internal'
+          : /^[aeiou]/.test(noun)
+            ? 'an'
+            : 'a';
+        expect(missionTerms(missionNumber).kind).toBe(`restore ${article} ${noun} record`);
+      }
+      expect(new Set(RESTORE_NUMBERS.map(missionSetting))).toEqual(
+        new Set(Object.keys(SETTING_NAMES)),
+      );
+    });
+
+    it('sits behind a front box about a third of the time', () => {
+      const share = TWO_HOP_RESTORE_NUMBERS.length / RESTORE_NUMBERS.length;
+
+      expect(share).toBeGreaterThan(0.28);
+      expect(share).toBeLessThan(0.39);
+    });
+
+    // The client hands over the logins, so there is no way in to find, and it pays what every
+    // white-hat job does.
+    it('pays 300 to 1,200 JSC on one hop and 1,200 to 2,400 on two, in steps of 50', () => {
+      const paysOf = (numbers: readonly number[]) =>
+        numbers.map((missionNumber) => missionTerms(missionNumber).pay);
+      const singleHop = paysOf(RESTORE_NUMBERS.filter((missionNumber) => !isTwoHop(missionNumber)));
+      const twoHop = paysOf(TWO_HOP_RESTORE_NUMBERS);
+
+      for (const pay of [...singleHop, ...twoHop]) expect(pay % 50).toBe(0);
+      expect([Math.min(...singleHop), Math.max(...singleHop)]).toEqual([300, 1200]);
+      expect([Math.min(...twoHop), Math.max(...twoHop)]).toEqual([1200, 2400]);
+    });
+
+    it('names the target after the stem its boxes are named for and what its setting is', () => {
+      for (const missionNumber of RESTORE_NUMBERS) {
+        const { stem } = missionShape(missionNumber);
+        const { institution } = SETTING_NAMES[missionSetting(missionNumber)];
+        expect(missionTerms(missionNumber).targetCompany).toBe(
+          `${capitalised(stem)} ${institution}`,
+        );
+      }
+    });
+
+    // A reason to change a record reads wrong on a job that puts one back, so each setting brings
+    // three of its own, the client writing for its customer.
+    it('draws every client, and pitches each setting from three reasons of its own', () => {
+      const otherPitches = new Set(
+        [...widerJobsOf('tamper'), ...widerJobsOf('wipe')].map(
+          (missionNumber) => missionTerms(missionNumber).pitch,
+        ),
+      );
+      const pitchesBy = new Map<string, Set<string>>();
+      for (const missionNumber of RESTORE_NUMBERS) {
+        const setting = missionSetting(missionNumber);
+        pitchesBy.set(
+          setting,
+          new Set([...(pitchesBy.get(setting) ?? []), missionTerms(missionNumber).pitch]),
+        );
+      }
+      const every = [...pitchesBy.values()].flatMap((pitches) => [...pitches]);
+
+      expect(
+        new Set(RESTORE_NUMBERS.map((missionNumber) => missionTerms(missionNumber).client.handle)),
+      ).toEqual(new Set(CLIENT_HANDLES));
+      expect([...pitchesBy.keys()].sort()).toEqual(Object.keys(SETTING_NAMES).sort());
+      for (const [setting, pitches] of pitchesBy) expect(pitches.size, setting).toBe(3);
+      expect(new Set(every).size).toBe(every.length);
+      for (const pitch of every) {
+        expect(pitch).toMatch(/^[A-Z].{20,}\.$/);
+        expect(pitch).toMatch(/our customer/i);
+        expect(otherPitches.has(pitch), pitch).toBe(false);
+        expect(KEY_JOB_PITCHES.has(pitch), pitch).toBe(false);
+      }
+    });
+
+    it('promises no key', () => {
+      for (const missionNumber of RESTORE_NUMBERS) {
         expect('keyOpens' in missionTerms(missionNumber)).toBe(false);
       }
     });

@@ -15,7 +15,7 @@ import { createPrng } from '../generation/prng.js';
 import { databaseIn } from '../mysql/datadir.js';
 import { createFsView } from '../filesystem/fsView.js';
 import { asAbsPath } from '../types.js';
-import { missionTopology, recordsStorage } from './missionShape.js';
+import { missionKind, missionTopology, recordsStorage } from './missionShape.js';
 import {
   PEOPLE,
   RECORD_SETTINGS,
@@ -65,8 +65,10 @@ export const missionSetting = (missionNumber: number): RecordSetting =>
 const ERASE_SHARE = 1 / 2;
 
 /** Whether a tamper job asks for its record changed or gone: drawn on a stream of its own, and
- *  a change wherever the setting has nothing worth erasing. */
+ *  a change wherever the setting has nothing worth erasing. A restore job always undoes a change:
+ *  the game's `mysql` has no `INSERT`, so an erased row could not be put back through it. */
 export const missionAction = (missionNumber: number): RecordAction =>
+  missionKind(missionNumber) !== 'restore' &&
   SETTING_RECORDS[missionSetting(missionNumber)].erases &&
   createPrng(`mission-action-${missionNumber}`).next() < ERASE_SHARE
     ? 'erase'
@@ -127,6 +129,99 @@ export const missionRecords = (missionNumber: number): MissionRecords => {
   };
 };
 
+/** The most rows a restore job's target table gained after its backup was taken. */
+const MOST_ROWS_ADDED_SINCE = 3;
+
+/** How many of a restore job's newest target rows were added after the backup was taken, on a
+ *  stream of its own: one to three, but never the changed row or one before it, since a row added
+ *  after the backup has no true value in it. Where the changed row is the last, none were. */
+export const rowsAddedSince = (missionNumber: number): number => {
+  const { tables, target } = missionRecords(missionNumber);
+  const rowsAfter = (tables[0]?.table.rows.length ?? 0) - 1 - target.rowIndex;
+  return Math.min(
+    createPrng(`mission-restore-${missionNumber}`).nextInt(1, MOST_ROWS_ADDED_SINCE),
+    rowsAfter,
+  );
+};
+
+/** A job's tables as the server lays them: as generated, but on a restore job with the change
+ *  the intruder made, which the backup is there to undo. */
+export const laidRecords = (missionNumber: number): readonly NamedTable[] => {
+  const { tables, target } = missionRecords(missionNumber);
+  if (missionKind(missionNumber) !== 'restore' || target.action !== 'change') return tables;
+  return tables.map(({ name, table }) =>
+    name !== target.table
+      ? { name, table }
+      : {
+          name,
+          table: {
+            ...table,
+            rows: table.rows.map((row, index) =>
+              index === target.rowIndex ? { ...row, [target.column]: target.to } : row,
+            ),
+          },
+        },
+  );
+};
+
+/** Every table as a restore job's backup holds it: as generated, before the change, and before
+ *  the target table's newest rows were added. */
+const backedUpRecords = (missionNumber: number): readonly NamedTable[] => {
+  const { tables, target } = missionRecords(missionNumber);
+  const added = rowsAddedSince(missionNumber);
+  return tables.map(({ name, table }) =>
+    name === target.table
+      ? { name, table: { ...table, rows: table.rows.slice(0, table.rows.length - added) } }
+      : { name, table },
+  );
+};
+
+/** One value as a dump writes it: a number bare, anything else quoted. No generated value holds
+ *  a quote, so none needs escaping. */
+const sqlValue = (value: MysqlRow[string]): string =>
+  typeof value === 'number' ? `${value}` : `'${value}'`;
+
+/** A table as `mysqldump` writes it with one `INSERT` a row, so `grep` finds a row by its line.
+ *  Every generated column is NOT NULL and every table is keyed by its primary key, so the dump
+ *  says so of each. */
+const dumpOf = ({ name, table }: NamedTable): string => {
+  const columns = table.columns.map((column) => `  \`${column.name}\` ${column.type} NOT NULL`);
+  const keys = table.columns
+    .filter((column) => column.key === 'PRI')
+    .map((column) => `\`${column.name}\``);
+  const inserts = table.rows.map(
+    (row) =>
+      `INSERT INTO \`${name}\` VALUES (${table.columns.map((column) => sqlValue(row[column.name] ?? null)).join(',')});`,
+  );
+  return [
+    `CREATE TABLE \`${name}\` (`,
+    [...columns, `  PRIMARY KEY (${keys.join(',')})`].join(',\n'),
+    ');',
+    '',
+    ...inserts,
+  ].join('\n');
+};
+
+/** A restore job's backup, under `/var/backups` where a Debian box keeps its own: a dump of the
+ *  database, or a copy of each records file, as storage says. */
+export const recordsBackupFiles = (
+  missionNumber: number,
+): readonly { readonly path: string; readonly content: string }[] => {
+  const tables = backedUpRecords(missionNumber);
+  if (recordsStorage(missionNumber) === 'file') {
+    return tables.map((named) => ({
+      path: `/var/backups/records/${named.name}.csv`,
+      content: csvOf(named.table),
+    }));
+  }
+  return [
+    {
+      path: `/var/backups/${missionTopology(missionNumber).stem}-records.sql`,
+      content: `${['-- MySQL dump 10.13\n-- Host: localhost', ...tables.map(dumpOf)].join('\n\n')}\n`,
+    },
+  ];
+};
+
 /** Where a job keeping its records in files keeps a table: under the stem its boxes are named
  *  on, one file a table. */
 const recordsPathOf = (missionNumber: number, table: string): string =>
@@ -148,7 +243,7 @@ const csvOf = ({ columns, rows }: MysqlTable): string => {
 export const recordsFiles = (
   missionNumber: number,
 ): readonly { readonly path: string; readonly content: string }[] =>
-  missionRecords(missionNumber).tables.map(({ name, table }) => ({
+  laidRecords(missionNumber).map(({ name, table }) => ({
     path: recordsPathOf(missionNumber, name),
     content: csvOf(table),
   }));
@@ -241,6 +336,35 @@ export const recordsWiped = (missionNumber: number, fs: Directory): boolean => {
     emptied(missionNumber, target, fs) &&
     beside.every(({ name, table }) => holdsAsDrawn(liveRows(missionNumber, name, fs), table.rows))
   );
+};
+
+/** What a restore job's client finds in the table the job is about. */
+export type RestoreReading = 'restored' | 'stillChanged' | 'collateral';
+
+/** What the client sees when the contractor mails in on a restore job: the table the job is about
+ *  as it stands now. It still holds the change while no row is the one the number drew with the
+ *  value put back, read trimmed, or while there are no records to read. Once one is, any other
+ *  row touched, gone or added, or out of the order drawn, is collateral. The tables beside it
+ *  are never read. */
+export const recordsRestored = (missionNumber: number, fs: Directory): RestoreReading => {
+  const { tables, target } = missionRecords(missionNumber);
+  const live = liveRows(missionNumber, target.table, fs);
+  const generatedRows = tables[0]?.table.rows ?? [];
+  const generatedTarget = generatedRows[target.rowIndex];
+  if (live === undefined || generatedTarget === undefined || target.action !== 'change') {
+    return 'stillChanged';
+  }
+  const putBack = (row: MysqlRow): boolean =>
+    sameRow({ ...row, [target.column]: `${row[target.column]}`.trim() }, generatedTarget);
+  if (!live.some(putBack)) return 'stillChanged';
+  const asDrawn =
+    live.length === generatedRows.length &&
+    generatedRows.every((generated, index) => {
+      const row = live[index];
+      if (row === undefined) return false;
+      return index === target.rowIndex ? putBack(row) : sameRow(row, generated);
+    });
+  return asDrawn ? 'restored' : 'collateral';
 };
 
 /** What the client sees when the contractor mails in: the table the job is about as it stands

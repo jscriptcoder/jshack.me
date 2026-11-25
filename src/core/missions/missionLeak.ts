@@ -69,7 +69,7 @@ import {
   type MissionRoute,
 } from './missionShape.js';
 import { GUESSABLE_COMMUNITIES } from './pools.js';
-import { missionRecords, recordsFiles } from './missionRecords.js';
+import { laidRecords, recordsBackupFiles, recordsFiles } from './missionRecords.js';
 import { missionFileContent, missionFilePath } from './missionFileItem.js';
 import { cleanupFilePaths, cleanupFiles } from './cleanupPlant.js';
 
@@ -357,11 +357,18 @@ const fileJobFile = (missionNumber: number, secret: string): MissionFile => ({
 const keepsKeyInDatabase = (ref: MissionBoxRef): boolean =>
   holdsKey(ref) && missionShape(ref.missionNumber).storage === 'database';
 
-/** Whether the box holds the records a tamper job asks to have changed or a wipe job, or a chain
- *  job ending as one, asks to have emptied: its records box. */
-const holdsRecords = (ref: MissionBoxRef): boolean =>
-  ref.role === 'key' &&
-  (keyBoxKind(ref.missionNumber) === 'tamper' || keyBoxKind(ref.missionNumber) === 'wipe');
+/** Whether the box holds the records a tamper job asks to have changed, a wipe job, or a chain
+ *  job ending as one, asks to have emptied, or a restore job asks to have put back: its records
+ *  box. */
+const holdsRecords = (ref: MissionBoxRef): boolean => {
+  const kind = keyBoxKind(ref.missionNumber);
+  return ref.role === 'key' && (kind === 'tamper' || kind === 'wipe' || kind === 'restore');
+};
+
+/** Whether the box is a restore job's target, which holds the backup the records are put back
+ *  from. */
+const holdsBackup = (ref: MissionBoxRef): boolean =>
+  ref.role === 'key' && missionKind(ref.missionNumber) === 'restore';
 
 /** Whether the box keeps a tamper or wipe job's records in its database. */
 const holdsRecordsInDatabase = (ref: MissionBoxRef): boolean =>
@@ -386,9 +393,7 @@ const datadirFile = (ref: MissionBoxRef, env: MissionSecretsEnv): MissionFile =>
       ? { settings: settingsTable(missionLeakWord(ref, env.rawSecrets)) }
       : {}),
     ...(holdsRecordsInDatabase(ref)
-      ? Object.fromEntries(
-          missionRecords(missionNumber).tables.map(({ name, table }) => [name, table]),
-        )
+      ? Object.fromEntries(laidRecords(missionNumber).map(({ name, table }) => [name, table]))
       : {}),
     ...(keepsKeyInDatabase(ref)
       ? {
@@ -445,6 +450,13 @@ export const missionFiles = (
     ...(leak === null ? [] : [leak]),
     ...(laysDatadir(ref) ? [datadirFile(ref, env)] : []),
     ...(holdsRecordsInFile(ref) ? recordsFilesLaid(ref.missionNumber) : []),
+    ...(holdsBackup(ref)
+      ? recordsBackupFiles(ref.missionNumber).map(({ path, content }) => ({
+          path,
+          content,
+          perms: ROOT_FILE,
+        }))
+      : []),
   ];
 };
 
@@ -478,5 +490,6 @@ export const missionFilePaths = (ref: MissionBoxRef, keySecret?: string): readon
     ...(leakPath === null ? [] : [leakPath]),
     ...(laysDatadir(ref) ? [DATADIR_PATH] : []),
     ...(holdsRecordsInFile(ref) ? recordsFiles(ref.missionNumber).map(({ path }) => path) : []),
+    ...(holdsBackup(ref) ? recordsBackupFiles(ref.missionNumber).map(({ path }) => path) : []),
   ];
 };

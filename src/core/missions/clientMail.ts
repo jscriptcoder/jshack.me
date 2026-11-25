@@ -109,7 +109,7 @@ import {
   patchHole,
   type ChainFinal,
 } from './missionShape.js';
-import { recordsLookRight, recordsWiped } from './missionRecords.js';
+import { recordsLookRight, recordsRestored, recordsWiped } from './missionRecords.js';
 import {
   backdoorJob,
   chainJob,
@@ -203,6 +203,7 @@ const RECORDS_GONE = 'The records are gone.';
 const SHUT = "It's shut.";
 const LOCKED_OUT = "They're locked out.";
 const PATCHED = "It's patched.";
+const RESTORED = 'The records are back.';
 const BOTH_DONE = 'Both done.';
 /** A white-hat client closes with thanks, not with the black-hat clients' sign-off. */
 const THANKS = 'Thank you for the help.';
@@ -254,6 +255,13 @@ const notAllMoved = (noun: string): string =>
  *  longer boots. */
 const loginRefused = (noun: string): string =>
   `That login doesn't open their ${noun}. No login, no money.`;
+/** The target row not put back, or no records to read. Never which row: comparing the table with
+ *  the backup is the job. */
+const STILL_CHANGED = 'Their records still hold the change. Not restored, no money.';
+/** Any other row of the table no longer as it was, gone, or added beside the backup's. Never
+ *  which: the rows added since the backup are the customer's, and the job keeps them. */
+const NOT_ALL_RESTORED =
+  "That's not all you changed. Other records on their machine no longer read as they did. No money.";
 /** One reply for every miss: the file still in place, or a target that no longer boots. */
 const NOT_GONE = "We can't confirm that file is gone. Not gone, no money.";
 /** One reply for every miss: rows left, a table beside it touched, or a target that no longer
@@ -319,13 +327,15 @@ type Decision =
   | { readonly kind: 'checkClosed'; readonly number: number }
   | { readonly kind: 'checkLockout'; readonly number: number }
   | { readonly kind: 'checkPatch'; readonly number: number }
+  | { readonly kind: 'checkRestore'; readonly number: number }
   | { readonly kind: 'reply'; readonly reply: ContractMail };
 
 /** How the client opens its reply to a job done: the key or the file it was sent, the records it
  *  read, the machine it found down, the listener it found, its own file found in place, the way
  *  in it found open, the login it found working, the company's file it found gone, the records
  *  it found emptied, both steps of a chain job found done, the intruder's implant found gone, the
- *  way in someone opened found shut, the intruder found locked out, or the hole found patched. */
+ *  way in someone opened found shut, the intruder found locked out, the hole found patched, or
+ *  the changed record found put back. */
 const RECEIVED: Readonly<Record<Exclude<Decision['kind'], 'reply'>, string>> = {
   complete: KEY_RECEIVED,
   completeFile: FILE_RECEIVED,
@@ -342,6 +352,7 @@ const RECEIVED: Readonly<Record<Exclude<Decision['kind'], 'reply'>, string>> = {
   checkClosed: SHUT,
   checkLockout: LOCKED_OUT,
   checkPatch: PATCHED,
+  checkRestore: RESTORED,
 };
 
 /** What the client says on a job the mail itself proves: when the mail carries no proof, when it
@@ -399,6 +410,7 @@ const decide = ({
   if (acceptedKind === 'closedoor') return { kind: 'checkClosed', number: accepted.number };
   if (acceptedKind === 'lockout') return { kind: 'checkLockout', number: accepted.number };
   if (acceptedKind === 'patch') return { kind: 'checkPatch', number: accepted.number };
+  if (acceptedKind === 'restore') return { kind: 'checkRestore', number: accepted.number };
   const said = MAILED_PROOF[acceptedKind];
   if ((acceptedKind === 'file' ? file : key) === null) return reply(accepted.number, said.none);
   if (proves(accepted.number)) return { kind: said.done, number: accepted.number };
@@ -716,6 +728,23 @@ export const answerClientMail = async ({
     const miss = patchMiss(decision.number, box.fs);
     if (miss !== null) return sendReply(store, login.handle, replyAbout(terms, miss));
   }
+  if (decision.kind === 'checkRestore') {
+    const box = await readTargetBox(decision.number);
+    if (box.kind === 'error') return null;
+    const front =
+      missionTopology(decision.number).frontBoxOctet === null
+        ? null
+        : await readFrontBox(decision.number);
+    if (front?.kind === 'error') return null;
+    if (box.kind === 'absent' || front?.kind === 'absent') {
+      return sendReply(store, login.handle, replyAbout(terms, TOOK_IT_DOWN));
+    }
+    const reading = recordsRestored(decision.number, box.fs);
+    if (reading !== 'restored') {
+      const miss = reading === 'stillChanged' ? STILL_CHANGED : NOT_ALL_RESTORED;
+      return sendReply(store, login.handle, replyAbout(terms, miss));
+    }
+  }
   if (decision.kind === 'checkClosed') {
     const router = await readRouter(decision.number);
     if (router.kind === 'error') return null;
@@ -731,7 +760,8 @@ export const answerClientMail = async ({
     terms.job === 'cleanup' ||
     terms.job === 'closedoor' ||
     terms.job === 'lockout' ||
-    terms.job === 'patch'
+    terms.job === 'patch' ||
+    terms.job === 'restore'
       ? THANKS
       : PLEASURE;
   const wallet = firstMatch(text, WALLET_SHAPE)?.toLowerCase() ?? null;

@@ -80,10 +80,10 @@ describe('what a chain job names', () => {
 
   /** Chain jobs as they were before their last step was drawn: the listener's port, the pay, the
    *  client, and the digest of the front box with the gateway's forwards and admin, which the
-   *  last step must never move. One that later became a lock-them-out job was dropped. */
+   *  last step must never move. One that later became a lock-them-out job was dropped, and one
+   *  that became a restore-the-record job. */
   const BEFORE_THE_LAST_STEP = [
     [110868, 1337, 4500, 'marlowe-ops', 'f41d91ef41c92f1f45b17258abdc20bb'],
-    [213815, 4444, 6750, 'orchard-sec', '3fac3b7a9ff1503a909dd7e7c6c9c47f'],
     [261329, 12345, 6700, 'copper-ops', 'cfa023a1dfb0f6e955b7e565f305dbac'],
     [427628, 9001, 5450, 'wexley-desk', '2a8ffc4aa3fb1ade67b14b8ef0f313a1'],
     [657279, 12345, 6650, 'marlowe-ops', 'f2980404e02fb16fb2a9106f190a142a'],
