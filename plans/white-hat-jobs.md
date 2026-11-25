@@ -1,6 +1,6 @@
 # Plan: White-hat jobs
 
-**Status:** Grilled 2026-11-22 (the shared rules and cleanup). **Cleanup shipped** at v0.479.0 (PR #801, merged 2026-11-22) and closed out with a browser run the same day; as-built: "Cleanup jobs" in `docs/missions-architecture.md`. **Close the door shipped** at v0.480.0 (PR #802, merged 2026-11-23) and closed out with a browser run the same day; as-built: "Close-the-door jobs" in `docs/missions-architecture.md`. **Lock them out shipped** at v0.481.0 (PR #803, merged 2026-11-23) and closed out with a browser run the same day; as-built: "Lock-them-out jobs" in `docs/missions-architecture.md`. **Patch it shipped** at v0.482.0 (PR #804, merged 2026-11-24) and closed out with a browser run the same day; as-built: "Patch-it jobs" in `docs/missions-architecture.md`. **Restore the record shipped** at v0.483.0 (PR #805, merged 2026-11-25) and closed out with a browser run the same day; as-built: "Restore-the-record jobs" in `docs/missions-architecture.md`. **Forensics grilled** 2026-11-25 (decisions 59–73) and planned ("Slice plan: Forensics jobs"); next: the owner confirms its acceptance criteria and settled items, then RED on `feat/white-hat-forensics`. This plan is retired once the last white-hat kind closes out.
+**Status:** Grilled 2026-11-22 (the shared rules and cleanup). **Cleanup shipped** at v0.479.0 (PR #801, merged 2026-11-22) and closed out with a browser run the same day; as-built: "Cleanup jobs" in `docs/missions-architecture.md`. **Close the door shipped** at v0.480.0 (PR #802, merged 2026-11-23) and closed out with a browser run the same day; as-built: "Close-the-door jobs" in `docs/missions-architecture.md`. **Lock them out shipped** at v0.481.0 (PR #803, merged 2026-11-23) and closed out with a browser run the same day; as-built: "Lock-them-out jobs" in `docs/missions-architecture.md`. **Patch it shipped** at v0.482.0 (PR #804, merged 2026-11-24) and closed out with a browser run the same day; as-built: "Patch-it jobs" in `docs/missions-architecture.md`. **Restore the record shipped** at v0.483.0 (PR #805, merged 2026-11-25) and closed out with a browser run the same day; as-built: "Restore-the-record jobs" in `docs/missions-architecture.md`. **Forensics grilled** 2026-11-25 (decisions 59–73) and planned ("Slice plan: Forensics jobs"); its criteria and settled items confirmed the same day; next: RED on `feat/white-hat-forensics`. This plan is retired once the last white-hat kind closes out.
 
 Every contract kind v2 ships is black-hat: the contractor breaks into the target's network and
 does something to it. Legacy also had defender contracts (`malware`, `forensics`, `db_fix`,
@@ -521,7 +521,8 @@ first:
     shows the intruder arriving from the edge machine's inside address at night, and the edge
     machine's log shows them arriving from the origin a few minutes before, so the job is matching
     times across machines, as legacy's walk backwards was. Naming the edge machine's inside address
-    is the natural mistake, and it draws the ordinary miss.
+    is the natural mistake, and it draws the ordinary miss. Revised while planning: the trail lies
+    in the rotated `auth.log.1` (the slice plan's settled item 1).
 
 63. **The noise (2026-11-25),** in the line formats that exist (`formatSshdAuthLine`,
     `formatRootSessionLine`): scanners, 3–6 outside addresses with 1–4 failed logins each, never
@@ -1719,7 +1720,7 @@ scanners and the staff in a log, and on two hops matching times across two machi
   `Card: <path>` with `, drop <host>` where it names one, `Break-in: <time>` from the row's
   `posted_at`, and each box's `Login: root / <word>` with its route as `none (handed over)`.
 
-**Acceptance criteria** (to confirm with the owner before RED):
+**Acceptance criteria** (confirmed by the owner, 2026-11-25):
 
 - [ ] A seventeenth of numbers are forensics jobs; every other number keeps its kind, shape,
       terms and LAN exactly (a sweep against `main` outside the new share).
@@ -1781,7 +1782,7 @@ through the edge-address miss to the payout; a "Forensics jobs" section in
 - **The dates follow `posted_at`.** A board turned over by a script, with `posted_at` moved back,
   moves the trail with it, which is what a test wants.
 
-### Settled while planning (to confirm with the owner)
+### Settled while planning (confirmed by the owner, 2026-11-25)
 
 1. **The trail lies in `/var/log/auth.log.1` (2026-11-25),** where decisions 62 and 64 said
    `auth.log`: a laid live log is replaced by the first real line, and the contractor's own login
