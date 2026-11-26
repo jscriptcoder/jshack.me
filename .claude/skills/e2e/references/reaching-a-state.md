@@ -797,3 +797,27 @@ round in sixteen matches a single-hop database job; the run matched on round 16.
 | 5 | `mysql localhost <account>`, the word at `Enter password:`, then `SELECT * FROM <table> WHERE <col> = '<name>'` | **Every value in a `WHERE` is quoted, ids too** (`WHERE id = '26'`): a bare number is a syntax error. **`SELECT COUNT(*)` answers `ERROR 1054`**: the SQL takes no functions, so compare with `grep` and `SELECT … WHERE` |
 | 6 | `UPDATE <table> SET <column> = '<from>' WHERE id = '<id>'`, `exit` twice | Change only the one cell. Optional: change a neighbour too and mail, for "That's not all you changed. Other records on their machine no longer read as they did. No money."; putting the neighbour back then pays. Copying the backup over the live table is the same miss, since it loses the rows added since |
 | 7 | `mail reply <briefing n>` with the wallet | "The records are back. §<pay> sent to jsc…. Thank you for the help."; a later mail gets "That job is already closed." and no second mint |
+
+### Then: a forensics job, the intruder named by handle and address, to a payout
+
+Verified 2026-11-26 (v0.484.0), the forensics close-out: a single-hop CCTV recorder (contract
+14908) paid §800 and a two-hop licence server (7053766) paid §2,350. A seventeenth of the
+contracts are forensics jobs; the board names one `trace an intruder on a/an <machine>` (`an
+internal <machine>` on two hops). Nothing needs cracking: the briefing hands over root. Turn the
+board over with a script, as for a file job, matching `missionShape(n).kind === 'forensics'` and
+`frontBox` (null on single-hop). It can write `forensicsIntruder(n, process.env.MISSION_KEY_SECRET)`
+(`handle`, `origin`, `card.path`, `card.dropHost`) to a scratch file to check against afterwards,
+and `whiteHatWord(box.rootHash, process.env.JSHACK_SECRETS)` for each box, edge first, to the file
+the screen reads mask with. The single-hop run matched on round 36, the two-hop one on round
+2. **A finished job frees the handle for the next accept**, and a second fresh
+player can `mail login` to the same mailbox and work it: the board belongs to the handle.
+
+| # | Command | Trap |
+| --- | --- | --- |
+| 1 | `curl -d "offer=<ref>" http://<board>/accept`, then `mail read <n>` | **The briefing prints root's word, both on two hops**: mask them on every later read. **`hireme.ts show <address>` prints them too** as `Login: root / <word>`, one per box; a mask on `password` misses it, so mask on `root / \S+` |
+| 2 | `mail reply <briefing n>` with the wallet, before anything | "That's not who broke in. Wrong, no money." |
+| 3 | `ssh root@<address> -p 2222` and the word; two-hop: then `ssh root@<inside ip>` and the second | The briefing names the inside address. The prompt names the box for its machine (`<stem>-nvr`, `<stem>-lic`, …); the edge is `<stem>-web` |
+| 4 | `cat /var/log/auth.log`, then `cat /var/log/auth.log.1` | `auth.log` holds only your own login. The trail is in `auth.log.1`: on the box facing the internet, the one address that fails and then gets in between 01:00 and 04:00. On two hops the inside box's lines all come from the edge machine; its one night login falls inside the intruder's session on the edge, so `grep '<day>' /var/log/auth.log.1` there for that night |
+| 5 | `ls -la` of `/tmp`, `/var/tmp`, `/opt`, `/etc/cron.d`, `/etc/systemd/system`, `/root`, `/var/log`, then `cat` the dot-file | The card is root-only on the target, **dot-named, so a plain `ls` misses it**; a directory that doesn't exist on that box answers `No such file or directory`. It names the handle, and four of the twelve kinds a drop host, which is the wrong address |
+| 6 | Optional: `exit` (twice on two hops), then mail a wrong address | A scanner's, the drop host or the edge's inside address each get the step-2 miss |
+| 7 | `mail reply <briefing n>`, wallet, `handle: <h>`, `address: <ip>`, one per line | "That's them. §<pay> sent to jsc…. Thank you for the help."; the label's case and spaces around both values don't matter, and a removed card changes nothing. A later mail gets "That job is already closed." and no second mint |

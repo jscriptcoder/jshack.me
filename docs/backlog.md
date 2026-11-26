@@ -280,6 +280,19 @@ invariants are in [`conventions-and-gotchas.md`](./conventions-and-gotchas.md).
       changed one.", so about three briefings in eight say it twice in a row. Fix: reword those pitches
       to the customer's side ("Our customer found …", "Our customer's … no longer reads …"), and
       add a test that no pitch opens on "Someone".
+  - **Forensics close-out findings (2026-11-26, v0.484.0), to fix later.** Seen in the browser
+    runs; neither stopped the job paying.
+    - **The pitch and the briefing both say "want to know who".** Twelve of the 21 forensics
+      pitches (`forensicsPitches`, `core/missions/targetRoles.ts`) end on the customer wanting to
+      know who, and the briefing's third line is "Someone broke into their <machine>, and they want
+      to know who.", so most briefings say it twice in three lines; the CCTV recorder's first pitch
+      also opens "Someone got into". Fix: reword those pitches to what the customer saw or fears,
+      leaving the ask to the briefing.
+    - **The card sits alone in its directory.** Both runs found it with one `ls -la`: `/var/tmp`
+      held only `.saltmarsh.log`, and `/etc/systemd/system` only `.c0ldsnap.service`, so the card
+      gives the handle away before the log is read. Fix, if the hunt should take longer: stock
+      files beside each card's path (units, cron entries, temp files), as cleanup lays decoys
+      beside its implant.
     - **`SELECT COUNT(*)` answers `ERROR 1054 (42S22): Unknown column 'COUNT(*)'`.** The game's
       SQL takes no functions, so a player checking how many rows the live table has against the
       backup gets a column error. Older than this kind; the job is still workable with `grep` on

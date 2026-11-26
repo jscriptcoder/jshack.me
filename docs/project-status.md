@@ -1917,11 +1917,37 @@ agreed order:
     neighbour put back it paid, and a later mail was told the job is closed. No defect; three rough
     edges went to `backlog.md` under "missions — deferred". Announced on valleynews.io `/dev`
     (story 29). The white-hat plan stays in flight for the two kinds still to come.
-    **Pick up here (2026-11-25):** the next white-hat kind, forensics, which starts with its own
-    grill on top of the shared decisions in `plans/white-hat-jobs.md`. Also open:
-    `scripts/testMissions.ts` still expects root-only files in full where v0.477.4 serves other
-    users empty stubs; and the world build-time budgets in `checkBudgets` fail on a loaded machine
-    (main too, measured again at this close-out), so re-measure them idle before trusting a FAIL.
+61. ✅ **Forensics jobs, the sixth white-hat contract (v0.484.0, PR #806, merged 2026-11-26).**
+    One slice; as-built: "Forensics jobs" in [`missions-architecture.md`](./missions-architecture.md).
+    A seventeenth of the contracts (each older kind gave up 45,045 of 12,252,240 at the top of its
+    largest piece): someone broke into one of the customer's machines, and the client pays for the
+    handle they go by and the address they came in from. The trail lies in `/var/log/auth.log.1`,
+    since a laid live log is replaced by the contractor's own login: 3–5 days ending at the
+    offer's `posted_at`, scanners and daytime staff around one address that fails and then gets in
+    between 01:00 and 04:00, on two hops through the edge machine onto the inside one. A root-only
+    calling card on the target names the handle, and sometimes a drop host. Every draw is on
+    streams under `MISSION_KEY_SECRET` (`secretDraws.ts`, shared with cleanup), so the bundle
+    cannot name the intruder; the doors read `posted_at` to lay the trail. The answer is the draw,
+    so a removed card or a cleared log changes nothing that pays. Evidence: unit tests (11,693),
+    `testMissionForensics` 18/18 and the other mission, hireme and wallet wire-checks green but two
+    that fail the same on `main` (below); mutation on the changed lines with every survivor in seven
+    modules killed and 17 in the three new ones killed by new tests, the rest flavour text,
+    equivalent or unreachable; the bundle ceiling raised 800 B for 825 B of growth.
+    **Close-out (2026-11-26, v0.484.0):** two browser runs, each a fresh player, the board turned
+    over by a script. A single-hop CCTV recorder (§800): the wallet alone and a scanner's address
+    each got the miss; with the card removed, the handle and the origin paid, then the job was
+    closed. A two-hop licence server (§2,350): the inside log showed only the edge machine, and its
+    night login led to the intruder's window on the edge; the edge's address and the card's drop
+    host each got the miss, and the right lines, padded, paid once. No defect; two rough edges went
+    to `backlog.md` under "missions — deferred". The white-hat plan stays in flight for the one
+    kind still to come.
+    **Pick up here (2026-11-26):** the last white-hat kind, incident response, which starts with
+    its own grill on top of the shared decisions in `plans/white-hat-jobs.md`. Also open, all
+    failing the same on `main`: `scripts/testMissions.ts` (23/25) still expects root-only files in
+    full where v0.477.4 serves other users empty stubs; `scripts/testMissionPatch.ts` (8/14) moves
+    nginx forward and reads the same release back (1.28.7 to 1.28.7), so the job never pays, not
+    yet diagnosed; and the world build-time budgets in `checkBudgets` fail on a loaded machine, so
+    re-measure them idle before trusting a FAIL.
 
 When a new slice starts, it gets its own `plans/*.md` while it is IN FLIGHT, with a top block
 carrying live status + as-built, and is retired on close-out — between slices there is no slice plan
