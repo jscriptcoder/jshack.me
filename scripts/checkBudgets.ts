@@ -96,8 +96,10 @@ import {
  *  reasons, and the manifest read the client does) added 932 B, 833 B past the old ceiling,
  *  which rose 900; then restore-the-record jobs (the sixteenth kind's shape and cuts, its
  *  settings' white-hat reasons, the backup it lays, and the table read the client does) went
- *  124 B past the ceiling, which rose 200. */
-const BUNDLE_CEILING_BYTES = 312_275;
+ *  124 B past the ceiling, which rose 200; then forensics jobs (the seventeenth kind's shape and
+ *  cuts, its machines' white-hat reasons, the handles and calling cards, and the trail's log
+ *  lines) went 749 B past the ceiling, which rose 800. */
+const BUNDLE_CEILING_BYTES = 313_075;
 
 /** About a tenth of that before world content, so a loaded machine's noise cannot fail
  *  the check while a content change that makes boxes ten times dearer still does. */

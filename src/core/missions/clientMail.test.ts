@@ -49,6 +49,7 @@ import { planUpgrade } from '../cve/planUpgrade.js';
 import { packageTimeline } from '../cve/packageTimeline.js';
 import { readOpenPorts } from '../services/pidfile.js';
 import { cleanupFiles, cleanupPlant } from './cleanupPlant.js';
+import { forensicsIntruder } from './forensicsTrail.js';
 import { portforwardJob } from './portforwardJob.js';
 import { closeDoorJob } from './closeDoorJob.js';
 import { missionEssid } from './missionNetwork.js';
@@ -3924,6 +3925,261 @@ describe('a mail on a restore-the-record job', () => {
 
     it('answers nothing when the edge machine could not be read', async () => {
       const { answer, completes, replies } = mailOnTwoHops({ kind: 'error' });
+
+      expect(await answer).toBeNull();
+      expect(completes).toEqual([]);
+      expect(replies).toEqual([]);
+    });
+  });
+});
+
+describe('a mail on a forensics job', () => {
+  const forensicsNumber = (twoHop: boolean, namesDropHost = false): number =>
+    ALL_HOST_NUMBERS.find(
+      (missionNumber) =>
+        missionKind(missionNumber) === 'forensics' &&
+        (missionShape(missionNumber).frontBox !== null) === twoHop &&
+        (forensicsIntruder(missionNumber, SECRET).card.dropHost !== null) === namesDropHost,
+    )!;
+  const SINGLE_HOP_JOB = forensicsNumber(false);
+  const DROP_HOST_JOB = forensicsNumber(false, true);
+  const TWO_HOP_JOB = forensicsNumber(true);
+  const TERMS = missionTerms(SINGLE_HOP_JOB);
+  const { handle, origin } = forensicsIntruder(SINGLE_HOP_JOB, SECRET);
+
+  const POSTED_AT = Date.UTC(2026, 10, 20, 14, 30, 0);
+
+  /** The addresses in the edge machine's rotated log that only ever failed to get in. */
+  const scannersOf = (missionNumber: number): readonly string[] => {
+    const ref = {
+      missionNumber,
+      role: missionShape(missionNumber).frontBox === null ? ('key' as const) : ('front' as const),
+    };
+    const log =
+      missionFiles(ref, { keySecret: SECRET, rawSecrets: undefined }, POSTED_AT).find(
+        ({ path }) => path === '/var/log/auth.log.1',
+      )?.content ?? '';
+    const fromEach = (outcome: string): readonly string[] =>
+      [...log.matchAll(new RegExp(`${outcome} password for root from (\\S+)`, 'g'))].map(
+        (match) => match[1] ?? '',
+      );
+    const accepted = fromEach('Accepted');
+    return [...new Set(fromEach('Failed'))].filter((address) => !accepted.includes(address));
+  };
+
+  /** A machine as it boots, the server's files never laid: the answer is the draw, not the logs,
+   *  so a cleared log or a removed card pays all the same. */
+  const BOOTS = (missionNumber: number): TargetBoxRead => ({
+    kind: 'up',
+    fs: buildMissionKeyBoxFs(missionNumber),
+  });
+
+  const boxReader = (read: TargetBoxRead) => {
+    const reads: number[] = [];
+    return {
+      reads,
+      read: async (missionNumber: number): Promise<TargetBoxRead> => {
+        reads.push(missionNumber);
+        return read;
+      },
+    };
+  };
+
+  const fromForensicsClient = (line: string, terms: MissionTerms = TERMS): ContractMail => ({
+    sender: `${terms.client.handle}@emailit.io`,
+    subject: `Contract: ${terms.targetCompany}`,
+    body: signed(line, terms.client.company),
+  });
+
+  const NOT_THEM = "That's not who broke in. Wrong, no money.";
+  const TOOK_IT_DOWN = 'You took our machine down. No money.';
+
+  const reportOf = (named: { readonly handle: string; readonly address: string }): string =>
+    `handle: ${named.handle}\naddress: ${named.address}\n${WALLET}\n`;
+
+  const mailOnForensicsJob = ({
+    missionNumber = SINGLE_HOP_JOB,
+    body = reportOf({ handle, address: origin }),
+    target = BOOTS(missionNumber),
+    front,
+    state = 'accepted',
+  }: {
+    readonly missionNumber?: number;
+    readonly body?: string;
+    readonly target?: TargetBoxRead;
+    readonly front?: TargetBoxRead;
+    readonly state?: Job['state'];
+  } = {}) => {
+    const { store, completes, replies } = clientStore({
+      jobs: [{ number: missionNumber, state }],
+    });
+    const targetReads = boxReader(target);
+    const frontReads = front === undefined ? undefined : boxReader(front);
+    const answer = mailTo(store, {
+      to: missionTerms(missionNumber).client,
+      body,
+      readTargetBox: targetReads.read,
+      ...(frontReads === undefined ? {} : { readFrontBox: frontReads.read }),
+    });
+    return { answer, completes, replies, targetReads, frontReads };
+  };
+
+  it('reads the target, and pays once the mail names the handle and the address they came in from', async () => {
+    const { answer, completes, replies, targetReads } = mailOnForensicsJob();
+
+    expect(await answer).toBe('replied');
+    expect(targetReads.reads).toEqual([SINGLE_HOP_JOB]);
+    expect(completes).toEqual([
+      {
+        number: SINGLE_HOP_JOB,
+        wallet: WALLET,
+        pay: TERMS.pay,
+        reply: fromForensicsClient(
+          `That's them. §${TERMS.pay.toLocaleString('en-US')} sent to ${WALLET}. Thank you for the help.`,
+        ),
+      },
+    ]);
+    expect(replies).toEqual([]);
+  });
+
+  it('pays with the handle in another case and spaces around both values, since the client reads them trimmed', async () => {
+    const { answer, completes } = mailOnForensicsJob({
+      body: `  Handle:   ${handle.toUpperCase()}  \nADDRESS:  ${origin}  \n${WALLET}\n`,
+    });
+
+    expect(await answer).toBe('replied');
+    expect(completes.map(({ number }) => number)).toEqual([SINGLE_HOP_JOB]);
+  });
+
+  it('completes and pays nothing when the mail names no wallet', async () => {
+    const { answer, completes } = mailOnForensicsJob({
+      body: `handle: ${handle}\naddress: ${origin}\n`,
+    });
+
+    expect(await answer).toBe('replied');
+    expect(completes).toEqual([
+      {
+        number: SINGLE_HOP_JOB,
+        wallet: null,
+        pay: TERMS.pay,
+        reply: fromForensicsClient(
+          "That's them. You sent no wallet, so there is nothing to pay. No wallet, no money.",
+        ),
+      },
+    ]);
+  });
+
+  it.each([
+    ['no lines at all', `found them\n${WALLET}\n`],
+    ['no address line', `handle: ${handle}\n${WALLET}\n`],
+    ['no handle line', `address: ${origin}\n${WALLET}\n`],
+    ['an empty handle', reportOf({ handle: '', address: origin })],
+    ['a wrong handle', reportOf({ handle: `${handle}x`, address: origin })],
+    ['the origin a digit off', reportOf({ handle, address: `${origin}1` })],
+    ['a scanner’s address', reportOf({ handle, address: scannersOf(SINGLE_HOP_JOB)[0] ?? '' })],
+    ['the right lines only in the quote', `> handle: ${handle}\n> address: ${origin}\n${WALLET}\n`],
+    [
+      'a wrong address first, the right one after it',
+      `handle: ${handle}\naddress: 203.0.113.9\naddress: ${origin}\n${WALLET}\n`,
+    ],
+  ])('says it is not who broke in for %s, and keeps the job open', async (_case, body) => {
+    const { answer, completes, replies } = mailOnForensicsJob({ body });
+
+    expect(await answer).toBe('replied');
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromForensicsClient(NOT_THEM)]);
+  });
+
+  it('says it is not who broke in for the drop host the calling card names', async () => {
+    const intruder = forensicsIntruder(DROP_HOST_JOB, SECRET);
+    const { answer, completes, replies } = mailOnForensicsJob({
+      missionNumber: DROP_HOST_JOB,
+      body: reportOf({ handle: intruder.handle, address: intruder.card.dropHost ?? '' }),
+    });
+
+    expect(await answer).toBe('replied');
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromForensicsClient(NOT_THEM, missionTerms(DROP_HOST_JOB))]);
+  });
+
+  it('tells a contractor who bricked the target there is no money, even with the right lines', async () => {
+    const { answer, completes, replies } = mailOnForensicsJob({ target: { kind: 'absent' } });
+
+    expect(await answer).toBe('replied');
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromForensicsClient(TOOK_IT_DOWN)]);
+  });
+
+  it('answers nothing when the target could not be read', async () => {
+    const { answer, completes, replies } = mailOnForensicsJob({ target: { kind: 'error' } });
+
+    expect(await answer).toBeNull();
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([]);
+  });
+
+  it('says the job is already closed once it is completed, without reading the target', async () => {
+    const { answer, completes, replies, targetReads } = mailOnForensicsJob({
+      state: 'completed',
+    });
+
+    expect(await answer).toBe('replied');
+    expect(targetReads.reads).toEqual([]);
+    expect(completes).toEqual([]);
+    expect(replies).toEqual([fromForensicsClient('That job is already closed.')]);
+  });
+
+  describe('on two hops', () => {
+    const TWO_HOP_TERMS = missionTerms(TWO_HOP_JOB);
+    const intruder = forensicsIntruder(TWO_HOP_JOB, SECRET);
+    const EDGE_INSIDE = `${lanSubnetPrefix(missionEssid(TWO_HOP_JOB))}.${missionShape(TWO_HOP_JOB).frontBox?.octet}`;
+    const FRONT_BOOTS: TargetBoxRead = { kind: 'up', fs: buildMissionFrontBoxFs(TWO_HOP_JOB) };
+    const RIGHT_LINES = reportOf({ handle: intruder.handle, address: intruder.origin });
+
+    it('reads both machines, and pays on the address the intruder came into the edge from', async () => {
+      const { answer, completes, targetReads, frontReads } = mailOnForensicsJob({
+        missionNumber: TWO_HOP_JOB,
+        body: RIGHT_LINES,
+        front: FRONT_BOOTS,
+      });
+
+      expect(await answer).toBe('replied');
+      expect(targetReads.reads).toEqual([TWO_HOP_JOB]);
+      expect(frontReads?.reads).toEqual([TWO_HOP_JOB]);
+      expect(completes.map(({ number }) => number)).toEqual([TWO_HOP_JOB]);
+    });
+
+    // The inside machine's log shows only the edge machine; following it back is the job.
+    it('says it is not who broke in for the edge machine’s inside address', async () => {
+      const { answer, completes, replies } = mailOnForensicsJob({
+        missionNumber: TWO_HOP_JOB,
+        body: reportOf({ handle: intruder.handle, address: EDGE_INSIDE }),
+        front: FRONT_BOOTS,
+      });
+
+      expect(await answer).toBe('replied');
+      expect(completes).toEqual([]);
+      expect(replies).toEqual([fromForensicsClient(NOT_THEM, TWO_HOP_TERMS)]);
+    });
+
+    it('tells a contractor who bricked the edge machine there is no money', async () => {
+      const { answer, completes, replies } = mailOnForensicsJob({
+        missionNumber: TWO_HOP_JOB,
+        body: RIGHT_LINES,
+        front: { kind: 'absent' },
+      });
+
+      expect(await answer).toBe('replied');
+      expect(completes).toEqual([]);
+      expect(replies).toEqual([fromForensicsClient(TOOK_IT_DOWN, TWO_HOP_TERMS)]);
+    });
+
+    it('answers nothing when the edge machine could not be read', async () => {
+      const { answer, completes, replies } = mailOnForensicsJob({
+        missionNumber: TWO_HOP_JOB,
+        body: RIGHT_LINES,
+        front: { kind: 'error' },
+      });
 
       expect(await answer).toBeNull();
       expect(completes).toEqual([]);

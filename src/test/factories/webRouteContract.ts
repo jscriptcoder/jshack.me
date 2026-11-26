@@ -46,16 +46,28 @@ if (keyBoxHost === undefined) throw new Error('a contract network has a key box'
 export const WEB_ROUTE_KEY_BOX = resolveLanHostIdentity(keyBoxHost, WEB_ROUTE_ESSID).machineId;
 export const WEB_ROUTE_KEY_BOX_IP = keyBoxHost.ip;
 
+/** When every contract's offer was posted, as its row holds it: a forensics box's trail is
+ *  dated from it, and no other box asks. */
+const POSTED_AT_NOON = async () => ({ data: Date.UTC(2026, 10, 20, 12, 0, 0), error: null });
+
 /** The server's lay-in, on a deployment holding its secrets. */
 export const servedMissionFiles = (query: {
   readonly essid: string;
   readonly machine_id: string;
 }): ReturnType<typeof missionFilesForBox> =>
-  missionFilesForBox(query, { keySecret: KEY_SECRET, rawSecrets: DEPLOYMENT_SECRETS });
+  missionFilesForBox(query, {
+    keySecret: KEY_SECRET,
+    rawSecrets: DEPLOYMENT_SECRETS,
+    readPostedAt: POSTED_AT_NOON,
+  });
 
 /** The server's lay-in, on a deployment whose `JSHACK_SECRETS` is unset. */
 export const missionFilesWithNoPools = (query: {
   readonly essid: string;
   readonly machine_id: string;
 }): ReturnType<typeof missionFilesForBox> =>
-  missionFilesForBox(query, { keySecret: KEY_SECRET, rawSecrets: undefined });
+  missionFilesForBox(query, {
+    keySecret: KEY_SECRET,
+    rawSecrets: undefined,
+    readPostedAt: POSTED_AT_NOON,
+  });

@@ -164,14 +164,28 @@ const findMissionStateVia =
  *  contract's 195 address read from the missions table, every other address derived from
  *  the world. Every door to a public address finds its network through this, so none can
  *  reach a board or a mission another cannot. */
-// The files only the server can write onto a contract's box, for the doors that read the
-// table one of them holds and for a hole fired on the box. With a secret that box needs unset, the database is unavailable
-// rather than a copy with the table missing.
-const findMissionFiles = (query: { readonly essid: string; readonly machine_id: string }) =>
-  missionFilesForBox(query, {
-    keySecret: process.env.MISSION_KEY_SECRET,
-    rawSecrets: process.env.JSHACK_SECRETS,
-  });
+// The files only the server can write onto a contract's box, made from the server-only
+// secrets. A forensics job's trail is dated from when its offer was posted, so its boxes alone
+// read that from the contract's row; `number` is the primary key, so it is one indexed row.
+// With a secret that box needs unset, or the row unread, the box is unavailable rather than
+// carrying a guessable file.
+const findMissionFilesVia =
+  ({ supabase, label }: QuerySpec) =>
+  (query: { readonly essid: string; readonly machine_id: string }) =>
+    missionFilesForBox(query, {
+      keySecret: process.env.MISSION_KEY_SECRET,
+      rawSecrets: process.env.JSHACK_SECRETS,
+      readPostedAt: async (missionNumber) => {
+        const { data, error } = await supabase
+          .from('hireme_missions')
+          .select('posted_at')
+          .eq('number', missionNumber)
+          .maybeSingle();
+        logFailure(label, error);
+        const row = data as { posted_at: string } | null;
+        return { data: row === null ? null : Date.parse(row.posted_at), error };
+      },
+    });
 
 /** What the server keeps in its tables of emailit.io's box and the boards' server, which a
  *  hole that lands root there finds as files. Each read is the whole table, as a root shell's
@@ -736,7 +750,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       insertSession: insertSessionVia({ supabase, label: 'local-exploit insert' }),
       appendLog: appendLogVia({ supabase, label: 'local-exploit trace append' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'local-exploit effect upsert' }),
-      findMissionFiles,
+      findMissionFiles: findMissionFilesVia({ supabase, label: 'local-exploit posted-at' }),
       ...rootTablesVia({ supabase, label: 'local-exploit' }),
     });
     res.status(status).json(body);
@@ -843,7 +857,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
       findPatches: findPatchesVia({ supabase, label: 'mysql target journal lookup' }),
-      findMissionFiles,
+      findMissionFiles: findMissionFilesVia({ supabase, label: 'mysql target posted-at' }),
       appendLog: appendLogVia({ supabase, label: 'mysql log append' }),
       findNetworkByPublicIp: networkByPublicIpVia({ supabase, label: 'board lookup' }),
       findPublicIpByEssid: derivedPublicIpByEssid,
@@ -880,7 +894,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
       findPatches: findPatchesVia({ supabase, label: 'mysql statement journal lookup' }),
-      findMissionFiles,
+      findMissionFiles: findMissionFilesVia({ supabase, label: 'mysql statement posted-at' }),
       appendLog: appendLogVia({ supabase, label: 'mysql statement log append' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'mysql datadir upsert' }),
       findNetworkByPublicIp: networkByPublicIpVia({ supabase, label: 'board lookup' }),
@@ -958,7 +972,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
       findPatches: findPatchesVia({ supabase, label: 'snmp target journal lookup' }),
-      findMissionFiles,
+      findMissionFiles: findMissionFilesVia({ supabase, label: 'snmp target posted-at' }),
       appendLog: appendLogVia({ supabase, label: 'snmpd log append' }),
       findPublicIpByEssid: derivedPublicIpByEssid,
       findNetworkByPublicIp: networkByPublicIpVia({ supabase, label: 'board lookup' }),
@@ -1002,7 +1016,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       nonceStore: noopNonceStore,
       now: () => Date.now(),
       findPatches: findPatchesVia({ supabase, label: 'snmp set target journal lookup' }),
-      findMissionFiles,
+      findMissionFiles: findMissionFilesVia({ supabase, label: 'snmp set target posted-at' }),
       appendLog: appendLogVia({ supabase, label: 'snmpd set log append' }),
       upsertPatch: upsertPatchVia({ supabase, label: 'snmpd set upsert' }),
       findNetworkByPublicIp: networkByPublicIpVia({ supabase, label: 'board lookup' }),

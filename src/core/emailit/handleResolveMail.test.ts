@@ -697,7 +697,13 @@ describe('a mail on a tamper job is answered from its records box', () => {
   )!;
   const { machineId: RECORDS_BOX_ID, baseFs } = resolveLanHostIdentity(RECORDS_HOST, ESSID);
   const findMissionFiles: ResolveMailDeps['findMissionFiles'] = (query) =>
-    missionFilesForBox(query, { keySecret: undefined, rawSecrets: undefined });
+    missionFilesForBox(query, {
+      keySecret: undefined,
+      rawSecrets: undefined,
+      readPostedAt: async () => {
+        throw new Error('no forensics box is read here');
+      },
+    });
 
   /** The journal row the database writes once the application account changed the grade. */
   const changedDatadir = async (): Promise<OwnerPatchRow> => {
@@ -808,7 +814,13 @@ describe('a mail on a sabotage job is answered from its target', () => {
   )!;
   const { machineId: TARGET_ID } = resolveLanHostIdentity(TARGET_HOST, ESSID);
   const findMissionFiles: ResolveMailDeps['findMissionFiles'] = (query) =>
-    missionFilesForBox(query, { keySecret: undefined, rawSecrets: undefined });
+    missionFilesForBox(query, {
+      keySecret: undefined,
+      rawSecrets: undefined,
+      readPostedAt: async () => {
+        throw new Error('no forensics box is read here');
+      },
+    });
 
   /** The journal row a root's `rm` of a boot file writes. */
   const removed = (path: string): OwnerPatchRow => ({

@@ -44,6 +44,7 @@ import {
   chainJob,
   cleanupJob,
   credentialRole,
+  forensicsJob,
   lockoutJob,
   patchJob,
   sabotageRole,
@@ -282,7 +283,9 @@ const jobLines = (
   missionNumber: number,
   terms: Exclude<
     MissionTerms,
-    { readonly job: 'cleanup' | 'closedoor' | 'lockout' | 'patch' | 'restore' }
+    {
+      readonly job: 'cleanup' | 'closedoor' | 'lockout' | 'patch' | 'restore' | 'forensics';
+    }
   >,
   inside: boolean,
 ): readonly string[] => {
@@ -591,6 +594,34 @@ const restoreLines = (
   ];
 };
 
+/** A forensics job's briefing past its opening: that someone broke into the machine, the logins,
+ *  and the two lines to send, or null when the words cannot be given. Reading who it was is the
+ *  job, so it names no time, log, path or tool. */
+const forensicsLines = (
+  missionNumber: number,
+  rawSecrets: string | undefined,
+): readonly string[] | null => {
+  const { noun } = forensicsJob(missionNumber).role;
+  const logins = handedOverLoginLines(missionNumber, rawSecrets, { noun, leaked: false });
+  if (logins === null) return null;
+  const twoHop = missionTopology(missionNumber).frontBoxOctet !== null;
+  return [
+    `Someone broke into their ${noun}, and they want to know who.`,
+    'Find the name they go by and the address they came in from.',
+    '',
+    ...logins,
+    twoHop
+      ? 'Leave both machines running. If either no longer boots, there is no money.'
+      : 'Leave the machine running. If it no longer boots, there is no money.',
+    'Write to this address with your wallet address and what you found, each on a line of its own:',
+    '',
+    '  handle: <the name they go by>',
+    '  address: <the address they came in from>',
+    '',
+    'Wrong, no money. No wallet, no money.',
+  ];
+};
+
 /** A close-the-door job's briefing past its opening: the machine someone made reachable from
  *  outside, never the port or the forward, then the router's login, or null when the word cannot
  *  be given. Which forward reaches the machine is the job, so it names no port, file or tool. */
@@ -613,10 +644,28 @@ const closeDoorLines = (
   ];
 };
 
+/** A white-hat job's briefing past its opening, or null when it cannot be written. */
+const whiteHatLines = (
+  job: 'cleanup' | 'closedoor' | 'lockout' | 'patch' | 'restore' | 'forensics',
+  missionNumber: number,
+  missionSecret: string | undefined,
+  rawSecrets: string | undefined,
+): readonly string[] | null => {
+  if (job === 'closedoor') return closeDoorLines(missionNumber, rawSecrets);
+  if (job === 'lockout') return lockoutLines(missionNumber, rawSecrets);
+  if (job === 'patch') return patchLines(missionNumber, rawSecrets);
+  if (job === 'restore') return restoreLines(missionNumber, rawSecrets);
+  // A cleanup or forensics job's target files are laid from the mission secret.
+  if (missionSecret === undefined) return null;
+  return job === 'forensics'
+    ? forensicsLines(missionNumber, rawSecrets)
+    : cleanupLines(missionNumber, rawSecrets);
+};
+
 /** The client's briefing, or null when it cannot be written: an infiltrate job's carries the
  *  client's file, drawn from the mission secret, and without the secret there is no file; a
- *  white-hat job's hands over words only the deployment's pools hold, and a cleanup job's target
- *  files are laid from the mission secret, so without them there is no job to hand over. */
+ *  white-hat job's hands over words only the deployment's pools hold, and a cleanup or forensics
+ *  job's target files are laid from the mission secret, so without them there is no job to hand over. */
 const briefingOf = (
   missionNumber: number,
   missionSecret: string | undefined,
@@ -628,20 +677,10 @@ const briefingOf = (
     terms.job === 'closedoor' ||
     terms.job === 'lockout' ||
     terms.job === 'patch' ||
-    terms.job === 'restore'
+    terms.job === 'restore' ||
+    terms.job === 'forensics'
   ) {
-    const lines =
-      terms.job === 'closedoor'
-        ? closeDoorLines(missionNumber, rawSecrets)
-        : terms.job === 'lockout'
-          ? lockoutLines(missionNumber, rawSecrets)
-          : terms.job === 'patch'
-            ? patchLines(missionNumber, rawSecrets)
-            : terms.job === 'restore'
-              ? restoreLines(missionNumber, rawSecrets)
-              : missionSecret === undefined
-                ? null
-                : cleanupLines(missionNumber, rawSecrets);
+    const lines = whiteHatLines(terms.job, missionNumber, missionSecret, rawSecrets);
     if (lines === null) return null;
     return {
       sender: clientAddress(terms),

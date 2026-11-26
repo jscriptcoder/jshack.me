@@ -18,7 +18,8 @@
 //                                 address (offers are not reachable until accepted).
 //   show <address>                Prints the contract's template, route, forward, services,
 //                                 key path and key. The key is derived from MISSION_KEY_SECRET,
-//                                 so only an operator with the deployment secret can run it.
+//                                 so only an operator with the deployment secret can run it. A
+//                                 forensics job's break-in is dated from the row's posted_at.
 //
 // Usage (local):
 //   npx dotenv -e .env.development.local -- npx tsx scripts/hireme.ts accept alice
@@ -182,7 +183,7 @@ const post = async (handle: string) => {
   }
 };
 
-const show = (address: string) => {
+const show = async (address: string) => {
   const missionNumber = missionNumberForAddress(address);
   if (missionNumber === null) {
     console.error(`${address} is not a contract address`);
@@ -195,14 +196,24 @@ const show = (address: string) => {
     console.error('Missing env: MISSION_KEY_SECRET');
     return process.exit(2);
   }
-  console.log(showReport(missionNumber, secret, process.env.JSHACK_SECRETS));
+  // A forensics job's trail is dated from when its offer was posted; a number no board holds
+  // has no row, and the report says so.
+  const row = await sr
+    .from('hireme_missions')
+    .select('posted_at')
+    .eq('number', missionNumber)
+    .maybeSingle();
+  if (row.error) fail('reading the contract', row.error);
+  const postedAt =
+    row.data === null ? null : Date.parse((row.data as { posted_at: string }).posted_at);
+  console.log(showReport(missionNumber, secret, process.env.JSHACK_SECRETS, postedAt));
 };
 
 const main = async () => {
   if (order.verb === 'accept') await accept(order.handle, order.number);
   else if (order.verb === 'drop') await drop(order.handle);
   else if (order.verb === 'post') await post(order.handle);
-  else show(order.address);
+  else await show(order.address);
 };
 
 main().catch((error: unknown) => {

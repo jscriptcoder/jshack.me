@@ -72,6 +72,7 @@ import { GUESSABLE_COMMUNITIES } from './pools.js';
 import { laidRecords, recordsBackupFiles, recordsFiles } from './missionRecords.js';
 import { missionFileContent, missionFilePath } from './missionFileItem.js';
 import { cleanupFilePaths, cleanupFiles } from './cleanupPlant.js';
+import { forensicsFilePaths, forensicsFiles } from './forensicsTrail.js';
 
 /** A file the server lays onto a key box before its journal replays. */
 export type MissionFile = {
@@ -370,6 +371,16 @@ const holdsRecords = (ref: MissionBoxRef): boolean => {
 const holdsBackup = (ref: MissionBoxRef): boolean =>
   ref.role === 'key' && missionKind(ref.missionNumber) === 'restore';
 
+/** Whether the box is in a forensics job's scope, which holds the intruder's trail. */
+const holdsTrail = (ref: MissionBoxRef): boolean => missionKind(ref.missionNumber) === 'forensics';
+
+/** When the offer was posted, which a forensics job's trail is dated from; no other box needs
+ *  it. */
+const requirePostedAt = (postedAt: number | undefined): number => {
+  if (postedAt === undefined) throw new Error('a forensics job is laid from when it was posted');
+  return postedAt;
+};
+
 /** Whether the box keeps a tamper or wipe job's records in its database. */
 const holdsRecordsInDatabase = (ref: MissionBoxRef): boolean =>
   holdsRecords(ref) && recordsStorage(ref.missionNumber) === 'database';
@@ -433,6 +444,7 @@ type MissionSecretsEnv = {
 export const missionFiles = (
   ref: MissionBoxRef,
   env: MissionSecretsEnv,
+  postedAt?: number,
 ): readonly MissionFile[] => {
   const keyFilesLaid = holdsKey(ref)
     ? keyFiles(ref.missionNumber, requireMissionSecret(env.keySecret))
@@ -457,22 +469,54 @@ export const missionFiles = (
           perms: ROOT_FILE,
         }))
       : []),
+    ...(holdsTrail(ref)
+      ? forensicsFiles(ref, requireMissionSecret(env.keySecret), requirePostedAt(postedAt))
+      : []),
   ];
 };
 
+/** When the contract's offer was posted, as its row holds it, or null when no row does. */
+export type ReadPostedAt = (
+  missionNumber: number,
+) => Promise<{ readonly data: number | null; readonly error: unknown }>;
+
 /** The files for the box a door has reached: none unless it is a contract's key or front box,
- *  and an error when a secret that box needs is unset, which the door answers 500. */
+ *  and an error when a secret that box needs is unset, which the door answers 500. A forensics
+ *  job's trail is dated from when its offer was posted, so only its boxes read the row, and a
+ *  failed read is the door's error. */
 export const missionFilesForBox = async (
   box: { readonly essid: string; readonly machine_id: string },
-  env: { readonly keySecret: string | undefined; readonly rawSecrets: string | undefined },
+  env: {
+    readonly keySecret: string | undefined;
+    readonly rawSecrets: string | undefined;
+    readonly readPostedAt: ReadPostedAt;
+  },
 ): Promise<
   | { readonly data: readonly MissionFile[]; readonly error: null }
-  | { readonly data: null; readonly error: 'mission_secret_missing' }
+  | { readonly data: null; readonly error: unknown }
 > => {
   const reached = missionBoxAt(box.essid, box.machine_id);
   if (reached === null) return { data: [], error: null };
+  const secrets = { keySecret: env.keySecret, rawSecrets: env.rawSecrets };
+  if (!holdsTrail(reached)) return laidOrMissing(() => missionFiles(reached, secrets));
+  if (env.keySecret === undefined || env.keySecret === '') {
+    return { data: null, error: 'mission_secret_missing' };
+  }
+  const posted = await env.readPostedAt(reached.missionNumber);
+  if (posted.error) return { data: null, error: posted.error };
+  if (posted.data === null) return { data: null, error: 'mission_row_missing' };
+  const postedAt = posted.data;
+  return laidOrMissing(() => missionFiles(reached, secrets, postedAt));
+};
+
+/** The files laid, or that a secret they need is unset. */
+const laidOrMissing = (
+  lay: () => readonly MissionFile[],
+):
+  | { readonly data: readonly MissionFile[]; readonly error: null }
+  | { readonly data: null; readonly error: 'mission_secret_missing' } => {
   try {
-    return { data: missionFiles(reached, env), error: null };
+    return { data: lay(), error: null };
   } catch {
     return { data: null, error: 'mission_secret_missing' };
   }
@@ -491,5 +535,6 @@ export const missionFilePaths = (ref: MissionBoxRef, keySecret?: string): readon
     ...(laysDatadir(ref) ? [DATADIR_PATH] : []),
     ...(holdsRecordsInFile(ref) ? recordsFiles(ref.missionNumber).map(({ path }) => path) : []),
     ...(holdsBackup(ref) ? recordsBackupFiles(ref.missionNumber).map(({ path }) => path) : []),
+    ...(holdsTrail(ref) ? forensicsFilePaths(ref, keySecret) : []),
   ];
 };

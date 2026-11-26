@@ -60,6 +60,11 @@ import {
 
 const KEY_SECRET = 'test-mission-secret';
 
+/** A reader of when an offer was posted that no box but a forensics job's may ask. */
+const NEVER_ASKED = async (): Promise<never> => {
+  throw new Error('a box that is no forensics job’s asked when its offer was posted');
+};
+
 /** A contract's key box, and on two hops its front box, as the server names them. */
 const keyOf = (missionNumber: number): MissionBoxRef => ({ missionNumber, role: 'key' });
 const frontOf = (missionNumber: number): MissionBoxRef => ({ missionNumber, role: 'front' });
@@ -408,7 +413,91 @@ describe('missionFilesForBox', () => {
     if (keyBox === undefined) throw new Error('a contract network has a key box');
     return { essid, machine_id: machineIdForLanHost(keyBox, essid) };
   };
-  const HOLDING_BOTH = { keySecret: KEY_SECRET, rawSecrets: DEPLOYMENT_SECRETS };
+  const HOLDING_BOTH = {
+    keySecret: KEY_SECRET,
+    rawSecrets: DEPLOYMENT_SECRETS,
+    readPostedAt: NEVER_ASKED,
+  };
+
+  describe('on a forensics job', () => {
+    const FORENSICS_NUMBER = SAMPLE_NUMBERS.find(
+      (missionNumber) => missionKind(missionNumber) === 'forensics',
+    )!;
+    const POSTED_AT = Date.UTC(2026, 10, 20, 14, 30, 0);
+
+    const postedReader = (answer: { readonly data: number | null; readonly error: unknown }) => {
+      const asked: number[] = [];
+      return {
+        asked,
+        read: async (missionNumber: number) => {
+          asked.push(missionNumber);
+          return answer;
+        },
+      };
+    };
+
+    it('asks when the offer was posted, and lays the trail dated from it', async () => {
+      const reader = postedReader({ data: POSTED_AT, error: null });
+
+      expect(
+        await missionFilesForBox(keyBoxOf(FORENSICS_NUMBER), {
+          ...HOLDING_BOTH,
+          readPostedAt: reader.read,
+        }),
+      ).toEqual({
+        data: missionFiles(keyOf(FORENSICS_NUMBER), HOLDING_BOTH, POSTED_AT),
+        error: null,
+      });
+      expect(reader.asked).toEqual([FORENSICS_NUMBER]);
+    });
+
+    it('passes a failed read on as the door’s error', async () => {
+      const failure = { message: 'connection reset' };
+      const reader = postedReader({ data: null, error: failure });
+
+      expect(
+        await missionFilesForBox(keyBoxOf(FORENSICS_NUMBER), {
+          ...HOLDING_BOTH,
+          readPostedAt: reader.read,
+        }),
+      ).toEqual({ data: null, error: failure });
+    });
+
+    // Only an accepted contract's boxes are reached, and every one has a row, so a box without
+    // one is a lookup that went wrong, never a trail to lay from nothing.
+    it('fails when no row holds the contract', async () => {
+      const reader = postedReader({ data: null, error: null });
+
+      expect(
+        await missionFilesForBox(keyBoxOf(FORENSICS_NUMBER), {
+          ...HOLDING_BOTH,
+          readPostedAt: reader.read,
+        }),
+      ).toEqual({ data: null, error: 'mission_row_missing' });
+    });
+
+    it.each([undefined, ''])(
+      'answers that the secret is missing without asking when the offer was posted (secret %j)',
+      async (keySecret) => {
+        const reader = postedReader({ data: null, error: { message: 'connection reset' } });
+
+        expect(
+          await missionFilesForBox(keyBoxOf(FORENSICS_NUMBER), {
+            keySecret,
+            rawSecrets: DEPLOYMENT_SECRETS,
+            readPostedAt: reader.read,
+          }),
+        ).toEqual({ data: null, error: 'mission_secret_missing' });
+        expect(reader.asked).toEqual([]);
+      },
+    );
+
+    it('refuses to lay the trail without when the offer was posted', () => {
+      expect(() => missionFiles(keyOf(FORENSICS_NUMBER), HOLDING_BOTH)).toThrow(
+        'a forensics job is laid from when it was posted',
+      );
+    });
+  });
 
   it('gives a key box its files', async () => {
     const missionNumber = firstWithRoute('web');
@@ -433,7 +522,7 @@ describe('missionFilesForBox', () => {
     expect(
       await missionFilesForBox(
         { essid, machine_id: computeApGatewayId(essid) },
-        { keySecret: undefined, rawSecrets: undefined },
+        { keySecret: undefined, rawSecrets: undefined, readPostedAt: NEVER_ASKED },
       ),
     ).toEqual({ data: [], error: null });
   });
@@ -445,6 +534,7 @@ describe('missionFilesForBox', () => {
         await missionFilesForBox(keyBoxOf(firstWithRoute(route)), {
           keySecret: KEY_SECRET,
           rawSecrets: undefined,
+          readPostedAt: NEVER_ASKED,
         }),
       ).toEqual({ data: null, error: 'mission_secret_missing' });
     },
@@ -455,6 +545,7 @@ describe('missionFilesForBox', () => {
       await missionFilesForBox(keyBoxOf(firstWithRoute('hydra')), {
         keySecret: undefined,
         rawSecrets: DEPLOYMENT_SECRETS,
+        readPostedAt: NEVER_ASKED,
       }),
     ).toEqual({ data: null, error: 'mission_secret_missing' });
   });
@@ -466,6 +557,7 @@ describe('missionFilesForBox', () => {
       await missionFilesForBox(keyBoxOf(missionNumber), {
         keySecret: KEY_SECRET,
         rawSecrets: undefined,
+        readPostedAt: NEVER_ASKED,
       }),
     ).toEqual({
       data: missionFiles(keyOf(missionNumber), { keySecret: KEY_SECRET, rawSecrets: undefined }),
@@ -633,11 +725,13 @@ describe('the files of a two-hop contract', () => {
     ).toBe(true);
   });
 
+  // A forensics job's trail is dated from its posting, so every box is laid as of one.
   it('names the same files the server lays in, for each box', () => {
+    const postedAt = Date.UTC(2026, 10, 20, 14, 30, 0);
     for (const { missionNumber } of twoHopShapes.slice(0, 80)) {
       for (const box of [keyOf(missionNumber), frontOf(missionNumber)]) {
         expect(missionFilePaths(box, KEY_SECRET), `${box.role} box of ${missionNumber}`).toEqual(
-          missionFiles(box, HOLDING_BOTH).map(({ path }) => path),
+          missionFiles(box, HOLDING_BOTH, postedAt).map(({ path }) => path),
         );
       }
     }
@@ -663,11 +757,13 @@ describe('the files of a two-hop contract', () => {
       return { essid, machine_id: machineIdForLanHost(host, essid) };
     };
 
-    expect(await missionFilesForBox(idAt(frontBox?.octet), HOLDING_BOTH)).toEqual({
+    const atTheDoor = { ...HOLDING_BOTH, readPostedAt: NEVER_ASKED };
+
+    expect(await missionFilesForBox(idAt(frontBox?.octet), atTheDoor)).toEqual({
       data: missionFiles(frontOf(missionNumber), HOLDING_BOTH),
       error: null,
     });
-    expect(await missionFilesForBox(idAt(keyBox.octet), HOLDING_BOTH)).toEqual({
+    expect(await missionFilesForBox(idAt(keyBox.octet), atTheDoor)).toEqual({
       data: missionFiles(keyOf(missionNumber), HOLDING_BOTH),
       error: null,
     });

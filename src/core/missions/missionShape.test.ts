@@ -118,11 +118,17 @@ const SAMPLE_NUMBERS = Array.from({ length: 2000 }, (_unused, index) => index * 
 const ALL_SAMPLE_SHAPES: readonly MissionShape[] = SAMPLE_NUMBERS.map(missionShape);
 
 /** The kinds whose client hands over root, so no box of theirs is broken into. */
-const HANDED_OVER_KINDS: readonly MissionKind[] = ['cleanup', 'lockout', 'patch', 'restore'];
+const HANDED_OVER_KINDS: readonly MissionKind[] = [
+  'cleanup',
+  'lockout',
+  'patch',
+  'restore',
+  'forensics',
+];
 
 /** The sample's contracts whose boxes each fall to a route: all but the portforward and
- *  close-the-door jobs, whose target nobody roots, and the cleanup, lock-them-out, patch-it and
- *  restore-the-record jobs, whose client hands over root. */
+ *  close-the-door jobs, whose target nobody roots, and the cleanup, lock-them-out, patch-it,
+ *  restore-the-record and forensics jobs, whose client hands over root. */
 const SAMPLE_SHAPES: readonly MissionShape[] = ALL_SAMPLE_SHAPES.filter(
   ({ kind }) => kind !== 'portforward' && kind !== 'closedoor' && !HANDED_OVER_KINDS.includes(kind),
 );
@@ -187,7 +193,7 @@ describe('missionShape', () => {
     }
   });
 
-  it('makes about a sixteenth of the contracts each of key, tamper, sabotage, file, backdoor, infiltrate, portforward, credential, destroy, wipe, chain, cleanup, close-the-door, lock-them-out, patch-it and restore-the-record jobs', () => {
+  it('makes about a seventeenth of the contracts each of key, tamper, sabotage, file, backdoor, infiltrate, portforward, credential, destroy, wipe, chain, cleanup, close-the-door, lock-them-out, patch-it, restore-the-record and forensics jobs', () => {
     const counts = ALL_SAMPLE_SHAPES.reduce<Record<string, number>>(
       (tally, { kind }) => ({ ...tally, [kind]: (tally[kind] ?? 0) + 1 }),
       {},
@@ -201,6 +207,7 @@ describe('missionShape', () => {
       'credential',
       'destroy',
       'file',
+      'forensics',
       'infiltrate',
       'key',
       'lockout',
@@ -217,34 +224,35 @@ describe('missionShape', () => {
     }
   });
 
-  it('turns no contract from one older kind into another: each keeps its kind or becomes a restore-the-record job', () => {
+  it('turns no contract from one older kind into another: each keeps its kind or becomes a forensics job', () => {
     // For each older kind, the contract drawn just below the piece it gave up, which keeps its
     // kind, and the two drawn nearest the bottom and the top of that piece, which become
-    // restore-the-record jobs. Each gave up the top of its largest piece, the lowest on a tie, so
-    // the top of the draw stays lock-them-out's.
+    // forensics jobs. Each gave up the top of its largest piece, the lowest on a tie, so the top
+    // of the draw stays lock-them-out's.
     const drawnAtTheEdges = [
-      [296276, 'tamper', 244633, 178764],
-      [202339, 'patch', 17776, 377259],
-      [47997, 'lockout', 293590, 285493],
-      [4593, 'closedoor', 309540, 147445],
-      [146536, 'chain', 67694, 247387],
-      [115426, 'cleanup', 97675, 85779],
-      [207790, 'sabotage', 368908, 351208],
-      [190092, 'credential', 332123, 298819],
-      [376923, 'wipe', 391901, 249111],
-      [6960, 'backdoor', 129512, 247380],
-      [63198, 'file', 127725, 236379],
-      [270204, 'key', 327434, 83669],
-      [229001, 'destroy', 356208, 244565],
-      [88500, 'portforward', 393622, 125601],
-      [280075, 'infiltrate', 52785, 27168],
+      [209280, 'tamper', 217796, 296276],
+      [125625, 'restore', 187637, 178764],
+      [138281, 'patch', 172188, 382189],
+      [241295, 'lockout', 338298, 79015],
+      [15975, 'closedoor', 390402, 159029],
+      [155279, 'chain', 136680, 386618],
+      [395541, 'file', 55414, 102421],
+      [49479, 'cleanup', 42008, 85176],
+      [194969, 'credential', 78396, 387950],
+      [260093, 'sabotage', 153537, 207790],
+      [13745, 'portforward', 307501, 182231],
+      [308434, 'infiltrate', 231635, 11177],
+      [115728, 'wipe', 15855, 124259],
+      [81654, 'backdoor', 352557, 155978],
+      [208808, 'key', 12191, 270204],
+      [248565, 'destroy', 47792, 76265],
     ] as const;
 
     for (const [kept, kind, ...taken] of drawnAtTheEdges) {
       expect(missionKind(kept), `contract ${kept}, a ${kind} job before`).toBe(kind);
       for (const missionNumber of taken) {
         expect(missionKind(missionNumber), `contract ${missionNumber}, a ${kind} job before`).toBe(
-          'restore',
+          'forensics',
         );
       }
     }
@@ -494,14 +502,14 @@ describe('missionShape', () => {
      *  taken from the generator before a contract could have two hops. Two hops draw on a
      *  stream of their own, so a contract that stays single-hop keeps its network to the byte.
      *  Only key jobs: a contract that became a tamper job keeps its records in its database.
-     *  Contracts that later turned file, backdoor, infiltrate, portforward, destroy, wipe, close-the-door or lock-them-out jobs were swapped for key jobs alike,
+     *  Contracts that later turned file, backdoor, infiltrate, portforward, destroy, wipe, close-the-door, lock-them-out or forensics jobs were swapped for key jobs alike,
      *  digested on the generator before that kind. */
     const SINGLE_HOP_BEFORE: readonly (readonly [number, string])[] = [
       [16837, 'f27ddd33257d952bc4a6d15bf3649686'], // mysql, database
       [3989502, 'e306f3cf5d5db352328a7036dc6b5896'], // snmp, file
       [25, 'bc6079d753a35b0d2fbbc0d419866d9b'], // web, file
       [188, 'e22849bb6178062832ca21a15ac6ec26'], // snmp, database
-      [26, 'bebc7e5d21c0cec1690d8cf632581e64'], // ftp, file
+      [78, '4763cc9c6b2d3108b7abc6678ae9b1a3'], // ftp, file
       [933, 'c6cbad730e79f75385a76475bff44a5e'], // msfconsole, file
       [243624, '7c68cca9b7aa79bf353cfa5d54b2ad88'], // hydra, file
       [369262, '58f3820e66d08af310e1cdfc9895fddc'], // hydra, database
@@ -510,12 +518,12 @@ describe('missionShape', () => {
     /** Two-hop key jobs across the routes and storages, and the digest of each key box as it
      *  stood before the contract had two hops, its forwards and decoys aside: its names, route,
      *  hashes and the doors it ran for its route and its storage. Contracts that later turned
-     *  sabotage, file, backdoor, infiltrate, portforward, credential, destroy, wipe, chain, cleanup, close-the-door or restore-the-record jobs were swapped for key jobs alike, digested on the generator before
+     *  sabotage, file, backdoor, infiltrate, portforward, credential, destroy, wipe, chain, cleanup, close-the-door, restore-the-record or forensics jobs were swapped for key jobs alike, digested on the generator before
      *  that kind. */
     const KEY_BOX_BEFORE: readonly (readonly [number, string])[] = [
       [3123, '03a899a0dd25fdf05107be461c2533ec'], // ftp, file
       [4374, 'e6128bdf22e5d29efc08ce5832c6cf5a'], // mysql, file
-      [107, '07e6b06a5f7a03c022308311f9773111'], // web, database
+      [3299, '288b92ef664591011fc036f32c2617ab'], // web, database
       [1131, '0e675fc551df9bd38209c346974f729e'], // snmp, file
       [8064, 'ecc1c1f4d60a0bb5de51a6e65cfa4cf3'], // msfconsole, gpg
       [4075, '4ce1ca7b12ada33872ff6d52d7ce8839'], // msfconsole, file
@@ -586,12 +594,12 @@ describe('missionShape', () => {
 
     /** Two-hop key jobs across the routes on each box, and the digest of everything but the key
      *  box, taken from the generator before the key box ran decoys of its own. Contracts that later turned
-     *  sabotage, file, backdoor, infiltrate, portforward, credential, destroy, wipe, chain, cleanup, close-the-door or restore-the-record jobs were swapped for key jobs alike, digested on the generator before
+     *  sabotage, file, backdoor, infiltrate, portforward, credential, destroy, wipe, chain, cleanup, close-the-door, restore-the-record or forensics jobs were swapped for key jobs alike, digested on the generator before
      *  that kind. */
     const BESIDE_KEY_BOX_BEFORE: readonly (readonly [number, string])[] = [
       [3123, 'ffdeeae469845a328fc5eb6f048093c2'], // ftp, front msfconsole
       [4374, '32451e6aca45762e61bd60466eb99e71'], // mysql, front hydra
-      [107, '710e67a04a3478676b7959999df01141'], // web, front hydra
+      [3299, '1143c755617acf04bcbc3f6ea1aaa7b9'], // web, front hydra
       [1131, 'bb02faef930af04f3b737dd7647a8978'], // snmp, front hydra
       [8064, 'b6ac6f1b16c2d14a428475b0bf322b05'], // msfconsole, front web
       [4075, 'cb38daa91fadab5c6c7196780fd53521'], // msfconsole, front web
@@ -849,10 +857,10 @@ describe('missionShape', () => {
 
     /** Single-hop key jobs across the routes and storages, and the digest of what each had
      *  before decoys, taken from the generator as it stood then. Contracts that later turned
-     *  sabotage, file, backdoor, infiltrate, portforward, credential, destroy, wipe, close-the-door or lock-them-out jobs were swapped for key jobs alike, digested on the generator before
+     *  sabotage, file, backdoor, infiltrate, portforward, credential, destroy, wipe, close-the-door, lock-them-out or forensics jobs were swapped for key jobs alike, digested on the generator before
      *  that kind. */
     const BEFORE_DECOYS: readonly (readonly [number, string])[] = [
-      [26, '529fc16f6500aaea7286d4b3f6457e5c'], // ftp, file
+      [78, 'e0f85585159d1749890c45eeb07ae4c2'], // ftp, file
       [16837, '66ef50b38177d710035d491c3117101a'], // mysql, database
       [3989502, 'b3557e4acea05eb25ba8d79a01487a61'], // snmp, file
       [25, 'd6ab3acaa8ca2c0fb37bdd0aef86b65f'], // web, file
@@ -1166,6 +1174,7 @@ describe.each([
   { kind: 'lockout', name: 'lock-them-out' },
   { kind: 'patch', name: 'patch-it' },
   { kind: 'restore', name: 'restore-the-record' },
+  { kind: 'forensics', name: 'forensics' },
 ] as const)('a $name contract', ({ kind: handedOverKind }) => {
   const handedOverShapes = ALL_SAMPLE_SHAPES.filter(({ kind }) => kind === handedOverKind);
   const singleHop = handedOverShapes.filter(({ frontBox }) => frontBox === null);
@@ -1244,6 +1253,7 @@ describe.each([
 describe.each([
   { kind: 'cleanup', name: 'cleanup' },
   { kind: 'lockout', name: 'lock-them-out' },
+  { kind: 'forensics', name: 'forensics' },
 ] as const)('a $name contract', ({ kind: handedOverKind }) => {
   const handedOverShapes = ALL_SAMPLE_SHAPES.filter(({ kind }) => kind === handedOverKind);
 

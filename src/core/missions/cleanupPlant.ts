@@ -14,13 +14,8 @@
  * gives up and `grep` skips.
  */
 
-import { hmac } from '@noble/hashes/hmac.js';
-import { sha256 } from '@noble/hashes/sha2.js';
-import { bytesToHex } from '@noble/hashes/utils.js';
-import { createPrng, type Prng } from '../generation/prng.js';
 import { binaryStub } from '../generation/binaries.js';
 import { DEBIAN_CRONTAB_HEADER } from '../generation/pools/etcFiles.js';
-import { networkAt, REGION_FIRST_OCTETS } from '../generation/world.js';
 import { ROOT_FILE } from '../generation/baseFs.js';
 import {
   formatListenerContent,
@@ -29,6 +24,7 @@ import {
 } from '../services/pidfile.js';
 import { cleanupJob } from './targetRoles.js';
 import type { MissionFile } from './missionLeak.js';
+import { outsideHostOf, streamUnder } from './secretDraws.js';
 
 /** What an implant is for, as legacy's catalog sorted them. */
 export const IMPLANT_FAMILIES = [
@@ -766,15 +762,6 @@ const textOf = (lines: readonly string[]): string => `${lines.join('\n')}\n`;
 const binaryOf = (lines: readonly string[]): string =>
   `${binaryStub('')}${BINARY_GAP}${lines.join(BINARY_GAP)}${BINARY_GAP}`;
 
-/** An address in the world's region block that no network answers at: the host an implant
- *  reports to, which leads nowhere and never outside the game. */
-const outsideHostOf = (prng: Prng): string => {
-  for (;;) {
-    const candidate = `${prng.pick(REGION_FIRST_OCTETS)}.${prng.nextInt(1, 254)}.${prng.nextInt(0, 255)}.${prng.nextInt(2, 254)}`;
-    if (networkAt(candidate) === undefined) return candidate;
-  }
-};
-
 const MIN_DECOYS = 2;
 const MAX_DECOYS = 4;
 
@@ -793,11 +780,6 @@ export type CleanupPlant = {
   /** The host the implant names, which no network answers at. */
   readonly outsideHost: string;
 };
-
-const streamUnder = (secret: string, label: string): Prng =>
-  createPrng(
-    bytesToHex(hmac(sha256, new TextEncoder().encode(secret), new TextEncoder().encode(label))),
-  );
 
 /** What the intruder left on the contract's target, under this deployment's secret. */
 export const cleanupPlant = (missionNumber: number, secret: string): CleanupPlant => {

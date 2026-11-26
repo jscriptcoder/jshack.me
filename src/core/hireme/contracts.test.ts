@@ -31,7 +31,15 @@ import {
   recordsStorage,
   type ChainFinal,
 } from '../missions/missionShape.js';
-import { backdoorJob, chainJob, cleanupJob, lockoutJob, patchJob } from '../missions/targetRoles.js';
+import {
+  backdoorJob,
+  chainJob,
+  cleanupJob,
+  forensicsJob,
+  lockoutJob,
+  patchJob,
+} from '../missions/targetRoles.js';
+import { forensicsIntruder } from '../missions/forensicsTrail.js';
 import { portforwardJob } from '../missions/portforwardJob.js';
 import { closeDoorJob } from '../missions/closeDoorJob.js';
 import {
@@ -180,6 +188,18 @@ const restoreNumber = (storage: 'database' | 'file', twoHop: boolean): number =>
 const RESTORE_IN_DATABASE = restoreNumber('database', false);
 const RESTORE_IN_FILES = restoreNumber('file', false);
 const RESTORE_TWO_HOP = restoreNumber('database', true);
+
+/** The first forensics contract from 70,000 up, on one hop or on two. */
+const forensicsNumber = (twoHop: boolean): number => {
+  for (let candidate = 70_000; candidate < 2_000_000; candidate++) {
+    if (!isMissionNumber(candidate) || missionKind(candidate) !== 'forensics') continue;
+    if ((missionShape(candidate).frontBox !== null) === twoHop) return candidate;
+  }
+  throw new Error('no forensics contract');
+};
+
+const FORENSICS_SINGLE_HOP = forensicsNumber(false);
+const FORENSICS_TWO_HOP = forensicsNumber(true);
 
 /** The application account a restore target's database answers to, as the box generates it. */
 const restoreAccountOf = (missionNumber: number): string =>
@@ -1847,6 +1867,131 @@ describe('accepting an offer', () => {
         /^Contract accepted\./,
       );
       expect(accepts).toHaveLength(1);
+    });
+  });
+
+  describe('on a forensics job', () => {
+    const offeredForensics = () =>
+      boardStore({
+        offers: [
+          { number: FORENSICS_SINGLE_HOP, ref: 'aaa' },
+          { number: FORENSICS_TWO_HOP, ref: 'bbb' },
+        ],
+      });
+
+    const FORENSICS_REPORT = [
+      'Write to this address with your wallet address and what you found, each on a line of its own:',
+      '',
+      '  handle: <the name they go by>',
+      '  address: <the address they came in from>',
+      '',
+      'Wrong, no money. No wallet, no money.',
+    ];
+
+    it('writes a single-hop briefing handing over root and the two lines to send', async () => {
+      const { store, accepts } = offeredForensics();
+      const terms = missionTerms(FORENSICS_SINGLE_HOP);
+      const { noun } = forensicsJob(FORENSICS_SINGLE_HOP).role;
+      const address = missionAddressForNumber(FORENSICS_SINGLE_HOP);
+
+      await accept('offer=aaa', store);
+
+      expect(accepts[0]!.briefing).toEqual({
+        sender: `${terms.client.handle}@emailit.io`,
+        subject: `Contract: ${terms.targetCompany}`,
+        body: [
+          terms.pitch,
+          '',
+          `Our customer is ${terms.targetCompany}. Their network is at ${address}.`,
+          '',
+          `Someone broke into their ${noun}, and they want to know who.`,
+          'Find the name they go by and the address they came in from.',
+          '',
+          'They have given you root:',
+          '',
+          `  ssh root@${address} -p 2222`,
+          `  password: ${plaintextFor(missionShape(FORENSICS_SINGLE_HOP).keyBox.rootHash)}`,
+          '',
+          'Leave the machine running. If it no longer boots, there is no money.',
+          ...FORENSICS_REPORT,
+          '',
+          `-- ${terms.client.company}`,
+          '',
+        ].join('\n'),
+      });
+    });
+
+    it('hands a two-hop contractor the edge machine, then the machine inside', async () => {
+      const { store, accepts } = offeredForensics();
+      const terms = missionTerms(FORENSICS_TWO_HOP);
+      const { noun } = forensicsJob(FORENSICS_TWO_HOP).role;
+      const { keyBox, frontBox } = missionShape(FORENSICS_TWO_HOP);
+      const address = missionAddressForNumber(FORENSICS_TWO_HOP);
+      const inside = `${lanSubnetPrefix(missionEssid(FORENSICS_TWO_HOP))}.${keyBox.octet}`;
+
+      await accept('offer=bbb', store);
+
+      expect(accepts[0]!.briefing.body).toBe(
+        [
+          terms.pitch,
+          '',
+          `Our customer is ${terms.targetCompany}. Their network is at ${address}.`,
+          '',
+          `Someone broke into their ${noun}, and they want to know who.`,
+          'Find the name they go by and the address they came in from.',
+          '',
+          'They have given you root on the machine on the edge of their network:',
+          '',
+          `  ssh root@${address} -p 2222`,
+          `  password: ${plaintextFor(frontBox!.rootHash)}`,
+          '',
+          `The ${noun} is inside their network, at ${inside}. From the edge machine:`,
+          '',
+          `  ssh root@${inside}`,
+          `  password: ${plaintextFor(keyBox.rootHash)}`,
+          '',
+          'Leave both machines running. If either no longer boots, there is no money.',
+          ...FORENSICS_REPORT,
+          '',
+          `-- ${terms.client.company}`,
+          '',
+        ].join('\n'),
+      );
+    });
+
+    // Reading the logs is the job, so the briefing gives away nothing they hold.
+    it('names no handle, address, path, log, time or tool', async () => {
+      for (const [missionNumber, ref] of [
+        [FORENSICS_SINGLE_HOP, 'aaa'],
+        [FORENSICS_TWO_HOP, 'bbb'],
+      ] as const) {
+        const { store, accepts } = offeredForensics();
+        const { handle, origin, card } = forensicsIntruder(missionNumber, MISSION_SECRET);
+
+        await accept(`offer=${ref}`, store);
+        const { body } = accepts[0]!.briefing;
+
+        expect(body).not.toContain(handle);
+        expect(body).not.toContain(origin);
+        expect(body).not.toContain(card.path);
+        expect(body).not.toMatch(/\/var\/log|auth\.log|\blog\b|grep|\d\d:\d\d/);
+      }
+    });
+
+    it('answers nothing, asking the store nothing, when the password pools are unset', async () => {
+      const { store, accepts } = offeredForensics();
+
+      expect(await acceptWithoutPools('offer=aaa', store)).toBeNull();
+      expect(accepts).toEqual([]);
+    });
+
+    // The trail and the card are laid from the mission secret, so the job cannot be worked
+    // without it.
+    it('answers nothing, asking the store nothing, when the mission secret is unset', async () => {
+      const { store, accepts } = offeredForensics();
+
+      expect(await acceptWithoutSecret('offer=aaa', store)).toBeNull();
+      expect(accepts).toEqual([]);
     });
   });
 
