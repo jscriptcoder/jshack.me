@@ -98,8 +98,10 @@ import {
  *  settings' white-hat reasons, the backup it lays, and the table read the client does) went
  *  124 B past the ceiling, which rose 200; then forensics jobs (the seventeenth kind's shape and
  *  cuts, its machines' white-hat reasons, the handles and calling cards, and the trail's log
- *  lines) went 749 B past the ceiling, which rose 800. */
-const BUNDLE_CEILING_BYTES = 313_075;
+ *  lines) went 749 B past the ceiling, which rose 800; then the intro saying some people pay
+ *  for jobs, where it had said there were no missions, went 2 B past the ceiling, which rose
+ *  100. */
+const BUNDLE_CEILING_BYTES = 313_175;
 
 /** About a tenth of that before world content, so a loaded machine's noise cannot fail
  *  the check while a content change that makes boxes ten times dearer still does. */
