@@ -150,7 +150,13 @@ describe('what the server lays on a cleanup target', () => {
     expect(
       await missionFilesForBox(
         { essid, machine_id: machineId },
-        { keySecret: undefined, rawSecrets: DEPLOYMENT_SECRETS },
+        {
+          keySecret: undefined,
+          rawSecrets: DEPLOYMENT_SECRETS,
+          readPostedAt: async () => {
+            throw new Error('a cleanup box never asks when its offer was posted');
+          },
+        },
       ),
     ).toEqual({ data: null, error: 'mission_secret_missing' });
   });

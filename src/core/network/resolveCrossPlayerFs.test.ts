@@ -102,8 +102,8 @@ const BOARDS: readonly Board[] = [
   { handle: 'neo', address: NEO_BOARD, applied_at: '2026-10-20T09:00:00.000+00:00' },
 ];
 
-/** The address of neo's one job, number 796679, a file job whose client is bellwether-desk
- *  paying 550 JSC. */
+/** The address of neo's one job, number 796679, a forensics job whose client is bellwether-desk
+ *  paying 300 JSC. */
 const NEO_MISSION = '195.12.40.7';
 
 /** One job, accepted by neo. */
@@ -1151,7 +1151,7 @@ describe("handleResolveCrossPlayerFs on the boards' server, whose contracts are 
 
     expect(result.status).toBe(200);
     expect(contentOf(tree, 'etc', 'hireme', 'contracts')).toBe(
-      `neo bellwether-desk ${NEO_MISSION} 550\n`,
+      `neo bellwether-desk ${NEO_MISSION} 300\n`,
     );
     expect(get(tree, 'etc', 'hireme', 'contracts')).toMatchObject({ perms: ROOT_FILE });
     expect(contentOf(tree, 'etc', 'hireme', 'boards')).toBe(`neo ${NEO_BOARD}\n`);

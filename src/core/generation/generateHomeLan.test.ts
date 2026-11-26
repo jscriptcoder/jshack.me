@@ -610,7 +610,7 @@ describe('generateHomeLan for a contract network', () => {
     }
   });
 
-  it('names a sabotage target for the machine the client wants down, and every key box but a backdoor, portforward, credential, chain, cleanup, lock-them-out, patch-it or close-the-door target as before', () => {
+  it('names a sabotage target for the machine the client wants down, and every key box but a backdoor, portforward, credential, chain, cleanup, lock-them-out, patch-it, forensics or close-the-door target as before', () => {
     // The board names the machine; the box the contractor lands on carries the name to match.
     const suffixByMachine: Readonly<Record<string, string>> = {
       'CCTV recorder': 'nvr',
@@ -643,6 +643,7 @@ describe('generateHomeLan for a contract network', () => {
         kind !== 'cleanup' &&
         kind !== 'lockout' &&
         kind !== 'patch' &&
+        kind !== 'forensics' &&
         kind !== 'closedoor'
       );
     });

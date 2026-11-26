@@ -12,7 +12,7 @@ import { missionAction, missionSetting, type RecordSetting } from './missionReco
 import { missionFileItem } from './missionFileItem.js';
 import { portforwardJob } from './portforwardJob.js';
 import { closeDoorJob } from './closeDoorJob.js';
-import { chainJob, cleanupJob, lockoutJob, patchJob } from './targetRoles.js';
+import { chainJob, cleanupJob, forensicsJob, lockoutJob, patchJob } from './targetRoles.js';
 import { md5 } from '../generation/md5.js';
 import { isMissionNumber } from './missionNetwork.js';
 import { validateUsername } from '../gameConfig/gameConfig.js';
@@ -157,24 +157,24 @@ describe('missionTerms', () => {
     // credential jobs took an eighth, again when destroy jobs took a ninth, again when wipe jobs
     // took a tenth, again when chain jobs took an eleventh, again when cleanup jobs took a twelfth,
     // again when close-the-door jobs took a thirteenth, again when lock-them-out jobs took a
-    // fourteenth, again when patch-it jobs took a fifteenth, and again when restore-the-record
-    // jobs took a sixteenth, each time over the key jobs left, whose terms the earlier digest's own
-    // fixture held unchanged.
+    // fourteenth, again when patch-it jobs took a fifteenth, again when restore-the-record jobs
+    // took a sixteenth, and again when forensics jobs took a seventeenth, each time over the key
+    // jobs left, whose terms the earlier digest's own fixture held unchanged.
     expect(md5(JSON.stringify(SINGLE_HOP_NUMBERS.map(missionTerms).map(withoutJob)))).toBe(
-      'e9d46ca14ae6096231bd0704db6f9072',
+      'd44cfd3e7055f79de7909296f78ab8ed',
     );
   });
 
-  // Retaken over the key jobs left when restore-the-record jobs took a sixteenth of the numbers.
+  // Retaken over the key jobs left when forensics jobs took a seventeenth of the numbers.
   it('keeps the client, target, pitch and key of a two-hop key job as they were', () => {
     const beside = TWO_HOP_NUMBERS.map(missionTerms)
       .map(withoutJob)
       .map(({ kind: _kind, pay: _pay, ...rest }) => rest);
 
-    expect(md5(JSON.stringify(beside))).toBe('5480d543ce34c1ffc2efe329ad2fb49c');
+    expect(md5(JSON.stringify(beside))).toBe('e8dbbcfc81add5df407e13c123bd8b1a');
   });
 
-  it('marks each contract a key, tamper, sabotage, file, backdoor, infiltrate, portforward, credential, destroy, wipe, chain, cleanup, close-the-door, lock-them-out, patch-it or restore-the-record job, as its shape does', () => {
+  it('marks each contract a key, tamper, sabotage, file, backdoor, infiltrate, portforward, credential, destroy, wipe, chain, cleanup, close-the-door, lock-them-out, patch-it, restore-the-record or forensics job, as its shape does', () => {
     for (const missionNumber of SAMPLE_NUMBERS) {
       expect(missionTerms(missionNumber).job).toBe(missionShape(missionNumber).kind);
     }
@@ -333,8 +333,8 @@ describe('missionTerms', () => {
         pay,
       }));
 
-      // Retaken over the sabotage jobs left when restore-the-record jobs took a sixteenth.
-      expect(md5(JSON.stringify(kept))).toBe('8e9e51205d2c12ca5a95f492543eea6b');
+      // Retaken over the sabotage jobs left when forensics jobs took a seventeenth.
+      expect(md5(JSON.stringify(kept))).toBe('90874d530be6dd3e914f7f57d60289d1');
     });
 
     // The work is a key job's, finding the way in and rooting the box, so the pay is too.
@@ -661,6 +661,12 @@ describe('missionTerms', () => {
       name: 'patch-it',
       verb: 'patch',
       roleOf: (missionNumber: number) => patchJob(missionNumber).role,
+    },
+    {
+      kind: 'forensics',
+      name: 'forensics',
+      verb: 'trace an intruder on',
+      roleOf: (missionNumber: number) => forensicsJob(missionNumber).role,
     },
   ] as const)('a $name job', ({ kind: whiteHatKind, verb, roleOf }) => {
     const WHITE_HAT_NUMBERS = SAMPLE_NUMBERS.filter(

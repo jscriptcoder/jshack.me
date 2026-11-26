@@ -5,8 +5,16 @@ import {
   readMissionOrder,
   showReport,
 } from './hiremeOrders.js';
-import { missionLeakPath } from './missionLeak.js';
-import { backdoorJob, chainJob, cleanupJob, lockoutJob, patchJob } from './targetRoles.js';
+import { missionFiles, missionLeakPath } from './missionLeak.js';
+import {
+  backdoorJob,
+  chainJob,
+  cleanupJob,
+  forensicsJob,
+  lockoutJob,
+  patchJob,
+} from './targetRoles.js';
+import { forensicsIntruder } from './forensicsTrail.js';
 import { cleanupPlant } from './cleanupPlant.js';
 import { buildMissionKeyBoxFs } from '../generation/missionKeyBoxFs.js';
 import { databaseIn } from '../mysql/datadir.js';
@@ -1374,6 +1382,121 @@ describe('showReport on a restore-the-record job', () => {
     expect(lines).toContain('  Login:    root / (JSHACK_SECRETS is not set)');
     expect(lines).toContain(`  Database: ${accountOf(IN_DATABASE)} / (JSHACK_SECRETS is not set)`);
     expect(lines.join('\n')).not.toContain('Key');
+  });
+});
+
+describe('showReport on a forensics job', () => {
+  const SECRET = 'operator-test-secret';
+  const forensicsWhere = (twoHop: boolean, namesDropHost: boolean): number =>
+    Array.from({ length: 8000 }, (_unused, index) => index * 256 + 2).find((candidate) => {
+      const shape = missionShape(candidate);
+      return (
+        shape.kind === 'forensics' &&
+        (shape.frontBox !== null) === twoHop &&
+        (forensicsIntruder(candidate, SECRET).card.dropHost !== null) === namesDropHost
+      );
+    })!;
+  const SINGLE_HOP = forensicsWhere(false, false);
+  const DROP_HOST = forensicsWhere(false, true);
+  const TWO_HOP = forensicsWhere(true, false);
+
+  const POSTED_AT = Date.UTC(2026, 10, 20, 14, 30, 0);
+  const MONTHS = 'Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec'.split(' ');
+
+  /** When the intruder got into the machine facing the internet, read off its rotated log. */
+  const breakInOf = (missionNumber: number): string => {
+    const { origin } = forensicsIntruder(missionNumber, SECRET);
+    const edge = missionShape(missionNumber).frontBox === null ? 'key' : 'front';
+    const log =
+      missionFiles(
+        { missionNumber, role: edge },
+        { keySecret: SECRET, rawSecrets: undefined },
+        POSTED_AT,
+      ).find(({ path }) => path === '/var/log/auth.log.1')?.content ?? '';
+    const line = log
+      .split('\n')
+      .find((each) => each.endsWith(`Accepted password for root from ${origin}`));
+    const [, month, day, time] = /^(\w{3}) ([ \d]\d) (\d\d:\d\d:\d\d)/.exec(line ?? '') ?? [];
+    const date = `2026-${String(MONTHS.indexOf(month ?? '') + 1).padStart(2, '0')}-${String(Number(day)).padStart(2, '0')}`;
+    return `  Break-in: ${date} ${time} UTC`;
+  };
+
+  /** The lines that close a forensics report: who broke in, the card they left, and when. */
+  const intruderLines = (missionNumber: number): readonly string[] => {
+    const { handle, origin, card } = forensicsIntruder(missionNumber, SECRET);
+    return [
+      `  Intruder: ${handle} from ${origin}`,
+      `  Card:     ${card.path}${card.dropHost === null ? '' : `, drop ${card.dropHost}`}`,
+      breakInOf(missionNumber),
+    ];
+  };
+
+  it('prints the report line by line: the machine, the login handed over, who broke in, their card and when', () => {
+    const shape = missionShape(SINGLE_HOP);
+    const terms = missionTerms(SINGLE_HOP);
+    const { role } = forensicsJob(SINGLE_HOP);
+    const decoyPorts = shape.forwards
+      .slice(shape.forwards.length - shape.keyBox.decoys.length)
+      .map(({ internalPort }) => internalPort);
+
+    expect(showReport(SINGLE_HOP, SECRET, DEPLOYMENT_SECRETS, POSTED_AT)).toBe(
+      [
+        `Contract ${SINGLE_HOP} at ${missionAddressForNumber(SINGLE_HOP)} (essid ${missionEssid(SINGLE_HOP)})`,
+        `  Client:   ${terms.client.company} (${terms.client.handle}@emailit.io)`,
+        `  Target:   ${terms.targetCompany}, ${shape.stem}-gw / ${shape.stem}-${role.suffix}`,
+        `  Pay:      §${terms.pay.toLocaleString('en-US')}`,
+        '  Template: single-hop',
+        `  Kind:     forensics, ${role.noun}`,
+        '  Route:    none (handed over)',
+        ...shape.forwards.map(
+          (forward, index) =>
+            `  Forward:  :${forward.publicPort} -> target :${forward.internalPort}` +
+            (index >= shape.forwards.length - shape.keyBox.decoys.length ? ' (decoy)' : ''),
+        ),
+        '  Services:',
+        ...shape.keyBox.services.map(
+          (service) =>
+            `    ${service.service} (${service.package} ${service.version}) :${service.port}` +
+            (decoyPorts.includes(service.port) ? ' (decoy)' : ''),
+        ),
+        `  Login:    root / ${plaintextFor(shape.keyBox.rootHash)}`,
+        ...intruderLines(SINGLE_HOP),
+      ].join('\n'),
+    );
+  });
+
+  it('names the drop host beside a card that names one', () => {
+    const { card } = forensicsIntruder(DROP_HOST, SECRET);
+    const lines = showReport(DROP_HOST, SECRET, DEPLOYMENT_SECRETS, POSTED_AT).split('\n');
+
+    expect(lines).toContain(`  Card:     ${card.path}, drop ${card.dropHost}`);
+    expect(lines.slice(-3)).toEqual(intruderLines(DROP_HOST));
+  });
+
+  it('hands over a login on each box of a two-hop job, the intruder under the target box', () => {
+    const { stem, frontBox, keyBox } = missionShape(TWO_HOP);
+    const { role } = forensicsJob(TWO_HOP);
+    const lines = showReport(TWO_HOP, SECRET, DEPLOYMENT_SECRETS, POSTED_AT).split('\n');
+    const frontAt = lines.indexOf(`  Front box: ${stem}-web`);
+    const targetAt = lines.indexOf(`  Target box: ${stem}-${role.suffix}`);
+
+    expect(lines.filter((line) => line === '    Route:    none (handed over)')).toHaveLength(2);
+    expect(
+      lines.indexOf(`    Login:    root / ${plaintextFor(frontBox!.rootHash)}`),
+    ).toBeGreaterThan(frontAt);
+    expect(lines.indexOf(`    Login:    root / ${plaintextFor(keyBox.rootHash)}`)).toBeGreaterThan(
+      targetAt,
+    );
+    expect(targetAt).toBeGreaterThan(frontAt);
+    expect(lines.slice(-3)).toEqual(intruderLines(TWO_HOP));
+  });
+
+  // The trail is dated from when the offer was posted, so a number no board holds has none.
+  it('says there is no break-in time for a contract no board has posted', () => {
+    const lines = showReport(SINGLE_HOP, SECRET, DEPLOYMENT_SECRETS, null).split('\n');
+
+    expect(lines.at(-1)).toBe('  Break-in: (not posted)');
+    expect(lines.slice(-3, -1)).toEqual(intruderLines(SINGLE_HOP).slice(0, 2));
   });
 });
 

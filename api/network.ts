@@ -149,17 +149,31 @@ const networkByPublicIpVia = (spec: QuerySpec) =>
  * a fetch and a path sweep must resolve the same box from the same journal in the same
  * order, or the two would disagree about what is even there.
  */
-// The files only the server can write onto a contract's key box, made here from the
-// server-only secrets (no table to read). Every other box is left as generated. With a secret
-// that box needs unset, the box is unavailable rather than carrying a guessable file.
-const findMissionFiles = (query: { readonly essid: string; readonly machine_id: string }) =>
-  missionFilesForBox(query, {
-    keySecret: process.env.MISSION_KEY_SECRET,
-    rawSecrets: process.env.JSHACK_SECRETS,
-  });
+// The files only the server can write onto a contract's box, made from the server-only
+// secrets. A forensics job's trail is dated from when its offer was posted, so its boxes alone
+// read that from the contract's row; `number` is the primary key, so it is one indexed row.
+// With a secret that box needs unset, or the row unread, the box is unavailable rather than
+// carrying a guessable file.
+const findMissionFilesVia =
+  ({ supabase, label }: QuerySpec) =>
+  (query: { readonly essid: string; readonly machine_id: string }) =>
+    missionFilesForBox(query, {
+      keySecret: process.env.MISSION_KEY_SECRET,
+      rawSecrets: process.env.JSHACK_SECRETS,
+      readPostedAt: async (missionNumber) => {
+        const { data, error } = await supabase
+          .from('hireme_missions')
+          .select('posted_at')
+          .eq('number', missionNumber)
+          .maybeSingle();
+        logFailure(label, error);
+        const row = data as { posted_at: string } | null;
+        return { data: row === null ? null : Date.parse(row.posted_at), error };
+      },
+    });
 
 const webTargetDepsVia = ({ supabase, label }: QuerySpec): WebTargetDeps => ({
-  findMissionFiles,
+  findMissionFiles: findMissionFilesVia({ supabase, label: `${label} posted-at` }),
   findNetworkByPublicIp: networkByPublicIpVia({ supabase, label: `${label} board lookup` }),
   // Per-machine journal: the gateway's (boot state + the live forward table), then the
   // reached box's (its running services and the pages themselves).
@@ -978,7 +992,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findPatches,
       listOccupantsByEssid,
       listLeasesByEssid,
-      findMissionFiles,
+      findMissionFiles: findMissionFilesVia({ supabase, label: 'occupant-fetch posted-at' }),
       appendLog: appendLogVia({ supabase, label: 'occupant-fetch access-log' }),
       findActiveSession: findActiveSessionVia({ supabase, label: 'occupant-fetch active-session' }),
       findHomeVantage: findHomeVantageVia({ supabase, label: 'occupant-fetch vantage' }),
@@ -1004,7 +1018,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findPatches,
       listOccupantsByEssid,
       listLeasesByEssid,
-      findMissionFiles,
+      findMissionFiles: findMissionFilesVia({ supabase, label: 'occupant-sweep posted-at' }),
       appendLog: appendLogVia({ supabase, label: 'occupant-sweep access-log' }),
       findActiveSession: findActiveSessionVia({ supabase, label: 'occupant-sweep active-session' }),
       findHomeVantage: findHomeVantageVia({ supabase, label: 'occupant-sweep vantage' }),
@@ -1240,7 +1254,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       findMailSpool,
       findBoards,
       findContracts,
-      findMissionFiles,
+      findMissionFiles: findMissionFilesVia({ supabase, label: 'cross-player fs posted-at' }),
     });
     res.status(status).json(body);
     return;

@@ -30,6 +30,7 @@ import {
   chainJob,
   cleanupJob,
   credentialRole,
+  forensicsJob,
   keyBoxSuffix,
   lockoutJob,
   patchJob,
@@ -44,6 +45,7 @@ import { missionKeyFilePath, missionLeakPath, missionLeakWord } from './missionL
 import { buildMissionKeyBoxFs } from '../generation/missionKeyBoxFs.js';
 import { accountsIn } from '../sessions/passwdAccount.js';
 import { cleanupPlant } from './cleanupPlant.js';
+import { forensicsBreakIn, forensicsIntruder } from './forensicsTrail.js';
 import { whiteHatWord } from './whiteHatLogin.js';
 import { missionKey, missionPassphrase } from './missionSecret.js';
 import { missionAddressForNumber, missionEssid } from './missionNetwork.js';
@@ -129,10 +131,16 @@ const handedOverLine = (hash: string, rawSecrets: string | undefined, indent: st
   `${indent}Login:    root / ${whiteHatWord(hash, rawSecrets) ?? '(JSHACK_SECRETS is not set)'}`;
 
 /** Whether a contract's client hands over root on every box it covers: a cleanup, lock-them-out,
- *  patch-it or restore-the-record job's. */
+ *  patch-it, restore-the-record or forensics job's. */
 const handsOverRoot = (missionNumber: number): boolean => {
   const kind = missionKind(missionNumber);
-  return kind === 'cleanup' || kind === 'lockout' || kind === 'patch' || kind === 'restore';
+  return (
+    kind === 'cleanup' ||
+    kind === 'lockout' ||
+    kind === 'patch' ||
+    kind === 'restore' ||
+    kind === 'forensics'
+  );
 };
 
 /** The database login a restore job's client hands over beside root's on the target, at
@@ -211,6 +219,9 @@ const kindLine = (missionNumber: number, kind: MissionKind): readonly string[] =
   }
   if (kind === 'wipe') return [`  Kind:     wipe, ${missionSetting(missionNumber)}`];
   if (kind === 'restore') return [`  Kind:     restore, ${missionSetting(missionNumber)}`];
+  if (kind === 'forensics') {
+    return [`  Kind:     forensics, ${forensicsJob(missionNumber).role.noun}`];
+  }
   if (kind === 'sabotage') return [`  Kind:     sabotage, ${sabotageRole(missionNumber).noun}`];
   if (kind === 'file') return [`  Kind:     file, ${missionFileItem(missionNumber).noun}`];
   if (kind === 'destroy') return [`  Kind:     destroy, ${missionFileItem(missionNumber).noun}`];
@@ -309,8 +320,18 @@ const jobLines = (
   missionNumber: number,
   kind: Exclude<MissionKind, 'chain'>,
   secret: string,
+  postedAt: number | null,
 ): readonly string[] => {
   if (kind === 'tamper') return recordLines(missionNumber);
+  if (kind === 'forensics') {
+    const { handle, origin, card } = forensicsIntruder(missionNumber, secret);
+    return [
+      `  Intruder: ${handle} from ${origin}`,
+      `  Card:     ${card.path}${card.dropHost === null ? '' : `, drop ${card.dropHost}`}`,
+      // The trail is dated from when the offer was posted, so a number no board holds has none.
+      `  Break-in: ${postedAt === null ? '(not posted)' : forensicsBreakIn(missionNumber, secret, postedAt)}`,
+    ];
+  }
   if (kind === 'wipe') return recordsStorageLines(missionNumber);
   if (kind === 'restore') return restoreLines(missionNumber);
   if (
@@ -380,6 +401,7 @@ export const showReport = (
   missionNumber: number,
   secret: string,
   rawSecrets: string | undefined,
+  postedAt: number | null = null,
 ): string => {
   const shape = missionShape(missionNumber);
   const terms = missionTerms(missionNumber);
@@ -416,11 +438,12 @@ export const showReport = (
     shape.kind === 'lockout' ||
     shape.kind === 'patch' ||
     shape.kind === 'restore' ||
+    shape.kind === 'forensics' ||
     shape.kind === 'closedoor';
   const slotName = isTarget ? 'target' : 'key box';
   const reached = frontBox === null ? slotName : 'front box';
   // A chain job's target holds what its last step's kind would, and the report says so alike.
-  const keyLines = jobLines(missionNumber, keyBoxKind(missionNumber), secret);
+  const keyLines = jobLines(missionNumber, keyBoxKind(missionNumber), secret, postedAt);
   const boxes =
     frontBox === null
       ? [

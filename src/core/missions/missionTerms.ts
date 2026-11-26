@@ -24,6 +24,7 @@ import {
   chainJob,
   cleanupJob,
   credentialRole,
+  forensicsJob,
   lockoutJob,
   patchJob,
   sabotageRole,
@@ -78,7 +79,8 @@ export type MissionTerms =
   | ({ readonly job: 'closedoor' } & CommonTerms)
   | ({ readonly job: 'lockout' } & CommonTerms)
   | ({ readonly job: 'patch' } & CommonTerms)
-  | ({ readonly job: 'restore' } & CommonTerms);
+  | ({ readonly job: 'restore' } & CommonTerms)
+  | ({ readonly job: 'forensics' } & CommonTerms);
 
 const CLIENTS: readonly MissionClient[] = [
   { company: 'Copper Systems', handle: 'copper-ops' },
@@ -527,6 +529,17 @@ export const missionTerms = (missionNumber: number): MissionTerms => {
       targetCompany: `${capitalised(stem)} ${prng.pick(TARGET_TRADES)}`,
       kind: `patch ${singleHop ? 'a' : 'an internal'} ${noun}`,
       pitch: prng.pick(patchPitches),
+      pay: payFrom(prng, WHITE_HAT_PAY[singleHop ? 'singleHop' : 'twoHop']),
+    };
+  }
+  if (missionKind(missionNumber) === 'forensics') {
+    const { noun, forensicsPitches } = forensicsJob(missionNumber).role;
+    return {
+      job: 'forensics',
+      client: prng.pick(CLIENTS),
+      targetCompany: `${capitalised(stem)} ${prng.pick(TARGET_TRADES)}`,
+      kind: `trace an intruder on ${singleHop ? 'a' : 'an internal'} ${noun}`,
+      pitch: prng.pick(forensicsPitches),
       pay: payFrom(prng, WHITE_HAT_PAY[singleHop ? 'singleHop' : 'twoHop']),
     };
   }

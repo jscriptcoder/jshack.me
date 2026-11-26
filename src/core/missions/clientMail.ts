@@ -121,6 +121,7 @@ import {
 import { parseDpkgVersions, readDpkgStatus } from '../packages/dpkgStatus.js';
 import { installedRelease } from '../cve/packageTimeline.js';
 import { cleanupPlant } from './cleanupPlant.js';
+import { forensicsIntruder } from './forensicsTrail.js';
 import { portforwardJob } from './portforwardJob.js';
 import { closeDoorJob } from './closeDoorJob.js';
 import { md5 } from '../generation/md5.js';
@@ -204,6 +205,7 @@ const SHUT = "It's shut.";
 const LOCKED_OUT = "They're locked out.";
 const PATCHED = "It's patched.";
 const RESTORED = 'The records are back.';
+const FOUND_THEM = "That's them.";
 const BOTH_DONE = 'Both done.';
 /** A white-hat client closes with thanks, not with the black-hat clients' sign-off. */
 const THANKS = 'Thank you for the help.';
@@ -268,6 +270,9 @@ const NOT_GONE = "We can't confirm that file is gone. Not gone, no money.";
  *  boots. */
 const NOT_WIPED = "That's not what we asked for. Not wiped, no money.";
 const WRONG_KEY = 'That key opens nothing of ours.';
+/** One reply for every miss: a line missing, a wrong handle, or any address but the one they
+ *  came in from. Never which: reading the logs is the job. */
+const NOT_THEM = "That's not who broke in. Wrong, no money.";
 const WRONG_FILE = "That's not the file we asked for.";
 const CLOSED = 'That job is already closed.';
 const NO_CONTRACT = 'We have no contract with you.';
@@ -280,13 +285,27 @@ const unquotedLines = (body: string): readonly string[] =>
 const readableText = (subject: string, body: string): string =>
   [subject, ...unquotedLines(body)].join('\n');
 
-const PASSWORD_LABEL = /^\s*password:/i;
+/** What the first line of the body labelled so gives, trimmed, or null for a body with none.
+ *  The subject is never read for one: `mail reply` fills it in. */
+const labelledLine = (body: string, label: RegExp): string | null => {
+  const line = unquotedLines(body).find((candidate) => label.test(candidate));
+  return line === undefined ? null : line.replace(label, '').trim();
+};
 
-/** What the first password line of the body gives, or null for a body with none. The subject is
- *  never read for one: `mail reply` fills it in. */
-const mailedPassword = (body: string): string | null => {
-  const line = unquotedLines(body).find((candidate) => PASSWORD_LABEL.test(candidate));
-  return line === undefined ? null : line.replace(PASSWORD_LABEL, '').trim();
+const PASSWORD_LABEL = /^\s*password:/i;
+const HANDLE_LABEL = /^\s*handle:/i;
+const ADDRESS_LABEL = /^\s*address:/i;
+
+const mailedPassword = (body: string): string | null => labelledLine(body, PASSWORD_LABEL);
+
+/** Whether the mail names who broke in: their handle in any case, and the address they came in
+ *  from exactly. The answer is the draw, never the boxes, so a cleared log changes nothing. */
+const namesIntruder = (body: string, missionNumber: number, secret: string): boolean => {
+  const { handle, origin } = forensicsIntruder(missionNumber, secret);
+  return (
+    labelledLine(body, HANDLE_LABEL)?.toLowerCase() === handle &&
+    labelledLine(body, ADDRESS_LABEL) === origin
+  );
 };
 
 /** Whether `password` opens the box's root login as it stands. An empty password opens nothing,
@@ -328,14 +347,15 @@ type Decision =
   | { readonly kind: 'checkLockout'; readonly number: number }
   | { readonly kind: 'checkPatch'; readonly number: number }
   | { readonly kind: 'checkRestore'; readonly number: number }
+  | { readonly kind: 'checkForensics'; readonly number: number }
   | { readonly kind: 'reply'; readonly reply: ContractMail };
 
 /** How the client opens its reply to a job done: the key or the file it was sent, the records it
  *  read, the machine it found down, the listener it found, its own file found in place, the way
  *  in it found open, the login it found working, the company's file it found gone, the records
  *  it found emptied, both steps of a chain job found done, the intruder's implant found gone, the
- *  way in someone opened found shut, the intruder found locked out, the hole found patched, or
- *  the changed record found put back. */
+ *  way in someone opened found shut, the intruder found locked out, the hole found patched, the
+ *  changed record found put back, or the intruder named. */
 const RECEIVED: Readonly<Record<Exclude<Decision['kind'], 'reply'>, string>> = {
   complete: KEY_RECEIVED,
   completeFile: FILE_RECEIVED,
@@ -353,6 +373,7 @@ const RECEIVED: Readonly<Record<Exclude<Decision['kind'], 'reply'>, string>> = {
   checkLockout: LOCKED_OUT,
   checkPatch: PATCHED,
   checkRestore: RESTORED,
+  checkForensics: FOUND_THEM,
 };
 
 /** What the client says on a job the mail itself proves: when the mail carries no proof, when it
@@ -411,6 +432,7 @@ const decide = ({
   if (acceptedKind === 'lockout') return { kind: 'checkLockout', number: accepted.number };
   if (acceptedKind === 'patch') return { kind: 'checkPatch', number: accepted.number };
   if (acceptedKind === 'restore') return { kind: 'checkRestore', number: accepted.number };
+  if (acceptedKind === 'forensics') return { kind: 'checkForensics', number: accepted.number };
   const said = MAILED_PROOF[acceptedKind];
   if ((acceptedKind === 'file' ? file : key) === null) return reply(accepted.number, said.none);
   if (proves(accepted.number)) return { kind: said.done, number: accepted.number };
@@ -596,12 +618,13 @@ export const answerClientMail = async ({
   readonly secret: string;
   readonly store: ClientMailStore;
   /** The box the tamper, sabotage, backdoor, infiltrate, credential, destroy, wipe, chain,
-   *  cleanup or lock-them-out job numbered so is about, as it stands now. */
+   *  cleanup, lock-them-out, patch-it, restore or forensics job numbered so is about, as it
+   *  stands now. */
   readonly readTargetBox: (missionNumber: number) => Promise<TargetBoxRead>;
   /** The router of the portforward job numbered so, as it stands now. */
   readonly readRouter: (missionNumber: number) => Promise<TargetBoxRead>;
-  /** The front box of the chain or two-hop cleanup or lock-them-out job numbered so, as it
-   *  stands now. */
+  /** The front box of the chain job, or the two-hop white-hat job, numbered so, as it stands
+   *  now. */
   readonly readFrontBox: (missionNumber: number) => Promise<TargetBoxRead>;
 }): Promise<ClientMailAnswer | null> => {
   const opened = await store.open(login);
@@ -745,6 +768,21 @@ export const answerClientMail = async ({
       return sendReply(store, login.handle, replyAbout(terms, miss));
     }
   }
+  if (decision.kind === 'checkForensics') {
+    const box = await readTargetBox(decision.number);
+    if (box.kind === 'error') return null;
+    const front =
+      missionTopology(decision.number).frontBoxOctet === null
+        ? null
+        : await readFrontBox(decision.number);
+    if (front?.kind === 'error') return null;
+    if (box.kind === 'absent' || front?.kind === 'absent') {
+      return sendReply(store, login.handle, replyAbout(terms, TOOK_IT_DOWN));
+    }
+    if (!namesIntruder(body, decision.number, secret)) {
+      return sendReply(store, login.handle, replyAbout(terms, NOT_THEM));
+    }
+  }
   if (decision.kind === 'checkClosed') {
     const router = await readRouter(decision.number);
     if (router.kind === 'error') return null;
@@ -761,7 +799,8 @@ export const answerClientMail = async ({
     terms.job === 'closedoor' ||
     terms.job === 'lockout' ||
     terms.job === 'patch' ||
-    terms.job === 'restore'
+    terms.job === 'restore' ||
+    terms.job === 'forensics'
       ? THANKS
       : PLEASURE;
   const wallet = firstMatch(text, WALLET_SHAPE)?.toLowerCase() ?? null;

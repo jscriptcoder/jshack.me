@@ -37,6 +37,9 @@ export type TargetRole = {
   /** Why a client, speaking for the customer who owns it, wants the hole in its software patched: a
    *  white-hat job, one of which opens a patch-it job's briefing. Never naming the package. */
   readonly patchPitches: readonly string[];
+  /** Why a client, speaking for the customer who owns it, wants to know who broke into it: a
+   *  white-hat job, one of which opens a forensics job's briefing. Never naming the intruder. */
+  readonly forensicsPitches: readonly string[];
   /** The account the machine's own service runs under, which the intruder's listener runs as on a
    *  cleanup target: an account like that running `nc` is out of place, a clue for a sharp eye. */
   readonly serviceAccount: string;
@@ -80,6 +83,11 @@ const TARGET_ROLES: readonly TargetRole[] = [
       "A scan of our customer's network says their camera recorder can be taken over from outside. They want that fixed.",
       "Our customer's CCTV recorder missed the one update that matters. They need it applied.",
     ],
+    forensicsPitches: [
+      "Someone got into our customer's camera recorder overnight. They want to know who it was.",
+      "Our customer's CCTV recorder was broken into, and the footage says nothing. Find out who did it.",
+      "Somebody logged in to our customer's recorder who has no business there. They want a name.",
+    ],
   },
   {
     noun: 'backup server',
@@ -114,6 +122,11 @@ const TARGET_ROLES: readonly TargetRole[] = [
       "Our customer's backup server runs software with a hole anyone can use. They want it patched before it is used.",
       "An advisory came out that covers our customer's backup server. They want the fix on it this week.",
       "Our customer's backups sit on a machine with a known way in. They need that way closed with a patch.",
+    ],
+    forensicsPitches: [
+      "Someone broke into our customer's backup server. Before they do anything else, they want to know who.",
+      "Our customer's backups were opened by someone outside. They want to know who and where from.",
+      "An intruder spent a night on our customer's backup server. Our customer wants them named.",
     ],
   },
   {
@@ -150,6 +163,11 @@ const TARGET_ROLES: readonly TargetRole[] = [
       "Someone posted how to take over the software on our customer's monitoring station. They need the fix applied.",
       "Our customer's monitoring station would hand root to anyone who asked it the right way. They want that patched.",
     ],
+    forensicsPitches: [
+      "The machine that watches our customer's network was broken into itself. They want to know who did it.",
+      "Someone got into our customer's monitoring station without tripping a single alert. Find out who.",
+      "Our customer's monitoring station had a visitor in the night. They want to know who it was.",
+    ],
   },
   {
     noun: 'build server',
@@ -184,6 +202,11 @@ const TARGET_ROLES: readonly TargetRole[] = [
       "Our customer's build server runs something with a published hole. They want it patched before their next release.",
       "An auditor flagged our customer's build server as open to anyone. They need it fixed without breaking their builds.",
       "Our customer's build server is behind on the one update that matters. They want it applied.",
+    ],
+    forensicsPitches: [
+      "Someone broke into our customer's build server. Before they ship anything again, they want to know who.",
+      "Our customer's build server was entered by someone outside. They want a name and where they came from.",
+      "An intruder got onto the machine that builds our customer's software. Our customer wants them identified.",
     ],
   },
   {
@@ -220,6 +243,11 @@ const TARGET_ROLES: readonly TargetRole[] = [
       "A scan says our customer's licence server has a hole that hands over the whole machine. They need it closed.",
       "Our customer's licence server missed a security update. They want that one applied and nothing else touched.",
     ],
+    forensicsPitches: [
+      "Someone broke into our customer's licence server. They want to know who before they report it.",
+      "Our customer's licence server was logged in to by somebody who should not have been there. Find out who.",
+      "An intruder got into our customer's licence server overnight. Our customer wants to know who it was.",
+    ],
   },
   {
     noun: 'door-access controller',
@@ -255,6 +283,11 @@ const TARGET_ROLES: readonly TargetRole[] = [
       "An advisory says the software on our customer's door-access controller can be taken over. They need the fix on it.",
       "Our customer's door controller would let anyone in as root. They want that patched today.",
     ],
+    forensicsPitches: [
+      "Someone broke into the machine that opens our customer's doors. They want to know who it was.",
+      "Our customer's door-access controller was entered from outside. They need a name before anyone walks in.",
+      "Somebody got into our customer's door controller in the night. Our customer wants to know who.",
+    ],
   },
   {
     noun: 'billing server',
@@ -289,6 +322,11 @@ const TARGET_ROLES: readonly TargetRole[] = [
       "Our customer's billing server runs a release with a hole anyone can use. They want it patched before month end.",
       "A scan flagged our customer's billing server as open to a known exploit. They need the fix applied.",
       "Our customer's billing server is running something that hands over root. They want it patched without touching their billing software.",
+    ],
+    forensicsPitches: [
+      "Someone broke into our customer's billing server. Before they tell their customers, they want to know who.",
+      "Our customer's billing server had an intruder overnight. They want to know who and where from.",
+      "Somebody logged in to our customer's billing server who works nowhere near it. They want a name.",
     ],
   },
 ];
@@ -387,6 +425,18 @@ export const patchJob = (missionNumber: number): PatchJob => ({
   role: createPrng(`mission-patch-${missionNumber}`).pick(TARGET_ROLES),
 });
 
+/** What a forensics job is about: the machine someone broke into. Who they are and where they came
+ *  from are drawn under the mission secret, so nobody works them out from the number. */
+export type ForensicsJob = {
+  readonly role: TargetRole;
+};
+
+/** The machine a forensics job's client wants the intruder traced on, drawn on a stream of its own
+ *  so nothing the contract drew before it moves. */
+export const forensicsJob = (missionNumber: number): ForensicsJob => ({
+  role: createPrng(`mission-forensics-${missionNumber}`).pick(TARGET_ROLES),
+});
+
 /** What a chain job asks for: a listener left on the front box, on one port, and, when its last
  *  step takes it down, the machine behind it. */
 export type ChainJob = {
@@ -415,6 +465,7 @@ export const keyBoxSuffix = (missionNumber: number): string => {
   if (kind === 'cleanup') return cleanupJob(missionNumber).role.suffix;
   if (kind === 'lockout') return lockoutJob(missionNumber).role.suffix;
   if (kind === 'patch') return patchJob(missionNumber).role.suffix;
+  if (kind === 'forensics') return forensicsJob(missionNumber).role.suffix;
   if (kind === 'chain') {
     // A chain job's file or records sit where a destroy or wipe job's do.
     return chainFinal(missionNumber) === 'sabotage'

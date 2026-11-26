@@ -48,7 +48,7 @@ const ITEM_NOUNS = [
 ];
 
 /** Infiltrate jobs, from a denser spread: seven shares need more of them than a file job's six. */
-const INFILTRATE_JOBS = Array.from({ length: 12000 }, (_unused, index) => index * 1373 + 2).filter(
+const INFILTRATE_JOBS = Array.from({ length: 13000 }, (_unused, index) => index * 1289 + 2).filter(
   (missionNumber) => isMissionNumber(missionNumber) && missionKind(missionNumber) === 'infiltrate',
 );
 
@@ -122,7 +122,7 @@ describe('the item an infiltrate job slips in', () => {
 });
 
 /** Destroy jobs, from the same dense spread. */
-const DESTROY_JOBS = Array.from({ length: 12000 }, (_unused, index) => index * 1373 + 2).filter(
+const DESTROY_JOBS = Array.from({ length: 13000 }, (_unused, index) => index * 1289 + 2).filter(
   (missionNumber) => isMissionNumber(missionNumber) && missionKind(missionNumber) === 'destroy',
 );
 
