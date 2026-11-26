@@ -2164,7 +2164,8 @@ of 313,075 B.
   `grep 'Nov 26'` found one address failing three times, getting in at 03:28:40 and leaving at
   03:43:40, a scanner trying just before; the handle and that address, padded with spaces, paid
   §2,350 once, then closed. No defect; two rough edges went to `backlog.md` (pitches repeating
-  the briefing's "want to know who", and a card alone in its directory).
+  the briefing's "want to know who", and a card alone in its directory). Announced on
+  valleynews.io `/dev` (story 30).
 
 ## What follows
 

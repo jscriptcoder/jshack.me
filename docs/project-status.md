@@ -1939,8 +1939,8 @@ agreed order:
     closed. A two-hop licence server (§2,350): the inside log showed only the edge machine, and its
     night login led to the intruder's window on the edge; the edge's address and the card's drop
     host each got the miss, and the right lines, padded, paid once. No defect; two rough edges went
-    to `backlog.md` under "missions — deferred". The white-hat plan stays in flight for the one
-    kind still to come.
+    to `backlog.md` under "missions — deferred". Announced on valleynews.io `/dev` (story 30). The
+    white-hat plan stays in flight for the one kind still to come.
     **Pick up here (2026-11-26):** the last white-hat kind, incident response, which starts with
     its own grill on top of the shared decisions in `plans/white-hat-jobs.md`. Also open, all
     failing the same on `main`: `scripts/testMissions.ts` (23/25) still expects root-only files in
