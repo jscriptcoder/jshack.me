@@ -133,7 +133,8 @@ export const Intro = (props: IntroProps) => {
                 explore, and see how deep you can go.
               </p>
               <p class="mb-4">
-                There are no missions yet. The world is an open sandbox for putting hacking
+                Some people out there pay for jobs done on their behalf, and finding who is hiring
+                is part of the game. Beyond that, the world is an open sandbox for putting hacking
                 techniques into practice: scan, crack, exploit, escalate.
               </p>
               <p>
